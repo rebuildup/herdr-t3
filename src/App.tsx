@@ -215,6 +215,8 @@ export default function App() {
             return (
               <ContextMenu key={m.id}>
                 <ContextMenuTrigger className="w-full">
+                  <Tooltip content={info ?? m.id}>
+                  {/* oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row; Button owns its own padding and shape */}
                   <button
                     type="button"
                     onClick={() => selectMachine(m.id)}
@@ -224,12 +226,12 @@ export default function App() {
                         ? "bg-sidebar-row-selected text-foreground"
                         : "text-foreground/80 hover:bg-sidebar-row-hover",
                     )}
-                    title={info ?? m.id} // ui-lint: allow title — disconnect reason on semantic row
                   >
                     <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{m.label}</span>
                     {machineStatusIcon(m.status)}
                   </button>
+                  </Tooltip>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                   {m.status !== "online" && m.status !== "connecting" && m.status !== "disabled" && (
@@ -267,6 +269,7 @@ export default function App() {
             return (
               <ContextMenu key={ws.workspace_id}>
                 <ContextMenuTrigger className="w-full">
+                  {/* oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row; Button owns its own padding and shape */}
                   <button
                     type="button"
                     onClick={() => void call("workspace.focus", { workspace_id: ws.workspace_id })}
@@ -352,6 +355,7 @@ export default function App() {
                         : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >
+                    {/* oxlint-disable-next-line herdr-t3/no-raw-control -- tab label is part of a composite tab row, not a standalone control */}
                     <button
                       type="button"
                       onClick={() => void call("tab.focus", { tab_id: tab.tab_id })}
@@ -365,6 +369,7 @@ export default function App() {
                         size="icon-sm"
                         variant="ghost"
                         title="Close tab"
+                        // oxlint-disable-next-line shadcn/no-restyle -- hover-reveal affordance; no Button variant covers group-hover opacity
                         className="opacity-0 group-hover:opacity-100"
                         onClick={() => void call("tab.close", { tab_id: tab.tab_id })}
                       >
@@ -517,7 +522,8 @@ export default function App() {
                         }
                       : undefined
                   }
-                  title={paneTitle(pane)} // ui-lint: allow title — truncated pane label
+                  // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct xterm hover
+                  title={paneTitle(pane)}
                   onMouseDown={() => {
                     if (!pane.focused) void call("pane.focus", { pane_id: pane.pane_id });
                   }}

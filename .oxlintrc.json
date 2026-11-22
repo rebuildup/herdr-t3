@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["react", "oxc", "typescript"],
+  "jsPlugins": ["@shadcn/lint", "./lint-plugin/index.ts"],
+  "settings": {
+    "shadcn": { "ui": "~/components/ui" }
+  },
+  "ignorePatterns": [
+    "dist",
+    "dist-electron",
+    "node_modules",
+    "release",
+    "lint-plugin/**"
+  ],
+  "categories": {
+    "correctness": "off"
+  },
+  "rules": {
+    "herdr-t3/no-native-title-tooltip": "error",
+    "herdr-t3/no-raw-control": "error",
+    "herdr-t3/no-static-inline-style": "error",
+    "herdr-t3/require-suppression-reason": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/components/ui/**"],
+      "rules": {
+        "herdr-t3/no-raw-control": "off",
+        "herdr-t3/no-native-title-tooltip": "off",
+        "herdr-t3/no-static-inline-style": "off"
+      }
+    },
+    {
+      "files": ["src/**/*.{ts,tsx}"],
+      "excludeFiles": ["src/components/ui/**", "src/**/*.test.{ts,tsx}"],
+      "rules": {
+        "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
+        "shadcn/require-static-classes": "error",
+        "shadcn/no-arbitrary-values": "error",
+        "shadcn/no-raw-colors": "error",
+        "shadcn/no-unknown-classes": "error"
+      }
+    },
+    {
+      "files": ["scripts/lint-fixtures/**"],
+      "rules": {
+        "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
+        "shadcn/require-static-classes": "error",
+        "shadcn/no-arbitrary-values": "error",
+        "shadcn/no-raw-colors": "error",
+        "shadcn/no-unknown-classes": "error"
+      }
+    }
+  ]
+}

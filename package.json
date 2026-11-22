@@ -21,7 +21,7 @@
     "desktop": "bun run build && bun run desktop:build && electron .",
     "desktop:dev": "bun run desktop:build && HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev electron .",
     "desktop:pack": "bun run build && bun run desktop:build && electron-builder --publish never",
-    "lint:ui": "bun scripts/lint-ui.ts"
+    "lint:ui": "oxlint src && bun scripts/lint-ui.ts && bun scripts/lint-ui.ts --self-test"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -37,6 +37,8 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.93.0",
+    "@shadcn/lint": "0.1.5",
     "@tailwindcss/vite": "^4.3.5",
     "@types/bun": "^1.4.2",
     "@types/react": "^19.3.0",
@@ -44,6 +46,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
+    "oxlint": "1.93.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
