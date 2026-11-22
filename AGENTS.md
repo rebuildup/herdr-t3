@@ -94,7 +94,9 @@ Follow `organization/profiles/release-driven-solo.md`:
 - independent ticket PRs target the current `release-x-y-z` branch
 - `release-* -> main` merges wait for explicit maintainer authorization
 - merge commits only; no squash/rebase merges
-- agents do not merge PRs without explicit human authorization
+- a ticket PR that passes the quality gates lands on its target release
+  branch without waiting for further authorization; ticket-merge authority
+  never extends to `release-* -> main`
 - everything written to git/GitHub is in English; Issues/PRs may be Japanese
 
 ## 7. Quality gates
