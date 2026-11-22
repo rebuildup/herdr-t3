@@ -9,3 +9,6 @@ dist/
 .DS_Store
 desktop/main.cjs
 release/
+
+# Raw screenshot captures are local artifacts; committed review images are WebP.
+docs/design/evidence/**/*.png
