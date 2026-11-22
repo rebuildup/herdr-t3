@@ -58,11 +58,11 @@ async function evaluate(expression: string): Promise<unknown> {
     expression,
     awaitPromise: true,
     returnByValue: true,
-  })) as { result?: { result?: { value?: unknown }; exceptionDetails?: unknown } };
-  if (res.result?.exceptionDetails) {
-    throw new Error(`evaluate failed: ${JSON.stringify(res.result.exceptionDetails)}`);
+  })) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+  if (res.exceptionDetails) {
+    throw new Error(`evaluate failed: ${JSON.stringify(res.exceptionDetails)}`);
   }
-  return res.result?.result?.value;
+  return res.result?.value;
 }
 
 async function key(keyName: string, code: string, vk: number, modifiers = 0) {
@@ -179,16 +179,31 @@ async function main() {
     await sleep(400);
 
     // Split the focused pane, zoom, and unzoom via the topbar icon buttons.
-    const iconClick = (icon: string) =>
-      evaluate(`document.querySelector(${JSON.stringify(".lucide-" + icon)})?.closest("button")?.click()`);
-    await iconClick("columns-2");
-    await sleep(1500);
+    // Assert against /api/session so a missed click cannot pass as evidence.
+    const sessionFacts = () =>
+      evaluate(`fetch("/api/session").then(r=>r.json()).then(d=>{
+        const s=d.snapshot;
+        const layout=s.layouts.find(l=>l.tab_id===s.focused_tab_id)||s.layouts[0];
+        return { panes: s.panes.length, tabPanes: s.panes.filter(p=>p.tab_id===(layout&&layout.tab_id)).length, zoomed: !!(layout&&layout.zoomed), tabs: s.tabs.length, workspaces: s.workspaces.length };
+      })`);
+    const iconClick = async (icon: string, expect: (f: any) => boolean, label: string) => {
+      const before = await sessionFacts();
+      await evaluate(`(() => {
+        const el = document.querySelector('[class*="lucide-' + ${JSON.stringify(icon)} + '"]');
+        el?.closest("button")?.click();
+        return !!el;
+      })()`);
+      await sleep(1600);
+      const after = await sessionFacts();
+      const ok = expect(after) && JSON.stringify(after) !== JSON.stringify(before);
+      console.log(`${label}: ${ok ? "OK" : "FAILED"}`, JSON.stringify(after));
+      if (!ok) throw new Error(`state assertion failed for ${label}`);
+    };
+    await iconClick("columns", (f) => f.tabPanes >= 2, "pane split");
     await shot("07-pane-split");
-    await iconClick("maximize-2");
-    await sleep(1200);
+    await iconClick("maximize", (f) => f.zoomed === true, "pane zoom");
     await shot("08-pane-zoomed");
-    await iconClick("minimize-2");
-    await sleep(1000);
+    await iconClick("minimize", (f) => f.zoomed === false, "pane unzoom");
 
     // Dark / light appearance via the persisted setting + reload.
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
