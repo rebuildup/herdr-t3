@@ -377,7 +377,7 @@ export default function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+        <div className="flex h-13 items-center gap-1 border-b border-border px-2">
           {workspaceTabs.map((tab, index) => {
             const selected = tab.tab_id === activeTab?.tab_id;
             return (
