@@ -23,12 +23,13 @@ import {
   type EventFrame,
   type Subscription,
 } from "./herdr.ts";
-import { controlRequestAllowed, extraAllowedHosts } from "./guard.ts";
+import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
 import { openTerminalLink, type TerminalLink } from "./client-link.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
 const ALLOWED_HOSTS = extraAllowedHosts();
+const ALLOWED_ORIGINS = extraAllowedOrigins();
 const DIST = join(import.meta.dir, "..", "dist");
 const COMMIT = process.env["HERDR_T3_COMMIT"] ?? "unknown";
 
@@ -311,7 +312,7 @@ Bun.serve({
     // Control surface only: the static shell is harmless without /api and /ws,
     // and guarding it would break direct file:// or preview tooling.
     if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) &&
-        !controlRequestAllowed(req, HOST, ALLOWED_HOSTS)) {
+        !controlRequestAllowed(req, HOST, ALLOWED_HOSTS, ALLOWED_ORIGINS)) {
       return new Response("forbidden host or origin", { status: 403 });
     }
     if (url.pathname === "/api/health") return health();

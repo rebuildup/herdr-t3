@@ -70,20 +70,71 @@ export function hostAllowed(
   return extra.includes(host);
 }
 
+/** Extra origins allowed via HERDR_T3_ALLOWED_ORIGINS (comma separated). */
+export function extraAllowedOrigins(env: Record<string, string | undefined> = process.env): string[] {
+  return (env["HERDR_T3_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((origin) => origin.trim().toLowerCase().replace(/\/+$/, ""))
+    .filter((origin) => origin.length > 0);
+}
+
+function hostAndPort(hostHeader: string): { hostname: string; port: string } | null {
+  try {
+    const url = new URL(`http://${hostHeader}`);
+    return { hostname: url.hostname, port: url.port };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether `origin` may drive this bridge. The origin's scheme, hostname and
+ * port all matter: it must name the same host:port the request was sent to
+ * (scheme is ignored because TLS-terminating proxies such as `tailscale
+ * serve` legitimately flip https->http), or appear verbatim — scheme
+ * included — in `extraOrigins` (the dev-profile allowlist, e.g. the Vite dev
+ * server origin). A different port on the same hostname, a different
+ * loopback spelling, or a foreign domain is refused.
+ */
+function originAllowed(origin: string, hostHeader: string, extraOrigins: readonly string[]): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (origin === "null") return false;
+  const normalized = `${url.protocol}//${url.host}`.toLowerCase();
+  if (extraOrigins.includes(normalized)) return true;
+  const host = hostAndPort(hostHeader);
+  if (host === null) return false;
+  if (url.hostname !== host.hostname) return false;
+  // Ports must agree once defaults are applied. A portless Origin means the
+  // scheme default (80/443); a portless Host header is read as the Origin's
+  // port because the bridge only ever sees the port it was addressed on —
+  // this keeps TLS-terminating proxies (https origin -> http upstream) and
+  // bare-host deployments working while still refusing e.g. an http page on
+  // port 80 driving a bridge on 4737.
+  const originPort = url.port || (url.protocol === "https:" ? "443" : "80");
+  const hostPort = host.port || originPort;
+  return originPort === hostPort;
+}
+
 /**
  * Whether a request to a control endpoint (`/api/*`, `/ws`) may proceed.
- * `bindHost` is the HOST the server bound to; `extra` is HERDR_T3_ALLOWED_HOSTS.
+ * `bindHost` is the HOST the server bound to; `extra`/`extraOrigins` come
+ * from HERDR_T3_ALLOWED_HOSTS / HERDR_T3_ALLOWED_ORIGINS.
  */
 export function controlRequestAllowed(
   req: Request,
   bindHost: string,
   extra: readonly string[] = [],
+  extraOrigins: readonly string[] = [],
 ): boolean {
   const host = req.headers.get("host");
   if (!hostAllowed(host, bindHost, extra)) return false;
   const origin = req.headers.get("origin");
   if (origin === null) return true;
-  if (origin === "null") return false;
-  const originHost = hostnameOf(origin);
-  return originHost !== null && hostAllowed(originHost, bindHost, extra);
+  return originAllowed(origin, host ?? "", extraOrigins);
 }

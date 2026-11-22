@@ -3,6 +3,7 @@ import { controlRequestAllowed, hostAllowed } from "./guard.ts";
 
 const BIND = "127.0.0.1";
 const EXTRA = ["home-server.tail1e211e.ts.net"];
+const EXTRA_ORIGINS = ["http://localhost:5737", "http://127.0.0.1:5737"];
 
 function req(headers: Record<string, string>): Request {
   return new Request("http://localhost/api/session", { headers });
@@ -58,6 +59,29 @@ describe("controlRequestAllowed", () => {
   test("rejects a cross-origin browser request even with a valid Host", () => {
     expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "https://evil.example.com" }), BIND, EXTRA)).toBe(false);
     expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "null" }), BIND, EXTRA)).toBe(false);
+  });
+
+  test("origin is checked with scheme, host and port", () => {
+    // A different port on the same hostname is a different origin.
+    expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "http://127.0.0.1:9999" }), BIND, EXTRA)).toBe(false);
+    expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "http://127.0.0.1" }), BIND, EXTRA)).toBe(false);
+    // A different loopback spelling with the same port is still a different origin.
+    expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "http://localhost:4737" }), BIND, EXTRA)).toBe(false);
+    // Scheme alone does not decide: https behind a TLS-terminating proxy is fine.
+    expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "https://127.0.0.1:4737" }), BIND, EXTRA)).toBe(true);
+    expect(controlRequestAllowed(req({ host: "127.0.0.1:4737", origin: "ftp://127.0.0.1:4737" }), BIND, EXTRA)).toBe(false);
+  });
+
+  test("dev origins are allowed only through the explicit allowlist", () => {
+    const dev = { host: "127.0.0.1:4738", origin: "http://localhost:5737" };
+    // Without the allowlist the Vite dev origin is refused.
+    expect(controlRequestAllowed(req(dev), BIND, EXTRA)).toBe(false);
+    // With it, the exact scheme://host:port is admitted.
+    expect(controlRequestAllowed(req(dev), BIND, EXTRA, EXTRA_ORIGINS)).toBe(true);
+    // A different dev port is not covered by the allowlist.
+    expect(
+      controlRequestAllowed(req({ host: "127.0.0.1:4738", origin: "http://localhost:5738" }), BIND, EXTRA, EXTRA_ORIGINS),
+    ).toBe(false);
   });
 
   test("rejects DNS-rebinding Host regardless of Origin", () => {
