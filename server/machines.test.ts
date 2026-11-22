@@ -107,3 +107,48 @@ describe("isClientFrame machine fields", () => {
     expect(isClientFrame({ type: "machine_connect", machine: "m1" })).toBe(true);
   });
 });
+
+describe("windows remote bridge commands", () => {
+  const winEndpoint = {
+    id: "w1",
+    target: "device-windows",
+    session: "default",
+    remoteHerdr: "C:\\Users\\u\\AppData\\Local\\herdr.exe",
+    os: "windows",
+  };
+
+  test("api bridge emits an encoded powershell command with the ready marker", () => {
+    const cmd = remoteBridgeCommand(winEndpoint, "remote-api-bridge");
+    expect(cmd).toContain("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand");
+    const encoded = cmd.split("-EncodedCommand ")[1]!;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("herdr-remote-output-ready:1");
+    expect(script).toContain("remote-api-bridge --check");
+    expect(script).toContain("herdr-api-bridge-v1");
+    expect(script).toContain("herdr-machine-metadata-stale-v1");
+    expect(script).toContain("Start-Process");
+  });
+
+  test("client bridge streams remote-client-bridge", () => {
+    const cmd = remoteBridgeCommand(winEndpoint, "remote-client-bridge");
+    const encoded = cmd.split("-EncodedCommand ")[1]!;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("remote-client-bridge");
+    expect(script).not.toContain("--check");
+  });
+
+  test("posix endpoint keeps the shell-quoted form", () => {
+    const cmd = remoteBridgeCommand(
+      { id: "p", target: "h", session: "s1", remoteHerdr: "/home/u/herdr" },
+      "remote-api-bridge",
+    );
+    expect(cmd).toBe("'/home/u/herdr' --session 's1' remote-api-bridge");
+  });
+});
+
+describe("isClientFrame takeover", () => {
+  test("accepts optional takeover boolean only", () => {
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", takeover: true })).toBe(true);
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", takeover: "yes" })).toBe(false);
+  });
+});

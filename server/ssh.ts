@@ -35,12 +35,16 @@ export interface SshEndpoint {
   id: string;
   target: string;
   session: string;
-  /** Resolved absolute remote herdr path (posix remotes). */
+  /** Resolved remote herdr path/command identity (posix path or Windows path). */
   remoteHerdr: string;
+  /** Remote OS from herdr's ssh-metadata ("windows" selects the PowerShell path). */
+  os?: string;
 }
 
-export function endpointFromMachine(machine: SavedMachine, remoteHerdr: string): SshEndpoint {
-  return { id: machine.id, target: machine.target, session: machine.session, remoteHerdr };
+export function endpointFromMachine(machine: SavedMachine, remoteHerdr: string, os?: string): SshEndpoint {
+  const endpoint: SshEndpoint = { id: machine.id, target: machine.target, session: machine.session, remoteHerdr };
+  if (os !== undefined) endpoint.os = os;
+  return endpoint;
 }
 
 function shellQuote(value: string): string {
@@ -85,9 +89,112 @@ export function sshArgs(endpoint: SshEndpoint): string[] {
 
 export type RemoteBridge = "remote-api-bridge" | "remote-client-bridge";
 
+/* ------------------------------------------------------------------------ */
+/* Remote command construction — mirrors herdr's src/remote/attach.rs so the */
+/* app speaks the exact same bridge protocol herdr's own clients use.       */
+/* ------------------------------------------------------------------------ */
+
+/** Printed by every PowerShell-bridged remote command before protocol bytes. */
+const REMOTE_OUTPUT_READY_MARKER = "herdr-remote-output-ready:1";
+/** Printed by the cached-API stale-metadata probe (herdr STALE_API_METADATA). */
+const STALE_API_METADATA = "herdr-machine-metadata-stale-v1";
+
+/** herdr `quote_powershell_arg`: bare safe values, else single-quoted. */
+function quotePowerShellArg(value: string): string {
+  if (
+    value.length > 0 &&
+    !value.startsWith("-") &&
+    [...value].every((ch) => /[A-Za-z0-9_\-./:+==]/.test(ch))
+  ) {
+    return value;
+  }
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** herdr `quote_windows_command_line_arg`: MSVCRT command-line quoting. */
+function quoteWindowsCommandLineArg(value: string): string {
+  if (value.length > 0 && !/[\s"]/.test(value)) return value;
+  let out = '"';
+  let backslashes = 0;
+  for (const ch of value) {
+    if (ch === "\\") {
+      backslashes += 1;
+      continue;
+    }
+    if (ch === '"') out += "\\".repeat(backslashes * 2 + 1);
+    else out += "\\".repeat(backslashes);
+    backslashes = 0;
+    out += ch;
+  }
+  out += "\\".repeat(backslashes * 2) + '"';
+  return out;
+}
+
+/** herdr `windows_powershell_encoded_script`: marker preamble + UTF-16LE base64. */
+function windowsPowerShellEncodedScript(script: string): string {
+  const full =
+    "[Console]::Out.WriteLine(); " +
+    `[Console]::Out.WriteLine('${REMOTE_OUTPUT_READY_MARKER}'); ` +
+    "[Console]::Out.Flush(); $ProgressPreference = 'SilentlyContinue'; " +
+    script;
+  const bytes: number[] = [];
+  for (let i = 0; i < full.length; i++) {
+    const code = full.charCodeAt(i);
+    bytes.push(code & 0xff, code >> 8);
+  }
+  return Buffer.from(bytes).toString("base64");
+}
+
+function windowsPowerShellScriptCommand(script: string): string {
+  return `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${windowsPowerShellEncodedScript(script)}`;
+}
+
+/** herdr `windows_powershell_application_script`. */
+function windowsPowerShellApplicationScript(path: string, args: string[]): string {
+  return `& ${quotePowerShellArg(path)} ${args.map(quotePowerShellArg).join(" ")}; exit $LASTEXITCODE`;
+}
+
+/** herdr `windows_powershell_streaming_application_script`. */
+function windowsPowerShellStreamingApplicationScript(path: string, args: string[]): string {
+  const commandLine = args.map(quoteWindowsCommandLineArg).join(" ");
+  return (
+    `$process = Start-Process -FilePath ${quotePowerShellArg(path)} -ArgumentList ${quotePowerShellArg(commandLine)} ` +
+    "-NoNewWindow -PassThru -ErrorAction Stop; $null = $process.Handle; " +
+    "$process.WaitForExit(); exit $process.ExitCode"
+  );
+}
+
+function windowsPowerShellStreamingApplicationCommand(path: string, args: string[]): string {
+  return windowsPowerShellScriptCommand(windowsPowerShellStreamingApplicationScript(path, args));
+}
+
+function isWindowsEndpoint(endpoint: SshEndpoint): boolean {
+  return endpoint.os === "windows";
+}
+
 /** The remote shell command that runs one herdr bridge on the endpoint. */
 export function remoteBridgeCommand(endpoint: SshEndpoint, bridge: RemoteBridge): string {
-  return `${shellQuote(endpoint.remoteHerdr)} --session ${shellQuote(endpoint.session)} ${bridge}`;
+  if (!isWindowsEndpoint(endpoint)) {
+    return `${shellQuote(endpoint.remoteHerdr)} --session ${shellQuote(endpoint.session)} ${bridge}`;
+  }
+  const path = endpoint.remoteHerdr;
+  const session = endpoint.session;
+  if (bridge === "remote-api-bridge") {
+    // herdr `cached_remote_api_command` (Windows branch): verify the cached
+    // executable still answers --check, then stream the bridge. A stale
+    // path exits 78 with STALE_API_METADATA on stderr.
+    const probe =
+      `$capability = & ${quotePowerShellArg(path)} --session ${quotePowerShellArg(session)} remote-api-bridge --check 2>$null; ` +
+      `if ($LASTEXITCODE -ne 0 -or $capability -ne 'herdr-api-bridge-v1') { [Console]::Error.WriteLine('${STALE_API_METADATA}'); exit 78 }; `;
+    return windowsPowerShellScriptCommand(
+      probe + windowsPowerShellStreamingApplicationScript(path, ["--session", session, "remote-api-bridge"]),
+    );
+  }
+  return windowsPowerShellStreamingApplicationCommand(path, [
+    "--session",
+    session,
+    "remote-client-bridge",
+  ]);
 }
 
 interface ChildHandlers {
@@ -118,12 +225,23 @@ export function sshConnector(endpoint: SshEndpoint, bridge: RemoteBridge): Conne
       let spawnError: Error | null = null;
       let spawned = false;
       let settled = false;
+      // Windows-bridged commands print a marker line before protocol bytes
+      // (herdr `discard_remote_output_preamble`); everything through the
+      // marker belongs to the remote shell, not the bridge.
+      const preamble = isWindowsEndpoint(endpoint) ? makePreambleDiscard() : null;
+      const onStdout = (chunk: Buffer) => {
+        if (!preamble) {
+          handlers.data(chunk);
+          return;
+        }
+        for (const part of preamble(chunk)) handlers.data(part);
+      };
       const fail = (message: string) => {
         const detail = stderrTail.trim();
         handlers.error?.(new Error(detail ? `${message}: ${detail}` : message));
       };
 
-      child.stdout?.on("data", (chunk: Buffer) => handlers.data(chunk));
+      child.stdout?.on("data", onStdout);
       child.stderr?.on("data", (chunk: Buffer) => {
         stderrTail = (stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL);
       });
@@ -167,6 +285,11 @@ export function sshConnector(endpoint: SshEndpoint, bridge: RemoteBridge): Conne
       });
       child.on("close", (code, signal) => {
         if (spawnError) return; // 'error' already reported
+        if (preamble && !preamble.done()) {
+          handlers.error?.(new Error("remote command exited before producing its output marker"));
+          handlers.close?.();
+          return;
+        }
         if (code !== 0 && code !== null) {
           fail(`ssh exited ${code}${signal ? ` (${signal})` : ""}`);
         }
@@ -180,6 +303,52 @@ export function sshConnector(endpoint: SshEndpoint, bridge: RemoteBridge): Conne
         return;
       }
     });
+}
+
+/**
+ * Stateful stdout filter equivalent to herdr's
+ * `discard_remote_output_preamble`: swallow everything through the
+ * `herdr-remote-output-ready:1` line, then yield protocol bytes. Returns
+ * the post-marker remainder of each chunk (possibly empty).
+ */
+function makePreambleDiscard(): { (chunk: Buffer): Buffer[]; done(): boolean } {
+  const marker = Buffer.from(REMOTE_OUTPUT_READY_MARKER, "utf8");
+  let pending: Buffer = Buffer.alloc(0);
+  let matched = 0;
+  let matching = true;
+  let done = false;
+  const filter = (chunk: Buffer): Buffer[] => {
+    if (done) return [chunk];
+    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    const out: Buffer[] = [];
+    let i = 0;
+    while (i < pending.length) {
+      const b = pending[i];
+      i += 1;
+      if (b === 0x0a) {
+        // '\n'
+        if (matching && matched === marker.length) {
+          done = true;
+          if (i < pending.length) out.push(pending.subarray(i));
+          pending = Buffer.alloc(0);
+          return out;
+        }
+        matched = 0;
+        matching = true;
+        continue;
+      }
+      if (matching && matched < marker.length && b === marker[matched]) {
+        matched += 1;
+      } else if (!(matching && matched === marker.length && b === 0x0d)) {
+        // tolerate a trailing '\r' between marker and '\n'
+        matching = false;
+      }
+    }
+    pending = Buffer.alloc(0);
+    return out;
+  };
+  filter.done = () => done;
+  return filter;
 }
 
 export function sshApiConnector(endpoint: SshEndpoint): Connector {
@@ -219,20 +388,152 @@ export async function resolveRemoteHerdr(
 
   const metaExe = metadata?.executable;
   const metaOs = metadata?.os;
+  if (metaExe && metaOs === "windows") {
+    // herdr's own ssh-metadata records the Windows executable; verify it
+    // still answers the API bridge --check before trusting it (stale
+    // metadata after a remote update must not silently connect).
+    const ok = await probeWindowsApiBridge(machine.target, metaExe, machine.session);
+    if (ok) {
+      resolvedPaths.set(machine.id, metaExe);
+      return metaExe;
+    }
+    throw new Error("remote Herdr does not support machine API forwarding; update Herdr on this machine");
+  }
   if (metaExe && metaOs !== "windows") {
     resolvedPaths.set(machine.id, metaExe);
     return metaExe;
     // A cached path may be stale after a remote herdr update; the bridge
     // command will simply fail and the status path reports it.
   }
-  if (metaOs === "windows") {
-    throw new Error("windows_remote_unsupported");
-  }
 
   const found = await probeRemoteHerdr(machine.target);
-  if (!found) throw new Error("remote herdr not found on PATH or known install locations");
-  resolvedPaths.set(machine.id, found);
-  return found;
+  if (found) {
+    resolvedPaths.set(machine.id, found);
+    return found;
+  }
+  // No POSIX herdr: the host may be a native Windows machine whose login
+  // shell cannot run the sh probe. Detect Windows and use herdr's own
+  // candidate discovery + --check path.
+  const windowsPath = await discoverWindowsRemoteHerdr(machine.target, machine.session);
+  if (windowsPath) {
+    resolvedPaths.set(machine.id, windowsPath);
+    return windowsPath;
+  }
+  throw new Error("remote herdr not found on PATH or known install locations");
+}
+
+/* ------------------------- windows remote discovery --------------------- */
+
+/** Run one ssh remote command to completion; resolves {code, stdout, stderr}. */
+function sshExec(
+  target: string,
+  command: string,
+  timeoutMs: number,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "ssh",
+      [...sshArgs({ id: `probe-${target}`, target, session: "default", remoteHerdr: "true" }), command],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ code: null, stdout, stderr: `${stderr}\n[timed out]` });
+    }, timeoutMs);
+    child.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
+    child.stderr?.on("data", (c: Buffer) => (stderr = (stderr + c.toString("utf8")).slice(-STDERR_TAIL)));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr: `${stderr}${err.message}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+/** herdr `remote_api_bridge_command --check` equivalent for one Windows path. */
+function windowsApiCheckCommand(path: string, session: string): string {
+  const script =
+    `$capability = & ${quotePowerShellArg(path)} --session ${quotePowerShellArg(session)} remote-api-bridge --check 2>$null; ` +
+    `if ($LASTEXITCODE -ne 0 -or $capability -ne 'herdr-api-bridge-v1') { exit 1 } else { exit 0 }`;
+  return windowsPowerShellScriptCommand(script);
+}
+
+/** Verify a metadata-recorded Windows herdr answers the API bridge check. */
+async function probeWindowsApiBridge(target: string, path: string, session: string): Promise<boolean> {
+  const result = await sshExec(target, windowsApiCheckCommand(path, session), SSH_CONNECT_TIMEOUT_S * 1000 + 15000);
+  return result.code === 0;
+}
+
+/** herdr `windows_platform_probe_command` (non-native-shell variant). */
+function windowsPlatformProbeCommand(): string {
+  const script =
+    "$arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; " +
+    "[Console]::Out.WriteLine('herdr-windows:' + $arch); exit 0";
+  return windowsPowerShellScriptCommand(script);
+}
+
+const WINDOWS_REMOTE_PATH_MARKER = "herdr-remote-path:1:";
+
+/** herdr `windows_remote_binary_candidate_command`. */
+function windowsBinaryCandidateCommand(): string {
+  const script =
+    "function Emit-HerdrPath([string]$CandidatePath) { " +
+    "if ([string]::IsNullOrWhiteSpace($CandidatePath) -or -not (Test-Path -LiteralPath $CandidatePath -PathType Leaf)) { return }; " +
+    "$candidateFullPath = [System.IO.Path]::GetFullPath($CandidatePath); " +
+    "$encodedCandidate = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($candidateFullPath)); " +
+    `[Console]::Out.WriteLine('${WINDOWS_REMOTE_PATH_MARKER}' + $encodedCandidate) }; ` +
+    "$pathCommand = Get-Command herdr.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+    "if ($null -ne $pathCommand) { Emit-HerdrPath $pathCommand.Source }; " +
+    "$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'herdr.exe' OR Name = 'herdr-dev.exe'\" -ErrorAction SilentlyContinue | ForEach-Object { " +
+    "$owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid -ErrorAction SilentlyContinue; " +
+    "if ($owner.ReturnValue -eq 0 -and $owner.Sid -eq $userSid) { Emit-HerdrPath $_.ExecutablePath } }; " +
+    "$herdrHome = if ([string]::IsNullOrWhiteSpace($env:HERDR_HOME)) { Join-Path $env:USERPROFILE '.herdr' } else { $env:HERDR_HOME }; " +
+    "$activeJunction = Get-Item -LiteralPath (Join-Path $herdrHome 'packages\\standalone\\current') -Force -ErrorAction SilentlyContinue; " +
+    "if ($null -ne $activeJunction -and -not [string]::IsNullOrWhiteSpace([string]$activeJunction.Target)) { Emit-HerdrPath (Join-Path ([string]$activeJunction.Target) 'herdr.exe') }; exit 0";
+  return windowsPowerShellScriptCommand(script);
+}
+
+/**
+ * herdr `discover_remote_api_metadata` Windows branch: confirm the host is
+ * Windows (x64/ARM64), enumerate herdr.exe candidates, keep the first that
+ * answers `remote-api-bridge --check`.
+ */
+async function discoverWindowsRemoteHerdr(target: string, session: string): Promise<string | null> {
+  const probe = await sshExec(target, windowsPlatformProbeCommand(), SSH_CONNECT_TIMEOUT_S * 1000 + 15000);
+  if (probe.code !== 0) return null;
+  const arch = probe.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.startsWith("herdr-windows:"))
+    ?.slice("herdr-windows:".length)
+    .trim()
+    .toUpperCase();
+  // AMD64 and X86_64 both map to x86_64; ARM64 is best-effort upstream.
+  if (arch !== "AMD64" && arch !== "X86_64" && arch !== "ARM64") return null;
+
+  const candidates = await sshExec(target, windowsBinaryCandidateCommand(), SSH_CONNECT_TIMEOUT_S * 1000 + 20000);
+  if (candidates.code !== 0) return null;
+  const seen = new Set<string>();
+  for (const line of candidates.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(WINDOWS_REMOTE_PATH_MARKER)) continue;
+    let path: string;
+    try {
+      path = Buffer.from(trimmed.slice(WINDOWS_REMOTE_PATH_MARKER.length), "base64").toString("utf8");
+    } catch {
+      continue;
+    }
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    if (await probeWindowsApiBridge(target, path, session)) return path;
+  }
+  return null;
 }
 
 function probeRemoteHerdr(target: string): Promise<string | null> {
@@ -290,7 +591,17 @@ export function classifySshFailure(text: string): { kind: SshFailureKind; detail
   ) {
     return { kind: "unreachable", detail: text.trim() };
   }
-  if (t.includes("windows_remote_unsupported") || t.includes("not supported")) {
+  if (
+    t.includes("windows_remote_unsupported") ||
+    t.includes("not support machine api forwarding") ||
+    t.includes("herdr-machine-metadata-stale") ||
+    t.includes("does not support machine api forwarding") ||
+    t.includes("unsupported remote platform") ||
+    t.includes("not supported")
+  ) {
+    return { kind: "incompatible", detail: text.trim() };
+  }
+  if (t.includes("exited before producing its output marker")) {
     return { kind: "incompatible", detail: text.trim() };
   }
   return { kind: "error", detail: text.trim() || "ssh connection failed" };

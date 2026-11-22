@@ -248,8 +248,8 @@ function sendFrame(frame: ClientFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-export function subscribeTerminal(machine: string, paneId: string, cols: number, rows: number): void {
-  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows });
+export function subscribeTerminal(machine: string, paneId: string, cols: number, rows: number, takeover = false): void {
+  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows, takeover });
 }
 
 export function unsubscribeTerminal(machine: string, paneId: string): void {

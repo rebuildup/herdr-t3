@@ -201,7 +201,7 @@ export interface MachineInfo {
 /** Client -> server WebSocket frames. `machine` selects the endpoint; absent means local. */
 export type ClientFrame =
   | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown>; machine?: string }
-  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string }
+  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string; takeover?: boolean }
   | { type: "unsubscribe_terminal"; paneId: string; machine?: string }
   | { type: "terminal_input"; paneId: string; data: string; machine?: string }
   | { type: "terminal_resize"; paneId: string; cols: number; rows: number; machine?: string }
@@ -285,7 +285,12 @@ export function isClientFrame(value: unknown): value is ClientFrame {
           (typeof frame["params"] === "object" && frame["params"] !== null && !Array.isArray(frame["params"])))
       );
     case "subscribe_terminal":
-      return typeof paneId === "string" && paneId.length > 0 && machineOk;
+      return (
+        typeof paneId === "string" &&
+        paneId.length > 0 &&
+        machineOk &&
+        (frame["takeover"] === undefined || typeof frame["takeover"] === "boolean")
+      );
     case "unsubscribe_terminal":
       return typeof paneId === "string" && paneId.length > 0 && machineOk;
     case "terminal_input":

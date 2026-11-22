@@ -57,6 +57,7 @@ export function PaneTerminal({
   const fitRef = useRef<FitAddon | null>(null);
   const decoderRef = useRef<TextDecoder | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
+  const [takeover, setTakeover] = useState(false);
 
   // The terminal itself lives for the pane's lifetime on screen: a bridge
   // reconnect re-subscribes the same buffer instead of rebuilding it.
@@ -133,19 +134,28 @@ export function PaneTerminal({
     const cols = dims && dims.cols > 0 ? dims.cols : 80;
     const rows = dims && dims.rows > 0 ? dims.rows : 24;
     terminalResize(machine, paneId, cols, rows);
-    subscribeTerminal(machine, paneId, cols, rows);
+    subscribeTerminal(machine, paneId, cols, rows, takeover);
     setClosedReason(null);
     return () => unsubscribeTerminal(machine, paneId);
-  }, [machine, paneId, connected]);
+  }, [machine, paneId, connected, takeover]);
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
       <div ref={hostRef} className="absolute inset-0 px-1 py-0.5" />
       {closedReason !== null && (
-        <div className="pointer-events-none absolute inset-x-0 top-1 flex justify-center">
+        <div className="absolute inset-x-0 top-1 flex flex-col items-center gap-1">
           <span className="rounded bg-error/90 px-2 py-0.5 text-2xs text-error-foreground">
             terminal closed: {closedReason}
           </span>
+          {!takeover && closedReason.includes("attached client") && (
+            <button
+              type="button"
+              className="rounded bg-primary px-2 py-0.5 text-2xs text-primary-foreground"
+              onClick={() => setTakeover(true)}
+            >
+              Take over terminal
+            </button>
+          )}
         </div>
       )}
     </div>
