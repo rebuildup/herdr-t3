@@ -271,4 +271,8 @@ app.on("before-quit", () => {
 
 app.on("will-quit", () => {
   diag("info", "app.willQuit", "will-quit");
+  // On Windows the process can outlive Node after will-quit (Chromium
+  // teardown stalls; observed on the installed 0.1.0 candidate, issue #49).
+  // All cleanup already ran in before-quit, so force the exit.
+  if (process.platform !== "darwin") app.exit(0);
 });
