@@ -19,10 +19,11 @@ function lint(path: string) {
   return { code: res.status, output: `${res.stdout}${res.stderr}` };
 }
 
-// oxlint over all of src can exceed bun's 5s default on a loaded machine.
-const LINT_TIMEOUT = 30_000;
+// Each case spawns a fresh oxlint process; jsPlugins make startup cost
+// seconds, so these need more than bun's 5s default under load.
+const LINT_SPAWN_TIMEOUT = 30_000;
 
-test("bad fixture triggers every UI lint rule", { timeout: LINT_TIMEOUT }, () => {
+test("bad fixture triggers every UI lint rule", () => {
   const { code, output } = lint("scripts/lint-fixtures/bad.tsx");
   expect(code).not.toBe(0);
   for (const rule of [
@@ -38,16 +39,16 @@ test("bad fixture triggers every UI lint rule", { timeout: LINT_TIMEOUT }, () =>
   ]) {
     expect(output).toContain(rule);
   }
-});
+}, LINT_SPAWN_TIMEOUT);
 
 test("good fixture passes clean", () => {
   const { code, output } = lint("scripts/lint-fixtures/good.tsx");
   expect(output).not.toMatch(/:\d+:\d+: error/);
   expect(code).toBe(0);
-});
+}, LINT_SPAWN_TIMEOUT);
 
-test("product sources stay clean", { timeout: LINT_TIMEOUT }, () => {
+test("product sources stay clean", () => {
   const { code, output } = lint("src");
   expect(output).not.toMatch(/:\d+:\d+: error/);
   expect(code).toBe(0);
-});
+}, LINT_SPAWN_TIMEOUT);

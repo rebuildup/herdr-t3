@@ -22,6 +22,12 @@ Reused material:
   `apps/web/src/components/ui/` (Base UI + cva + tailwind-merge). Vendored
   files keep their upstream structure; local adaptations are noted in each
   file's header comment.
+- `src/components/WorkspacePageHeader.tsx`, `src/workspaceTitlebar.ts`,
+  `src/hooks/useMediaQuery.ts`, `src/hooks/useResizeDrag.ts`, and the
+  helpers in `src/lib/` (`env.ts`, `localStorage.ts`, `accessibility.ts`,
+  `windowControlsOverlay.ts`) — application-shell infrastructure ported from
+  `apps/web/src/` for the T3-style layout (sidebar state, resize dragging,
+  titlebar/window-controls geometry, announcements).
 - Design rules — composition, styling, and React Compiler conventions follow
   `t3code/docs/internals/web-ui.md` and `t3code/AGENTS.md`.
 - `lint-plugin/rules/no-native-title-tooltip.ts` and
