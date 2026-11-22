@@ -28,7 +28,8 @@ export interface GhosttyPalette {
   mode: "dark" | "light";
 }
 
-const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const HEX_COLOR = /^#?(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const PALETTE_INDEX = /^(?:0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[0-9]+)$/;
 const COLOR_KEYS = new Set([
   "background",
   "foreground",
@@ -60,17 +61,23 @@ export function parseGhosttyConfig(text: string): ConfigEntry[] {
   return entries;
 }
 
-function normalizeHex(value: string): string | undefined {
+function unquote(value: string): string {
   const v = value.trim();
-  if (!HEX_COLOR.test(v)) return undefined;
-  if (v.length === 4 || v.length === 5) {
-    // #rgb / #rgba -> #rrggbb (alpha dropped; xterm theme is opaque)
-    const r = v.charAt(1);
-    const g = v.charAt(2);
-    const b = v.charAt(3);
-    return `#${r}${r}${g}${g}${b}${b}`;
+  if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+    return v.slice(1, -1);
   }
-  return v.slice(0, 7).toLowerCase();
+  return v;
+}
+
+function normalizeHex(value: string): string | undefined {
+  const v = unquote(value);
+  if (!HEX_COLOR.test(v)) return undefined;
+  const hex = v.startsWith("#") ? v.slice(1) : v;
+  if (hex.length === 3 || hex.length === 4) {
+    // #rgb / #rgba -> #rrggbb (alpha dropped; xterm theme is opaque)
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  }
+  return `#${hex.slice(0, 6).toLowerCase()}`;
 }
 
 function colorValue(value: string): string | undefined {
@@ -107,12 +114,22 @@ function applyColorEntries(palette: GhosttyPalette, entries: ConfigEntry[]): voi
       continue;
     }
     if (key === "palette") {
-      // `palette = 0=#hex` or comma-separated `0=#hex,1=#hex,...`
+      // `palette = 0=#hex` (index may be dec/0x/0b/0o, color may omit '#')
       for (const token of value.split(/[,\s]+/)) {
-        const m = /^([0-9]|1[0-5])\s*=\s*(.+)$/.exec(token);
+        const m = /^([^=\s]+)\s*=\s*(.+)$/.exec(token);
         if (!m || !m[2]) continue;
+        const idxText = m[1]!.trim();
+        if (!PALETTE_INDEX.test(idxText)) continue;
+        const index = idxText.startsWith("0x") || idxText.startsWith("0X")
+          ? parseInt(idxText, 16)
+          : idxText.startsWith("0b") || idxText.startsWith("0B")
+            ? parseInt(idxText.slice(2), 2)
+            : idxText.startsWith("0o") || idxText.startsWith("0O")
+              ? parseInt(idxText.slice(2), 8)
+              : parseInt(idxText, 10);
+        if (!Number.isInteger(index) || index < 0 || index > 255) continue;
         const color = colorValue(m[2]);
-        if (color) palette.palette[Number(m[1])] = color;
+        if (color && index < 16) palette.palette[index] = color;
       }
     }
   }
@@ -233,12 +250,52 @@ function indexThemeDir(dir: string, into: Map<string, string>): void {
   }
 }
 
+/**
+ * Read a Ghostty config file and its `config-file` includes. Per Ghostty
+ * semantics, included files load after the entire including file, in
+ * directive order; `?`-prefixed paths suppress missing-file errors; cycles
+ * are ignored. Paths are relative to the file containing the directive.
+ */
+export function readConfigWithIncludes(path: string, seen = new Set<string>()): ConfigEntry[] {
+  const resolved = join(path);
+  if (seen.has(resolved)) return [];
+  seen.add(resolved);
+  let text: string;
+  try {
+    if (!statSync(resolved).isFile()) return [];
+    text = readFileSync(resolved, "utf8");
+  } catch {
+    return [];
+  }
+  const entries = parseGhosttyConfig(text);
+  const dir = resolved.replace(/[/\\][^/\\]+$/, "");
+  const includes = entries.filter((e) => e.key === "config-file");
+  for (const { value } of includes) {
+    let spec = unquote(value);
+    let optional = false;
+    if (spec.startsWith("?")) {
+      optional = true;
+      spec = spec.slice(1);
+    }
+    const child = spec.startsWith("/") || /^[A-Za-z]:[\\/]/.test(spec) ? spec : join(dir, spec);
+    if (optional) {
+      try {
+        if (!statSync(child).isFile()) continue;
+      } catch {
+        continue;
+      }
+    }
+    entries.push(...readConfigWithIncludes(child, seen));
+  }
+  return entries;
+}
+
 /** Read the first existing config file; returns entries or null. */
 export function readGhosttyConfig(paths: string[]): ConfigEntry[] | null {
   for (const path of paths) {
     try {
       if (!statSync(path).isFile()) continue;
-      return parseGhosttyConfig(readFileSync(path, "utf8"));
+      return readConfigWithIncludes(path);
     } catch {
       /* try next candidate */
     }
@@ -252,10 +309,19 @@ export function createThemeReader(dirs: string[]): (name: string) => string | un
   for (const dir of dirs) indexThemeDir(dir, index);
   const cache = new Map<string, string | undefined>();
   return (name: string) => {
-    const key = name.trim().toLowerCase();
-    if (cache.has(key)) return cache.get(key);
+    const key = name.trim();
+    // Absolute path: Ghostty loads the file directly.
+    if (key.startsWith("/") || /^[A-Za-z]:[\\/]/.test(key)) {
+      try {
+        return readFileSync(key, "utf8");
+      } catch {
+        return undefined;
+      }
+    }
+    const lower = key.toLowerCase();
+    if (cache.has(lower)) return cache.get(lower);
     let found: string | undefined;
-    const path = index.get(key);
+    const path = index.get(lower);
     if (path) {
       try {
         found = readFileSync(path, "utf8");
@@ -263,7 +329,7 @@ export function createThemeReader(dirs: string[]): (name: string) => string | un
         found = undefined;
       }
     }
-    cache.set(key, found);
+    cache.set(lower, found);
     return found;
   };
 }
@@ -301,13 +367,24 @@ export class GhosttyThemeWatcher {
         /* file may not exist yet; also watch parent below */
       }
     }
-    // Watch parent dirs so a config created later is picked up.
-    const seen = new Set<string>();
-    for (const dir of [...this.paths.configFiles.map((f) => f.replace(/[/\\][^/\\]+$/, "")), ...this.paths.themeDirs]) {
-      if (seen.has(dir)) continue;
-      seen.add(dir);
+    // Watch the Ghostty config dir recursively so `config-file` includes and
+    // theme files added later are picked up (recursive watch is supported on
+    // macOS and Windows; elsewhere the per-directory watches above apply).
+    const configDirs = new Set(this.paths.configFiles.map((f) => f.replace(/[/\\][^/\\]+[/\\][^/\\]+$/, "")));
+    for (const dir of configDirs) {
       try {
-        this.watchers.push(watch(dir, { recursive: false }, refresh));
+        this.watchers.push(watch(dir, { recursive: true }, refresh));
+      } catch {
+        try {
+          this.watchers.push(watch(dir, refresh));
+        } catch {
+          /* dir missing */
+        }
+      }
+    }
+    for (const dir of this.paths.themeDirs) {
+      try {
+        this.watchers.push(watch(dir, { recursive: true }, refresh));
       } catch {
         /* dir missing */
       }

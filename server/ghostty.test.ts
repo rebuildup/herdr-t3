@@ -7,6 +7,7 @@ import {
   ghosttyConfigPaths,
   parseGhosttyConfig,
   parseThemeSpec,
+  readConfigWithIncludes,
   readGhosttyConfig,
   resolveGhosttyPalette,
 } from "./ghostty.ts";
@@ -138,6 +139,51 @@ describe("theme file discovery", () => {
 
   test("readGhosttyConfig returns null when no file exists", () => {
     expect(readGhosttyConfig([join(tmpdir(), "no-such-ghostty-config")])).toBeNull();
+  });
+
+  test("palette index formats: hex/octal/binary and bare hex colors", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(
+        "palette = 0x1=ff0000\npalette = 0o2=00ff00\npalette = 0b11=#0000ff\npalette = 12=123456\n",
+      ),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.palette[1]).toBe("#ff0000");
+    expect(p?.palette[2]).toBe("#00ff00");
+    expect(p?.palette[3]).toBe("#0000ff");
+    expect(p?.palette[12]).toBe("#123456");
+  });
+
+  test("config-file includes override the parent config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ghostty-cfg-"));
+    writeFileSync(join(dir, "extra.conf"), "background = #101010\nforeground = #202020\n");
+    const main = join(dir, "config");
+    writeFileSync(main, 'config-file = "extra.conf"\nbackground = #000000\n');
+    const entries = readConfigWithIncludes(main);
+    const p = resolveGhosttyPalette({
+      configEntries: entries,
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    // Included file loads after the parent: its values win.
+    expect(p?.background).toBe("#101010");
+    expect(p?.foreground).toBe("#202020");
+  });
+
+  test("optional missing config-file is skipped, absolute theme path works", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ghostty-cfg-"));
+    const themePath = join(dir, "mytheme.conf");
+    writeFileSync(themePath, "background = #0a0a0a\nforeground = #0b0b0b\n");
+    const main = join(dir, "config");
+    writeFileSync(main, `config-file = ?"missing.conf"\ntheme = ${themePath}\n`);
+    const p = resolveGhosttyPalette({
+      configEntries: readConfigWithIncludes(main),
+      readTheme: createThemeReader([]),
+      preferDark: true,
+    });
+    expect(p?.background).toBe("#0a0a0a");
+    expect(p?.foreground).toBe("#0b0b0b");
   });
 
   test("config paths cover XDG and platform defaults", () => {
