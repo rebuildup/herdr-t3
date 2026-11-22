@@ -35,12 +35,12 @@ test("bad fixture triggers every UI lint rule", () => {
 
 test("good fixture passes clean", () => {
   const { code, output } = lint("scripts/lint-fixtures/good.tsx");
-  expect(output).not.toContain("error");
+  expect(output).not.toMatch(/:\d+:\d+: error/);
   expect(code).toBe(0);
 });
 
 test("product sources stay clean", () => {
   const { code, output } = lint("src");
-  expect(output).not.toContain("error");
+  expect(output).not.toMatch(/:\d+:\d+: error/);
   expect(code).toBe(0);
 });
