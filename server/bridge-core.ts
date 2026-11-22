@@ -72,8 +72,16 @@ function pushSnapshot(state: SessionState): void {
       state.send({ type: "snapshot", snapshot });
       reconcileSubscriptions(state, snapshot);
     })
-    .catch(() => {
-      /* herdr unreachable; the client shows its own offline state */
+    .catch((error: unknown) => {
+      /* herdr unreachable; surface it so diagnostics and the client can tell
+         "offline" apart from "empty session". Renderers ignore unknown ids. */
+      const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
+      state.send({
+        type: "rpc_result",
+        id: "bridge-health",
+        ok: false,
+        error: { code: err.code, message: err.message },
+      });
     });
 }
 
