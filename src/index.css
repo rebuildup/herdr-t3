@@ -108,6 +108,8 @@
   --color-guest-foreground: var(--guest-foreground);
   --color-guest-surface: var(--guest-surface);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-terminal-background: var(--terminal-background);
+  --color-terminal-foreground: var(--terminal-foreground);
   --color-ring: var(--ring);
   --color-input: var(--contrast-input);
   --color-border: var(--contrast-border);

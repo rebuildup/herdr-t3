@@ -67,7 +67,7 @@ export function PaneMessageDialog({
           }}
           rows={4}
           placeholder={isAgent ? "Prompt for the agent…" : "Text to type into the pane…"}
-          className="mb-4 w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+          className="mb-4 w-full resize-none"
         />
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>

@@ -63,7 +63,7 @@ export function RenameDialog({
             if (e.key === "Enter") submit();
             if (e.key === "Escape") onClose();
           }}
-          className="mb-4 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+          className="mb-4 w-full"
         />
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>
