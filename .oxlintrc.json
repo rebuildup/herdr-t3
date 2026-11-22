@@ -42,6 +42,16 @@
       }
     },
     {
+      // T3 Code app-shell ports keep upstream geometry verbatim; the
+      // --workspace-*/--sidebar-*/--control-* custom properties are
+      // tokens defined in index.css, so var()-valued utilities are the
+      // sanctioned expression of token geometry here (issue #83, ADR-0008).
+      "files": ["src/shell/**", "src/components/WorkspaceBreadcrumb.tsx"],
+      "rules": {
+        "shadcn/no-arbitrary-values": "off"
+      }
+    },
+    {
       "files": ["scripts/lint-fixtures/**"],
       "rules": {
         "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
