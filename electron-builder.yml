@@ -1,0 +1,22 @@
+appId: dev.herdr-t3
+productName: herdr-t3
+directories:
+  output: release
+files:
+  - dist/**/*
+  - desktop/**/*
+  - package.json
+  - "!**/*.map"
+mac:
+  target:
+    - target: dir
+      arch: [arm64, x64]
+  category: public.app-category.developer-tools
+  identity: null
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: true
+  perMachine: false
