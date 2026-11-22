@@ -3,6 +3,23 @@
 // The renderer never touches Node or the herdr socket directly.
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Forward renderer JS failures to the main-process diagnostic log. Only
+// event metadata is sent — never frame payloads or terminal data.
+const report = (kind, event) => {
+  try {
+    const err = event?.error ?? event?.reason;
+    ipcRenderer.send("herdr-t3:diag", {
+      kind,
+      message: err?.message ?? String(event?.message ?? event?.reason ?? ""),
+      stack: typeof err?.stack === "string" ? err.stack.slice(0, 2000) : undefined,
+    });
+  } catch {
+    /* diagnostics must never break the renderer */
+  }
+};
+window.addEventListener("error", (event) => report("error", event));
+window.addEventListener("unhandledrejection", (event) => report("unhandledrejection", event));
+
 contextBridge.exposeInMainWorld("herdrT3", {
   /** Send a ClientFrame to the bridge session in the main process. */
   sendFrame(frame) {
