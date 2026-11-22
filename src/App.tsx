@@ -27,6 +27,15 @@ import { PaneTerminal } from "./components/PaneTerminal";
 import { PaneMessageDialog } from "./components/PaneMessageDialog";
 import { AgentStatusBadge } from "./components/AgentStatusBadge";
 import { RenameDialog, type RenameTarget } from "./components/RenameDialog";
+import { Input } from "./components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
+import { Tooltip } from "./components/ui/tooltip";
 import {
   getAppearanceMode,
   initAppearance,
@@ -175,7 +184,7 @@ export default function App() {
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Terminal className="size-4 text-primary" />
           <span className="text-sm font-medium">herdr-t3</span>
-          <span className="ml-auto flex items-center gap-1.5" title={connection}>
+          <Tooltip content={connection}><span className="ml-auto flex items-center gap-1.5">
             {connection === "open" ? (
               <Wifi className="size-3.5 text-success" />
             ) : (
@@ -186,19 +195,19 @@ export default function App() {
                 {connection === "connecting" ? "Connecting…" : "Reconnecting…"}
               </span>
             )}
-          </span>
+          </span></Tooltip>
         </div>
         <div className="px-2 pb-1">
           <div className="mb-1 flex items-center justify-between px-1">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Machines</span>
-            <button
-              type="button"
+            <Button
+              size="icon-sm"
+              variant="ghost"
               title="Add machine"
               onClick={() => setAddMachine(true)}
-              className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-row-hover hover:text-foreground"
             >
               <Plus className="size-3" />
-            </button>
+            </Button>
           </div>
           {machineList.map((m) => {
             const selected = m.id === selectedMachine;
@@ -215,7 +224,7 @@ export default function App() {
                         ? "bg-sidebar-row-selected text-foreground"
                         : "text-foreground/80 hover:bg-sidebar-row-hover",
                     )}
-                    title={info ?? m.id}
+                    title={info ?? m.id} // ui-lint: allow title — disconnect reason on semantic row
                   >
                     <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{m.label}</span>
@@ -313,16 +322,17 @@ export default function App() {
         <div className="border-t border-sidebar-border px-3 py-2">
           <label className="flex items-center gap-2 text-2xs text-muted-foreground">
             Appearance
-            <select
-              className="ml-auto rounded-md border border-input bg-background px-1.5 py-1 text-2xs text-foreground"
-              value={appearance}
-              onChange={(e) => setAppearanceMode(e.target.value as AppearanceMode)}
-            >
-              <option value="ghostty">Ghostty sync</option>
-              <option value="system">System</option>
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
+            <Select value={appearance} onValueChange={(v) => setAppearanceMode(v as AppearanceMode)}>
+              <SelectTrigger className="ml-auto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ghostty">Ghostty sync</SelectItem>
+                <SelectItem value="system">System</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
         </div>
       </aside>
@@ -351,14 +361,15 @@ export default function App() {
                       <span className="max-w-40 truncate">{tab.label || `Tab ${tab.number}`}</span>
                     </button>
                     {selected && (
-                      <button
-                        type="button"
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
                         title="Close tab"
-                        className="rounded-sm p-0.5 opacity-0 hover:bg-foreground/10 group-hover:opacity-100"
+                        className="opacity-0 group-hover:opacity-100"
                         onClick={() => void call("tab.close", { tab_id: tab.tab_id })}
                       >
                         <X className="size-3" />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </ContextMenuTrigger>
@@ -506,7 +517,7 @@ export default function App() {
                         }
                       : undefined
                   }
-                  title={paneTitle(pane)}
+                  title={paneTitle(pane)} // ui-lint: allow title — truncated pane label
                   onMouseDown={() => {
                     if (!pane.focused) void call("pane.focus", { pane_id: pane.pane_id });
                   }}
@@ -555,20 +566,20 @@ function AddMachineDialog({ open, onClose }: { open: boolean; onClose: () => voi
           require interactive SSH authentication in a terminal.
         </DialogDescription>
         <div className="flex flex-col gap-2">
-          <input
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          <Input
+            
             placeholder="Label (e.g. lab-windows)"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
-          <input
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          <Input
+            
             placeholder="SSH target (user@host or ssh config alias)"
             value={target}
             onChange={(e) => setTarget(e.target.value)}
           />
-          <input
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          <Input
+            
             placeholder="Herdr session (default)"
             value={session}
             onChange={(e) => setSession(e.target.value)}

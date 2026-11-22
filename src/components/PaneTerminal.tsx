@@ -13,6 +13,7 @@ import {
   unsubscribeTerminal,
 } from "../lib/api";
 import { cn } from "../lib/utils";
+import { Button } from "./ui/button";
 import { getTerminalTheme, onTerminalThemeChange } from "../lib/theme";
 
 function cssVar(name: string): string {
@@ -155,13 +156,9 @@ export function PaneTerminal({
             terminal closed: {closedReason}
           </span>
           {!takeover && closedReason.includes("attached client") && (
-            <button
-              type="button"
-              className="rounded bg-primary px-2 py-0.5 text-2xs text-primary-foreground"
-              onClick={() => setTakeover(true)}
-            >
+            <Button size="sm" onClick={() => setTakeover(true)}>
               Take over terminal
-            </button>
+            </Button>
           )}
         </div>
       )}
