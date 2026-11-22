@@ -10,6 +10,7 @@
  * Node.js runtime, so only node:* APIs and the electron module are used.
  */
 import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
@@ -36,7 +37,43 @@ if (process.env["HERDR_T3_PROFILE"] === "dev") {
 let win: BrowserWindow | null = null;
 let session: BridgeSession | null = null;
 
+/**
+ * Diagnostics for external verify tools (pc-setup): the app exposes no
+ * network surface, so the Main process records its herdr connectivity in
+ * `<userData>/bridge-status.json`. This is status only — it grants no
+ * control over herdr.
+ */
+let lastStatus: { ok: boolean; detail: string } = { ok: false, detail: "starting" };
+function reportStatus(ok: boolean, detail: string): void {
+  lastStatus = { ok, detail };
+  try {
+    const dir = app.getPath("userData");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "bridge-status.json"),
+      JSON.stringify({
+        ok,
+        detail,
+        at: new Date().toISOString(),
+        herdr: herdrSocketPath(),
+      }),
+    );
+  } catch {
+    /* diagnostics must never break the app */
+  }
+}
+setInterval(() => reportStatus(lastStatus.ok, lastStatus.detail), 30_000).unref();
+
 function send(frame: ServerFrame): void {
+  if (frame.type === "ready" || frame.type === "snapshot") {
+    reportStatus(true, `${frame.snapshot.panes.length} panes, ${frame.snapshot.workspaces.length} workspaces`);
+  } else if (
+    frame.type === "rpc_result" &&
+    (frame.id === "boot" || frame.id === "bridge-health") &&
+    !frame.ok
+  ) {
+    reportStatus(false, frame.error?.message ?? "herdr unreachable");
+  }
   if (!win || win.isDestroyed()) return;
   win.webContents.send("herdr-t3:frame", frame);
 }
