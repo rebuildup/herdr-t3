@@ -16,7 +16,10 @@
     "start": "bun run build && bun run server",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
-    "check": "bun run typecheck && bun run test"
+    "check": "bun run typecheck && bun run test",
+    "desktop:build": "bun build desktop/main.ts --target node --format cjs --outfile desktop/main.cjs --external electron",
+    "desktop": "bun run build && bun run desktop:build && electron .",
+    "desktop:dev": "bun run desktop:build && HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev electron ."
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -37,9 +40,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.4.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
   },
-  "packageManager": "bun@1.4.4"
+  "packageManager": "bun@1.4.4",
+  "main": "desktop/main.cjs"
 }

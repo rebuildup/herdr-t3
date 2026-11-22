@@ -17,12 +17,41 @@ export class ApiError extends Error {
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
+  const ipc = desktopBridge();
+  if (ipc) return (await ipc.health()) as HealthResponse;
   const res = await fetch("/api/health");
   if (!res.ok) throw new ApiError("http", `health ${res.status}`);
   return (await res.json()) as HealthResponse;
 }
 
+/**
+ * In the desktop app the preload bridge (`window.herdrT3`) carries the same
+ * ClientFrame/ServerFrame contract over IPC; the WebSocket path is the dev
+ * browser fallback.
+ */
+interface DesktopBridge {
+  sendFrame(frame: ClientFrame): void;
+  onFrame(listener: (frame: ServerFrame) => void): () => void;
+  health(): Promise<unknown>;
+}
+
+function desktopBridge(): DesktopBridge | null {
+  const candidate = (globalThis as { herdrT3?: DesktopBridge }).herdrT3;
+  return candidate ?? null;
+}
+
 export async function fetchSession(): Promise<SessionSnapshot> {
+  const ipc = desktopBridge();
+  if (ipc) {
+    // No REST endpoint in the desktop app: the first ready/snapshot frame
+    // from the main-process session is the initial state.
+    return new Promise<SessionSnapshot>((resolve) => {
+      const off = onSnapshot((snapshot) => {
+        off();
+        resolve(snapshot);
+      });
+    });
+  }
   const res = await fetch("/api/session");
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
@@ -75,6 +104,13 @@ function handleFrame(frame: ServerFrame): void {
 
 function connect(): void {
   if (closed) return;
+  const ipc = desktopBridge();
+  if (ipc) {
+    // Desktop: the main process owns the session; IPC is always "connected".
+    notifyStatus("open");
+    ipc.onFrame(handleFrame);
+    return;
+  }
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   notifyStatus("connecting");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -132,6 +168,11 @@ export function onTerminalClosed(listener: TerminalClosedListener): () => void {
 }
 
 function sendFrame(frame: ClientFrame): void {
+  const ipc = desktopBridge();
+  if (ipc) {
+    ipc.sendFrame(frame);
+    return;
+  }
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(frame));
 }
@@ -155,13 +196,15 @@ export function terminalResize(paneId: string, cols: number, rows: number): void
 /** Call a whitelisted herdr RPC through the bridge. */
 export function rpc<T = unknown>(method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    const ipc = desktopBridge();
+    if (!ipc && (!ws || ws.readyState !== WebSocket.OPEN)) {
       reject(new ApiError("disconnected", "bridge not connected"));
       return;
     }
     const id = `c${++rpcCounter}`;
     rpcWaiters.set(id, { resolve: resolve as (v: unknown) => void, reject });
     const frame: ClientFrame = { type: "rpc", id, method, params };
-    ws.send(JSON.stringify(frame));
+    if (ipc) ipc.sendFrame(frame);
+    else ws?.send(JSON.stringify(frame));
   });
 }

@@ -7,3 +7,4 @@ dist/
 .t3/
 .mise/
 .DS_Store
+desktop/main.cjs
