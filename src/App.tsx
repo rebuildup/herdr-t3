@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentStatus, MachineInfo, MachineStatus, PaneInfo, SessionSnapshot } from "../shared/protocol";
 import { cn } from "./lib/utils";
 import {
@@ -111,6 +111,32 @@ export default function App() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [addMachine, setAddMachine] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("herdr-t3:sidebar-width"));
+    return saved >= 200 && saved <= 480 ? saved : 256;
+  });
+  const sidebarDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const startSidebarResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    sidebarDrag.current = { startX: e.clientX, startWidth: sidebarWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!sidebarDrag.current) return;
+      const next = Math.min(480, Math.max(200, sidebarDrag.current.startWidth + ev.clientX - sidebarDrag.current.startX));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      sidebarDrag.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setSidebarWidth((w) => {
+        localStorage.setItem("herdr-t3:sidebar-width", String(w));
+        return w;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   useEffect(() => {
     initAppearance();
@@ -180,7 +206,10 @@ export default function App() {
 
   return (
     <div className="flex h-full bg-background text-foreground">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+      <aside
+        className="flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
+        style={{ width: sidebarWidth }}
+      >
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Terminal className="size-4 text-primary" />
           <span className="text-sm font-medium">herdr-t3</span>
@@ -339,6 +368,13 @@ export default function App() {
           </label>
         </div>
       </aside>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        className="w-1 shrink-0 cursor-col-resize hover:bg-border"
+        onMouseDown={startSidebarResize}
+      />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
@@ -509,7 +545,7 @@ export default function App() {
                 <div
                   key={pane.pane_id}
                   className={cn(
-                    "absolute overflow-hidden rounded-md border",
+                    "absolute overflow-hidden border",
                     pane.focused ? "border-primary/60" : "border-border/60",
                   )}
                   style={
