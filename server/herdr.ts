@@ -11,6 +11,8 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { Socket } from "node:net";
+import { connectSocket } from "./socket.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** Per-line ceilings. herdr sets no finite max; these bound what we accept. */
@@ -149,7 +151,7 @@ export function herdrRpc<T = unknown>(
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
-    let socket: { end: () => void; write: (data: Uint8Array) => number } | null = null;
+    let socket: Socket | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = (fn: () => void) => {
@@ -188,21 +190,14 @@ export function herdrRpc<T = unknown>(
       else finish(() => resolve(reply.result as T));
     }, (bytes) => invalid(`over the ${limit}-byte line limit`, bytes));
 
-    Bun.connect({
-      unix: socketAddress(socketPath),
-      socket: {
-        data(_sock, chunk) {
-          onData(chunk);
-        },
-        drain() {
-          writeRequest();
-        },
-        error(_sock, err) {
-          finish(() => reject(new HerdrError("socket_error", err?.message ?? "herdr socket error")));
-        },
-        close() {
-          finish(() => reject(new HerdrError("closed", `herdr closed the connection before answering ${method}`)));
-        },
+    const request = `${JSON.stringify({ id, method, params })}\n`;
+    connectSocket(socketAddress(socketPath), {
+      data: (chunk) => onData(chunk),
+      error: (err) => {
+        finish(() => reject(new HerdrError("socket_error", err.message)));
+      },
+      close: () => {
+        finish(() => reject(new HerdrError("closed", `herdr closed the connection before answering ${method}`)));
       },
     }).then((sock) => {
       socket = sock;
@@ -214,21 +209,13 @@ export function herdrRpc<T = unknown>(
         }
         return;
       }
-      writeRequest();
-    }, (err: Error) =>
-      finish(() => reject(new HerdrError("connect_failed", `cannot reach herdr at ${socketPath}: ${err.message}`))));
-
-    function writeRequest() {
-      if (settled || socket === null) return;
       try {
-        const accepted = socket.write(new TextEncoder().encode(`${JSON.stringify({ id, method, params })}\n`));
-        if (accepted === -1) {
-          finish(() => reject(new HerdrError("closed", `herdr closed the connection before answering ${method}`)));
-        }
+        sock.write(request);
       } catch (error) {
         finish(() => reject(new HerdrError("socket_error", (error as Error)?.message ?? "herdr socket error")));
       }
-    }
+    }, (err: Error) =>
+      finish(() => reject(new HerdrError("connect_failed", `cannot reach herdr at ${socketPath}: ${err.message}`))));
   });
 }
 
@@ -260,7 +247,7 @@ export function subscribeEvents(
   socketPath: string = herdrSocketPath(),
 ): Subscription {
   let closed = false;
-  let socket: { end: () => void } | null = null;
+  let socket: Socket | null = null;
   let started = false;
   const id = nextId();
 
@@ -310,21 +297,16 @@ export function subscribeEvents(
     handlers.onEvent(frame as EventFrame);
   }, (bytes) => invalid(`over the ${LINE_BYTES}-byte line limit`, bytes));
 
-  Bun.connect({
-    unix: socketAddress(socketPath),
-    socket: {
-      data(_sock, chunk) {
-        onData(chunk);
-      },
-      error(_sock, err) {
-        if (!closed) handlers.onError?.(new HerdrError("socket_error", err?.message ?? "herdr socket error"));
-      },
-      close() {
-        if (!closed) {
-          closed = true;
-          handlers.onClose?.();
-        }
-      },
+  connectSocket(socketAddress(socketPath), {
+    data: (chunk) => onData(chunk),
+    error: (err) => {
+      if (!closed) handlers.onError?.(new HerdrError("socket_error", err.message));
+    },
+    close: () => {
+      if (!closed) {
+        closed = true;
+        handlers.onClose?.();
+      }
     },
   })
     .then((sock) => {

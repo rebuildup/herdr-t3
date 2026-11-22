@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld("herdrT3", {
   health() {
     return ipcRenderer.invoke("herdr-t3:health");
   },
+  /** Latest session snapshot held by the main-process bridge session. */
+  snapshot() {
+    return ipcRenderer.invoke("herdr-t3:snapshot");
+  },
 });

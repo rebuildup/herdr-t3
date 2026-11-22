@@ -33,6 +33,7 @@ interface DesktopBridge {
   sendFrame(frame: ClientFrame): void;
   onFrame(listener: (frame: ServerFrame) => void): () => void;
   health(): Promise<unknown>;
+  snapshot(): Promise<unknown>;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -43,8 +44,18 @@ function desktopBridge(): DesktopBridge | null {
 export async function fetchSession(): Promise<SessionSnapshot> {
   const ipc = desktopBridge();
   if (ipc) {
-    // No REST endpoint in the desktop app: the first ready/snapshot frame
-    // from the main-process session is the initial state.
+    // No REST endpoint in the desktop app: ask the main process for the
+    // snapshot its bridge session already holds (covers renderer reloads).
+    const res = (await ipc.snapshot()) as {
+      ok?: boolean;
+      snapshot?: SessionSnapshot;
+      error?: { code?: string; message?: string };
+    } | null;
+    if (res?.ok && res.snapshot) return res.snapshot;
+    if (res && res.ok === false) {
+      throw new ApiError(res.error?.code ?? "herdr", res.error?.message ?? "herdr unreachable");
+    }
+    // Fall back to the next pushed frame if the reply was malformed.
     return new Promise<SessionSnapshot>((resolve) => {
       const off = onSnapshot((snapshot) => {
         off();
@@ -83,6 +94,8 @@ function handleFrame(frame: ServerFrame): void {
   switch (frame.type) {
     case "ready":
     case "snapshot":
+      // A pushed snapshot proves the bridge reached herdr again.
+      if (desktopBridge()) notifyStatus("open");
       for (const listener of wsListeners) listener(frame.snapshot);
       return;
     case "rpc_result": {
@@ -107,8 +120,16 @@ function connect(): void {
   const ipc = desktopBridge();
   if (ipc) {
     // Desktop: the main process owns the session; IPC is always "connected".
+    // herdr reachability is reported separately through health.
     notifyStatus("open");
     ipc.onFrame(handleFrame);
+    void ipc
+      .health()
+      .then((h) => {
+        const reachable = (h as { herdr?: { reachable?: boolean } } | null)?.herdr?.reachable;
+        if (reachable === false) notifyStatus("closed");
+      })
+      .catch(() => {});
     return;
   }
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;

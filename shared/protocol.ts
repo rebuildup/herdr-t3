@@ -225,3 +225,41 @@ export type RpcMethod = (typeof RPC_METHODS)[number];
 export function isRpcMethod(method: string): method is RpcMethod {
   return (RPC_METHODS as readonly string[]).includes(method);
 }
+
+/**
+ * Runtime guard for inbound ClientFrames. The bridge trusts nothing: IPC and
+ * WebSocket payloads are untrusted input and must be validated before they
+ * reach `handleFrame`.
+ */
+export function isClientFrame(value: unknown): value is ClientFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const frame = value as Record<string, unknown>;
+  const paneId = frame["paneId"];
+  switch (frame["type"]) {
+    case "rpc":
+      return (
+        typeof frame["id"] === "string" &&
+        typeof frame["method"] === "string" &&
+        isRpcMethod(frame["method"]) &&
+        (frame["params"] === undefined ||
+          (typeof frame["params"] === "object" && frame["params"] !== null && !Array.isArray(frame["params"])))
+      );
+    case "subscribe_terminal":
+      return typeof paneId === "string" && paneId.length > 0;
+    case "unsubscribe_terminal":
+      return typeof paneId === "string" && paneId.length > 0;
+    case "terminal_input":
+      return typeof paneId === "string" && paneId.length > 0 && typeof frame["data"] === "string";
+    case "terminal_resize":
+      return (
+        typeof paneId === "string" &&
+        paneId.length > 0 &&
+        typeof frame["cols"] === "number" &&
+        typeof frame["rows"] === "number" &&
+        Number.isFinite(frame["cols"]) &&
+        Number.isFinite(frame["rows"])
+      );
+    default:
+      return false;
+  }
+}
