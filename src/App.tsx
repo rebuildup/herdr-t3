@@ -99,11 +99,16 @@ export default function App() {
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Terminal className="size-4 text-primary" />
           <span className="text-sm font-medium">herdr-t3</span>
-          <span className="ml-auto" title={connection}>
+          <span className="ml-auto flex items-center gap-1.5" title={connection}>
             {connection === "open" ? (
               <Wifi className="size-3.5 text-success" />
             ) : (
               <WifiOff className="size-3.5 text-muted-foreground" />
+            )}
+            {connection !== "open" && (
+              <span className="text-2xs text-muted-foreground">
+                {connection === "connecting" ? "Connecting…" : "Reconnecting…"}
+              </span>
             )}
           </span>
         </div>
