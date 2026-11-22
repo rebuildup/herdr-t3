@@ -23,9 +23,11 @@ import {
   type EventFrame,
   type Subscription,
 } from "./herdr.ts";
+import { controlRequestAllowed, extraAllowedHosts } from "./guard.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
+const ALLOWED_HOSTS = extraAllowedHosts();
 const DIST = join(import.meta.dir, "..", "dist");
 const COMMIT = process.env["HERDR_T3_COMMIT"] ?? "unknown";
 
@@ -215,6 +217,12 @@ Bun.serve({
   port: PORT,
   fetch(req, server) {
     const url = new URL(req.url);
+    // Control surface only: the static shell is harmless without /api and /ws,
+    // and guarding it would break direct file:// or preview tooling.
+    if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) &&
+        !controlRequestAllowed(req, HOST, ALLOWED_HOSTS)) {
+      return new Response("forbidden host or origin", { status: 403 });
+    }
     if (url.pathname === "/api/health") return health();
     if (url.pathname === "/api/session" && req.method === "GET") {
       return fetchSnapshot()
