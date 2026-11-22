@@ -377,7 +377,7 @@ export default function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <div className="flex h-13 items-center gap-1 border-b border-border px-2">
           {workspaceTabs.map((tab, index) => {
             const selected = tab.tab_id === activeTab?.tab_id;
             return (
@@ -456,11 +456,10 @@ export default function App() {
               <Plus className="size-4" />
             </Button>
           )}
-        </div>
-
-        {focusedPane && (
-          <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-            <span className="flex min-w-0 items-center gap-2 text-xs text-secondary-label">
+          {focusedPane && (
+            <div className="ml-auto flex min-w-0 items-center gap-1">
+              <div className="mr-1 h-4 w-px shrink-0 bg-border" />
+              <span className="flex min-w-0 items-center gap-2 text-xs text-secondary-label">
               <span className="truncate">
                 {paneTitle(focusedPane)}
                 {focusedPane.agent ? ` · ${focusedPane.agent}` : ""}
@@ -529,8 +528,9 @@ export default function App() {
             >
               <X className="size-3.5" />
             </Button>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
         <div className="relative flex-1 overflow-hidden bg-terminal-background">
           {tabPanes.length === 0 && (
