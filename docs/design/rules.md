@@ -24,7 +24,7 @@ asserts it passes. `scripts/lint-ui.ts --self-test` covers the CSS rule.
 Intentional exceptions currently in the tree (each carries a reason):
 - sidebar machine/workspace rows and the tab label button — semantic rows
   inside composite controls (`herdr-t3/no-raw-control`)
-- pane container `title` — pane identity tooltip over the xterm surface
+- pane container `title` — pane identity tooltip over the terminal surface
   (`herdr-t3/no-native-title-tooltip`)
 - tab close Button `opacity-0 group-hover:opacity-100` — hover-reveal
   affordance no variant covers (`shadcn/no-restyle`)

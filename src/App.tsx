@@ -558,7 +558,7 @@ export default function App() {
                         }
                       : undefined
                   }
-                  // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct xterm hover
+                  // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
                   title={paneTitle(pane)}
                   onMouseDown={() => {
                     if (!pane.focused) void call("pane.focus", { pane_id: pane.pane_id });

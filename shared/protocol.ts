@@ -203,6 +203,7 @@ export type ClientFrame =
   | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown>; machine?: string }
   | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string; takeover?: boolean }
   | { type: "unsubscribe_terminal"; paneId: string; machine?: string }
+  /** `data` is base64 bytes: encoded keys/mouse/paste and engine replies are arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_input"; paneId: string; data: string; machine?: string }
   | { type: "terminal_resize"; paneId: string; cols: number; rows: number; machine?: string }
   | { type: "list_machines" }
