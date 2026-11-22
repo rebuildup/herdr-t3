@@ -8,3 +8,4 @@ dist/
 .mise/
 .DS_Store
 desktop/main.cjs
+release/
