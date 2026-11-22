@@ -42,10 +42,12 @@ function decodeBase64(data: string): Uint8Array {
  * sits in the input line waits for the user (Issue #5).
  */
 export function PaneTerminal({
+  machine,
   paneId,
   connected,
   className,
 }: {
+  machine: string;
   paneId: string;
   connected: boolean;
   className?: string;
@@ -82,15 +84,15 @@ export function PaneTerminal({
     decoderRef.current = new TextDecoder();
     setClosedReason(null);
 
-    const dataOff = onTerminalData((id, data) => {
-      if (id !== paneId || !decoderRef.current) return;
+    const dataOff = onTerminalData((m, id, data) => {
+      if (m !== machine || id !== paneId || !decoderRef.current) return;
       term.write(decoderRef.current.decode(decodeBase64(data), { stream: true }));
     });
-    const closedOff = onTerminalClosed((id, reason) => {
-      if (id !== paneId) return;
+    const closedOff = onTerminalClosed((m, id, reason) => {
+      if (m !== machine || id !== paneId) return;
       setClosedReason(reason ?? "closed");
     });
-    const dataHandler = term.onData((data) => terminalInput(paneId, data));
+    const dataHandler = term.onData((data) => terminalInput(machine, paneId, data));
     const resizeObserver = new ResizeObserver(() => {
       try {
         fit.fit();
@@ -99,7 +101,7 @@ export function PaneTerminal({
       }
       const dims = fit.proposeDimensions();
       if (dims && dims.cols > 0 && dims.rows > 0) {
-        terminalResize(paneId, dims.cols, dims.rows);
+        terminalResize(machine, paneId, dims.cols, dims.rows);
       }
     });
     resizeObserver.observe(host);
@@ -114,7 +116,7 @@ export function PaneTerminal({
       fitRef.current = null;
       decoderRef.current = null;
     };
-  }, [paneId]);
+  }, [machine, paneId]);
 
   // (Re)subscribe whenever the bridge connection is up. The server queues
   // input/resize until the attach resolves and replays a full redraw.
@@ -130,11 +132,11 @@ export function PaneTerminal({
     const dims = fit.proposeDimensions();
     const cols = dims && dims.cols > 0 ? dims.cols : 80;
     const rows = dims && dims.rows > 0 ? dims.rows : 24;
-    terminalResize(paneId, cols, rows);
-    subscribeTerminal(paneId, cols, rows);
+    terminalResize(machine, paneId, cols, rows);
+    subscribeTerminal(machine, paneId, cols, rows);
     setClosedReason(null);
-    return () => unsubscribeTerminal(paneId);
-  }, [paneId, connected]);
+    return () => unsubscribeTerminal(machine, paneId);
+  }, [machine, paneId, connected]);
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>

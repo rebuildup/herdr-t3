@@ -12,9 +12,11 @@ import type { PaneInfo } from "../../shared/protocol";
  */
 export function PaneMessageDialog({
   pane,
+  machine,
   onClose,
 }: {
   pane: PaneInfo | null;
+  machine: string;
   onClose: () => void;
 }) {
   const [text, setText] = useState("");
@@ -34,10 +36,10 @@ export function PaneMessageDialog({
     setSending(true);
     try {
       if (isAgent) {
-        await rpc("agent.prompt", { target: pane.pane_id, text: value });
+        await rpc("agent.prompt", { target: pane.pane_id, text: value }, machine);
       } else {
-        await rpc("pane.send_text", { pane_id: pane.pane_id, text: value });
-        await rpc("pane.send_keys", { pane_id: pane.pane_id, keys: ["enter"] });
+        await rpc("pane.send_text", { pane_id: pane.pane_id, text: value }, machine);
+        await rpc("pane.send_keys", { pane_id: pane.pane_id, keys: ["enter"] }, machine);
       }
       onClose();
     } finally {

@@ -15,7 +15,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isClientFrame } from "../shared/protocol.ts";
-import { createBridgeSession, fetchSnapshot, type BridgeSession } from "../server/bridge-core.ts";
+import { fetchSnapshot } from "../server/bridge-core.ts";
+import { MachineManager } from "../server/machine-manager.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
 
 const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
@@ -35,7 +36,7 @@ if (process.env["HERDR_T3_PROFILE"] === "dev") {
 }
 
 let win: BrowserWindow | null = null;
-let session: BridgeSession | null = null;
+let manager: MachineManager | null = null;
 
 /**
  * Diagnostics for external verify tools (pc-setup): the app exposes no
@@ -65,14 +66,19 @@ function reportStatus(ok: boolean, detail: string): void {
 setInterval(() => reportStatus(lastStatus.ok, lastStatus.detail), 30_000).unref();
 
 function send(frame: ServerFrame): void {
-  if (frame.type === "ready" || frame.type === "snapshot") {
-    reportStatus(true, `${frame.snapshot.panes.length} panes, ${frame.snapshot.workspaces.length} workspaces`);
-  } else if (
-    frame.type === "rpc_result" &&
-    (frame.id === "boot" || frame.id === "bridge-health") &&
-    !frame.ok
-  ) {
-    reportStatus(false, frame.error?.message ?? "herdr unreachable");
+  // Diagnostics track the local endpoint; remote machines report through
+  // the machines/machine_status frames instead.
+  const machine = "machine" in frame ? frame.machine : "local";
+  if (machine === "local" || machine === undefined) {
+    if (frame.type === "ready" || frame.type === "snapshot") {
+      reportStatus(true, `${frame.snapshot.panes.length} panes, ${frame.snapshot.workspaces.length} workspaces`);
+    } else if (
+      frame.type === "rpc_result" &&
+      (frame.id === "boot" || frame.id === "bridge-health") &&
+      !frame.ok
+    ) {
+      reportStatus(false, frame.error?.message ?? "herdr unreachable");
+    }
   }
   if (!win || win.isDestroyed()) return;
   win.webContents.send("herdr-t3:frame", frame);
@@ -151,20 +157,17 @@ function healthPayload(): Promise<Record<string, unknown>> {
     }));
 }
 
-function ensureSession(): void {
-  if (session) return;
-  session = createBridgeSession(send);
-  void session.start();
+function ensureManager(): void {
+  if (manager) return;
+  manager = new MachineManager({ send });
+  manager.start();
 }
 
 app.whenReady().then(() => {
-  ensureSession();
+  ensureManager();
   if (process.env["HERDR_T3_DEBUG"]) {
     setTimeout(() => {
-      const snap = session?.latestSnapshot();
-      console.log(
-        `[herdr-t3] bridge: herdr=${herdrSocketPath()} snapshot=${snap ? `${snap.panes.length} panes` : "none (unreachable)"}`,
-      );
+      console.log(`[herdr-t3] bridge: herdr=${herdrSocketPath()} machines=${manager?.list().length ?? 0}`);
     }, 1500);
   }
 
@@ -173,14 +176,12 @@ app.whenReady().then(() => {
     // that satisfy the ClientFrame contract.
     if (!win || event.sender !== win.webContents || win.isDestroyed()) return;
     if (!isClientFrame(frame)) return;
-    session?.handleFrame(frame as ClientFrame);
+    manager?.handleFrame(frame as ClientFrame);
   });
 
   ipcMain.handle("herdr-t3:health", () => healthPayload());
 
   ipcMain.handle("herdr-t3:snapshot", async (): Promise<Record<string, unknown>> => {
-    const cached = session?.latestSnapshot() ?? null;
-    if (cached) return { ok: true, snapshot: cached };
     try {
       const snapshot: SessionSnapshot = await fetchSnapshot();
       return { ok: true, snapshot };
@@ -190,9 +191,11 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
+
   createWindow();
   app.on("activate", () => {
-    ensureSession();
+    ensureManager();
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     } else if (win && !win.isDestroyed()) {
@@ -202,16 +205,16 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  // On macOS the app stays alive with no window; keep the bridge session so
-  // Dock reactivation is instant and herdr subscriptions survive. The
-  // session is released on before-quit.
+  // On macOS the app stays alive with no window; keep the bridge sessions so
+  // Dock reactivation is instant and herdr subscriptions survive. They are
+  // released on before-quit.
   if (process.platform !== "darwin") {
-    session?.close();
-    session = null;
+    manager?.close();
+    manager = null;
     app.quit();
   }
 });
 
 app.on("before-quit", () => {
-  session?.close();
+  manager?.close();
 });

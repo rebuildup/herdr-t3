@@ -1,7 +1,20 @@
 import { useEffect, useState } from "react";
-import type { AgentStatus, PaneInfo, SessionSnapshot } from "../shared/protocol";
+import type { AgentStatus, MachineInfo, MachineStatus, PaneInfo, SessionSnapshot } from "../shared/protocol";
 import { cn } from "./lib/utils";
-import { connectBridge, fetchSession, onSnapshot, onStatus, rpc } from "./lib/api";
+import {
+  connectBridge,
+  fetchSession,
+  machineAdd,
+  machineConnect,
+  machineDisconnect,
+  onMachineStatus,
+  onMachines,
+  onSnapshot,
+  onStatus,
+  rpc,
+  LOCAL_MACHINE,
+} from "./lib/api";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
 import {
   ContextMenu,
@@ -28,6 +41,9 @@ import {
   Rows2,
   SquareSplitHorizontal,
   Terminal,
+  Monitor,
+  MonitorOff,
+  RefreshCw,
   Wifi,
   WifiOff,
   X,
@@ -52,30 +68,76 @@ function workspaceTitle(ws: SessionSnapshot["workspaces"][number]): string {
   return ws.label || ws.worktree?.repo_name || ws.workspace_id;
 }
 
+function machineStatusIcon(status: MachineStatus) {
+  switch (status) {
+    case "online":
+      return <Wifi className="size-3 text-success" />;
+    case "connecting":
+    case "reconnecting":
+      return <RefreshCw className="size-3 animate-spin text-muted-foreground" />;
+    case "auth_required":
+      return <CircleX className="size-3 text-warning" />;
+    case "disabled":
+      return <MonitorOff className="size-3 text-muted-foreground" />;
+    default:
+      return <WifiOff className="size-3 text-muted-foreground" />;
+  }
+}
+
 export default function App() {
-  const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [snapshots, setSnapshots] = useState<Record<string, SessionSnapshot>>({});
+  const [machines, setMachines] = useState<Record<string, MachineInfo>>({});
+  const [selectedMachine, setSelectedMachine] = useState<string>(LOCAL_MACHINE);
   const [connection, setConnection] = useState<"connecting" | "open" | "closed">("connecting");
   const [error, setError] = useState<string | null>(null);
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  const [addMachine, setAddMachine] = useState(false);
 
   useEffect(() => {
     const disconnect = connectBridge();
-    const offSnapshot = onSnapshot((next) => {
-      setSnapshot(next);
+    const offSnapshot = onSnapshot((next, machine) => {
+      setSnapshots((prev) => ({ ...prev, [machine]: next }));
       setError(null);
     });
     const offStatus = onStatus(setConnection);
-    void fetchSession()
-      .then(setSnapshot)
+    const offMachines = onMachines((list) => {
+      setMachines(Object.fromEntries(list.map((m) => [m.id, m])));
+    });
+    const offMachineStatus = onMachineStatus((m) => {
+      setMachines((prev) => ({ ...prev, [m.id]: m }));
+    });
+    void fetchSession(LOCAL_MACHINE)
+      .then((snap) => setSnapshots((prev) => ({ ...prev, [LOCAL_MACHINE]: snap })))
       .catch((e: Error) => setError(e.message));
     return () => {
       disconnect();
       offSnapshot();
       offStatus();
+      offMachines();
+      offMachineStatus();
     };
   }, []);
 
+  const snapshot = snapshots[selectedMachine] ?? null;
+  const machine = selectedMachine;
+  const call = (method: Parameters<typeof rpc>[0], params: Record<string, unknown> = {}) =>
+    rpc(method, params, machine);
+
+  const selectMachine = (id: string) => {
+    setSelectedMachine(id);
+    setError(null);
+    if (!snapshots[id]) {
+      machineConnect(id);
+      void fetchSession(id)
+        .then((snap) => setSnapshots((prev) => ({ ...prev, [id]: snap })))
+        .catch((e: Error) => setError(e.message));
+    }
+  };
+
+  const machineList = Object.values(machines).sort((a, b) =>
+    a.kind === "local" ? -1 : b.kind === "local" ? 1 : a.label.localeCompare(b.label),
+  );
   const workspaces = snapshot?.workspaces ?? [];
   const tabs = snapshot?.tabs ?? [];
   const panes = snapshot?.panes ?? [];
@@ -113,11 +175,65 @@ export default function App() {
           </span>
         </div>
         <div className="px-2 pb-1">
+          <div className="mb-1 flex items-center justify-between px-1">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Machines</span>
+            <button
+              type="button"
+              title="Add machine"
+              onClick={() => setAddMachine(true)}
+              className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-row-hover hover:text-foreground"
+            >
+              <Plus className="size-3" />
+            </button>
+          </div>
+          {machineList.map((m) => {
+            const selected = m.id === selectedMachine;
+            const info = m.status === "online" ? null : (m.detail ?? m.status);
+            return (
+              <ContextMenu key={m.id}>
+                <ContextMenuTrigger className="w-full">
+                  <button
+                    type="button"
+                    onClick={() => selectMachine(m.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                      selected
+                        ? "bg-sidebar-row-selected text-foreground"
+                        : "text-foreground/80 hover:bg-sidebar-row-hover",
+                    )}
+                    title={info ?? m.id}
+                  >
+                    <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                    {machineStatusIcon(m.status)}
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  {m.status !== "online" && m.status !== "connecting" && m.status !== "disabled" && (
+                    <ContextMenuItem onSelect={() => machineConnect(m.id)}>
+                      <RefreshCw className="size-3.5" /> Connect
+                    </ContextMenuItem>
+                  )}
+                  {m.status === "online" && (
+                    <ContextMenuItem onSelect={() => machineDisconnect(m.id)}>
+                      <MonitorOff className="size-3.5" /> Disconnect
+                    </ContextMenuItem>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
+          {machineList.length === 0 && (
+            <p className="px-2 py-1 text-2xs text-muted-foreground">No machines yet.</p>
+          )}
+        </div>
+        <div className="px-2 pb-1">
           <Button
             size="sm"
             variant="outline"
             className="w-full justify-start"
-            onClick={() => void rpc("workspace.create", { focus: true })}
+            disabled={!snapshot}
+            onClick={() => void call("workspace.create", { focus: true })}
           >
             <Plus className="size-3.5" /> New workspace
           </Button>
@@ -130,7 +246,7 @@ export default function App() {
                 <ContextMenuTrigger className="w-full">
                   <button
                     type="button"
-                    onClick={() => void rpc("workspace.focus", { workspace_id: ws.workspace_id })}
+                    onClick={() => void call("workspace.focus", { workspace_id: ws.workspace_id })}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
                       selected
@@ -146,7 +262,7 @@ export default function App() {
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem onSelect={() => void rpc("workspace.focus", { workspace_id: ws.workspace_id })}>
+                  <ContextMenuItem onSelect={() => void call("workspace.focus", { workspace_id: ws.workspace_id })}>
                     Focus
                   </ContextMenuItem>
                   <ContextMenuItem
@@ -157,18 +273,18 @@ export default function App() {
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     disabled={index === 0}
-                    onSelect={() => void rpc("workspace.move", { workspace_id: ws.workspace_id, insert_index: index - 1 })}
+                    onSelect={() => void call("workspace.move", { workspace_id: ws.workspace_id, insert_index: index - 1 })}
                   >
                     Move up
                   </ContextMenuItem>
                   <ContextMenuItem
                     disabled={index === workspaces.length - 1}
-                    onSelect={() => void rpc("workspace.move", { workspace_id: ws.workspace_id, insert_index: index + 1 })}
+                    onSelect={() => void call("workspace.move", { workspace_id: ws.workspace_id, insert_index: index + 1 })}
                   >
                     Move down
                   </ContextMenuItem>
                   <ContextMenuSeparator />
-                  <ContextMenuItem onSelect={() => void rpc("workspace.close", { workspace_id: ws.workspace_id })}>
+                  <ContextMenuItem onSelect={() => void call("workspace.close", { workspace_id: ws.workspace_id })}>
                     Close
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -199,7 +315,7 @@ export default function App() {
                   >
                     <button
                       type="button"
-                      onClick={() => void rpc("tab.focus", { tab_id: tab.tab_id })}
+                      onClick={() => void call("tab.focus", { tab_id: tab.tab_id })}
                       className="flex items-center gap-1.5"
                     >
                       {statusIcon(tab.agent_status)}
@@ -210,7 +326,7 @@ export default function App() {
                         type="button"
                         title="Close tab"
                         className="rounded-sm p-0.5 opacity-0 hover:bg-foreground/10 group-hover:opacity-100"
-                        onClick={() => void rpc("tab.close", { tab_id: tab.tab_id })}
+                        onClick={() => void call("tab.close", { tab_id: tab.tab_id })}
                       >
                         <X className="size-3" />
                       </button>
@@ -218,7 +334,7 @@ export default function App() {
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  <ContextMenuItem onSelect={() => void rpc("tab.focus", { tab_id: tab.tab_id })}>
+                  <ContextMenuItem onSelect={() => void call("tab.focus", { tab_id: tab.tab_id })}>
                     Focus
                   </ContextMenuItem>
                   <ContextMenuItem
@@ -229,18 +345,18 @@ export default function App() {
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     disabled={index === 0}
-                    onSelect={() => void rpc("tab.move", { tab_id: tab.tab_id, insert_index: index - 1 })}
+                    onSelect={() => void call("tab.move", { tab_id: tab.tab_id, insert_index: index - 1 })}
                   >
                     Move left
                   </ContextMenuItem>
                   <ContextMenuItem
                     disabled={index === workspaceTabs.length - 1}
-                    onSelect={() => void rpc("tab.move", { tab_id: tab.tab_id, insert_index: index + 1 })}
+                    onSelect={() => void call("tab.move", { tab_id: tab.tab_id, insert_index: index + 1 })}
                   >
                     Move right
                   </ContextMenuItem>
                   <ContextMenuSeparator />
-                  <ContextMenuItem onSelect={() => void rpc("tab.close", { tab_id: tab.tab_id })}>
+                  <ContextMenuItem onSelect={() => void call("tab.close", { tab_id: tab.tab_id })}>
                     Close
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -253,7 +369,7 @@ export default function App() {
               variant="ghost"
               title="New tab"
               onClick={() =>
-                void rpc("tab.create", { workspace_id: activeWorkspace.workspace_id, focus: true })
+                void call("tab.create", { workspace_id: activeWorkspace.workspace_id, focus: true })
               }
             >
               <Plus className="size-4" />
@@ -283,7 +399,7 @@ export default function App() {
               variant="ghost"
               title="Split right"
               onClick={() =>
-                void rpc("pane.split", { direction: "right", target_pane_id: focusedPane.pane_id, focus: true })
+                void call("pane.split", { direction: "right", target_pane_id: focusedPane.pane_id, focus: true })
               }
             >
               <Columns2 className="size-3.5" />
@@ -293,7 +409,7 @@ export default function App() {
               variant="ghost"
               title="Split down"
               onClick={() =>
-                void rpc("pane.split", { direction: "down", target_pane_id: focusedPane.pane_id, focus: true })
+                void call("pane.split", { direction: "down", target_pane_id: focusedPane.pane_id, focus: true })
               }
             >
               <Rows2 className="size-3.5" />
@@ -302,7 +418,7 @@ export default function App() {
               size="icon-sm"
               variant="ghost"
               title="Swap pane"
-              onClick={() => void rpc("pane.swap", { pane_id: focusedPane.pane_id, direction: "right" })}
+              onClick={() => void call("pane.swap", { pane_id: focusedPane.pane_id, direction: "right" })}
             >
               <SquareSplitHorizontal className="size-3.5" />
             </Button>
@@ -310,7 +426,7 @@ export default function App() {
               size="icon-sm"
               variant="ghost"
               title={layout?.zoomed ? "Unzoom" : "Zoom"}
-              onClick={() => void rpc("pane.zoom", { pane_id: focusedPane.pane_id })}
+              onClick={() => void call("pane.zoom", { pane_id: focusedPane.pane_id })}
             >
               {layout?.zoomed ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
             </Button>
@@ -328,7 +444,7 @@ export default function App() {
               size="icon-sm"
               variant="ghost"
               title="Close pane"
-              onClick={() => void rpc("pane.close", { pane_id: focusedPane.pane_id })}
+              onClick={() => void call("pane.close", { pane_id: focusedPane.pane_id })}
             >
               <X className="size-3.5" />
             </Button>
@@ -363,18 +479,80 @@ export default function App() {
                   }
                   title={paneTitle(pane)}
                   onMouseDown={() => {
-                    if (!pane.focused) void rpc("pane.focus", { pane_id: pane.pane_id });
+                    if (!pane.focused) void call("pane.focus", { pane_id: pane.pane_id });
                   }}
                 >
-                  <PaneTerminal paneId={pane.pane_id} connected={connection === "open"} />
+                  <PaneTerminal machine={machine} paneId={pane.pane_id} connected={connection === "open" || machines[machine]?.status === "online"} />
                 </div>
               );
             })}
         </div>
       </main>
 
-      <RenameDialog target={rename} onClose={() => setRename(null)} />
-      <PaneMessageDialog pane={messagePane} onClose={() => setMessagePane(null)} />
+      <RenameDialog target={rename} machine={machine} onClose={() => setRename(null)} />
+      <PaneMessageDialog pane={messagePane} machine={machine} onClose={() => setMessagePane(null)} />
+      <AddMachineDialog open={addMachine} onClose={() => setAddMachine(false)} />
     </div>
+  );
+}
+
+function AddMachineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [label, setLabel] = useState("");
+  const [target, setTarget] = useState("");
+  const [session, setSession] = useState("default");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!label.trim() || !target.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await machineAdd({ label: label.trim(), target: target.trim(), session: session.trim() || undefined });
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogTitle>Add machine</DialogTitle>
+        <DialogDescription>
+          Connect to a herdr server over SSH. Uses your existing ssh config; the first connect may
+          require interactive SSH authentication in a terminal.
+        </DialogDescription>
+        <div className="flex flex-col gap-2">
+          <input
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            placeholder="Label (e.g. lab-windows)"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <input
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            placeholder="SSH target (user@host or ssh config alias)"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+          />
+          <input
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            placeholder="Herdr session (default)"
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+          />
+          {error && <p className="text-2xs text-error">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button size="sm" disabled={busy || !label.trim() || !target.trim()} onClick={() => void submit()}>
+              Add
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
