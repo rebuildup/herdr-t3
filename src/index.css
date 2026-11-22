@@ -311,7 +311,7 @@
   --sidebar-control-surface: var(--muted);
   --sidebar-row-hover: var(--accent);
   --sidebar-row-active: var(--accent);
-  --sidebar-row-selected: var(--muted);
+  --sidebar-row-selected: color-mix(in srgb, var(--ghostty-fg) 12%, var(--ghostty-bg));
   --sidebar-stage-fade: var(--card);
   --code-background: var(--card);
   --code-foreground: var(--ghostty-fg);
@@ -319,6 +319,23 @@
   --terminal-foreground: var(--ghostty-fg);
   --terminal-cursor: var(--ghostty-cursor, var(--ghostty-fg));
   --terminal-selection-background: var(--ghostty-selection, color-mix(in srgb, var(--ghostty-fg) 20%, transparent));
+}
+
+:where(:not(iframe))::-webkit-scrollbar {
+  width: var(--app-scrollbar-width);
+}
+
+:where(:not(iframe))::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:where(:not(iframe))::-webkit-scrollbar-thumb {
+  background: var(--app-scrollbar-thumb);
+  border-radius: 3px;
+}
+
+:where(:not(iframe))::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
 }
 
 @layer base {

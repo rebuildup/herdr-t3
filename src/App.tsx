@@ -44,6 +44,7 @@ import {
   Maximize2,
   MessageSquareText,
   Minimize2,
+  Pencil,
   Plus,
   Rows2,
   SquareSplitHorizontal,
@@ -59,15 +60,15 @@ import {
 function statusIcon(status: AgentStatus) {
   switch (status) {
     case "working":
-      return <Loader2 className="size-3 animate-spin" />;
+      return <Loader2 className="size-3.5 animate-spin" />;
     case "blocked":
-      return <CircleX className="size-3 text-warning" />;
+      return <CircleX className="size-3.5 text-warning" />;
     case "done":
-      return <CircleCheck className="size-3 text-success" />;
+      return <CircleCheck className="size-3.5 text-success" />;
     case "idle":
-      return <Circle className="size-3 text-muted-foreground" />;
+      return <Circle className="size-3.5 text-muted-foreground" />;
     default:
-      return <CircleDashed className="size-3 text-muted-foreground" />;
+      return <CircleDashed className="size-3.5 text-muted-foreground" />;
   }
 }
 
@@ -78,16 +79,16 @@ function workspaceTitle(ws: SessionSnapshot["workspaces"][number]): string {
 function machineStatusIcon(status: MachineStatus) {
   switch (status) {
     case "online":
-      return <Wifi className="size-3 text-success" />;
+      return <Wifi className="size-3.5 text-success" />;
     case "connecting":
     case "reconnecting":
       return <RefreshCw className="size-3 animate-spin text-muted-foreground" />;
     case "auth_required":
-      return <CircleX className="size-3 text-warning" />;
+      return <CircleX className="size-3.5 text-warning" />;
     case "disabled":
-      return <MonitorOff className="size-3 text-muted-foreground" />;
+      return <MonitorOff className="size-3.5 text-muted-foreground" />;
     default:
-      return <WifiOff className="size-3 text-muted-foreground" />;
+      return <WifiOff className="size-3.5 text-muted-foreground" />;
   }
 }
 
@@ -270,7 +271,7 @@ export default function App() {
                     {statusIcon(ws.agent_status)}
                     <span className="min-w-0 flex-1 truncate">{workspaceTitle(ws)}</span>
                     <span className="text-2xs text-secondary-label">
-                      {ws.tab_count}t · {ws.pane_count}p
+                      <span className="tabular-nums">{ws.tab_count}t · {ws.pane_count}p</span>
                     </span>
                   </button>
                 </ContextMenuTrigger>
@@ -466,7 +467,7 @@ export default function App() {
                 setRename({ kind: "pane", id: focusedPane.pane_id, label: paneTitle(focusedPane) })
               }
             >
-              <span className="text-2xs">Aa</span>
+              <Pencil className="size-3.5" />
             </Button>
             <Button
               size="icon-sm"
