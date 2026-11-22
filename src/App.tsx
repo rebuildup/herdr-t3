@@ -209,7 +209,7 @@ export default function App() {
                     type="button"
                     onClick={() => selectMachine(m.id)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                      "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm",
                       selected
                         ? "bg-sidebar-row-selected text-foreground"
                         : "text-foreground/80 hover:bg-sidebar-row-hover",
@@ -237,7 +237,7 @@ export default function App() {
             );
           })}
           {machineList.length === 0 && (
-            <p className="px-2 py-1 text-2xs text-muted-foreground">No machines yet.</p>
+            <p className="px-2 py-4 text-center text-2xs text-muted-foreground/60">No machines yet.</p>
           )}
         </div>
         <div className="px-2 pb-1">
@@ -261,7 +261,7 @@ export default function App() {
                     type="button"
                     onClick={() => void call("workspace.focus", { workspace_id: ws.workspace_id })}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                      "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm",
                       selected
                         ? "bg-sidebar-row-selected text-foreground"
                         : "text-foreground/80 hover:bg-sidebar-row-hover",
@@ -305,7 +305,7 @@ export default function App() {
             );
           })}
           {snapshot && workspaces.length === 0 && (
-            <p className="px-2 py-4 text-xs text-muted-foreground">No workspaces yet.</p>
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground/60">No workspaces yet.</p>
           )}
         </nav>
         {error && <p className="px-3 py-2 text-xs text-error">{error}</p>}
