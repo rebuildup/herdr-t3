@@ -46,19 +46,22 @@ Reused material:
 - Behavioral rules — the bridge traps listed in the root `AGENTS.md` (never
   rebuild an attached terminal from `pane.read`, drafts survive disconnects,
   prompt answers go through the API) are carried over as project invariants.
-- `shared/ghostty/engine.ts`, `shared/ghostty/ghostty-emulator.ts`,
-  `shared/ghostty/graphics.ts`, `shared/ghostty/ghostty-vt.wasm`,
-  `scripts/ghostty-vt/` — the libghostty-vt terminal engine wrapper, its tests
-  and the pinned build script/patch, ported from Ovis
-  `shared/ghostty/` and `tui/emulator/` (ADR-0007). The wasm itself is
-  libghostty-vt from ghostty (MIT), built by `scripts/ghostty-vt/build.sh`.
+- `shared/ghostty/engine.ts`, `shared/ghostty/engine.test.ts`,
+  `shared/ghostty/ghostty-vt.wasm`, `scripts/ghostty-vt/` — the
+  libghostty-vt terminal engine wrapper, its tests and the pinned
+  build script/patch, ported from Ovis `shared/ghostty/` (ADR-0007). Ovis's
+  `tui/emulator/` layer is not carried: the browser session in
+  `src/lib/ghostty/session.ts` is this repository's per-pane emulator. The
+  wasm itself is libghostty-vt from ghostty (MIT), built by
+  `scripts/ghostty-vt/build.sh`.
 - `src/lib/ghostty/session.ts`, `src/lib/ghostty/surface.ts`,
   `src/lib/ghostty/renderer.ts`, `src/lib/ghostty/keys.ts`,
-  `src/lib/ghostty/colors.ts`, `src/lib/ghostty/surface.css` — the browser
-  terminal surface (per-pane session, canvas renderer, key/mouse/IME input,
-  selection, scrollback, search), ported from Ovis `src/lib/ghostty/` and
-  adapted for full xterm.js replacement: the xterm overlay/capture adapter is
-  not carried.
+  `src/lib/ghostty/colors.ts`, `src/lib/ghostty/surface.css`,
+  `src/lib/ghostty/session.test.ts`, `src/lib/ghostty/keys.test.ts` — the
+  browser terminal surface (per-pane session, canvas renderer,
+  key/mouse/IME input, selection, scrollback, search), ported from Ovis
+  `src/lib/ghostty/` and adapted for full xterm.js replacement: the xterm
+  overlay/capture adapter is not carried.
 
 ## herdr
 

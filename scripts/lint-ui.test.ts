@@ -19,7 +19,10 @@ function lint(path: string) {
   return { code: res.status, output: `${res.stdout}${res.stderr}` };
 }
 
-test("bad fixture triggers every UI lint rule", () => {
+// oxlint over all of src can exceed bun's 5s default on a loaded machine.
+const LINT_TIMEOUT = 30_000;
+
+test("bad fixture triggers every UI lint rule", { timeout: LINT_TIMEOUT }, () => {
   const { code, output } = lint("scripts/lint-fixtures/bad.tsx");
   expect(code).not.toBe(0);
   for (const rule of [
@@ -43,7 +46,7 @@ test("good fixture passes clean", () => {
   expect(code).toBe(0);
 });
 
-test("product sources stay clean", () => {
+test("product sources stay clean", { timeout: LINT_TIMEOUT }, () => {
   const { code, output } = lint("src");
   expect(output).not.toMatch(/:\d+:\d+: error/);
   expect(code).toBe(0);
