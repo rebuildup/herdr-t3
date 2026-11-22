@@ -18,8 +18,16 @@ import { isClientFrame } from "../shared/protocol.ts";
 import { fetchSnapshot } from "../server/bridge-core.ts";
 import { MachineManager } from "../server/machine-manager.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
+import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnostics.ts";
 
 const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
+
+// Diagnostics must be installed before any other module can throw: they are
+// the only record of quit-time and startup exceptions on installed builds.
+diagInit({
+  version: "0.1.0",
+  commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+});
 
 // app.getAppPath() is the app root at runtime: the project dir for
 // `electron .` and app.asar for the packaged app. Do NOT use __dirname or
@@ -95,7 +103,7 @@ function externalUrlAllowed(url: string): boolean {
 }
 
 function createWindow(): void {
-  win = new BrowserWindow({
+  const bw = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
@@ -109,10 +117,18 @@ function createWindow(): void {
       sandbox: true,
     },
   });
-  const contents = win.webContents;
+  win = bw;
+  const contents = bw.webContents;
+  diagAttachWebContents(contents);
 
-  win.on("closed", () => {
-    if (win?.webContents === contents) win = null;
+  bw.on("closed", () => {
+    diag("info", "window.closed", "main window closed");
+    // Do NOT touch bw.webContents here: the window is already destroyed and
+    // the getter throws "Object has been destroyed" (the quit-time JS error).
+    if (win === bw) win = null;
+  });
+  contents.on("did-finish-load", () => {
+    diag("info", "window.loaded", "renderer finished loading");
   });
 
   // Popups and navigations never leave the app except allowlisted external
@@ -164,6 +180,8 @@ function ensureManager(): void {
 }
 
 app.whenReady().then(() => {
+  diagAttachApp();
+  diag("info", "app.ready", "Electron app ready");
   ensureManager();
   if (process.env["HERDR_T3_DEBUG"]) {
     setTimeout(() => {
@@ -173,8 +191,10 @@ app.whenReady().then(() => {
 
   ipcMain.on("herdr-t3:frame", (event, frame: unknown) => {
     // Only the app's own window may drive the bridge, and only with frames
-    // that satisfy the ClientFrame contract.
-    if (!win || event.sender !== win.webContents || win.isDestroyed()) return;
+    // that satisfy the ClientFrame contract. isDestroyed() must be checked
+    // before touching win.webContents — the getter throws on a destroyed
+    // window.
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
     if (!isClientFrame(frame)) return;
     manager?.handleFrame(frame as ClientFrame);
   });
@@ -193,6 +213,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
 
+  // Renderer-reported JS errors (window.onerror / unhandledrejection forwarded
+  // by the preload). Shape-checked and truncated; never carries frame data.
+  ipcMain.on("herdr-t3:diag", (event, payload: unknown) => {
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+    if (typeof payload !== "object" || payload === null) return;
+    const p = payload as { kind?: unknown; message?: unknown; stack?: unknown };
+    const kind = typeof p.kind === "string" ? p.kind : "error";
+    const message = typeof p.message === "string" ? p.message : String(p.message ?? "");
+    diag("error", `renderer.${kind}`, message, {
+      stack: typeof p.stack === "string" ? p.stack : undefined,
+    });
+  });
+
   createWindow();
   app.on("activate", () => {
     ensureManager();
@@ -205,6 +238,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  diag("info", "app.windowAllClosed", `platform=${process.platform}`);
   // On macOS the app stays alive with no window; keep the bridge sessions so
   // Dock reactivation is instant and herdr subscriptions survive. They are
   // released on before-quit.
@@ -216,5 +250,10 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  diag("info", "app.beforeQuit", "quit requested");
   manager?.close();
+});
+
+app.on("will-quit", () => {
+  diag("info", "app.willQuit", "will-quit");
 });
