@@ -76,7 +76,7 @@ async function health(): Promise<Response> {
   }
   return Response.json({
     ok: true,
-    version: process.env["npm_package_version"] ?? "0.1.0",
+    version: process.env["npm_package_version"] ?? "unknown",
     commit: COMMIT,
     herdr: { reachable, socket: socketAddress(socket), ...(version ? { version } : {}), ...(protocol ? { protocol } : {}) },
   } satisfies import("../shared/protocol.ts").HealthResponse);

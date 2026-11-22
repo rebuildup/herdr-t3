@@ -27,7 +27,7 @@ interface DiagEntry {
 }
 
 let logPath: string | null = null;
-let version = "0.1.0";
+let version = "unknown";
 let commit = "unknown";
 
 function clip(value: unknown): string {
