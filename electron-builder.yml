@@ -1,4 +1,4 @@
-appId: dev.herdr-t3
+appId: com.github.rebuildup.herdr-t3
 productName: herdr-t3
 directories:
   output: release
