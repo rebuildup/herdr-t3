@@ -9,7 +9,7 @@
  * This file is bundled to CJS (desktop/main.cjs) and run by Electron's
  * Node.js runtime, so only node:* APIs and the electron module are used.
  */
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,6 +17,7 @@ import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protoc
 import { isClientFrame } from "../shared/protocol.ts";
 import { fetchSnapshot } from "../server/bridge-core.ts";
 import { MachineManager } from "../server/machine-manager.ts";
+import { GhosttyThemeWatcher } from "../server/ghostty.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
 import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnostics.ts";
 
@@ -45,6 +46,7 @@ if (process.env["HERDR_T3_PROFILE"] === "dev") {
 
 let win: BrowserWindow | null = null;
 let manager: MachineManager | null = null;
+let ghostty: GhosttyThemeWatcher | null = null;
 
 /**
  * Diagnostics for external verify tools (pc-setup): the app exposes no
@@ -226,6 +228,18 @@ app.whenReady().then(() => {
     });
   });
 
+  // Ghostty theme sync (issue #35): resolved in the main process where the
+  // config files live; the renderer only receives the resolved palette.
+  ghostty = new GhosttyThemeWatcher(() => nativeTheme.shouldUseDarkColors);
+  ghostty.onChange((palette) => {
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send("herdr-t3:ghostty", palette);
+  });
+  nativeTheme.on("updated", () => ghostty?.refreshNow());
+  ghostty.start();
+
+  ipcMain.handle("herdr-t3:ghostty", () => ghostty?.current() ?? null);
+
   createWindow();
   app.on("activate", () => {
     ensureManager();
@@ -251,6 +265,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   diag("info", "app.beforeQuit", "quit requested");
+  ghostty?.dispose();
   manager?.close();
 });
 

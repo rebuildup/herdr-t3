@@ -278,6 +278,49 @@
   }
 }
 
+/* Ghostty sync (issue #35): Ghostty colors are mapped onto the T3 semantic
+ * tokens — surfaces, text, borders and hover states keep the T3 hierarchy,
+ * only the color sources change. `--ghostty-*` vars are set by the renderer
+ * only while data-appearance="ghostty" is active. */
+:root[data-appearance="ghostty"] {
+  --background: var(--ghostty-bg);
+  --app-chrome-background: var(--background);
+  --foreground: var(--ghostty-fg);
+  --card: color-mix(in srgb, var(--ghostty-bg) 96%, var(--ghostty-fg));
+  --card-foreground: var(--ghostty-fg);
+  --popover: var(--card);
+  --popover-foreground: var(--ghostty-fg);
+  --secondary: color-mix(in srgb, var(--ghostty-fg) 5%, var(--ghostty-bg));
+  --secondary-foreground: var(--ghostty-fg);
+  --muted: color-mix(in srgb, var(--ghostty-fg) 4%, var(--ghostty-bg));
+  --muted-foreground: color-mix(in srgb, var(--ghostty-fg) 55%, var(--ghostty-bg));
+  --placeholder: var(--muted-foreground);
+  --secondary-label: var(--muted-foreground);
+  --icon-muted: var(--muted-foreground);
+  --accent: color-mix(in srgb, var(--ghostty-fg) 7%, var(--ghostty-bg));
+  --accent-foreground: var(--ghostty-fg);
+  --message-surface: color-mix(in srgb, var(--ghostty-bg) 90%, var(--ghostty-fg));
+  --message-foreground: var(--ghostty-fg);
+  --border: color-mix(in srgb, var(--ghostty-fg) 10%, var(--ghostty-bg));
+  --input: color-mix(in srgb, var(--ghostty-fg) 14%, var(--ghostty-bg));
+  --ring: var(--ghostty-accent, var(--primary));
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--ghostty-fg);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-control-surface: var(--muted);
+  --sidebar-row-hover: var(--accent);
+  --sidebar-row-active: var(--accent);
+  --sidebar-row-selected: var(--muted);
+  --sidebar-stage-fade: var(--card);
+  --code-background: var(--card);
+  --code-foreground: var(--ghostty-fg);
+  --terminal-background: var(--ghostty-bg);
+  --terminal-foreground: var(--ghostty-fg);
+  --terminal-cursor: var(--ghostty-cursor, var(--ghostty-fg));
+  --terminal-selection-background: var(--ghostty-selection, color-mix(in srgb, var(--ghostty-fg) 20%, transparent));
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

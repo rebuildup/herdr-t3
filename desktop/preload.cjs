@@ -39,4 +39,14 @@ contextBridge.exposeInMainWorld("herdrT3", {
   snapshot() {
     return ipcRenderer.invoke("herdr-t3:snapshot");
   },
+  /** Resolved Ghostty palette, or null when Ghostty sync is unavailable. */
+  ghosttyTheme() {
+    return ipcRenderer.invoke("herdr-t3:ghostty");
+  },
+  /** Subscribe to Ghostty palette pushes (null = fallback to T3 theme). */
+  onGhosttyTheme(listener) {
+    const handler = (_event, palette) => listener(palette);
+    ipcRenderer.on("herdr-t3:ghostty", handler);
+    return () => ipcRenderer.removeListener("herdr-t3:ghostty", handler);
+  },
 });
