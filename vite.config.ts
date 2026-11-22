@@ -27,5 +27,9 @@ export default defineConfig(({ command }) => ({
   build: {
     outDir: "dist",
     sourcemap: true,
+    // The packaged app loads dist/ over file://, where fetch() of a file URL is
+    // refused; inlining the terminal engine's wasm as a data URI keeps it
+    // loadable there (and everywhere else). It is the only asset this large.
+    assetsInlineLimit: (filePath) => (filePath.endsWith(".wasm") ? true : undefined),
   },
 }));
