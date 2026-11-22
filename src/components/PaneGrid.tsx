@@ -12,6 +12,15 @@ export function PaneGrid({ bridge, view }: PaneGridProps) {
   const { connection, machines, machine, snapshot, call } = bridge;
   const { tabPanes, layout } = view;
 
+  // herdr reports zoom as a flag, not a relayout: rects stay split. The
+  // client owns the zoomed presentation — show only the focused pane.
+  const zoomedPane =
+    layout?.zoomed === true
+      ? (tabPanes.find((p) => p.pane_id === layout.focused_pane_id) ??
+        tabPanes.find((p) => p.focused))
+      : undefined;
+  const visiblePanes = zoomedPane ? [zoomedPane] : tabPanes;
+
   return (
     <div className="relative flex-1 overflow-hidden bg-terminal-background">
       {tabPanes.length === 0 && (
@@ -20,14 +29,18 @@ export function PaneGrid({ bridge, view }: PaneGridProps) {
         </div>
       )}
       {layout &&
-        tabPanes.map((pane) => {
-          const rect = layout.panes.find((lp) => lp.pane_id === pane.pane_id)?.rect;
+        visiblePanes.map((pane) => {
+          const rect = zoomedPane
+            ? undefined
+            : layout.panes.find((lp) => lp.pane_id === pane.pane_id)?.rect;
           return (
             <div
               key={pane.pane_id}
+              data-pane-id={pane.pane_id}
               className={cn(
                 "absolute overflow-hidden border",
                 pane.focused ? "border-primary/60" : "border-border/60",
+                zoomedPane && "inset-0",
               )}
               style={
                 rect
