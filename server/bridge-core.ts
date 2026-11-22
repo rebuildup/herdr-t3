@@ -231,6 +231,8 @@ export interface BridgeSession {
   handleFrame(frame: ClientFrame): void;
   /** Initial snapshot + subscription; resolves when the first snapshot is pushed or fails. */
   start(): Promise<void>;
+  /** Most recent snapshot this session produced, or null before the first one. */
+  latestSnapshot(): SessionSnapshot | null;
   /** Release subscriptions and every terminal link. */
   close(): void;
 }
@@ -262,6 +264,7 @@ export function createBridgeSession(send: (frame: ServerFrame) => void): BridgeS
           const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
           state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message } });
         }),
+    latestSnapshot: () => state.snapshot,
     close: () => {
       state.subscription?.close();
       if (state.snapshotTimer) clearTimeout(state.snapshotTimer);

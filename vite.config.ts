@@ -7,7 +7,10 @@ import { defineConfig } from "vite";
 // stable install on 4737 is never claimed by accident.
 const bridgePort = Number(process.env.HERDR_T3_PORT ?? 4738);
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // The desktop app loads dist/ over file://, so built assets must be
+  // relative; the dev server keeps absolute paths for HMR.
+  base: command === "serve" ? "/" : "./",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -25,4 +28,4 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: true,
   },
-});
+}));

@@ -16,7 +16,9 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { herdrSocketPath } from "./herdr.ts";
+import type { Socket } from "node:net";
+import { herdrSocketPath, socketAddress } from "./herdr.ts";
+import { connectSocket } from "./socket.ts";
 
 export const CLIENT_PROTOCOL_VERSION = 22;
 const MAX_FRAME_SIZE = 2 * 1024 * 1024;
@@ -225,7 +227,7 @@ export function openTerminalLink(
   return new Promise<TerminalLink>((resolve, reject) => {
     let settled = false;
     let welcomed = false;
-    let sock: { write: (d: Uint8Array) => number; end: () => void } | null = null;
+    let sock: Socket | null = null;
     let buffer = new Uint8Array(0);
     let closed = false;
 
@@ -302,24 +304,21 @@ export function openTerminalLink(
       }
     };
 
-    void Bun.connect({
-      unix: socketPath,
-      socket: {
-        data(_sock, chunk) {
-          const merged = new Uint8Array(buffer.length + chunk.length);
-          merged.set(buffer);
-          merged.set(chunk, buffer.length);
-          buffer = merged;
-          pump();
-        },
-        error(_sock, err) {
-          if (!welcomed) finish(() => reject(new Error(`herdr client socket error: ${err?.message ?? "unknown"}`)));
-          else if (!closed) handlers.onClose(err?.message ?? "socket error");
-        },
-        close() {
-          if (!welcomed) finish(() => reject(new Error("herdr closed the client socket during handshake")));
-          else if (!closed) handlers.onClose("socket closed");
-        },
+    connectSocket(socketAddress(socketPath), {
+      data: (chunk) => {
+        const merged = new Uint8Array(buffer.length + chunk.length);
+        merged.set(buffer);
+        merged.set(chunk, buffer.length);
+        buffer = merged;
+        pump();
+      },
+      error: (err) => {
+        if (!welcomed) finish(() => reject(new Error(`herdr client socket error: ${err.message}`)));
+        else if (!closed) handlers.onClose(err.message);
+      },
+      close: () => {
+        if (!welcomed) finish(() => reject(new Error("herdr closed the client socket during handshake")));
+        else if (!closed) handlers.onClose("socket closed");
       },
     }).then((s) => {
       sock = s;

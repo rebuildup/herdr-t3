@@ -9,7 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ClientFrame } from "../shared/protocol.ts";
+import { isClientFrame } from "../shared/protocol.ts";
 import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
 import { createBridgeSession, fetchSnapshot, type BridgeSession } from "./bridge-core.ts";
@@ -114,12 +114,13 @@ Bun.serve({
     message(ws, message) {
       const session = (ws as unknown as { __session?: BridgeSession }).__session;
       if (!session) return;
-      let frame: ClientFrame;
+      let frame: unknown;
       try {
-        frame = JSON.parse(String(message)) as ClientFrame;
+        frame = JSON.parse(String(message));
       } catch {
         return;
       }
+      if (!isClientFrame(frame)) return;
       session.handleFrame(frame);
     },
     close(ws) {
