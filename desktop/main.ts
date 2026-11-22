@@ -20,13 +20,14 @@ import { MachineManager } from "../server/machine-manager.ts";
 import { GhosttyThemeWatcher } from "../server/ghostty.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
 import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnostics.ts";
+import pkg from "../package.json";
 
 const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
 
 // Diagnostics must be installed before any other module can throw: they are
 // the only record of quit-time and startup exceptions on installed builds.
 diagInit({
-  version: "0.1.0",
+  version: pkg.version,
   commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
 });
 
@@ -154,7 +155,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
   return fetchSnapshot()
     .then((snapshot) => ({
       ok: true,
-      version: "0.1.0",
+      version: pkg.version,
       commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
       herdr: {
         reachable: true,
@@ -165,7 +166,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
     }))
     .catch((error: unknown) => ({
       ok: true,
-      version: "0.1.0",
+      version: pkg.version,
       commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
       herdr: {
         reachable: false,
