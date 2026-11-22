@@ -256,8 +256,13 @@ export function unsubscribeTerminal(machine: string, paneId: string): void {
   sendFrame({ type: "unsubscribe_terminal", machine, paneId });
 }
 
-export function terminalInput(machine: string, paneId: string, data: string): void {
-  sendFrame({ type: "terminal_input", machine, paneId, data });
+/** `data` is base64 bytes: encoded input and terminal replies are arbitrary bytes, not necessarily UTF-8. */
+export function terminalInput(machine: string, paneId: string, data: Uint8Array): void {
+  let binary = "";
+  for (let i = 0; i < data.length; i += 0x8000) {
+    binary += String.fromCharCode(...data.subarray(i, i + 0x8000));
+  }
+  sendFrame({ type: "terminal_input", machine, paneId, data: btoa(binary) });
 }
 
 export function terminalResize(machine: string, paneId: string, cols: number, rows: number): void {

@@ -283,7 +283,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_input": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
-      const bytes = new TextEncoder().encode(frame.data);
+      const bytes = Buffer.from(frame.data, "base64");
       const write = () => slot.link?.write(bytes);
       if (slot.link) write();
       else slot.queue.push(write);
