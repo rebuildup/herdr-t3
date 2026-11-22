@@ -33,10 +33,14 @@ export async function fetchSession(): Promise<SessionSnapshot> {
 
 export type SnapshotListener = (snapshot: SessionSnapshot) => void;
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
+export type TerminalDataListener = (paneId: string, dataBase64: string) => void;
+export type TerminalClosedListener = (paneId: string, reason: string | undefined) => void;
 
 let ws: WebSocket | null = null;
 let wsListeners = new Set<SnapshotListener>();
 let statusListeners = new Set<StatusListener>();
+let terminalDataListeners = new Set<TerminalDataListener>();
+let terminalClosedListeners = new Set<TerminalClosedListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 let rpcCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -60,9 +64,11 @@ function handleFrame(frame: ServerFrame): void {
       else waiter.reject(new ApiError(frame.error?.code ?? "rpc", frame.error?.message ?? "rpc failed"));
       return;
     }
-    case "event":
     case "terminal_data":
+      for (const listener of terminalDataListeners) listener(frame.paneId, frame.data);
+      return;
     case "terminal_closed":
+      for (const listener of terminalClosedListeners) listener(frame.paneId, frame.reason);
       return;
   }
 }
@@ -113,6 +119,37 @@ export function onSnapshot(listener: SnapshotListener): () => void {
 export function onStatus(listener: StatusListener): () => void {
   statusListeners.add(listener);
   return () => statusListeners.delete(listener);
+}
+
+export function onTerminalData(listener: TerminalDataListener): () => void {
+  terminalDataListeners.add(listener);
+  return () => terminalDataListeners.delete(listener);
+}
+
+export function onTerminalClosed(listener: TerminalClosedListener): () => void {
+  terminalClosedListeners.add(listener);
+  return () => terminalClosedListeners.delete(listener);
+}
+
+function sendFrame(frame: ClientFrame): void {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(frame));
+}
+
+export function subscribeTerminal(paneId: string, cols: number, rows: number): void {
+  sendFrame({ type: "subscribe_terminal", paneId, cols, rows });
+}
+
+export function unsubscribeTerminal(paneId: string): void {
+  sendFrame({ type: "unsubscribe_terminal", paneId });
+}
+
+export function terminalInput(paneId: string, data: string): void {
+  sendFrame({ type: "terminal_input", paneId, data });
+}
+
+export function terminalResize(paneId: string, cols: number, rows: number): void {
+  sendFrame({ type: "terminal_resize", paneId, cols, rows });
 }
 
 /** Call a whitelisted herdr RPC through the bridge. */

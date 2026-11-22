@@ -170,7 +170,7 @@ export interface SessionResponse {
 /** Client -> server WebSocket frames. */
 export type ClientFrame =
   | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown> }
-  | { type: "subscribe_terminal"; paneId: string }
+  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number }
   | { type: "unsubscribe_terminal"; paneId: string }
   | { type: "terminal_input"; paneId: string; data: string }
   | { type: "terminal_resize"; paneId: string; cols: number; rows: number };
@@ -181,6 +181,7 @@ export type ServerFrame =
   | { type: "snapshot"; snapshot: SessionSnapshot }
   | { type: "event"; event: unknown }
   | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string } }
+  /** `data` is base64: terminal output is arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_data"; paneId: string; data: string }
   | { type: "terminal_closed"; paneId: string; reason?: string };
 
