@@ -1,0 +1,26 @@
+import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+const bridgePort = Number(process.env.HERDR_T3_PORT ?? 4737);
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "~": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
+  server: {
+    port: 5737,
+    proxy: {
+      "/api": `http://127.0.0.1:${bridgePort}`,
+      "/ws": { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
+    },
+  },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
+  },
+});

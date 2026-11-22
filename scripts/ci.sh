@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+printf 'Checking TypeScript...\n'
+bun run typecheck
+
+printf 'Running tests...\n'
+bun run test
+
+printf 'Checking ADR index...\n'
+python3 - <<'PY'
+import re
+from pathlib import Path
+
+adr_dir = Path("docs/adr")
+index = (adr_dir / "README.md").read_text(encoding="utf-8")
+indexed = set(re.findall(r"\((?:\./)?(ADR-\d{4})\.md\)", index))
+present = {path.stem for path in adr_dir.glob("ADR-*.md")}
+missing = present - indexed
+if missing:
+    raise SystemExit(f"ADRs missing from index: {sorted(missing)}")
+print("ok      ADR index covers all ADR files")
+PY
+
+printf 'All repository checks passed.\n'
