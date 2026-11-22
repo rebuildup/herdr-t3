@@ -10,8 +10,13 @@ export function ContextMenu({ children }: { children: ReactNode }) {
 }
 
 export function ContextMenuTrigger({ children, className }: { children: ReactNode; className?: string }) {
+  // Render a div, not the default button: rows inside the trigger are
+  // themselves buttons, and button-in-button is invalid HTML.
   return (
-    <BaseContextMenu.Trigger className={cn("outline-none", className)}>
+    <BaseContextMenu.Trigger
+      className={cn("outline-none", className)}
+      render={<div />}
+    >
       {children}
     </BaseContextMenu.Trigger>
   );
