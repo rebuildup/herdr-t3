@@ -3,6 +3,7 @@ import type { AgentStatus, SessionSnapshot } from "../shared/protocol";
 import { cn } from "./lib/utils";
 import { connectBridge, fetchSession, onSnapshot, onStatus, rpc } from "./lib/api";
 import { Button } from "./components/ui/button";
+import { PaneTerminal } from "./components/PaneTerminal";
 import {
   Circle,
   CircleCheck,
@@ -164,15 +165,13 @@ export default function App() {
             tabPanes.map((pane) => {
               const rect = layout.panes.find((lp) => lp.pane_id === pane.pane_id)?.rect;
               return (
-                <button
+                <div
                   key={pane.pane_id}
-                  type="button"
-                  onClick={() => void rpc("pane.focus", { pane_id: pane.pane_id })}
                   className={cn(
-                    "absolute flex items-center justify-center rounded-md border text-xs",
+                    "absolute overflow-hidden rounded-md border",
                     pane.focused
-                      ? "border-primary/60 bg-terminal-background text-foreground"
-                      : "border-border/60 bg-terminal-background/80 text-muted-foreground hover:border-border",
+                      ? "border-primary/60"
+                      : "border-border/60",
                   )}
                   style={
                     rect
@@ -185,12 +184,12 @@ export default function App() {
                       : undefined
                   }
                   title={pane.terminal_title_stripped ?? pane.title ?? pane.pane_id}
+                  onMouseDown={() => {
+                    if (!pane.focused) void rpc("pane.focus", { pane_id: pane.pane_id });
+                  }}
                 >
-                  <span className="flex items-center gap-1.5 truncate px-2">
-                    {statusIcon(pane.agent_status)}
-                    {pane.terminal_title_stripped ?? pane.title ?? pane.pane_id}
-                  </span>
-                </button>
+                  <PaneTerminal paneId={pane.pane_id} connected={connection === "open"} />
+                </div>
               );
             })}
         </div>

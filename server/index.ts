@@ -24,6 +24,7 @@ import {
   type Subscription,
 } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts } from "./guard.ts";
+import { openTerminalLink, type TerminalLink } from "./client-link.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
@@ -123,17 +124,28 @@ async function health(): Promise<Response> {
   } satisfies import("../shared/protocol.ts").HealthResponse);
 }
 
+interface TerminalSlot {
+  refs: number;
+  link: TerminalLink | null;
+  /** Operations queued until the attach resolves. */
+  queue: (() => void)[];
+  gone: boolean;
+}
+
 interface ClientState {
   send: (frame: ServerFrame) => void;
   subscription: Subscription | null;
   subscribedPaneIds: Set<string>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
+  snapshot: SessionSnapshot | null;
+  terminals: Map<string, TerminalSlot>;
 }
 
 function pushSnapshot(state: ClientState): void {
   void fetchSnapshot()
     .then((snapshot) => {
+      state.snapshot = snapshot;
       state.send({ type: "snapshot", snapshot });
       reconcileSubscriptions(state, snapshot);
     })
@@ -184,6 +196,67 @@ function scheduleSnapshot(state: ClientState): void {
   }, 120);
 }
 
+function dropTerminal(state: ClientState, paneId: string, slot: TerminalSlot, reason: string): void {
+  if (slot.gone) return;
+  slot.gone = true;
+  if (state.terminals.get(paneId) === slot) state.terminals.delete(paneId);
+  state.send({ type: "terminal_closed", paneId, reason });
+}
+
+function ensureTerminal(state: ClientState, paneId: string, cols: number, rows: number): TerminalSlot {
+  const existing = state.terminals.get(paneId);
+  if (existing) {
+    existing.refs += 1;
+    return existing;
+  }
+  const slot: TerminalSlot = { refs: 1, link: null, queue: [], gone: false };
+  state.terminals.set(paneId, slot);
+
+  const pane = state.snapshot?.panes.find((p) => p.pane_id === paneId);
+  const terminalId = pane?.terminal_id;
+  if (!terminalId) {
+    slot.gone = true;
+    state.terminals.delete(paneId);
+    state.send({ type: "terminal_closed", paneId, reason: "unknown_pane" });
+    return slot;
+  }
+
+  openTerminalLink(terminalId, { cols, rows }, {
+    onEvent: (event) => {
+      if (slot.gone) return;
+      if (event.type === "terminal") {
+        state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64") });
+      } else if (event.type === "shutdown") {
+        dropTerminal(state, paneId, slot, event.reason ?? "herdr_shutdown");
+        slot.link?.close();
+      }
+    },
+    onClose: (reason) => {
+      dropTerminal(state, paneId, slot, reason);
+    },
+  }).then((link) => {
+    if (slot.gone) {
+      link.close();
+      return;
+    }
+    slot.link = link;
+    for (const op of slot.queue.splice(0)) op();
+  }).catch((error: unknown) => {
+    dropTerminal(state, paneId, slot, error instanceof Error ? error.message : String(error));
+  });
+  return slot;
+}
+
+function releaseTerminal(state: ClientState, paneId: string): void {
+  const slot = state.terminals.get(paneId);
+  if (!slot) return;
+  slot.refs -= 1;
+  if (slot.refs > 0) return;
+  state.terminals.delete(paneId);
+  slot.gone = true;
+  slot.link?.close();
+}
+
 function handleClientFrame(state: ClientState, frame: ClientFrame): void {
   switch (frame.type) {
     case "rpc": {
@@ -203,12 +276,30 @@ function handleClientFrame(state: ClientState, frame: ClientFrame): void {
       return;
     }
     case "subscribe_terminal":
-    case "unsubscribe_terminal":
-    case "terminal_input":
-    case "terminal_resize":
-      // Terminal attach lands in its own ticket; refuse politely for now.
-      state.send({ type: "terminal_closed", paneId: frame.paneId, reason: "not_implemented" });
+      // The client follows with terminal_resize once its grid is measured;
+      // input/resize frames queue until the attach resolves.
+      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24);
       return;
+    case "unsubscribe_terminal":
+      releaseTerminal(state, frame.paneId);
+      return;
+    case "terminal_input": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const bytes = new TextEncoder().encode(frame.data);
+      const write = () => slot.link?.write(bytes);
+      if (slot.link) write();
+      else slot.queue.push(write);
+      return;
+    }
+    case "terminal_resize": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const resize = () => slot.link?.resize(frame.cols, frame.rows);
+      if (slot.link) resize();
+      else slot.queue.push(resize);
+      return;
+    }
   }
 }
 
@@ -244,10 +335,13 @@ Bun.serve({
         subscribedPaneIds: new Set(),
         snapshotTimer: null,
         pushTimer: null,
+        snapshot: null,
+        terminals: new Map(),
       };
       (ws as unknown as { __state?: ClientState }).__state = state;
       void fetchSnapshot()
         .then((snapshot) => {
+          state.snapshot = snapshot;
           state.send({ type: "ready", snapshot });
           state.subscription = openSubscription(state, snapshot);
         })
@@ -272,6 +366,13 @@ Bun.serve({
       state?.subscription?.close();
       if (state?.snapshotTimer) clearTimeout(state.snapshotTimer);
       if (state?.pushTimer) clearTimeout(state.pushTimer);
+      if (state) {
+        for (const [paneId, slot] of state.terminals) {
+          slot.gone = true;
+          slot.link?.close();
+          state.terminals.delete(paneId);
+        }
+      }
     },
   },
 });
