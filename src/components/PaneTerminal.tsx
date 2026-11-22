@@ -13,6 +13,7 @@ import {
   unsubscribeTerminal,
 } from "../lib/api";
 import { cn } from "../lib/utils";
+import { getTerminalTheme, onTerminalThemeChange } from "../lib/theme";
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -72,7 +73,7 @@ export function PaneTerminal({
       fontSize: 13,
       scrollback: 10_000,
       allowProposedApi: true,
-      theme: terminalTheme(),
+      theme: getTerminalTheme() ?? terminalTheme(),
       minimumContrastRatio: 4.5,
     });
     const fit = new FitAddon();
@@ -93,6 +94,11 @@ export function PaneTerminal({
       if (m !== machine || id !== paneId) return;
       setClosedReason(reason ?? "closed");
     });
+    // Theme changes (appearance mode, Ghostty config edits, OS light/dark)
+    // update the live terminal in place — scrollback and input state survive.
+    const themeOff = onTerminalThemeChange(() => {
+      term.options.theme = getTerminalTheme() ?? terminalTheme();
+    });
     const dataHandler = term.onData((data) => terminalInput(machine, paneId, data));
     const resizeObserver = new ResizeObserver(() => {
       try {
@@ -110,6 +116,7 @@ export function PaneTerminal({
     return () => {
       dataOff();
       closedOff();
+      themeOff();
       dataHandler.dispose();
       resizeObserver.disconnect();
       term.dispose();

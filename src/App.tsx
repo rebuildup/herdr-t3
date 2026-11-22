@@ -28,6 +28,13 @@ import { PaneMessageDialog } from "./components/PaneMessageDialog";
 import { AgentStatusBadge } from "./components/AgentStatusBadge";
 import { RenameDialog, type RenameTarget } from "./components/RenameDialog";
 import {
+  getAppearanceMode,
+  initAppearance,
+  onAppearanceChange,
+  setAppearanceMode,
+  type AppearanceMode,
+} from "./lib/theme";
+import {
   Circle,
   CircleCheck,
   CircleDashed,
@@ -93,6 +100,12 @@ export default function App() {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [addMachine, setAddMachine] = useState(false);
+  const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+
+  useEffect(() => {
+    initAppearance();
+    return onAppearanceChange(() => setAppearance(getAppearanceMode()));
+  }, []);
 
   useEffect(() => {
     const disconnect = connectBridge();
@@ -296,6 +309,21 @@ export default function App() {
           )}
         </nav>
         {error && <p className="px-3 py-2 text-xs text-error">{error}</p>}
+        <div className="border-t border-sidebar-border px-3 py-2">
+          <label className="flex items-center gap-2 text-2xs text-muted-foreground">
+            Appearance
+            <select
+              className="ml-auto rounded-md border border-input bg-background px-1.5 py-1 text-2xs text-foreground"
+              value={appearance}
+              onChange={(e) => setAppearanceMode(e.target.value as AppearanceMode)}
+            >
+              <option value="ghostty">Ghostty sync</option>
+              <option value="system">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+        </div>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">
