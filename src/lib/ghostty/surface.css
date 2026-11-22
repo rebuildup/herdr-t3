@@ -1,0 +1,37 @@
+.ghostty-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: inherit;
+}
+
+.ghostty-surface .ghostty-canvas {
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: block;
+}
+
+/* the input method's textarea: transparent and click-through, focused programmatically so the
+   surface's own pointer handling decides what a press means */
+.ghostty-surface .ghostty-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  opacity: 0;
+  pointer-events: none;
+  font: inherit;
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
+}
+
+.ghostty-surface.is-focused {
+  cursor: text;
+}

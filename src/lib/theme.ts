@@ -8,6 +8,7 @@
  * index.css) — they never replace the token layer itself, so component
  * hierarchy and contrast rules still come from the T3 theme.
  */
+import type { GhosttyThemeColors } from "./ghostty/colors.ts";
 
 export type AppearanceMode = "ghostty" | "system" | "dark" | "light";
 
@@ -146,8 +147,8 @@ const ANSI_KEYS = [
 ] as const;
 
 /**
- * xterm.js theme. Returns null when Ghostty sync is not active so callers
- * keep the token-derived default theme.
+ * Terminal colour theme as a flat record. Returns null when Ghostty sync is
+ * not active so callers keep the token-derived default theme.
  */
 export function getTerminalTheme(): Record<string, string> | null {
   if (!isGhosttyActive() || !ghosttyPalette) return null;
@@ -169,6 +170,46 @@ export function getTerminalTheme(): Record<string, string> | null {
 export function onTerminalThemeChange(listener: () => void): () => void {
   terminalListeners.add(listener);
   return () => terminalListeners.delete(listener);
+}
+
+/** the 16 ANSI slots when Ghostty sync is off: the palette xterm.js defaulted to */
+const FALLBACK_ANSI = [
+  "#2e3436", "#cc0000", "#4e9a06", "#c4a000",
+  "#3465a4", "#75507b", "#06989a", "#d3d7cf",
+  "#555753", "#ef2929", "#8ae234", "#fce94f",
+  "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
+] as const;
+
+let colorProbe: HTMLElement | null = null;
+
+/** a theme token resolved to a concrete CSS colour (custom properties stay unresolved in getPropertyValue) */
+function resolvedColor(name: string): string {
+  if (typeof document === "undefined") return "";
+  colorProbe ??= (() => {
+    const el = document.createElement("span");
+    el.style.display = "none";
+    document.body.append(el);
+    return el;
+  })();
+  colorProbe.style.color = `var(${name})`;
+  return getComputedStyle(colorProbe).color;
+}
+
+/**
+ * The colours the libghostty surface draws and encodes with: the Ghostty-synced
+ * palette when appearance sync is on, the token-derived terminal colours
+ * otherwise. Any CSS colour form is fine — the engine resolves it through a
+ * canvas probe (src/lib/ghostty/colors.ts).
+ */
+export function getTerminalSurfaceColors(): GhosttyThemeColors {
+  const theme = getTerminalTheme();
+  const ansi = ANSI_KEYS.map((key, i): string => theme?.[key] ?? FALLBACK_ANSI[i] ?? "#000000");
+  return {
+    foreground: theme?.foreground || resolvedColor("--terminal-foreground"),
+    background: theme?.background || resolvedColor("--terminal-background"),
+    cursor: theme?.cursor || resolvedColor("--terminal-cursor"),
+    ansi,
+  };
 }
 
 /**
