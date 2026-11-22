@@ -52,3 +52,25 @@ export function connectSocket(path: string, handlers: SocketHandlers): Promise<S
     });
   });
 }
+
+/**
+ * The minimal byte-stream surface the herdr clients need once a transport is
+ * established: `net.Socket` satisfies it directly; SSH child-process stdio is
+ * adapted to it by server/ssh.ts.
+ */
+export interface ByteStream {
+  write(data: string | Uint8Array): unknown;
+  end(): unknown;
+}
+
+/**
+ * Opens one transport to a herdr endpoint and resolves once the peer accepts
+ * (for sockets: after `connect`; for ssh: after spawn — the remote bridge
+ * has no handshake, errors arrive via `error`/`close`).
+ */
+export type Connector = (handlers: SocketHandlers) => Promise<ByteStream>;
+
+/** Connector for a local unix socket / Windows named pipe path. */
+export function socketConnector(address: string): Connector {
+  return (handlers) => connectSocket(address, handlers);
+}

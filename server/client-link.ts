@@ -16,9 +16,8 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Socket } from "node:net";
 import { herdrSocketPath, socketAddress } from "./herdr.ts";
-import { connectSocket } from "./socket.ts";
+import { socketConnector, type Connector, type SocketHandlers } from "./socket.ts";
 
 export const CLIENT_PROTOCOL_VERSION = 22;
 const MAX_FRAME_SIZE = 2 * 1024 * 1024;
@@ -220,14 +219,15 @@ export function clientSocketPath(env: Record<string, string | undefined> = proce
  */
 export function openTerminalLink(
   terminalId: string,
-  options: { cols: number; rows: number; socketPath?: string; takeover?: boolean },
+  options: { cols: number; rows: number; socketPath?: string; connect?: Connector; takeover?: boolean },
   handlers: LinkHandlers,
 ): Promise<TerminalLink> {
-  const socketPath = options.socketPath ?? clientSocketPath();
+  const connect =
+    options.connect ?? socketConnector(socketAddress(options.socketPath ?? clientSocketPath()));
   return new Promise<TerminalLink>((resolve, reject) => {
     let settled = false;
     let welcomed = false;
-    let sock: Socket | null = null;
+    let sock: { write(data: string | Uint8Array): unknown; end(): unknown } | null = null;
     let buffer = new Uint8Array(0);
     let closed = false;
 
@@ -304,7 +304,7 @@ export function openTerminalLink(
       }
     };
 
-    connectSocket(socketAddress(socketPath), {
+    const sockHandlers: SocketHandlers = {
       data: (chunk) => {
         const merged = new Uint8Array(buffer.length + chunk.length);
         merged.set(buffer);
@@ -320,7 +320,8 @@ export function openTerminalLink(
         if (!welcomed) finish(() => reject(new Error("herdr closed the client socket during handshake")));
         else if (!closed) handlers.onClose("socket closed");
       },
-    }).then((s) => {
+    };
+    connect(sockHandlers).then((s) => {
       sock = s;
       if (settled || closed) {
         try { s.end(); } catch { /* gone */ }
@@ -328,7 +329,7 @@ export function openTerminalLink(
       }
       send(terminalHello(options.cols, options.rows));
     }, (err: Error) => {
-      finish(() => reject(new Error(`cannot reach herdr client socket at ${socketPath}: ${err.message}`)));
+      finish(() => reject(new Error(`cannot reach herdr client transport: ${err.message}`)));
     });
   });
 }

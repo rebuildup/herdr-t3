@@ -12,7 +12,8 @@ import { join } from "node:path";
 import { isClientFrame } from "../shared/protocol.ts";
 import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
-import { createBridgeSession, fetchSnapshot, type BridgeSession } from "./bridge-core.ts";
+import { fetchSnapshot } from "./bridge-core.ts";
+import { MachineManager } from "./machine-manager.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
@@ -107,13 +108,15 @@ Bun.serve({
   },
   websocket: {
     open(ws) {
-      const session: BridgeSession = createBridgeSession((frame) => ws.send(JSON.stringify(frame)));
-      (ws as unknown as { __session?: BridgeSession }).__session = session;
-      void session.start();
+      // Same contract as the desktop app: one machine manager per client,
+      // local + saved SSH machines over the same frame shapes.
+      const manager = new MachineManager({ send: (frame) => ws.send(JSON.stringify(frame)) });
+      (ws as unknown as { __manager?: MachineManager }).__manager = manager;
+      manager.start();
     },
     message(ws, message) {
-      const session = (ws as unknown as { __session?: BridgeSession }).__session;
-      if (!session) return;
+      const manager = (ws as unknown as { __manager?: MachineManager }).__manager;
+      if (!manager) return;
       let frame: unknown;
       try {
         frame = JSON.parse(String(message));
@@ -121,10 +124,10 @@ Bun.serve({
         return;
       }
       if (!isClientFrame(frame)) return;
-      session.handleFrame(frame);
+      manager.handleFrame(frame);
     },
     close(ws) {
-      (ws as unknown as { __session?: BridgeSession }).__session?.close();
+      (ws as unknown as { __manager?: MachineManager }).__manager?.close();
     },
   },
 });

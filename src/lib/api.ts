@@ -1,6 +1,7 @@
 import type {
   ClientFrame,
   HealthResponse,
+  MachineInfo,
   RpcMethod,
   ServerFrame,
   SessionResponse,
@@ -15,6 +16,9 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
+
+/** Endpoint id used when a frame carries no `machine` tag. */
+export const LOCAL_MACHINE = "local";
 
 export async function fetchHealth(): Promise<HealthResponse> {
   const ipc = desktopBridge();
@@ -41,9 +45,9 @@ function desktopBridge(): DesktopBridge | null {
   return candidate ?? null;
 }
 
-export async function fetchSession(): Promise<SessionSnapshot> {
+export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<SessionSnapshot> {
   const ipc = desktopBridge();
-  if (ipc) {
+  if (ipc && machine === LOCAL_MACHINE) {
     // No REST endpoint in the desktop app: ask the main process for the
     // snapshot its bridge session already holds (covers renderer reloads).
     const res = (await ipc.snapshot()) as {
@@ -57,24 +61,43 @@ export async function fetchSession(): Promise<SessionSnapshot> {
     }
     // Fall back to the next pushed frame if the reply was malformed.
     return new Promise<SessionSnapshot>((resolve) => {
-      const off = onSnapshot((snapshot) => {
+      const off = onSnapshot((snapshot, m) => {
+        if (m !== LOCAL_MACHINE) return;
         off();
         resolve(snapshot);
       });
     });
   }
-  const res = await fetch("/api/session");
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-    throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
+  if (!ipc) {
+    const res = await fetch("/api/session");
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
+    }
+    return ((await res.json()) as SessionResponse).snapshot;
   }
-  return ((await res.json()) as SessionResponse).snapshot;
+  // Remote machine (or malformed local reply): wait for the next pushed
+  // snapshot tagged with this machine.
+  return new Promise<SessionSnapshot>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off();
+      reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
+    }, 30_000);
+    const off = onSnapshot((snapshot, m) => {
+      if (m !== machine) return;
+      clearTimeout(timer);
+      off();
+      resolve(snapshot);
+    });
+  });
 }
 
-export type SnapshotListener = (snapshot: SessionSnapshot) => void;
+export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => void;
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
-export type TerminalDataListener = (paneId: string, dataBase64: string) => void;
-export type TerminalClosedListener = (paneId: string, reason: string | undefined) => void;
+export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
+export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
+export type MachinesListener = (machines: MachineInfo[]) => void;
+export type MachineStatusListener = (machine: MachineInfo) => void;
 
 let ws: WebSocket | null = null;
 let ipcOff: (() => void) | null = null;
@@ -82,6 +105,8 @@ let wsListeners = new Set<SnapshotListener>();
 let statusListeners = new Set<StatusListener>();
 let terminalDataListeners = new Set<TerminalDataListener>();
 let terminalClosedListeners = new Set<TerminalClosedListener>();
+let machinesListeners = new Set<MachinesListener>();
+let machineStatusListeners = new Set<MachineStatusListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 let rpcCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,11 +119,13 @@ function notifyStatus(state: "connecting" | "open" | "closed"): void {
 function handleFrame(frame: ServerFrame): void {
   switch (frame.type) {
     case "ready":
-    case "snapshot":
-      // A pushed snapshot proves the bridge reached herdr again.
-      if (desktopBridge()) notifyStatus("open");
-      for (const listener of wsListeners) listener(frame.snapshot);
+    case "snapshot": {
+      const machine = frame.machine ?? LOCAL_MACHINE;
+      // A pushed local snapshot proves the local bridge reached herdr again.
+      if (desktopBridge() && machine === LOCAL_MACHINE) notifyStatus("open");
+      for (const listener of wsListeners) listener(frame.snapshot, machine);
       return;
+    }
     case "rpc_result": {
       const waiter = rpcWaiters.get(frame.id);
       if (!waiter) return;
@@ -108,10 +135,16 @@ function handleFrame(frame: ServerFrame): void {
       return;
     }
     case "terminal_data":
-      for (const listener of terminalDataListeners) listener(frame.paneId, frame.data);
+      for (const listener of terminalDataListeners) listener(frame.machine, frame.paneId, frame.data);
       return;
     case "terminal_closed":
-      for (const listener of terminalClosedListeners) listener(frame.paneId, frame.reason);
+      for (const listener of terminalClosedListeners) listener(frame.machine, frame.paneId, frame.reason);
+      return;
+    case "machines":
+      for (const listener of machinesListeners) listener(frame.machines);
+      return;
+    case "machine_status":
+      for (const listener of machineStatusListeners) listener(frame.machine);
       return;
   }
 }
@@ -120,8 +153,8 @@ function connect(): void {
   if (closed) return;
   const ipc = desktopBridge();
   if (ipc) {
-    // Desktop: the main process owns the session; IPC is always "connected".
-    // herdr reachability is reported separately through health.
+    // Desktop: the main process owns the sessions; IPC is always "connected".
+    // herdr reachability is reported separately through health/machines.
     notifyStatus("open");
     ipcOff = ipc.onFrame(handleFrame) ?? null;
     void ipc
@@ -131,6 +164,7 @@ function connect(): void {
         if (reachable === false) notifyStatus("closed");
       })
       .catch(() => {});
+    sendFrame({ type: "list_machines" });
     return;
   }
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -138,7 +172,10 @@ function connect(): void {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${proto}//${location.host}/ws`);
   ws = socket;
-  socket.onopen = () => notifyStatus("open");
+  socket.onopen = () => {
+    notifyStatus("open");
+    socket.send(JSON.stringify({ type: "list_machines" }));
+  };
   socket.onmessage = (msg) => {
     try {
       handleFrame(JSON.parse(String(msg.data)) as ServerFrame);
@@ -191,6 +228,16 @@ export function onTerminalClosed(listener: TerminalClosedListener): () => void {
   return () => terminalClosedListeners.delete(listener);
 }
 
+export function onMachines(listener: MachinesListener): () => void {
+  machinesListeners.add(listener);
+  return () => machinesListeners.delete(listener);
+}
+
+export function onMachineStatus(listener: MachineStatusListener): () => void {
+  machineStatusListeners.add(listener);
+  return () => machineStatusListeners.delete(listener);
+}
+
 function sendFrame(frame: ClientFrame): void {
   const ipc = desktopBridge();
   if (ipc) {
@@ -201,24 +248,28 @@ function sendFrame(frame: ClientFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-export function subscribeTerminal(paneId: string, cols: number, rows: number): void {
-  sendFrame({ type: "subscribe_terminal", paneId, cols, rows });
+export function subscribeTerminal(machine: string, paneId: string, cols: number, rows: number): void {
+  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows });
 }
 
-export function unsubscribeTerminal(paneId: string): void {
-  sendFrame({ type: "unsubscribe_terminal", paneId });
+export function unsubscribeTerminal(machine: string, paneId: string): void {
+  sendFrame({ type: "unsubscribe_terminal", machine, paneId });
 }
 
-export function terminalInput(paneId: string, data: string): void {
-  sendFrame({ type: "terminal_input", paneId, data });
+export function terminalInput(machine: string, paneId: string, data: string): void {
+  sendFrame({ type: "terminal_input", machine, paneId, data });
 }
 
-export function terminalResize(paneId: string, cols: number, rows: number): void {
-  sendFrame({ type: "terminal_resize", paneId, cols, rows });
+export function terminalResize(machine: string, paneId: string, cols: number, rows: number): void {
+  sendFrame({ type: "terminal_resize", machine, paneId, cols, rows });
 }
 
-/** Call a whitelisted herdr RPC through the bridge. */
-export function rpc<T = unknown>(method: RpcMethod, params: Record<string, unknown> = {}): Promise<T> {
+/** Call a whitelisted herdr RPC through the bridge, on the given machine. */
+export function rpc<T = unknown>(
+  method: RpcMethod,
+  params: Record<string, unknown> = {},
+  machine: string = LOCAL_MACHINE,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const ipc = desktopBridge();
     if (!ipc && (!ws || ws.readyState !== WebSocket.OPEN)) {
@@ -227,7 +278,36 @@ export function rpc<T = unknown>(method: RpcMethod, params: Record<string, unkno
     }
     const id = `c${++rpcCounter}`;
     rpcWaiters.set(id, { resolve: resolve as (v: unknown) => void, reject });
-    const frame: ClientFrame = { type: "rpc", id, method, params };
+    const frame: ClientFrame = { type: "rpc", id, method, params, machine };
+    if (ipc) ipc.sendFrame(frame);
+    else ws?.send(JSON.stringify(frame));
+  });
+}
+
+export function machineConnect(machine: string): void {
+  sendFrame({ type: "machine_connect", machine });
+}
+
+export function machineDisconnect(machine: string): void {
+  sendFrame({ type: "machine_disconnect", machine });
+}
+
+export function machineAdd(input: { label: string; target: string; session?: string | undefined }): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const ipc = desktopBridge();
+    if (!ipc && (!ws || ws.readyState !== WebSocket.OPEN)) {
+      reject(new ApiError("disconnected", "bridge not connected"));
+      return;
+    }
+    const id = `m${++rpcCounter}`;
+    rpcWaiters.set(id, { resolve, reject });
+    const frame: ClientFrame = {
+      type: "machine_add",
+      id,
+      label: input.label,
+      target: input.target,
+      ...(input.session !== undefined ? { session: input.session } : {}),
+    };
     if (ipc) ipc.sendFrame(frame);
     else ws?.send(JSON.stringify(frame));
   });

@@ -24,9 +24,11 @@ const PARAM_KEY: Record<RenameTarget["kind"], string> = {
 
 export function RenameDialog({
   target,
+  machine,
   onClose,
 }: {
   target: RenameTarget | null;
+  machine: string;
   onClose: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -44,7 +46,7 @@ export function RenameDialog({
       onClose();
       return;
     }
-    void rpc(METHOD[target.kind], { [PARAM_KEY[target.kind]]: target.id, label }).finally(onClose);
+    void rpc(METHOD[target.kind], { [PARAM_KEY[target.kind]]: target.id, label }, machine).finally(onClose);
   };
 
   return (

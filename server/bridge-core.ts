@@ -14,6 +14,31 @@ import {
   type Subscription,
 } from "./herdr.ts";
 import { openTerminalLink, type TerminalLink } from "./client-link.ts";
+import { clientSocketPath } from "./client-link.ts";
+import { herdrSocketPath, socketAddress } from "./herdr.ts";
+import { socketConnector, type Connector } from "./socket.ts";
+
+/**
+ * Where a bridge session's herdr traffic goes. `api` carries the JSON-lines
+ * RPC + events.subscribe contract; `client` carries the private bincode
+ * terminal-attach protocol. Local uses the unix socket / named pipe;
+ * SSH machines use herdr's remote bridge commands over ssh stdio
+ * (server/ssh.ts, ADR-0006).
+ */
+export interface BridgeEndpoint {
+  api: Connector;
+  client: Connector;
+  /** Human-readable endpoint name for diagnostics. */
+  label: string;
+}
+
+export function localEndpoint(): BridgeEndpoint {
+  return {
+    api: socketConnector(socketAddress(herdrSocketPath())),
+    client: socketConnector(socketAddress(clientSocketPath())),
+    label: herdrSocketPath(),
+  };
+}
 
 const STRUCTURE_SUBSCRIPTIONS: Record<string, unknown>[] = [
   { type: "workspace.created" },
@@ -42,8 +67,12 @@ function statusSubscriptions(snapshot: SessionSnapshot): Record<string, unknown>
   return snapshot.panes.map((pane) => ({ type: "pane.agent_status_changed", pane_id: pane.pane_id }));
 }
 
-export async function fetchSnapshot(): Promise<SessionSnapshot> {
-  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {});
+export async function fetchSnapshot(endpoint?: BridgeEndpoint): Promise<SessionSnapshot> {
+  const result = await herdrRpc<{ snapshot: SessionSnapshot }>(
+    "session.snapshot",
+    {},
+    endpoint ? { connect: endpoint.api, timeoutMs: 20000 } : {},
+  );
   return result.snapshot;
 }
 
@@ -57,6 +86,8 @@ interface TerminalSlot {
 
 interface SessionState {
   send: (frame: ServerFrame) => void;
+  endpoint: BridgeEndpoint;
+  machine: string;
   subscription: Subscription | null;
   subscribedPaneIds: Set<string>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
@@ -66,10 +97,10 @@ interface SessionState {
 }
 
 function pushSnapshot(state: SessionState): void {
-  void fetchSnapshot()
+  void fetchSnapshot(state.endpoint)
     .then((snapshot) => {
       state.snapshot = snapshot;
-      state.send({ type: "snapshot", snapshot });
+      state.send({ type: "snapshot", snapshot, machine: state.machine });
       reconcileSubscriptions(state, snapshot);
     })
     .catch((error: unknown) => {
@@ -81,6 +112,7 @@ function pushSnapshot(state: SessionState): void {
         id: "bridge-health",
         ok: false,
         error: { code: err.code, message: err.message },
+        machine: state.machine,
       });
     });
 }
@@ -97,26 +129,32 @@ function reconcileSubscriptions(state: SessionState, snapshot: SessionSnapshot):
 
 function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subscription {
   state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
-  return subscribeEvents([...STRUCTURE_SUBSCRIPTIONS, ...statusSubscriptions(snapshot)], {
-    onEvent: (frame: EventFrame) => {
-      state.send({ type: "event", event: frame });
-      scheduleSnapshot(state);
+  return subscribeEvents(
+    [...STRUCTURE_SUBSCRIPTIONS, ...statusSubscriptions(snapshot)],
+    {
+      onEvent: (frame: EventFrame) => {
+        state.send({ type: "event", event: frame, machine: state.machine });
+        scheduleSnapshot(state);
+      },
+      onError: () => scheduleSnapshot(state),
+      onClose: () => {
+        state.subscription = null;
+        state.subscribedPaneIds = new Set();
+        scheduleSnapshot(state);
+        // Retry the subscription itself; the snapshot push above already ran once.
+        state.pushTimer = setTimeout(() => {
+          state.pushTimer = null;
+          void fetchSnapshot(state.endpoint)
+            .then((snapshot) => {
+              state.send({ type: "snapshot", snapshot, machine: state.machine });
+              state.subscription = openSubscription(state, snapshot);
+            })
+            .catch(() => {});
+        }, 2000);
+      },
     },
-    onError: () => scheduleSnapshot(state),
-    onClose: () => {
-      state.subscription = null;
-      state.subscribedPaneIds = new Set();
-      scheduleSnapshot(state);
-      // Retry the subscription itself; the snapshot push above already ran once.
-      state.pushTimer = setTimeout(() => {
-        state.pushTimer = null;
-        void fetchSnapshot().then((snapshot) => {
-          state.send({ type: "snapshot", snapshot });
-          state.subscription = openSubscription(state, snapshot);
-        }).catch(() => {});
-      }, 2000);
-    },
-  });
+    state.endpoint.api,
+  );
 }
 
 function scheduleSnapshot(state: SessionState): void {
@@ -131,7 +169,7 @@ function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, r
   if (slot.gone) return;
   slot.gone = true;
   if (state.terminals.get(paneId) === slot) state.terminals.delete(paneId);
-  state.send({ type: "terminal_closed", paneId, reason });
+  state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
 
 function ensureTerminal(state: SessionState, paneId: string, cols: number, rows: number): TerminalSlot {
@@ -148,15 +186,19 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
   if (!terminalId) {
     slot.gone = true;
     state.terminals.delete(paneId);
-    state.send({ type: "terminal_closed", paneId, reason: "unknown_pane" });
+    state.send({ type: "terminal_closed", paneId, reason: "unknown_pane", machine: state.machine });
     return slot;
   }
 
-  openTerminalLink(terminalId, { cols, rows }, {
+  // Opening a pane in the GUI is the user-requested attach path: request
+  // takeover so a pane already mirrored by another client (TUI, second
+  // window) attaches instead of failing with "already has an attached
+  // client". Herdr keeps the pty; only the viewer role moves.
+  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover: true }, {
     onEvent: (event) => {
       if (slot.gone) return;
       if (event.type === "terminal") {
-        state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64") });
+        state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64"), machine: state.machine });
       } else if (event.type === "shutdown") {
         dropTerminal(state, paneId, slot, event.reason ?? "herdr_shutdown");
         slot.link?.close();
@@ -192,17 +234,17 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
   switch (frame.type) {
     case "rpc": {
       if (!isRpcMethod(frame.method)) {
-        state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: "method_not_allowed", message: frame.method } });
+        state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: "method_not_allowed", message: frame.method }, machine: state.machine });
         return;
       }
-      void herdrRpc(frame.method, frame.params ?? {})
+      void herdrRpc(frame.method, frame.params ?? {}, { connect: state.endpoint.api, timeoutMs: 20000 })
         .then((result) => {
-          state.send({ type: "rpc_result", id: frame.id, ok: true, result });
+          state.send({ type: "rpc_result", id: frame.id, ok: true, result, machine: state.machine });
           scheduleSnapshot(state);
         })
         .catch((error: unknown) => {
           const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
-          state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: err.code, message: err.message } });
+          state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: err.code, message: err.message }, machine: state.machine });
         });
       return;
     }
@@ -231,6 +273,13 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       else slot.queue.push(resize);
       return;
     }
+    // Machine-management frames are routed by the machine manager before
+    // they reach a session; a session never sees them.
+    case "list_machines":
+    case "machine_connect":
+    case "machine_disconnect":
+    case "machine_add":
+      return;
   }
 }
 
@@ -249,9 +298,15 @@ export interface BridgeSession {
  * Create a bridge session bound to one consumer (one WebSocket, or one
  * Electron window). `send` receives ServerFrames; the consumer owns framing.
  */
-export function createBridgeSession(send: (frame: ServerFrame) => void): BridgeSession {
+export function createBridgeSession(
+  send: (frame: ServerFrame) => void,
+  endpoint: BridgeEndpoint = localEndpoint(),
+  machine = "local",
+): BridgeSession {
   const state: SessionState = {
     send,
+    endpoint,
+    machine,
     subscription: null,
     subscribedPaneIds: new Set(),
     snapshotTimer: null,
@@ -262,15 +317,15 @@ export function createBridgeSession(send: (frame: ServerFrame) => void): BridgeS
   return {
     handleFrame: (frame) => handleClientFrame(state, frame),
     start: () =>
-      fetchSnapshot()
+      fetchSnapshot(endpoint)
         .then((snapshot) => {
           state.snapshot = snapshot;
-          state.send({ type: "ready", snapshot });
+          state.send({ type: "ready", snapshot, machine });
           state.subscription = openSubscription(state, snapshot);
         })
         .catch((error: unknown) => {
           const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
-          state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message } });
+          state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message }, machine });
         }),
     latestSnapshot: () => state.snapshot,
     close: () => {

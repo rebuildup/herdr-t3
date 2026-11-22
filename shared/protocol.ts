@@ -167,23 +167,60 @@ export interface SessionResponse {
   snapshot: SessionSnapshot;
 }
 
-/** Client -> server WebSocket frames. */
-export type ClientFrame =
-  | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown> }
-  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number }
-  | { type: "unsubscribe_terminal"; paneId: string }
-  | { type: "terminal_input"; paneId: string; data: string }
-  | { type: "terminal_resize"; paneId: string; cols: number; rows: number };
+/**
+ * A connectable herdr endpoint as the bridge sees it: `local` is this
+ * machine's herdr socket; every other id is a saved SSH machine from
+ * herdr's own registry (`herdr machine list`).
+ */
+export type MachineStatus =
+  | "online"
+  | "connecting"
+  | "reconnecting"
+  | "offline"
+  | "disabled"
+  | "unreachable"
+  | "auth_required"
+  | "incompatible"
+  | "error";
 
-/** Server -> client WebSocket frames. */
+export interface MachineInfo {
+  id: string;
+  label: string;
+  kind: "local" | "ssh";
+  /** SSH target for kind=ssh (never a credential). */
+  target?: string;
+  session?: string;
+  enabled: boolean;
+  status: MachineStatus;
+  /** Human-readable detail: last error, herdr version, remediation hint. */
+  detail?: string;
+  version?: string;
+  protocol?: number;
+}
+
+/** Client -> server WebSocket frames. `machine` selects the endpoint; absent means local. */
+export type ClientFrame =
+  | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown>; machine?: string }
+  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string }
+  | { type: "unsubscribe_terminal"; paneId: string; machine?: string }
+  | { type: "terminal_input"; paneId: string; data: string; machine?: string }
+  | { type: "terminal_resize"; paneId: string; cols: number; rows: number; machine?: string }
+  | { type: "list_machines" }
+  | { type: "machine_connect"; machine: string }
+  | { type: "machine_disconnect"; machine: string }
+  | { type: "machine_add"; id: string; label: string; target: string; session?: string };
+
+/** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
 export type ServerFrame =
-  | { type: "ready"; snapshot: SessionSnapshot }
-  | { type: "snapshot"; snapshot: SessionSnapshot }
-  | { type: "event"; event: unknown }
-  | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string } }
+  | { type: "ready"; snapshot: SessionSnapshot; machine: string }
+  | { type: "snapshot"; snapshot: SessionSnapshot; machine: string }
+  | { type: "event"; event: unknown; machine: string }
+  | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string }; machine?: string }
   /** `data` is base64: terminal output is arbitrary bytes, not necessarily UTF-8. */
-  | { type: "terminal_data"; paneId: string; data: string }
-  | { type: "terminal_closed"; paneId: string; reason?: string };
+  | { type: "terminal_data"; paneId: string; data: string; machine: string }
+  | { type: "terminal_closed"; paneId: string; reason?: string; machine: string }
+  | { type: "machines"; machines: MachineInfo[] }
+  | { type: "machine_status"; machine: MachineInfo };
 
 /**
  * The herdr RPC methods the bridge exposes to the client. Anything not
@@ -235,21 +272,24 @@ export function isClientFrame(value: unknown): value is ClientFrame {
   if (typeof value !== "object" || value === null) return false;
   const frame = value as Record<string, unknown>;
   const paneId = frame["paneId"];
+  const machine = frame["machine"];
+  const machineOk = machine === undefined || (typeof machine === "string" && machine.length > 0 && machine.length <= 128);
   switch (frame["type"]) {
     case "rpc":
       return (
         typeof frame["id"] === "string" &&
         typeof frame["method"] === "string" &&
         isRpcMethod(frame["method"]) &&
+        machineOk &&
         (frame["params"] === undefined ||
           (typeof frame["params"] === "object" && frame["params"] !== null && !Array.isArray(frame["params"])))
       );
     case "subscribe_terminal":
-      return typeof paneId === "string" && paneId.length > 0;
+      return typeof paneId === "string" && paneId.length > 0 && machineOk;
     case "unsubscribe_terminal":
-      return typeof paneId === "string" && paneId.length > 0;
+      return typeof paneId === "string" && paneId.length > 0 && machineOk;
     case "terminal_input":
-      return typeof paneId === "string" && paneId.length > 0 && typeof frame["data"] === "string";
+      return typeof paneId === "string" && paneId.length > 0 && typeof frame["data"] === "string" && machineOk;
     case "terminal_resize":
       return (
         typeof paneId === "string" &&
@@ -257,7 +297,23 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         typeof frame["cols"] === "number" &&
         typeof frame["rows"] === "number" &&
         Number.isFinite(frame["cols"]) &&
-        Number.isFinite(frame["rows"])
+        Number.isFinite(frame["rows"]) &&
+        machineOk
+      );
+    case "list_machines":
+      return true;
+    case "machine_connect":
+    case "machine_disconnect":
+      return typeof frame["machine"] === "string" && frame["machine"].length > 0;
+    case "machine_add":
+      return (
+        typeof frame["id"] === "string" &&
+        typeof frame["label"] === "string" &&
+        typeof frame["target"] === "string" &&
+        frame["target"].length > 0 &&
+        frame["target"].length <= 253 &&
+        !frame["target"].startsWith("-") &&
+        (frame["session"] === undefined || (typeof frame["session"] === "string" && frame["session"].length <= 64))
       );
     default:
       return false;
