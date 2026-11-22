@@ -87,17 +87,36 @@ let compiled: Promise<WebAssembly.Module> | null = null;
 /**
  * The engine file, compiled once for the page; each session gets an instance of its own so a trap
  * in one pane's parse reaches no other pane's memory. The fetch is not streamed: the server and the
- * relay's resource worker do not promise `application/wasm`. `?url` keeps the file an asset the
- * build emits next to the bundle, so the packaged app's file:// load resolves it too.
+ * relay's resource worker do not promise `application/wasm`. `?url` resolves to a real asset URL in
+ * dev, but the production build inlines the wasm as a `data:` URI (vite assetsInlineLimit) because
+ * fetch() of a file:// URL is refused in the packaged app — and fetch() of a data: URI is refused by
+ * the page CSP, so data URIs are decoded here instead of fetched.
  */
 export function compileGhostty(): Promise<WebAssembly.Module> {
   compiled ??= (async () => {
-    const response = await fetch(wasmUrl);
-    if (!response.ok) throw new Error(`ghostty-vt: ${wasmUrl} answered ${response.status}`);
-    return WebAssembly.compile(await response.arrayBuffer());
+    const bytes = wasmUrl.startsWith("data:")
+      ? decodeDataUri(wasmUrl)
+      : await (async () => {
+          const response = await fetch(wasmUrl);
+          if (!response.ok) throw new Error(`ghostty-vt: ${wasmUrl} answered ${response.status}`);
+          return response.arrayBuffer();
+        })();
+    return WebAssembly.compile(bytes);
   })();
   compiled.catch(() => { compiled = null; });
   return compiled;
+}
+
+/** `data:<mime>;base64,<payload>` -> bytes; throws on any other data: shape */
+function decodeDataUri(url: string): Uint8Array {
+  const comma = url.indexOf(",");
+  const meta = url.slice(5, comma);
+  const payload = url.slice(comma + 1);
+  if (!meta.endsWith(";base64")) throw new Error(`ghostty-vt: unsupported data URI (${meta})`);
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 /** test and tool seam: a session on an already-made module (the TUI emulator's loader does the same) */
