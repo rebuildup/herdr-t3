@@ -12,6 +12,8 @@ import {
 import { AppSidebar } from "./components/AppSidebar";
 import { WorkspaceTopbar } from "./components/WorkspaceTopbar";
 import { PaneGrid } from "./components/PaneGrid";
+import { CommandPalette } from "./components/CommandPalette";
+import { ShellShortcuts } from "./components/ShellShortcuts";
 import { RenameDialog, type RenameTarget } from "./components/RenameDialog";
 import { PaneMessageDialog } from "./components/PaneMessageDialog";
 import { AddMachineDialog } from "./components/AddMachineDialog";
@@ -24,7 +26,10 @@ export default function App() {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [addMachine, setAddMachine] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+  const modalOpen =
+    rename !== null || messagePane !== null || addMachine || paletteOpen;
 
   useEffect(() => {
     initAppearance();
@@ -68,6 +73,23 @@ export default function App() {
           />
           <PaneGrid bridge={bridge} view={view} />
         </SidebarInset>
+        <ShellShortcuts
+          bridge={bridge}
+          onPaletteOpen={() => setPaletteOpen(true)}
+          suppressed={modalOpen}
+          view={view}
+        />
+        <CommandPalette
+          actions={{
+            onAddMachine: () => setAddMachine(true),
+            onMessagePane: setMessagePane,
+            onRename: setRename,
+          }}
+          bridge={bridge}
+          onOpenChange={setPaletteOpen}
+          open={paletteOpen}
+          view={view}
+        />
       </SidebarProvider>
 
       <RenameDialog target={rename} machine={bridge.machine} onClose={() => setRename(null)} />
