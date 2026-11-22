@@ -1,0 +1,80 @@
+import { useEffect, useRef, useState } from "react";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { rpc } from "../lib/api";
+import type { PaneInfo } from "../../shared/protocol";
+
+/**
+ * Sends text to a pane through herdr's canonical input paths:
+ * `agent.prompt` for agent panes, `pane.send_text` + `pane.send_keys` for
+ * plain shells. Never guesses key sequences for prompt answers — the
+ * attached terminal remains the interactive path for those.
+ */
+export function PaneMessageDialog({
+  pane,
+  onClose,
+}: {
+  pane: PaneInfo | null;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isAgent = Boolean(pane?.agent);
+
+  useEffect(() => {
+    setText("");
+    setSending(false);
+    if (pane) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [pane]);
+
+  const submit = async () => {
+    const value = text.trim();
+    if (!pane || !value || sending) return;
+    setSending(true);
+    try {
+      if (isAgent) {
+        await rpc("agent.prompt", { target: pane.pane_id, text: value });
+      } else {
+        await rpc("pane.send_text", { pane_id: pane.pane_id, text: value });
+        await rpc("pane.send_keys", { pane_id: pane.pane_id, keys: ["enter"] });
+      }
+      onClose();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Dialog open={pane !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogTitle>{isAgent ? "Prompt agent" : "Send text"}</DialogTitle>
+        <DialogDescription>
+          {isAgent
+            ? `Submitted through agent.prompt to ${pane?.agent} in ${pane?.pane_id}.`
+            : `Typed into ${pane?.pane_id} through pane.send_text + enter.`}
+        </DialogDescription>
+        <textarea
+          ref={inputRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+            if (e.key === "Escape") onClose();
+          }}
+          rows={4}
+          placeholder={isAgent ? "Prompt for the agent…" : "Text to type into the pane…"}
+          className="mb-4 w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+        />
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void submit()} disabled={sending || !text.trim()}>
+            {isAgent ? "Send prompt" : "Send"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -11,6 +11,8 @@ import {
   ContextMenuTrigger,
 } from "./components/ui/menu";
 import { PaneTerminal } from "./components/PaneTerminal";
+import { PaneMessageDialog } from "./components/PaneMessageDialog";
+import { AgentStatusBadge } from "./components/AgentStatusBadge";
 import { RenameDialog, type RenameTarget } from "./components/RenameDialog";
 import {
   Circle,
@@ -20,6 +22,7 @@ import {
   Columns2,
   Loader2,
   Maximize2,
+  MessageSquareText,
   Minimize2,
   Plus,
   Rows2,
@@ -54,6 +57,7 @@ export default function App() {
   const [connection, setConnection] = useState<"connecting" | "open" | "closed">("connecting");
   const [error, setError] = useState<string | null>(null);
   const [rename, setRename] = useState<RenameTarget | null>(null);
+  const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
 
   useEffect(() => {
     const disconnect = connectBridge();
@@ -254,10 +258,21 @@ export default function App() {
 
         {focusedPane && (
           <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-            <span className="min-w-0 flex-1 truncate text-xs text-secondary-label">
-              {paneTitle(focusedPane)}
-              {focusedPane.agent ? ` · ${focusedPane.agent}` : ""}
+            <span className="flex min-w-0 items-center gap-2 text-xs text-secondary-label">
+              <span className="truncate">
+                {paneTitle(focusedPane)}
+                {focusedPane.agent ? ` · ${focusedPane.agent}` : ""}
+              </span>
+              <AgentStatusBadge status={focusedPane.agent_status} />
             </span>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={focusedPane.agent ? "Prompt agent" : "Send text"}
+              onClick={() => setMessagePane(focusedPane)}
+            >
+              <MessageSquareText className="size-3.5" />
+            </Button>
             <Button
               size="icon-sm"
               variant="ghost"
@@ -354,6 +369,7 @@ export default function App() {
       </main>
 
       <RenameDialog target={rename} onClose={() => setRename(null)} />
+      <PaneMessageDialog pane={messagePane} onClose={() => setMessagePane(null)} />
     </div>
   );
 }
