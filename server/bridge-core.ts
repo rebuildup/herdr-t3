@@ -172,7 +172,7 @@ function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, r
   state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
 
-function ensureTerminal(state: SessionState, paneId: string, cols: number, rows: number): TerminalSlot {
+function ensureTerminal(state: SessionState, paneId: string, cols: number, rows: number, takeover: boolean): TerminalSlot {
   const existing = state.terminals.get(paneId);
   if (existing) {
     existing.refs += 1;
@@ -184,17 +184,42 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
   const pane = state.snapshot?.panes.find((p) => p.pane_id === paneId);
   const terminalId = pane?.terminal_id;
   if (!terminalId) {
-    slot.gone = true;
-    state.terminals.delete(paneId);
-    state.send({ type: "terminal_closed", paneId, reason: "unknown_pane", machine: state.machine });
+    // The pane may be newer than the last snapshot (just created by an RPC
+    // whose snapshot push is still debounced). Refresh once and retry
+    // instead of failing the attach outright.
+    void fetchSnapshot(state.endpoint)
+      .then((snapshot) => {
+        state.snapshot = snapshot;
+        const fresh = snapshot.panes.find((p) => p.pane_id === paneId)?.terminal_id;
+        if (slot.gone) return;
+        if (!fresh) {
+          dropTerminal(state, paneId, slot, "unknown_pane");
+          return;
+        }
+        attachTerminal(state, slot, paneId, fresh, cols, rows, takeover);
+      })
+      .catch(() => {
+        if (!slot.gone) dropTerminal(state, paneId, slot, "unknown_pane");
+      });
     return slot;
   }
+  attachTerminal(state, slot, paneId, terminalId, cols, rows, takeover);
+  return slot;
+}
 
-  // Opening a pane in the GUI is the user-requested attach path: request
-  // takeover so a pane already mirrored by another client (TUI, second
-  // window) attaches instead of failing with "already has an attached
-  // client". Herdr keeps the pty; only the viewer role moves.
-  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover: true }, {
+function attachTerminal(
+  state: SessionState,
+  slot: TerminalSlot,
+  paneId: string,
+  terminalId: string,
+  cols: number,
+  rows: number,
+  takeover: boolean,
+): void {
+  // Default attach observes without stealing the viewer role from an
+  // existing client (TUI, second window). Takeover is only requested when
+  // the client explicitly asked for it after an attach refusal.
+  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover }, {
     onEvent: (event) => {
       if (slot.gone) return;
       if (event.type === "terminal") {
@@ -217,7 +242,6 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
   }).catch((error: unknown) => {
     dropTerminal(state, paneId, slot, error instanceof Error ? error.message : String(error));
   });
-  return slot;
 }
 
 function releaseTerminal(state: SessionState, paneId: string): void {
@@ -251,7 +275,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "subscribe_terminal":
       // The client follows with terminal_resize once its grid is measured;
       // input/resize frames queue until the attach resolves.
-      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24);
+      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true);
       return;
     case "unsubscribe_terminal":
       releaseTerminal(state, frame.paneId);

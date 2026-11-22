@@ -46,7 +46,13 @@ export class MachineManager {
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly infos = new Map<string, MachineInfo>();
   private readonly resolving = new Map<string, Promise<void>>();
-  /** Frames received for a machine whose session is still connecting. */
+  /** Connect generation per machine: bumped on every connect/disconnect so
+   * stale async resolutions cannot install a session for an old attempt. */
+  private readonly generations = new Map<string, number>();
+  /** Frames received for a machine whose session is still connecting.
+   * Only idempotent attach-lifecycle frames may queue; anything that can
+   * carry user input or mutate state is refused instead of being flushed
+   * later (nothing typed or commanded during an outage may auto-send). */
   private readonly pendingFrames = new Map<string, ClientFrame[]>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
@@ -254,11 +260,24 @@ export class MachineManager {
       }
       return;
     }
-    // Lazy connect: queue the frame and bring the session up; it is
-    // delivered when the session first reports data (see wrap()).
-    const queue = this.pendingFrames.get(machine) ?? [];
-    queue.push(frame);
-    this.pendingFrames.set(machine, queue);
+    // Only subscribe/unsubscribe are safe to defer: they re-attach a
+    // viewer and carry no user input or mutation. rpc frames get an
+    // explicit machine_connecting error; terminal input/resize are
+    // dropped — whatever the user typed while the machine was down must
+    // never land in a pane after reconnect (draft semantics, issue #5).
+    if (frame.type === "subscribe_terminal" || frame.type === "unsubscribe_terminal") {
+      const queue = this.pendingFrames.get(machine) ?? [];
+      queue.push(frame);
+      this.pendingFrames.set(machine, queue);
+    } else if (frame.type === "rpc") {
+      this.send({
+        type: "rpc_result",
+        id: frame.id,
+        ok: false,
+        error: { code: "machine_connecting", message: `machine ${machine} is still connecting` },
+        machine,
+      });
+    }
     const pending = this.resolving.get(machine);
     void (pending ?? this.connect(machine));
   }
@@ -268,14 +287,24 @@ export class MachineManager {
     if (this.closed) return;
     const existing = this.resolving.get(machine);
     if (existing) return existing;
-    const promise = this.connectInner(machine).finally(() => this.resolving.delete(machine));
+    const generation = (this.generations.get(machine) ?? 0) + 1;
+    this.generations.set(machine, generation);
+    const promise = this.connectInner(machine, generation).finally(() => {
+      // Only remove our own entry: a disconnect/reconnect may already have
+      // installed a newer attempt under the same machine id.
+      if (this.resolving.get(machine) === promise) this.resolving.delete(machine);
+    });
     this.resolving.set(machine, promise);
     return promise;
   }
 
-  private async connectInner(machine: string): Promise<void> {
+  private generationCurrent(machine: string, generation: number): boolean {
+    return !this.closed && this.generations.get(machine) === generation;
+  }
+
+  private async connectInner(machine: string, generation: number): Promise<void> {
     const info = this.infos.get(machine);
-    if (!info) return;
+    if (!info || !this.generationCurrent(machine, generation)) return;
     if (machine === LOCAL_ID) {
       if (!this.sessions.has(LOCAL_ID)) this.ensureLocal();
       return;
@@ -301,9 +330,9 @@ export class MachineManager {
     try {
       const metadata = loadMachineMetadata(machine);
       const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
-      endpoint = endpointFromMachine(saved, remoteHerdr);
+      endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
     } catch (error) {
-      if (this.closed) return;
+      if (!this.generationCurrent(machine, generation)) return;
       const text = error instanceof Error ? error.message : String(error);
       const classified = classifySshFailure(text);
       info.status =
@@ -318,7 +347,7 @@ export class MachineManager {
       this.pushStatus(info);
       return;
     }
-    if (this.closed) return;
+    if (!this.generationCurrent(machine, generation)) return;
 
     const bridgeEndpoint: BridgeEndpoint = {
       api: sshApiConnector(endpoint),
@@ -334,6 +363,12 @@ export class MachineManager {
   }
 
   private disconnect(machine: string, keepStatus = false): void {
+    // Invalidate any in-flight connect for this machine: its async
+    // resolution must not install a session after the user disconnected.
+    this.generations.set(machine, (this.generations.get(machine) ?? 0) + 1);
+    // Drop the in-flight attempt's slot so a later connect() starts fresh;
+    // its connectInner aborts itself via the generation check.
+    this.resolving.delete(machine);
     this.pendingFrames.delete(machine);
     const managed = this.sessions.get(machine);
     if (managed) {
@@ -359,13 +394,15 @@ export class MachineManager {
     try {
       const metadata = loadMachineMetadata(machine);
       const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
-      const endpoint = endpointFromMachine(saved, remoteHerdr);
+      const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
       const snapshot = await fetchSnapshot({
         api: sshApiConnector(endpoint),
         client: sshClientConnector(endpoint),
         label: `ssh:${endpoint.target}`,
       });
-      if (this.closed) return;
+      // The machine may have been connected, disabled or removed while the
+      // probe was in flight; only publish the result if nothing changed.
+      if (this.closed || this.infos.get(machine) !== info || this.sessions.has(machine) || !info.enabled) return;
       const changed = info.status !== "online";
       info.status = "online";
       info.version = snapshot.version;
@@ -373,7 +410,7 @@ export class MachineManager {
       delete info.detail;
       if (changed) this.pushStatus(info);
     } catch (error) {
-      if (this.closed) return;
+      if (this.closed || this.infos.get(machine) !== info || this.sessions.has(machine) || !info.enabled) return;
       const text = error instanceof Error ? error.message : String(error);
       const classified = classifySshFailure(text);
       const next: MachineStatus =
