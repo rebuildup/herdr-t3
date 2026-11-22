@@ -12,3 +12,13 @@ const twMerge = extendTailwindMerge({
 export function cn(...inputs: Parameters<typeof cx>) {
   return twMerge(cx(inputs));
 }
+
+/* Platform helpers ported from t3code apps/web/src/lib/utils.ts (MIT). */
+
+export function isMacPlatform(platform: string): boolean {
+  return /mac|iphone|ipad|ipod/i.test(platform);
+}
+
+export function isWindowsPlatform(platform: string): boolean {
+  return /^win(dows)?/i.test(platform);
+}

@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
-import { Tooltip } from "./components/ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./components/ui/tooltip";
 import {
   getAppearanceMode,
   initAppearance,
@@ -213,18 +213,25 @@ export default function App() {
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Terminal className="size-4 text-primary" />
           <span className="text-sm font-medium">herdr-t3</span>
-          <Tooltip content={connection}><span className="ml-auto flex items-center gap-1.5">
-            {connection === "open" ? (
-              <Wifi className="size-3.5 text-success" />
-            ) : (
-              <WifiOff className="size-3.5 text-muted-foreground" />
-            )}
-            {connection !== "open" && (
-              <span className="text-2xs text-muted-foreground">
-                {connection === "connecting" ? "Connecting…" : "Reconnecting…"}
-              </span>
-            )}
-          </span></Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="ml-auto flex items-center gap-1.5">
+                  {connection === "open" ? (
+                    <Wifi className="size-3.5 text-success" />
+                  ) : (
+                    <WifiOff className="size-3.5 text-muted-foreground" />
+                  )}
+                  {connection !== "open" && (
+                    <span className="text-2xs text-muted-foreground">
+                      {connection === "connecting" ? "Connecting…" : "Reconnecting…"}
+                    </span>
+                  )}
+                </span>
+              }
+            />
+            <TooltipPopup>{connection}</TooltipPopup>
+          </Tooltip>
         </div>
         <div className="px-2 pb-1">
           <div className="mb-1 flex items-center justify-between px-1">
@@ -244,22 +251,27 @@ export default function App() {
             return (
               <ContextMenu key={m.id}>
                 <ContextMenuTrigger className="w-full">
-                  <Tooltip content={info ?? m.id}>
-                  {/* oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row; Button owns its own padding and shape */}
-                  <button
-                    type="button"
-                    onClick={() => selectMachine(m.id)}
-                    className={cn(
-                      "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm",
-                      selected
-                        ? "bg-sidebar-row-selected text-foreground"
-                        : "text-foreground/80 hover:bg-sidebar-row-hover",
-                    )}
-                  >
-                    <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                    {machineStatusIcon(m.status)}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row; Button owns its own padding and shape
+                        <button
+                          type="button"
+                          onClick={() => selectMachine(m.id)}
+                          className={cn(
+                            "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm",
+                            selected
+                              ? "bg-sidebar-row-selected text-foreground"
+                              : "text-foreground/80 hover:bg-sidebar-row-hover",
+                          )}
+                        >
+                          <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate">{m.label}</span>
+                          {machineStatusIcon(m.status)}
+                        </button>
+                      }
+                    />
+                    <TooltipPopup>{info ?? m.id}</TooltipPopup>
                   </Tooltip>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
