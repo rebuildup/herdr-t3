@@ -192,10 +192,12 @@ export type ServerFrame =
 export const RPC_METHODS = [
   "session.snapshot",
   "workspace.create",
+  "workspace.focus",
   "workspace.close",
   "workspace.rename",
   "workspace.move",
   "tab.create",
+  "tab.focus",
   "tab.close",
   "tab.rename",
   "tab.move",
