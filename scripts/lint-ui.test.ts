@@ -28,6 +28,10 @@ test("bad fixture triggers every UI lint rule", () => {
     "herdr-t3(no-static-inline-style)",
     "herdr-t3(require-suppression-reason)",
     "shadcn(no-restyle)",
+    "shadcn(require-static-classes)",
+    "shadcn(no-arbitrary-values)",
+    "shadcn(no-raw-colors)",
+    "shadcn(no-unknown-classes)",
   ]) {
     expect(output).toContain(rule);
   }
