@@ -10,6 +10,9 @@ bun run typecheck
 printf 'Running tests...\n'
 bun run test
 
+printf 'UI lint...\n'
+bun run lint:ui
+
 printf 'Checking ADR index...\n'
 python3 - <<'PY'
 import re

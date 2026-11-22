@@ -20,7 +20,8 @@
     "desktop:build": "bun build desktop/main.ts --target node --format cjs --outfile desktop/main.cjs --external electron",
     "desktop": "bun run build && bun run desktop:build && electron .",
     "desktop:dev": "bun run desktop:build && HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev electron .",
-    "desktop:pack": "bun run build && bun run desktop:build && electron-builder --publish never"
+    "desktop:pack": "bun run build && bun run desktop:build && electron-builder --publish never",
+    "lint:ui": "bun scripts/lint-ui.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

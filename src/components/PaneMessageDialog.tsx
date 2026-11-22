@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
+import { Textarea } from "./ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { rpc } from "../lib/api";
 import type { PaneInfo } from "../../shared/protocol";
@@ -56,7 +57,7 @@ export function PaneMessageDialog({
             ? `Submitted through agent.prompt to ${pane?.agent} in ${pane?.pane_id}.`
             : `Typed into ${pane?.pane_id} through pane.send_text + enter.`}
         </DialogDescription>
-        <textarea
+        <Textarea
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}

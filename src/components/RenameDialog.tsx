@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { rpc } from "../lib/api";
 import type { RpcMethod } from "../../shared/protocol";
@@ -54,7 +55,7 @@ export function RenameDialog({
       <DialogContent>
         <DialogTitle>Rename {target?.kind}</DialogTitle>
         <DialogDescription>Shown in the {target?.kind} list and tab strip.</DialogDescription>
-        <input
+        <Input
           ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
