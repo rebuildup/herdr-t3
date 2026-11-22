@@ -24,6 +24,9 @@ Reused material:
   file's header comment.
 - Design rules — composition, styling, and React Compiler conventions follow
   `t3code/docs/internals/web-ui.md` and `t3code/AGENTS.md`.
+- `lint-plugin/rules/no-native-title-tooltip.ts` and
+  `lint-plugin/rules/require-suppression-reason.ts` — ported from
+  `oxlint-plugin-t3code/rules/` (same MIT license).
 
 herdr-t3 is not affiliated with or endorsed by T3 Tools Inc. The T3 Code name
 and product belong to their owners; this project is a separate personal tool.

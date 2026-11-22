@@ -1,65 +1,26 @@
 /**
- * herdr-t3 bridge: serves the built web UI and proxies herdr's session state
- * to the browser over HTTP + WebSocket.
+ * herdr-t3 dev bridge: serves the built web UI and proxies herdr's session
+ * state to the browser over HTTP + WebSocket.
  *
  * Binds 127.0.0.1 by default (HOST/PORT override). It never owns herdr
  * sessions: every call is a fresh herdr RPC, and closing this process leaves
- * herdr untouched.
+ * herdr untouched. The desktop app embeds the same session core in-process
+ * (desktop/main.ts) and does not need this server.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-  isRpcMethod,
-  type ClientFrame,
-  type ServerFrame,
-  type SessionSnapshot,
-} from "../shared/protocol.ts";
-import {
-  HerdrError,
-  herdrRpc,
-  herdrSocketPath,
-  socketAddress,
-  subscribeEvents,
-  type EventFrame,
-  type Subscription,
-} from "./herdr.ts";
+import { isClientFrame } from "../shared/protocol.ts";
+import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
+import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
+import { fetchSnapshot } from "./bridge-core.ts";
+import { MachineManager } from "./machine-manager.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
+const ALLOWED_HOSTS = extraAllowedHosts();
+const ALLOWED_ORIGINS = extraAllowedOrigins();
 const DIST = join(import.meta.dir, "..", "dist");
 const COMMIT = process.env["HERDR_T3_COMMIT"] ?? "unknown";
-
-const STRUCTURE_SUBSCRIPTIONS: Record<string, unknown>[] = [
-  { type: "workspace.created" },
-  { type: "workspace.updated" },
-  { type: "workspace.metadata_updated" },
-  { type: "workspace.renamed" },
-  { type: "workspace.moved" },
-  { type: "workspace.reordered" },
-  { type: "workspace.closed" },
-  { type: "worktree.created" },
-  { type: "worktree.opened" },
-  { type: "worktree.removed" },
-  { type: "tab.created" },
-  { type: "tab.closed" },
-  { type: "tab.renamed" },
-  { type: "tab.moved" },
-  { type: "pane.created" },
-  { type: "pane.closed" },
-  { type: "pane.exited" },
-  { type: "pane.updated" },
-  { type: "pane.moved" },
-  { type: "layout.updated" },
-];
-
-function statusSubscriptions(snapshot: SessionSnapshot): Record<string, unknown>[] {
-  return snapshot.panes.map((pane) => ({ type: "pane.agent_status_changed", pane_id: pane.pane_id }));
-}
-
-async function fetchSnapshot(): Promise<SessionSnapshot> {
-  const result = await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {});
-  return result.snapshot;
-}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -121,100 +82,17 @@ async function health(): Promise<Response> {
   } satisfies import("../shared/protocol.ts").HealthResponse);
 }
 
-interface ClientState {
-  send: (frame: ServerFrame) => void;
-  subscription: Subscription | null;
-  subscribedPaneIds: Set<string>;
-  snapshotTimer: ReturnType<typeof setTimeout> | null;
-  pushTimer: ReturnType<typeof setTimeout> | null;
-}
-
-function pushSnapshot(state: ClientState): void {
-  void fetchSnapshot()
-    .then((snapshot) => {
-      state.send({ type: "snapshot", snapshot });
-      reconcileSubscriptions(state, snapshot);
-    })
-    .catch(() => {
-      /* herdr unreachable; the client shows its own offline state */
-    });
-}
-
-function reconcileSubscriptions(state: ClientState, snapshot: SessionSnapshot): void {
-  const ids = new Set(snapshot.panes.map((pane) => pane.pane_id));
-  const same =
-    state.subscribedPaneIds.size === ids.size && [...ids].every((id) => state.subscribedPaneIds.has(id));
-  if (same) return;
-  // A second subscribe on a live connection is ignored: reopen with the full set.
-  state.subscription?.close();
-  state.subscription = openSubscription(state, snapshot);
-}
-
-function openSubscription(state: ClientState, snapshot: SessionSnapshot): Subscription {
-  state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
-  return subscribeEvents([...STRUCTURE_SUBSCRIPTIONS, ...statusSubscriptions(snapshot)], {
-    onEvent: (frame: EventFrame) => {
-      state.send({ type: "event", event: frame });
-      scheduleSnapshot(state);
-    },
-    onError: () => scheduleSnapshot(state),
-    onClose: () => {
-      state.subscription = null;
-      state.subscribedPaneIds = new Set();
-      scheduleSnapshot(state);
-      // Retry the subscription itself; the snapshot push above already ran once.
-      state.pushTimer = setTimeout(() => {
-        state.pushTimer = null;
-        void fetchSnapshot().then((snapshot) => {
-          state.send({ type: "snapshot", snapshot });
-          state.subscription = openSubscription(state, snapshot);
-        }).catch(() => {});
-      }, 2000);
-    },
-  });
-}
-
-function scheduleSnapshot(state: ClientState): void {
-  if (state.snapshotTimer !== null) return;
-  state.snapshotTimer = setTimeout(() => {
-    state.snapshotTimer = null;
-    pushSnapshot(state);
-  }, 120);
-}
-
-function handleClientFrame(state: ClientState, frame: ClientFrame): void {
-  switch (frame.type) {
-    case "rpc": {
-      if (!isRpcMethod(frame.method)) {
-        state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: "method_not_allowed", message: frame.method } });
-        return;
-      }
-      void herdrRpc(frame.method, frame.params ?? {})
-        .then((result) => {
-          state.send({ type: "rpc_result", id: frame.id, ok: true, result });
-          scheduleSnapshot(state);
-        })
-        .catch((error: unknown) => {
-          const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
-          state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: err.code, message: err.message } });
-        });
-      return;
-    }
-    case "subscribe_terminal":
-    case "unsubscribe_terminal":
-    case "terminal_input":
-    case "terminal_resize":
-      // Terminal attach lands in its own ticket; refuse politely for now.
-      state.send({ type: "terminal_closed", paneId: frame.paneId, reason: "not_implemented" });
-      return;
-  }
-}
-
 Bun.serve({
   hostname: HOST,
   port: PORT,
   fetch(req, server) {
     const url = new URL(req.url);
+    // Control surface only: the static shell is harmless without /api and /ws,
+    // and guarding it would break direct file:// or preview tooling.
+    if ((url.pathname === "/ws" || url.pathname.startsWith("/api/")) &&
+        !controlRequestAllowed(req, HOST, ALLOWED_HOSTS, ALLOWED_ORIGINS)) {
+      return new Response("forbidden host or origin", { status: 403 });
+    }
     if (url.pathname === "/api/health") return health();
     if (url.pathname === "/api/session" && req.method === "GET") {
       return fetchSnapshot()
@@ -230,40 +108,26 @@ Bun.serve({
   },
   websocket: {
     open(ws) {
-      const state: ClientState = {
-        send: (frame) => ws.send(JSON.stringify(frame)),
-        subscription: null,
-        subscribedPaneIds: new Set(),
-        snapshotTimer: null,
-        pushTimer: null,
-      };
-      (ws as unknown as { __state?: ClientState }).__state = state;
-      void fetchSnapshot()
-        .then((snapshot) => {
-          state.send({ type: "ready", snapshot });
-          state.subscription = openSubscription(state, snapshot);
-        })
-        .catch((error: unknown) => {
-          const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
-          state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message } });
-        });
+      // Same contract as the desktop app: one machine manager per client,
+      // local + saved SSH machines over the same frame shapes.
+      const manager = new MachineManager({ send: (frame) => ws.send(JSON.stringify(frame)) });
+      (ws as unknown as { __manager?: MachineManager }).__manager = manager;
+      manager.start();
     },
     message(ws, message) {
-      const state = (ws as unknown as { __state?: ClientState }).__state;
-      if (!state) return;
-      let frame: ClientFrame;
+      const manager = (ws as unknown as { __manager?: MachineManager }).__manager;
+      if (!manager) return;
+      let frame: unknown;
       try {
-        frame = JSON.parse(String(message)) as ClientFrame;
+        frame = JSON.parse(String(message));
       } catch {
         return;
       }
-      handleClientFrame(state, frame);
+      if (!isClientFrame(frame)) return;
+      manager.handleFrame(frame);
     },
     close(ws) {
-      const state = (ws as unknown as { __state?: ClientState }).__state;
-      state?.subscription?.close();
-      if (state?.snapshotTimer) clearTimeout(state.snapshotTimer);
-      if (state?.pushTimer) clearTimeout(state.pushTimer);
+      (ws as unknown as { __manager?: MachineManager }).__manager?.close();
     },
   },
 });

@@ -71,3 +71,5 @@ external_verification:
     command: 'manual: launch bridge, open UI, exercise workspace/tab/pane ops against a test herdr session'
     automated_in_ci: false
     reason: 'Requires a real herdr session and display; GitHub-hosted CI has neither.'
+  - name: ui-lint
+    command: bun run lint:ui

@@ -17,17 +17,20 @@ herdr ターミナルマルチプレクサのセッションを、T3 Code のデ
 ```bash
 mise install
 bun install
-bun run dev        # Vite dev server (API は bridge へ proxy)
-bun run server     # herdr ブリッジ (127.0.0.1:4737)
-bun run build && bun run start
+./scripts/dev.sh    # Bun bridge (:4738) + Vite dev server (:5737) — ブラウザ開発
+bun run desktop:dev # Electron 開発 (Vite dev URL を読む)
+bun run desktop     # Electron 本番相当 (build + desktop:build + electron .)
 ```
 
 品質ゲート: `./scripts/ci.sh`
 
 ## 導入 (macOS / Windows 11)
 
-`rebuildup/pc-setup` が導入の正本 (Issue で追跡)。GUI はローカルの Bun
-ブリッジが配信するブラウザ/PWA で、Electron ラッパーや常駐サービスは持たない。
+`rebuildup/pc-setup` が導入の正本 (Issue で追跡)。配布形態は **Electron
+デスクトップアプリ** — Main プロセスが herdr に直接接続し、`dist/` を
+`file://` で読み込む。常駐サービスや別途のブリッジサーバーは持たない。
+インストール/更新/ロールバックは `v*` タグまたはフル SHA を対象に、
+`electron-builder` でパッケージをビルドして配置する。
 
 ## ドキュメント
 

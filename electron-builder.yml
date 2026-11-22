@@ -1,0 +1,18 @@
+appId: com.github.rebuildup.herdr-t3
+productName: herdr-t3
+directories:
+  output: release
+files:
+  - dist/**/*
+  - desktop/**/*
+  - package.json
+  - "!**/*.map"
+mac:
+  target: dir
+  category: public.app-category.developer-tools
+  identity: null
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
