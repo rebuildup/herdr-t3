@@ -77,6 +77,7 @@ export type TerminalDataListener = (paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (paneId: string, reason: string | undefined) => void;
 
 let ws: WebSocket | null = null;
+let ipcOff: (() => void) | null = null;
 let wsListeners = new Set<SnapshotListener>();
 let statusListeners = new Set<StatusListener>();
 let terminalDataListeners = new Set<TerminalDataListener>();
@@ -122,7 +123,7 @@ function connect(): void {
     // Desktop: the main process owns the session; IPC is always "connected".
     // herdr reachability is reported separately through health.
     notifyStatus("open");
-    ipc.onFrame(handleFrame);
+    ipcOff = ipc.onFrame(handleFrame) ?? null;
     void ipc
       .health()
       .then((h) => {
@@ -165,6 +166,8 @@ export function connectBridge(): () => void {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     ws?.close();
     ws = null;
+    ipcOff?.();
+    ipcOff = null;
   };
 }
 

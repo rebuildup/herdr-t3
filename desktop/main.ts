@@ -19,9 +19,11 @@ import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
 
 const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
 
-// The bundle is CJS: __dirname is the desktop/ directory at runtime, both in
-// a checkout and inside the packaged app.asar.
-const HERE = __dirname;
+// app.getAppPath() is the app root at runtime: the project dir for
+// `electron .` and app.asar for the packaged app. Do NOT use __dirname or
+// import.meta here — bun build rewrites both to the bundle-time checkout
+// path, which breaks the packaged app as soon as that checkout moves.
+const APP_ROOT = app.getAppPath();
 
 // Separate identity for the dev app so it can run beside a stable install:
 // distinct name (Dock/⌘Tab) and userData (settings/state) from the packaged
@@ -58,7 +60,7 @@ function createWindow(): void {
     title: "herdr-t3",
     backgroundColor: "#000000",
     webPreferences: {
-      preload: join(HERE, "preload.cjs"),
+      preload: join(APP_ROOT, "desktop", "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -82,7 +84,7 @@ function createWindow(): void {
     if (externalUrlAllowed(url)) void shell.openExternal(url);
   });
 
-  const target = DEV_URL ?? pathToFileURL(join(HERE, "..", "dist", "index.html")).toString();
+  const target = DEV_URL ?? pathToFileURL(join(APP_ROOT, "dist", "index.html")).toString();
   void contents.loadURL(target);
 }
 
@@ -112,16 +114,22 @@ function healthPayload(): Promise<Record<string, unknown>> {
     }));
 }
 
-app.whenReady().then(() => {
+function ensureSession(): void {
+  if (session) return;
   session = createBridgeSession(send);
-  void session.start().then(() => {
-    if (process.env["HERDR_T3_DEBUG"]) {
+  void session.start();
+}
+
+app.whenReady().then(() => {
+  ensureSession();
+  if (process.env["HERDR_T3_DEBUG"]) {
+    setTimeout(() => {
       const snap = session?.latestSnapshot();
       console.log(
-        `[herdr-t3] bridge ready: herdr=${herdrSocketPath()} snapshot=${snap ? `${snap.panes.length} panes` : "none (unreachable)"}`,
+        `[herdr-t3] bridge: herdr=${herdrSocketPath()} snapshot=${snap ? `${snap.panes.length} panes` : "none (unreachable)"}`,
       );
-    }
-  });
+    }, 1500);
+  }
 
   ipcMain.on("herdr-t3:frame", (event, frame: unknown) => {
     // Only the app's own window may drive the bridge, and only with frames
@@ -147,6 +155,7 @@ app.whenReady().then(() => {
 
   createWindow();
   app.on("activate", () => {
+    ensureSession();
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     } else if (win && !win.isDestroyed()) {
@@ -156,9 +165,14 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  session?.close();
-  session = null;
-  if (process.platform !== "darwin") app.quit();
+  // On macOS the app stays alive with no window; keep the bridge session so
+  // Dock reactivation is instant and herdr subscriptions survive. The
+  // session is released on before-quit.
+  if (process.platform !== "darwin") {
+    session?.close();
+    session = null;
+    app.quit();
+  }
 });
 
 app.on("before-quit", () => {
