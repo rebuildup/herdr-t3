@@ -23,8 +23,11 @@ const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
 // a checkout and inside the packaged app.asar.
 const HERE = __dirname;
 
-// Separate identity for the dev app so it can run beside a stable install.
+// Separate identity for the dev app so it can run beside a stable install:
+// distinct name (Dock/⌘Tab) and userData (settings/state) from the packaged
+// stable build.
 if (process.env["HERDR_T3_PROFILE"] === "dev") {
+  app.setName("herdr-t3 Dev");
   app.setPath("userData", join(app.getPath("appData"), "herdr-t3-dev"));
 }
 
