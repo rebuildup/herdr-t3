@@ -9,3 +9,4 @@
 | [ADR-0005](./ADR-0005.md) | Accepted | Distribution: native Electron desktop app |
 | [ADR-0006](./ADR-0006.md) | Accepted | Remote machines: saved SSH endpoints over herdr's own bridges |
 | [ADR-0007](./ADR-0007.md) | Accepted | Terminal: libghostty-vt engine replaces xterm.js |
+| [ADR-0008](./ADR-0008.md) | Accepted | Canonical UI architecture: T3 Code application shell |
