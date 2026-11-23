@@ -79,7 +79,14 @@ From `apps/desktop/src/window/DesktopWindow.ts`:
 | Workspace | thread list entry | Sidebar item rows: status icon, title, tab/pane meta, context menu |
 | Tab | — (in-workspace view) | Tab strip inside the content header of the selected workspace |
 | Pane | — (work canvas region) | Pane grid inside the content canvas; operations via header overflow menu, context menus, command palette — never a row of raw API buttons |
-| Agent status | thread/provider status | Status icons/badges on workspace rows and pane header, driven only by `agent_status` |
+| Agent status | thread/provider status | Status icons/badges on workspace rows, tab strip, pane chrome and header — never `agent_status` alone without the work-context surfaces (`info-architecture.md` §4) |
+| Worktree (herdr) | project branch | Branch/repo shown in workspace identity (`info-architecture.md` §3); management UI per `herdr-parity.md` §3 |
+| Agent collection | thread list filter / attention | Attention aggregate in status area; agent-level list reachable from sidebar/palette (`herdr-parity.md` §2) |
+| herdr mode bar / status segments | header status cluster / toast | Endpoint state, attention count, transient notices — translated to GUI equivalents, not a literal 1-row bar (`herdr-parity.md` §2) |
+
+v0.4.0 additions: information priority and surface roles are canonical in
+`info-architecture.md`; interaction/motion/drag/a11y rules in
+`interaction.md`; herdr capability contract in `herdr-parity.md`.
 
 Rules:
 
