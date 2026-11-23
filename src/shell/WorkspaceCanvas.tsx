@@ -79,7 +79,11 @@ export function WorkspaceCanvas() {
   if (!snapshot) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        {bridge.connection === "open" ? "Loading session…" : "Connecting to herdr…"}
+        {bridge.connection === "open"
+          ? "Loading session…"
+          : bridge.connection === "connecting"
+            ? "Connecting to herdr…"
+            : "Bridge disconnected — retrying…"}
       </div>
     );
   }
