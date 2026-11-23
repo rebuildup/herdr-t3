@@ -28,7 +28,7 @@ const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
 // the only record of quit-time and startup exceptions on installed builds.
 diagInit({
   version: pkg.version,
-  commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+  commit: process.env.HERDR_T3_COMMIT ?? "unknown",
 });
 
 // app.getAppPath() is the app root at runtime: the project dir for
@@ -243,7 +243,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
     .then((snapshot) => ({
       ok: true,
       version: pkg.version,
-      commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+      commit: process.env.HERDR_T3_COMMIT ?? "unknown",
       herdr: {
         reachable: true,
         socket: socketAddress(socket),
@@ -254,7 +254,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
     .catch((error: unknown) => ({
       ok: true,
       version: pkg.version,
-      commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+      commit: process.env.HERDR_T3_COMMIT ?? "unknown",
       herdr: {
         reachable: false,
         socket: socketAddress(socket),

@@ -1,7 +1,7 @@
 {
   "name": "herdr-t3",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "description": "Herdr session GUI client with the T3 Code design system (macOS/Windows)",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
     "check": "bun run typecheck && bun run test",
-    "desktop:build": "bun build desktop/main.ts --target node --format cjs --outfile desktop/main.cjs --external electron",
+    "desktop:build": "bun run scripts/build-desktop.ts",
     "desktop": "bun run build && bun run desktop:build && electron .",
     "desktop:dev": "bun run desktop:build && HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev electron .",
     "desktop:pack": "bun run build && bun run desktop:build && electron-builder --publish never",
