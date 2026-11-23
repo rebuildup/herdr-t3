@@ -17,7 +17,7 @@ import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protoc
 import { isClientFrame } from "../shared/protocol.ts";
 import { fetchSnapshot } from "../server/bridge-core.ts";
 import { MachineManager } from "../server/machine-manager.ts";
-import { GhosttyThemeWatcher } from "../server/ghostty.ts";
+import { GhosttyThemeWatcher, ghosttyImageDataUrl } from "../server/ghostty.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
 import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnostics.ts";
 import pkg from "../package.json";
@@ -362,6 +362,12 @@ app.whenReady().then(() => {
   ghostty.start();
 
   ipcMain.handle("herdr-t3:ghostty", () => ghostty?.current() ?? null);
+  // Background images stay in the main process; the renderer receives a
+  // data URL only for PNG/JPEG paths that came from the Ghostty config
+  // (issue #108). Returns null for anything unreadable or unsupported.
+  ipcMain.handle("herdr-t3:ghostty-image", (_event, filePath: unknown) =>
+    ghosttyImageDataUrl(filePath),
+  );
 
   createWindow();
   app.on("activate", () => {

@@ -18,6 +18,8 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
+import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
+import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
 import type { EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
 
 export interface GhosttySurfaceOptions {
@@ -41,6 +43,15 @@ export interface GhosttySurfaceOptions {
 }
 
 interface CellMetrics { cols: number; rows: number; cellW: number; cellH: number }
+
+/** a `background-image` the host resolved to a loadable URL (issue #108) */
+export interface GhosttySurfaceBackgroundImage {
+  src: string;
+  opacity: number;
+  position: GhosttyBackgroundImagePosition;
+  fit: GhosttyBackgroundImageFit;
+  repeat: boolean;
+}
 
 /** wheel pixels per scroll line, roughly a mouse notch */
 const WHEEL_PIXELS_PER_LINE = 40;
@@ -67,6 +78,8 @@ export class GhosttySurface {
   private lastViewportTop: number | null = null;
   /** set by scrollTo: the next tick's viewport jump is the user's scroll, not new output */
   private scrollJump = false;
+  /** invalidates in-flight background-image loads so a stale spec cannot win */
+  private backgroundToken = 0;
   private disposed = false;
   private dead = false;
 
@@ -191,6 +204,46 @@ export class GhosttySurface {
     this.options.colors = colors;
     this.applyColors();
     this.schedule();
+  }
+
+  /** `background-opacity` from the Ghostty config (issue #108) */
+  setBackgroundOpacity(alpha: number): void {
+    this.renderer.setBackgroundOpacity(alpha);
+    this.schedule();
+  }
+
+  /**
+   * A `background-image` resolved to a URL (typically a data URL from the
+   * main process). The image loads asynchronously; a newer call or dispose
+   * cancels an in-flight load. `null` clears the image and falls back to the
+   * plain background color.
+   */
+  setBackgroundImage(spec: GhosttySurfaceBackgroundImage | null): void {
+    const token = ++this.backgroundToken;
+    if (!spec) {
+      this.renderer.setBackgroundImage(null);
+      this.schedule();
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      if (this.disposed || token !== this.backgroundToken) return;
+      const resolved: GhosttyBackgroundImageSpec = {
+        image,
+        opacity: spec.opacity,
+        position: spec.position,
+        fit: spec.fit,
+        repeat: spec.repeat,
+      };
+      this.renderer.setBackgroundImage(resolved);
+      this.schedule();
+    };
+    image.onerror = () => {
+      if (this.disposed || token !== this.backgroundToken) return;
+      this.renderer.setBackgroundImage(null);
+      this.schedule();
+    };
+    image.src = spec.src;
   }
 
   setReadOnly(readOnly: boolean): void {

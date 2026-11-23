@@ -10,7 +10,12 @@ import {
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { getTerminalSurfaceColors, onTerminalThemeChange } from "../lib/theme";
+import {
+  getTerminalBackground,
+  getTerminalSurfaceColors,
+  loadTerminalBackgroundImage,
+  onTerminalThemeChange,
+} from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
@@ -131,6 +136,9 @@ export function PaneTerminal({
         surfaceRef.current = surface;
         surface.attach();
         for (const bytes of pending.splice(0)) surface.write(bytes);
+        // applyTheme is defined below in this effect; the .then callback runs
+        // after the synchronous body, so the binding is initialized.
+        applyTheme();
       })
       .catch((error: unknown) => {
         if (!disposed) setEngineError(error instanceof Error ? error.message : String(error));
@@ -148,9 +156,32 @@ export function PaneTerminal({
     });
     // Theme changes (appearance mode, Ghostty config edits, OS light/dark)
     // update the live terminal in place — scrollback and input state survive.
-    const themeOff = onTerminalThemeChange(() => {
-      surfaceRef.current?.setColors(getTerminalSurfaceColors());
-    });
+    const applyTheme = () => {
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      surface.setColors(getTerminalSurfaceColors());
+      const bg = getTerminalBackground();
+      surface.setBackgroundOpacity(bg.opacity);
+      const image = bg.image;
+      if (!image) {
+        surface.setBackgroundImage(null);
+        return;
+      }
+      void loadTerminalBackgroundImage(image.path).then((src) => {
+        surface.setBackgroundImage(
+          src === null
+            ? null
+            : {
+                src,
+                opacity: image.opacity ?? 1,
+                position: image.position ?? "center",
+                fit: image.fit ?? "contain",
+                repeat: image.repeat ?? false,
+              },
+        );
+      });
+    };
+    const themeOff = onTerminalThemeChange(applyTheme);
     // Font/scrollback settings apply to the live engine in place: the cell
     // grid is re-measured (pty resize follows through onResize) and the
     // scrollback limit moves without touching the herdr session.
