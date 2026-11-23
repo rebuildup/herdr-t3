@@ -14,7 +14,7 @@ import {
   SunIcon,
   SquarePenIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Command,
@@ -67,6 +67,17 @@ export function CommandMenu({
   const { workspace, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
+
+  // Explicit Escape fallback: the footer advertises "Esc Close", so closing
+  // must not depend solely on the dialog primitive's dismissal path (issue #94).
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onOpenChange]);
 
   const actions = useMemo<PaletteAction[]>(() => {
     const list: PaletteAction[] = [

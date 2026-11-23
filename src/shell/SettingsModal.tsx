@@ -699,7 +699,7 @@ export function SettingsModal() {
   }, []);
 
   return (
-    <DialogPrimitive.Root open>
+    <DialogPrimitive.Root open onOpenChange={(o) => { if (!o) closeSettings(); }}>
       <DialogPrimitive.Portal>
         <DialogBackdrop />
         <DialogPrimitive.Viewport
