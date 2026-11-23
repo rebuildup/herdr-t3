@@ -160,6 +160,8 @@ export interface HealthResponse {
     socket: string;
     version?: string;
     protocol?: number;
+    /** reachability failure detail when reachable is false */
+    error?: string;
   };
 }
 
@@ -209,7 +211,10 @@ export type ClientFrame =
   | { type: "list_machines" }
   | { type: "machine_connect"; machine: string }
   | { type: "machine_disconnect"; machine: string }
-  | { type: "machine_add"; id: string; label: string; target: string; session?: string };
+  | { type: "machine_add"; id: string; label: string; target: string; session?: string }
+  /** `id` correlates the rpc_result; `machine` is herdr's saved-machine profile id. */
+  | { type: "machine_remove"; id: string; machine: string }
+  | { type: "machine_update"; id: string; machine: string; label?: string; enabled?: boolean };
 
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
 export type ServerFrame =
@@ -320,6 +325,23 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         frame["target"].length <= 253 &&
         !frame["target"].startsWith("-") &&
         (frame["session"] === undefined || (typeof frame["session"] === "string" && frame["session"].length <= 64))
+      );
+    case "machine_remove":
+      return (
+        typeof frame["id"] === "string" &&
+        typeof frame["machine"] === "string" &&
+        frame["machine"].length > 0 &&
+        frame["machine"] !== "local"
+      );
+    case "machine_update":
+      return (
+        typeof frame["id"] === "string" &&
+        typeof frame["machine"] === "string" &&
+        frame["machine"].length > 0 &&
+        frame["machine"] !== "local" &&
+        (frame["label"] === undefined || (typeof frame["label"] === "string" && frame["label"].length > 0 && frame["label"].length <= 128)) &&
+        (frame["enabled"] === undefined || typeof frame["enabled"] === "boolean") &&
+        (frame["label"] !== undefined || frame["enabled"] !== undefined)
       );
     default:
       return false;

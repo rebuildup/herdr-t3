@@ -33,6 +33,8 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
+import { getGeneralSettings } from "~/lib/settings";
 import { machineConnect, machineDisconnect } from "~/lib/api";
 import type { MachineInfo, WorkspaceInfo } from "../../shared/protocol";
 import { workspaceTitle } from "~/lib/workspace";
@@ -98,6 +100,7 @@ function WorkspaceRow({
   inFolder = false,
   onNewWorkspace,
   onRename,
+  onClose,
 }: {
   machine: MachineInfo;
   workspace: WorkspaceInfo;
@@ -105,6 +108,7 @@ function WorkspaceRow({
   inFolder?: boolean;
   onNewWorkspace: () => void;
   onRename: (target: RenameTarget, machine: string) => void;
+  onClose: () => void;
 }) {
   const machineLabel = inFolder ? undefined : machine.label;
   const title = workspaceTitle(workspace);
@@ -169,15 +173,7 @@ function WorkspaceRow({
         </ContextMenuItem>
         <ContextMenuItem onSelect={onNewWorkspace}>New workspace here</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          onSelect={() =>
-            void callRpc(machine.id, "workspace.close", {
-              workspace_id: workspace.workspace_id,
-            })
-          }
-        >
-          Close
-        </ContextMenuItem>
+        <ContextMenuItem onSelect={onClose}>Close</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -272,6 +268,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const [query, setQuery] = useState("");
   const [collapsedMachines, setCollapsedMachines] = useState<Record<string, boolean>>({});
   const [rename, setRename] = useState<RenameState | null>(null);
+  const [confirmClose, setConfirmClose] = useState<{ machine: string; workspace: WorkspaceInfo } | null>(null);
   const searching = query.trim().length > 0;
 
   const machines = machineListOf(bridge);
@@ -311,6 +308,16 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
 
   const newWorkspaceOn = (machineId: string) => {
     void newWorkspace(machineId);
+  };
+
+  // Settings → General "Confirm before closing workspace" (issue #85):
+  // workspaces that still have panes ask first; empty ones close directly.
+  const requestClose = (machine: MachineInfo, workspace: WorkspaceInfo) => {
+    if (getGeneralSettings().confirmCloseWorkspace && workspace.pane_count > 0) {
+      setConfirmClose({ machine: machine.id, workspace });
+      return;
+    }
+    void callRpc(machine.id, "workspace.close", { workspace_id: workspace.workspace_id });
   };
 
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -432,6 +439,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                               onRename={(target, machineId) =>
                                 setRename({ target, machine: machineId })
                               }
+                              onClose={() => requestClose(machine, ws)}
                             />
                           </li>
                         ))
@@ -452,6 +460,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                     onRename={(target, machineId) =>
                       setRename({ target, machine: machineId })
                     }
+                    onClose={() => requestClose(machine, workspace)}
                   />
                 </li>
               ))}
@@ -462,6 +471,37 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         machine={rename?.machine ?? LOCAL_MACHINE}
         onClose={() => setRename(null)}
       />
+      <Dialog open={confirmClose !== null} onOpenChange={(open) => !open && setConfirmClose(null)}>
+        <DialogContent>
+          <DialogTitle>Close workspace</DialogTitle>
+          <DialogDescription>
+            “{confirmClose ? workspaceTitle(confirmClose.workspace) : ""}” still has{" "}
+            {confirmClose?.workspace.pane_count ?? 0} pane
+            {(confirmClose?.workspace.pane_count ?? 0) === 1 ? "" : "s"}. Closing it ends those
+            sessions on the machine.
+          </DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setConfirmClose(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                const pending = confirmClose;
+                setConfirmClose(null);
+                if (pending) {
+                  void callRpc(pending.machine, "workspace.close", {
+                    workspace_id: pending.workspace.workspace_id,
+                  });
+                }
+              }}
+            >
+              Close workspace
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SidebarContent>
   );
 }

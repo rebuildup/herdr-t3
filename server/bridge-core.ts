@@ -303,6 +303,8 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "machine_connect":
     case "machine_disconnect":
     case "machine_add":
+    case "machine_remove":
+    case "machine_update":
       return;
   }
 }

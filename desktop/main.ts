@@ -310,6 +310,34 @@ app.whenReady().then(() => {
 
   ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
 
+  // Launch at login (issue #85): the OS owns the real state; the renderer
+  // only reads/writes it through this channel. Linux has no login-item API
+  // in Electron, so `supported` is false there and the UI stays disabled.
+  const loginItemState = () => {
+    const supported = process.platform === "darwin" || process.platform === "win32";
+    let openAtLogin = false;
+    if (supported) {
+      try {
+        openAtLogin = app.getLoginItemSettings().openAtLogin === true;
+      } catch {
+        /* treat as unsupported rather than crash the settings page */
+      }
+    }
+    return { supported, openAtLogin };
+  };
+  ipcMain.handle("herdr-t3:login-item", () => loginItemState());
+  ipcMain.handle("herdr-t3:login-item-set", (_event, openAtLogin: unknown) => {
+    if (typeof openAtLogin !== "boolean") return loginItemState();
+    if (process.platform === "darwin" || process.platform === "win32") {
+      try {
+        app.setLoginItemSettings({ openAtLogin });
+      } catch (error) {
+        diag("error", "loginItem.set", error instanceof Error ? error.message : String(error));
+      }
+    }
+    return loginItemState();
+  });
+
   // Renderer-reported JS errors (window.onerror / unhandledrejection forwarded
   // by the preload). Shape-checked and truncated; never carries frame data.
   ipcMain.on("herdr-t3:diag", (event, payload: unknown) => {

@@ -11,21 +11,14 @@ import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { getTerminalSurfaceColors, onTerminalThemeChange } from "../lib/theme";
+import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
 
-/** lines of scrollback the engine keeps per pane (what xterm.js kept before ADR-0007) */
-const SCROLLBACK_LINES = 10_000;
-
-function decodeBase64(data: string): Uint8Array {
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-/** the --font-mono stack resolved to concrete family names a canvas font string accepts */
+/** the configured font family, or the --font-mono stack when unset */
 function terminalFontFamily(): string {
+  const configured = getTerminalSettings().fontFamily;
+  if (configured) return configured;
   if (typeof document === "undefined") return "monospace";
   const probe = document.createElement("span");
   probe.style.display = "none";
@@ -34,6 +27,13 @@ function terminalFontFamily(): string {
   const family = getComputedStyle(probe).fontFamily;
   probe.remove();
   return family || "monospace";
+}
+
+function decodeBase64(data: string): Uint8Array {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 /**
@@ -90,7 +90,7 @@ export function PaneTerminal({
       cols: sizeRef.current.cols,
       rows: sizeRef.current.rows,
       widths: "core",
-      scrollbackLines: SCROLLBACK_LINES,
+      scrollbackLines: getTerminalSettings().scrollbackLines,
       onReply: send,
       onBell: () => {
         setBell(true);
@@ -109,11 +109,15 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        const terminalSettings = getTerminalSettings();
         surface = new GhosttySurface(host, created, {
           session: created,
           colors: getTerminalSurfaceColors(),
           fontFamily: terminalFontFamily(),
-          fontSize: 13,
+          fontSize: terminalSettings.fontSize,
+          ...(terminalSettings.lineHeight !== null
+            ? { lineHeight: terminalSettings.lineHeight }
+            : {}),
           onInput: send,
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
@@ -147,6 +151,22 @@ export function PaneTerminal({
     const themeOff = onTerminalThemeChange(() => {
       surfaceRef.current?.setColors(getTerminalSurfaceColors());
     });
+    // Font/scrollback settings apply to the live engine in place: the cell
+    // grid is re-measured (pty resize follows through onResize) and the
+    // scrollback limit moves without touching the herdr session.
+    const settingsOff = onTerminalSettingsChange(() => {
+      const s = getTerminalSettings();
+      surfaceRef.current?.setFont({
+        fontFamily: terminalFontFamily(),
+        fontSize: s.fontSize,
+        lineHeight: s.lineHeight,
+      });
+      try {
+        session?.setScrollback(s.scrollbackLines);
+      } catch {
+        /* engine already dead; onDead reports it */
+      }
+    });
     // Cmd+F (and Ctrl+Shift+F) opens the pane's find bar; Cmd chords never
     // reach the pane anyway, and plain Ctrl+F stays the shell's forward-char.
     const onFindKey = (event: KeyboardEvent) => {
@@ -164,6 +184,7 @@ export function PaneTerminal({
       dataOff();
       closedOff();
       themeOff();
+      settingsOff();
       host.removeEventListener("keydown", onFindKey, true);
       if (bellTimer.current) clearTimeout(bellTimer.current);
       surfaceRef.current = null;

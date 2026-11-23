@@ -74,6 +74,13 @@ export class GhosttyRenderer {
     this.top.setAttribute("aria-hidden", "true");
   }
 
+  /** the draw font changed: glyph runs are re-measured on the next frame */
+  setFont(font: { fontFamily?: string; fontSize?: number }): void {
+    if (font.fontFamily !== undefined) this.options.fontFamily = font.fontFamily;
+    if (font.fontSize !== undefined) this.options.fontSize = font.fontSize;
+    this.invalidate();
+  }
+
   /** the cell grid and the canvas backing size, in CSS pixels times devicePixelRatio */
   setMetrics(metrics: Metrics): void {
     this.metrics = metrics;

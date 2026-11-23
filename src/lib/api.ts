@@ -38,6 +38,8 @@ interface DesktopBridge {
   onFrame(listener: (frame: ServerFrame) => void): () => void;
   health(): Promise<unknown>;
   snapshot(): Promise<unknown>;
+  loginItem?(): Promise<unknown>;
+  setLoginItem?(openAtLogin: boolean): Promise<unknown>;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -297,7 +299,8 @@ export function machineDisconnect(machine: string): void {
   sendFrame({ type: "machine_disconnect", machine });
 }
 
-export function machineAdd(input: { label: string; target: string; session?: string | undefined }): Promise<unknown> {
+/** Machine-registry mutations correlate through the same rpc_result channel. */
+function machineCommand(frame: ClientFrame): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const ipc = desktopBridge();
     if (!ipc && (!ws || ws.readyState !== WebSocket.OPEN)) {
@@ -306,14 +309,48 @@ export function machineAdd(input: { label: string; target: string; session?: str
     }
     const id = `m${++rpcCounter}`;
     rpcWaiters.set(id, { resolve, reject });
-    const frame: ClientFrame = {
-      type: "machine_add",
-      id,
-      label: input.label,
-      target: input.target,
-      ...(input.session !== undefined ? { session: input.session } : {}),
-    };
+    // machine_* frames carry their own correlation id.
+    (frame as { id: string }).id = id;
     if (ipc) ipc.sendFrame(frame);
     else ws?.send(JSON.stringify(frame));
   });
+}
+
+export function machineAdd(input: { label: string; target: string; session?: string | undefined }): Promise<unknown> {
+  return machineCommand({
+    type: "machine_add",
+    id: "",
+    label: input.label,
+    target: input.target,
+    ...(input.session !== undefined ? { session: input.session } : {}),
+  });
+}
+
+export function machineRemove(machine: string): Promise<unknown> {
+  return machineCommand({ type: "machine_remove", id: "", machine });
+}
+
+export function machineUpdate(
+  machine: string,
+  update: { label?: string; enabled?: boolean },
+): Promise<unknown> {
+  return machineCommand({ type: "machine_update", id: "", machine, ...update });
+}
+
+/** Launch-at-login state; only the desktop preload exposes these. */
+export interface LoginItemState {
+  supported: boolean;
+  openAtLogin: boolean;
+}
+
+export function getLoginItem(): Promise<LoginItemState | null> {
+  const ipc = desktopBridge();
+  return (ipc?.loginItem ? ipc.loginItem() : Promise.resolve(null)) as Promise<LoginItemState | null>;
+}
+
+export function setLoginItem(openAtLogin: boolean): Promise<LoginItemState | null> {
+  const ipc = desktopBridge();
+  return (ipc?.setLoginItem ? ipc.setLoginItem(openAtLogin) : Promise.resolve(null)) as Promise<
+    LoginItemState | null
+  >;
 }

@@ -46,7 +46,11 @@
       // --workspace-*/--sidebar-*/--control-* custom properties are
       // tokens defined in index.css, so var()-valued utilities are the
       // sanctioned expression of token geometry here (issue #83, ADR-0008).
-      "files": ["src/shell/**", "src/components/WorkspaceBreadcrumb.tsx"],
+      "files": [
+        "src/shell/**",
+        "src/components/WorkspaceBreadcrumb.tsx",
+        "src/components/ThemeModeTiles.tsx"
+      ],
       "rules": {
         "shadcn/no-arbitrary-values": "off"
       }
