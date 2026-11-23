@@ -7,27 +7,27 @@
  "m2_reference": "docs/design/evidence/84/",
  "herdr_session": "isolated ht3probe (herdr 0.9.5, protocol 22); fake SSH fixtures in isolated XDG_STATE_HOME registry",
  "viewport": "1440x900 CSS @2x (2880x1800 px); narrow 480x800 @2x (960x1600 px)",
- "note": "Settings sections now show real persisted state: launch-at-login disabled in browser capture, live machine rows with status, terminal font/scrollback controls, runtime diagnostics (bridge/herdr/ghostty/version). Raw PNG captures are local-only; committed files are q85 WebP.",
+ "note": "Settings sections show real persisted state: launch-at-login disabled in browser capture, live machine rows with status, T3-style theme mode tiles + Ghostty sync switch, terminal font/scrollback controls, setting-level search results, runtime diagnostics, about. Restore app defaults in header (T3 RestoreDeviceDefaultsButton port). Raw PNG captures are local-only (/tmp/evidence-85-png); committed files are q85 WebP. Image review via codex exec -i: connections/appearance/terminal needed fixes (Add machine ghost-muted, theme tiles standalone, settings-level search, select aria-label); diagnostics/about/general PASS.",
  "captures": [
   {
    "file": "01-main-dark.webp",
-   "bytes": 75072,
-   "sha256": "e00bb69b4f2723f7"
+   "bytes": 75068,
+   "sha256": "054c08e94816c3e3"
   },
   {
    "file": "02-settings-general.webp",
-   "bytes": 33684,
-   "sha256": "38c622d35b82c2ad"
+   "bytes": 35458,
+   "sha256": "37f92f2405009c52"
   },
   {
    "file": "03-settings-connections.webp",
-   "bytes": 41812,
-   "sha256": "e34be26d4c49b65c"
+   "bytes": 43194,
+   "sha256": "c9abee57dd7479f1"
   },
   {
    "file": "04-settings-appearance.webp",
-   "bytes": 33766,
-   "sha256": "278614ab8920bc8a"
+   "bytes": 39138,
+   "sha256": "f1905bcc39c6af39"
   },
   {
    "file": "05-palette.webp",
@@ -41,8 +41,8 @@
   },
   {
    "file": "07-narrow.webp",
-   "bytes": 53680,
-   "sha256": "92f159a9f83c9dcd"
+   "bytes": 53692,
+   "sha256": "cbb6857a318e94b2"
   },
   {
    "file": "08-narrow-sheet.webp",
@@ -51,18 +51,18 @@
   },
   {
    "file": "09-settings-terminal.webp",
-   "bytes": 43010,
-   "sha256": "11085f95b9c8291c"
+   "bytes": 44814,
+   "sha256": "88f465b7fea768ea"
   },
   {
    "file": "10-settings-diagnostics.webp",
-   "bytes": 44542,
-   "sha256": "32d30bb6adbe302d"
+   "bytes": 46354,
+   "sha256": "a705b4ed72caa742"
   },
   {
    "file": "11-settings-about.webp",
-   "bytes": 42034,
-   "sha256": "af35cbc1b16c5227"
+   "bytes": 43810,
+   "sha256": "dc89d7f2de7c14cc"
   }
  ]
 }
