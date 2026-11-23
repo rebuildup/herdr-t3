@@ -13,7 +13,30 @@
 
 import { readdirSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
+
+export type GhosttyBackgroundImagePosition =
+  | "top-left" | "top-center" | "top-right"
+  | "center-left" | "center" | "center-right"
+  | "bottom-left" | "bottom-center" | "bottom-right";
+
+export type GhosttyBackgroundImageFit = "contain" | "cover" | "stretch" | "none";
+
+export interface GhosttyBackgroundImage {
+  /** absolute path to a PNG or JPEG file (Ghostty supports no other formats) */
+  path: string;
+  /**
+   * `background-image-opacity`: relative to `background-opacity`, may exceed 1.
+   * 1 (the default) draws the image fully over the background color.
+   */
+  opacity?: number;
+  /** `background-image-position`; default `center` */
+  position?: GhosttyBackgroundImagePosition;
+  /** `background-image-fit`; default `contain` */
+  fit?: GhosttyBackgroundImageFit;
+  /** `background-image-repeat`; default false */
+  repeat?: boolean;
+}
 
 export interface GhosttyPalette {
   background?: string;
@@ -24,6 +47,10 @@ export interface GhosttyPalette {
   cursorText?: string;
   selectionBackground?: string;
   selectionForeground?: string;
+  /** `background-opacity`: window background alpha, 0..1 (default 1) */
+  backgroundOpacity?: number;
+  /** `background-image` family */
+  backgroundImage?: GhosttyBackgroundImage | undefined;
   themeName: string | null;
   mode: "dark" | "light";
 }
@@ -44,6 +71,8 @@ const COLOR_KEYS = new Set([
 interface ConfigEntry {
   key: string;
   value: string;
+  /** directory of the file this entry was read from; relative paths resolve against it */
+  dir?: string;
 }
 
 /** Parse Ghostty config syntax: `key = value` lines, `#` comments at line start. */
@@ -98,8 +127,76 @@ export function parseThemeSpec(value: string): { dark?: string; light?: string; 
   return out;
 }
 
-function applyColorEntries(palette: GhosttyPalette, entries: ConfigEntry[]): void {
+const IMAGE_POSITIONS = new Set<GhosttyBackgroundImagePosition>([
+  "top-left", "top-center", "top-right",
+  "center-left", "center", "center-right",
+  "bottom-left", "bottom-center", "bottom-right",
+]);
+const IMAGE_FITS = new Set<GhosttyBackgroundImageFit>(["contain", "cover", "stretch", "none"]);
+const IMAGE_EXTENSIONS = /\.(png|jpe?g)$/i;
+
+function ghosttyBool(value: string): boolean | undefined {
+  const v = unquote(value).toLowerCase();
+  if (["true", "yes", "on", "1"].includes(v)) return true;
+  if (["false", "no", "off", "0"].includes(v)) return false;
+  return undefined;
+}
+
+function ghosttyNumber(value: string): number | undefined {
+  const n = Number(unquote(value));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Resolve a `background-image` path the way Ghostty does: `~` expands to the
+ * home directory, relative paths resolve against the directory of the file
+ * that declared them (falling back to the main config's directory for theme
+ * files, whose per-file origin is not tracked here). Only PNG/JPEG are
+ * supported; anything else resolves to undefined and is ignored.
+ */
+function resolveImagePath(
+  value: string,
+  entryDir: string | undefined,
+  fallbackDir: string | undefined,
+): string | undefined {
+  let v = unquote(value);
+  if (v === "") return undefined;
+  if (v === "~" || v.startsWith("~/") || v.startsWith("~\\")) {
+    v = join(homedir(), v.slice(1));
+  }
+  if (!isAbsolute(v)) {
+    const base = entryDir ?? fallbackDir;
+    if (!base) return undefined;
+    v = join(base, v);
+  }
+  return IMAGE_EXTENSIONS.test(v) ? v : undefined;
+}
+
+function applyColorEntries(
+  palette: GhosttyPalette,
+  entries: ConfigEntry[],
+  fallbackDir?: string,
+): void {
+  // Resolve the effective `background-image` first so its sub-keys apply
+  // regardless of directive order (Ghostty keys are order-independent).
+  // The last `background-image` in the array wins; an unsupported path
+  // clears any image an earlier theme/config entry set.
+  let imagePath: string | undefined | null = null;
+  for (const entry of entries) {
+    if (entry.key === "background-image") {
+      imagePath = resolveImagePath(entry.value, entry.dir, fallbackDir);
+    }
+  }
+  if (imagePath !== null) {
+    const prev = palette.backgroundImage;
+    palette.backgroundImage = imagePath
+      ? prev
+        ? { ...prev, path: imagePath }
+        : { path: imagePath }
+      : undefined;
+  }
   for (const { key, value } of entries) {
+    if (key === "background-image") continue;
     if (COLOR_KEYS.has(key)) {
       const color = colorValue(value);
       if (!color) continue;
@@ -131,6 +228,49 @@ function applyColorEntries(palette: GhosttyPalette, entries: ConfigEntry[]): voi
         const color = colorValue(m[2]);
         if (color && index < 16) palette.palette[index] = color;
       }
+      continue;
+    }
+    // background-opacity and the background-image family (issue #108).
+    // Sub-keys (`-opacity`/`-position`/`-fit`/`-repeat`) only take effect once
+    // a `background-image` path exists, matching Ghostty where they configure
+    // the image, not the window background.
+    switch (key) {
+      case "background-opacity": {
+        const n = ghosttyNumber(value);
+        if (n !== undefined) palette.backgroundOpacity = Math.min(1, Math.max(0, n));
+        break;
+      }
+      case "background-image-opacity": {
+        const n = ghosttyNumber(value);
+        if (n !== undefined && n >= 0 && palette.backgroundImage) {
+          palette.backgroundImage = { ...palette.backgroundImage, opacity: n };
+        }
+        break;
+      }
+      case "background-image-position": {
+        const v = unquote(value).toLowerCase();
+        if (IMAGE_POSITIONS.has(v as GhosttyBackgroundImagePosition) && palette.backgroundImage) {
+          palette.backgroundImage = {
+            ...palette.backgroundImage,
+            position: v as GhosttyBackgroundImagePosition,
+          };
+        }
+        break;
+      }
+      case "background-image-fit": {
+        const v = unquote(value).toLowerCase();
+        if (IMAGE_FITS.has(v as GhosttyBackgroundImageFit) && palette.backgroundImage) {
+          palette.backgroundImage = { ...palette.backgroundImage, fit: v as GhosttyBackgroundImageFit };
+        }
+        break;
+      }
+      case "background-image-repeat": {
+        const b = ghosttyBool(value);
+        if (b !== undefined && palette.backgroundImage) {
+          palette.backgroundImage = { ...palette.backgroundImage, repeat: b };
+        }
+        break;
+      }
     }
   }
 }
@@ -152,6 +292,8 @@ export function resolveGhosttyPalette(opts: {
   configEntries: ConfigEntry[];
   readTheme: (name: string) => string | undefined;
   preferDark: boolean;
+  /** directory used to resolve relative image paths declared by theme files */
+  configDir?: string | undefined;
 }): GhosttyPalette | null {
   const mode = opts.preferDark ? "dark" : "light";
   const spec = themeSpecEntries(opts.configEntries);
@@ -163,13 +305,13 @@ export function resolveGhosttyPalette(opts: {
   if (themeName) {
     const text = opts.readTheme(themeName);
     if (text !== undefined) {
-      applyColorEntries(palette, parseGhosttyConfig(text));
+      applyColorEntries(palette, parseGhosttyConfig(text), opts.configDir);
       palette.themeName = themeName;
     }
     // Unknown theme: Ghostty would warn and use defaults; we still apply
     // explicit user overrides below so partial sync keeps working.
   }
-  applyColorEntries(palette, opts.configEntries);
+  applyColorEntries(palette, opts.configEntries, opts.configDir);
 
   // Nothing resolvable at all -> caller falls back to the T3 theme.
   if (
@@ -177,7 +319,9 @@ export function resolveGhosttyPalette(opts: {
     palette.foreground === undefined &&
     palette.palette.every((c) => c === undefined) &&
     palette.cursorColor === undefined &&
-    palette.selectionBackground === undefined
+    palette.selectionBackground === undefined &&
+    palette.backgroundImage === undefined &&
+    palette.backgroundOpacity === undefined
   ) {
     return null;
   }
@@ -267,8 +411,13 @@ export function readConfigWithIncludes(path: string, seen = new Set<string>()): 
   } catch {
     return [];
   }
-  const entries = parseGhosttyConfig(text);
-  const dir = resolved.replace(/[/\\][^/\\]+$/, "");
+  const dir = dirname(resolved);
+  // Stamp each entry with the directory of the file it came from so
+  // relative paths (e.g. `background-image`) resolve like Ghostty's.
+  const entries: ConfigEntry[] = parseGhosttyConfig(text).map((entry) => ({
+    ...entry,
+    dir,
+  }));
   const includes = entries.filter((e) => e.key === "config-file");
   for (const { value } of includes) {
     let spec = unquote(value);
@@ -416,12 +565,25 @@ export class GhosttyThemeWatcher {
         configEntries: entries,
         readTheme: createThemeReader(this.paths.themeDirs),
         preferDark: this.preferDark(),
+        configDir: this.configDir(),
       });
     }
     const key = palette ? JSON.stringify(palette) : "null";
     if (key === this.lastKey) return;
     this.lastKey = key;
     for (const listener of this.listeners) listener(palette);
+  }
+
+  /** directory of the first existing Ghostty config file (for relative image paths) */
+  private configDir(): string | undefined {
+    for (const file of this.paths.configFiles) {
+      try {
+        if (statSync(file).isFile()) return dirname(file);
+      } catch {
+        /* try next */
+      }
+    }
+    return undefined;
   }
 
   current(): GhosttyPalette | null {
@@ -431,6 +593,7 @@ export class GhosttyThemeWatcher {
       configEntries: entries,
       readTheme: createThemeReader(this.paths.themeDirs),
       preferDark: this.preferDark(),
+      configDir: this.configDir(),
     });
   }
 
@@ -451,5 +614,27 @@ export class GhosttyThemeWatcher {
     }
     this.watchers = [];
     this.listeners.clear();
+  }
+}
+
+/** largest background image herdr-t3 will read into the renderer */
+const MAX_GHOSTTY_IMAGE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Read a configured background image as a data URL for the renderer. Only
+ * PNG/JPEG (the formats Ghostty supports) are served, capped at
+ * MAX_GHOSTTY_IMAGE_BYTES; anything else resolves to null so the terminal
+ * falls back to the plain background color.
+ */
+export function ghosttyImageDataUrl(filePath: unknown): string | null {
+  if (typeof filePath !== "string" || !IMAGE_EXTENSIONS.test(filePath)) return null;
+  try {
+    const stat = statSync(filePath);
+    if (!stat.isFile() || stat.size > MAX_GHOSTTY_IMAGE_BYTES) return null;
+    const data = readFileSync(filePath);
+    const mime = /\.jpe?g$/i.test(filePath) ? "image/jpeg" : "image/png";
+    return `data:${mime};base64,${data.toString("base64")}`;
+  } catch {
+    return null;
   }
 }

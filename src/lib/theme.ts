@@ -12,6 +12,21 @@ import type { GhosttyThemeColors } from "./ghostty/colors.ts";
 
 export type AppearanceMode = "ghostty" | "system" | "dark" | "light";
 
+export type GhosttyBackgroundImagePosition =
+  | "top-left" | "top-center" | "top-right"
+  | "center-left" | "center" | "center-right"
+  | "bottom-left" | "bottom-center" | "bottom-right";
+
+export type GhosttyBackgroundImageFit = "contain" | "cover" | "stretch" | "none";
+
+export interface GhosttyBackgroundImage {
+  path: string;
+  opacity?: number;
+  position?: GhosttyBackgroundImagePosition;
+  fit?: GhosttyBackgroundImageFit;
+  repeat?: boolean;
+}
+
 export interface GhosttyPalette {
   background?: string;
   foreground?: string;
@@ -20,6 +35,8 @@ export interface GhosttyPalette {
   cursorText?: string;
   selectionBackground?: string;
   selectionForeground?: string;
+  backgroundOpacity?: number;
+  backgroundImage?: GhosttyBackgroundImage;
   themeName: string | null;
   mode: "dark" | "light";
 }
@@ -27,6 +44,7 @@ export interface GhosttyPalette {
 interface GhosttyBridge {
   ghosttyTheme(): Promise<GhosttyPalette | null>;
   onGhosttyTheme(listener: (palette: GhosttyPalette | null) => void): () => void;
+  ghosttyImage?(filePath: string): Promise<string | null>;
 }
 
 const STORAGE_KEY = "herdr-t3:appearance";
@@ -210,6 +228,43 @@ export function getTerminalSurfaceColors(): GhosttyThemeColors {
     cursor: theme?.cursor || resolvedColor("--terminal-cursor"),
     ansi,
   };
+}
+
+/**
+ * The terminal's window-background alpha and image from the Ghostty config
+ * (issue #108). Only populated while Ghostty appearance sync is active;
+ * `image` is null when no `background-image` is configured or the sync
+ * bridge cannot serve files (plain browser dev).
+ */
+export function getTerminalBackground(): {
+  opacity: number;
+  image: GhosttyBackgroundImage | null;
+} {
+  if (!isGhosttyActive() || !ghosttyPalette) return { opacity: 1, image: null };
+  const p = ghosttyPalette;
+  return {
+    opacity: p.backgroundOpacity ?? 1,
+    image: p.backgroundImage ?? null,
+  };
+}
+
+const backgroundImageCache = new Map<string, Promise<string | null>>();
+
+/**
+ * Resolve a configured `background-image` path to a loadable URL (a data
+ * URL served by the Electron main process). Cached per path; resolves null
+ * when the bridge is absent or the file cannot be served, in which case the
+ * terminal draws the plain background color.
+ */
+export function loadTerminalBackgroundImage(path: string): Promise<string | null> {
+  const bridge = (globalThis as { herdrT3?: GhosttyBridge }).herdrT3;
+  if (!bridge?.ghosttyImage) return Promise.resolve(null);
+  let pending = backgroundImageCache.get(path);
+  if (!pending) {
+    pending = bridge.ghosttyImage(path).catch(() => null);
+    backgroundImageCache.set(path, pending);
+  }
+  return pending;
 }
 
 /**

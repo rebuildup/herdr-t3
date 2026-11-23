@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   createThemeReader,
   ghosttyConfigPaths,
+  ghosttyImageDataUrl,
   parseGhosttyConfig,
   parseThemeSpec,
   readConfigWithIncludes,
@@ -193,5 +194,90 @@ describe("theme file discovery", () => {
     expect(xdg[0]).toBe("/xdg/ghostty/config");
     const win = ghosttyConfigPaths({ APPDATA: "C:\\Users\\u\\AppData\\Roaming" }, "C:\\Users\\u", "win32");
     expect(win[0]).toContain("ghostty");
+  });
+});
+
+describe("background image config (issue #108)", () => {
+  const base = "background = #101010\nforeground = #eeeeee\n";
+
+  test("parses image path, fit, position, opacity and repeat", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(
+        `${base}background-image = "/tmp/wall.png"\nbackground-image-fit = cover\nbackground-image-position = top-left\nbackground-image-opacity = 0.5\nbackground-image-repeat = true\n`,
+      ),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.backgroundImage).toEqual({
+      path: "/tmp/wall.png",
+      fit: "cover",
+      position: "top-left",
+      opacity: 0.5,
+      repeat: true,
+    });
+  });
+
+  test("sub-keys apply regardless of directive order", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(
+        `${base}background-image-opacity = 0.4\nbackground-image = "/tmp/a.jpg"\n`,
+      ),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.backgroundImage?.path).toBe("/tmp/a.jpg");
+    expect(p?.backgroundImage?.opacity).toBe(0.4);
+  });
+
+  test("relative paths resolve against the config file's directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ghostty-img-"));
+    const main = join(dir, "config");
+    writeFileSync(main, `${base}background-image = "wall.png"\n`);
+    const p = resolveGhosttyPalette({
+      configEntries: readConfigWithIncludes(main),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.backgroundImage?.path).toBe(join(dir, "wall.png"));
+  });
+
+  test("unsupported formats and missing values are ignored", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(
+        `${base}background-image = "/tmp/wall.gif"\nbackground-image-fit = bogus\n`,
+      ),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.backgroundImage).toBeUndefined();
+  });
+
+  test("image-only config still resolves a palette", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig('background-image = "/tmp/wall.png"\n'),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p).not.toBeNull();
+    expect(p?.backgroundImage?.path).toBe("/tmp/wall.png");
+  });
+
+  test("background-opacity clamps to 0..1", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(`${base}background-opacity = 1.5\n`),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.backgroundOpacity).toBe(1);
+  });
+
+  test("ghosttyImageDataUrl serves png/jpeg and rejects the rest", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ghostty-imgfile-"));
+    const png = join(dir, "wall.png");
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    expect(ghosttyImageDataUrl(png)).toMatch(/^data:image\/png;base64,/);
+    expect(ghosttyImageDataUrl(join(dir, "wall.gif"))).toBeNull();
+    expect(ghosttyImageDataUrl(join(dir, "missing.png"))).toBeNull();
+    expect(ghosttyImageDataUrl(42)).toBeNull();
   });
 });
