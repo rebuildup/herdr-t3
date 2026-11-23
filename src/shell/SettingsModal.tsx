@@ -1,15 +1,19 @@
 /*
  * Settings surface — port of T3 Code's AppRouteModal + SettingsSidebarNav
  * structure (issue #83, ADR-0008 §3): a large modal over the app with a
- * left section nav and grouped setting rows. Connections and Diagnostics
- * read live bridge state (issue #84); persistence and connection editing
- * remain M3 scope.
+ * left section nav and grouped setting rows. All sections are live (issue
+ * #85): settings persist through src/lib/settings.ts or the OS/desktop
+ * bridge, Connections drives the same MachineManager registry the sidebar
+ * uses, and Diagnostics/About report real bridge, herdr and engine state.
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   ArrowLeftIcon,
+  EllipsisIcon,
   InfoIcon,
   PaletteIcon,
+  PlusIcon,
+  RefreshCwIcon,
   SearchIcon,
   ServerIcon,
   Settings2Icon,
@@ -17,7 +21,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
@@ -37,10 +41,44 @@ import { Kbd } from "~/components/ui/kbd";
 import { SidebarInput } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/menu";
+import {
+  fetchHealth,
+  getLoginItem,
+  machineConnect,
+  machineDisconnect,
+  machineUpdate,
+  setLoginItem,
+  type LoginItemState,
+} from "~/lib/api";
+import type { HealthResponse, MachineInfo } from "../../shared/protocol";
+import {
   getAppearanceMode,
+  getGhosttyThemeName,
+  isGhosttyActive,
+  onAppearanceChange,
   setAppearanceMode,
   type AppearanceMode,
 } from "~/lib/theme";
+import {
+  getGeneralSettings,
+  getTerminalSettings,
+  onGeneralSettingsChange,
+  onTerminalSettingsChange,
+  setGeneralSettings,
+  setTerminalSettings,
+  type TerminalSettings,
+} from "~/lib/settings";
+import {
+  ghosttyEngineStatus,
+  onGhosttyEngineStatus,
+} from "~/lib/ghostty/session.ts";
+import { MachineDialog, type MachineDialogState } from "~/components/MachineDialog";
 import { machineListOf, useBridgeState } from "./bridge";
 import { closeSettings, navigate, settingsHash, useRoute } from "./router";
 
@@ -109,24 +147,188 @@ function SettingsSection({
   );
 }
 
+/* Appearance mode lives in theme.ts; subscribing keeps the select in sync
+ * when the mode changes from the OS or another surface. */
+function useAppearanceMode(): AppearanceMode {
+  return useSyncExternalStore(
+    (listener) => onAppearanceChange(listener),
+    getAppearanceMode,
+    getAppearanceMode,
+  );
+}
+
+function useTerminalSettings(): TerminalSettings {
+  return useSyncExternalStore(onTerminalSettingsChange, getTerminalSettings, getTerminalSettings);
+}
+
+function useGhosttyEngine() {
+  return useSyncExternalStore(onGhosttyEngineStatus, ghosttyEngineStatus, ghosttyEngineStatus);
+}
+
+function useHealth() {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    fetchHealth()
+      .then((h) => {
+        if (!alive) return;
+        setHealth(h);
+        setError(null);
+      })
+      .catch((e: unknown) => {
+        if (alive) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [nonce]);
+  return { health, error, refresh: () => setNonce((n) => n + 1) };
+}
+
+const APPEARANCE_LABELS: Record<AppearanceMode, string> = {
+  ghostty: "Ghostty sync",
+  system: "System",
+  dark: "Dark",
+  light: "Light",
+};
+
+function statusBadgeVariant(status: MachineInfo["status"]) {
+  return status === "online"
+    ? "success"
+    : status === "offline" || status === "unreachable" || status === "error"
+      ? "error"
+      : "warning";
+}
+
+/** Connect/disconnect/reconnect for one machine row; local cannot disconnect. */
+function machineConnectAction(machine: MachineInfo): { label: string; run: () => void } | null {
+  if (machine.kind === "local") return null;
+  if (machine.status === "online" || machine.status === "connecting" || machine.status === "reconnecting") {
+    return { label: "Disconnect", run: () => machineDisconnect(machine.id) };
+  }
+  if (!machine.enabled) return null;
+  const reconnect = machine.status !== "offline";
+  return { label: reconnect ? "Reconnect" : "Connect", run: () => machineConnect(machine.id) };
+}
+
+function MachineRow({
+  machine,
+  onDialog,
+}: {
+  machine: MachineInfo;
+  onDialog: (state: MachineDialogState) => void;
+}) {
+  const action = machineConnectAction(machine);
+  const ssh = machine.kind === "ssh";
+  return (
+    <SettingsRow
+      label={machine.label}
+      description={
+        machine.detail ??
+        (machine.kind === "local"
+          ? "This machine"
+          : [machine.target, machine.session].filter(Boolean).join(" · ") || "SSH endpoint")
+      }
+    >
+      <Badge variant={statusBadgeVariant(machine.status)} size="sm">
+        {machine.status}
+        {machine.version ? ` · herdr ${machine.version}` : ""}
+      </Badge>
+      {action ? (
+        <Button size="sm" variant="outline" onClick={action.run}>
+          {action.label}
+        </Button>
+      ) : null}
+      {ssh ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button size="icon-sm" variant="ghost" aria-label={`Actions for ${machine.label}`} />}
+          >
+            <EllipsisIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => onDialog({ mode: "rename", machine })}>
+              Rename…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void machineUpdate(machine.id, { enabled: !machine.enabled })}
+            >
+              {machine.enabled ? "Disable" : "Enable"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onDialog({ mode: "remove", machine })}>
+              Remove…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </SettingsRow>
+  );
+}
+
 function SectionPage({ section }: { section: SectionId }) {
-  const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+  const appearance = useAppearanceMode();
+  const terminal = useTerminalSettings();
+  const general = useSyncExternalStore(
+    onGeneralSettingsChange,
+    getGeneralSettings,
+    getGeneralSettings,
+  );
+  const [loginItem, setLoginItemState] = useState<LoginItemState | null>(null);
+  const [machineDialog, setMachineDialog] = useState<MachineDialogState | null>(null);
   const bridge = useBridgeState();
   const machines = machineListOf(bridge);
+  const { health, error: healthError, refresh: refreshHealth } = useHealth();
+  const ghosttyEngine = useGhosttyEngine();
+  useEffect(() => {
+    let alive = true;
+    void getLoginItem().then((state) => {
+      if (alive && state) setLoginItemState(state);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   switch (section) {
     case "general":
       return (
         <div className="flex flex-col gap-8">
           <SettingsSection title="Application">
-            <SettingsRow label="Launch at login" description="Start herdr-t3 when you sign in.">
-              <Switch defaultChecked aria-label="Launch at login" />
+            <SettingsRow
+              label="Launch at login"
+              description={
+                loginItem === null
+                  ? "Available in the desktop app."
+                  : loginItem.supported
+                    ? "Start herdr-t3 when you sign in."
+                    : "Not supported on this platform."
+              }
+            >
+              <Switch
+                aria-label="Launch at login"
+                checked={loginItem?.openAtLogin ?? false}
+                disabled={loginItem === null || !loginItem.supported}
+                onCheckedChange={(checked) => {
+                  void setLoginItem(checked === true).then((state) => {
+                    if (state) setLoginItemState(state);
+                  });
+                }}
+              />
             </SettingsRow>
             <SettingsRow
               label="Confirm before closing workspace"
-              description="Ask before closing a workspace with running panes."
+              description="Ask before closing a workspace that still has panes."
             >
-              <Switch aria-label="Confirm before closing workspace" />
+              <Switch
+                aria-label="Confirm before closing workspace"
+                checked={general.confirmCloseWorkspace}
+                onCheckedChange={(checked) =>
+                  setGeneralSettings({ confirmCloseWorkspace: checked === true })
+                }
+              />
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -141,22 +343,10 @@ function SectionPage({ section }: { section: SectionId }) {
             >
               <Select
                 value={appearance}
-                onValueChange={(v) => {
-                  const mode = v as AppearanceMode;
-                  setAppearance(mode);
-                  setAppearanceMode(mode);
-                }}
+                onValueChange={(v) => setAppearanceMode(v as AppearanceMode)}
               >
                 <SelectTrigger className="w-44">
-                  <SelectValue>
-                    {appearance === "ghostty"
-                      ? "Ghostty sync"
-                      : appearance === "system"
-                        ? "System"
-                        : appearance === "dark"
-                          ? "Dark"
-                          : "Light"}
-                  </SelectValue>
+                  <SelectValue>{APPEARANCE_LABELS[appearance]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ghostty">Ghostty sync</SelectItem>
@@ -168,10 +358,23 @@ function SectionPage({ section }: { section: SectionId }) {
             </SettingsRow>
             <SettingsRow
               label="Ghostty theme sync"
-              description="Terminal colors follow your Ghostty configuration."
+              description={
+                appearance === "ghostty"
+                  ? isGhosttyActive()
+                    ? `Terminal colors follow your Ghostty theme${getGhosttyThemeName() ? ` (${getGhosttyThemeName()})` : ""}.`
+                    : "Ghostty sync selected, but no Ghostty palette is available — the default theme is used."
+                  : "Terminal colors follow your Ghostty configuration."
+              }
             >
-              <Badge variant="secondary" size="sm">
-                {appearance === "ghostty" ? "Active" : "Off"}
+              <Badge
+                variant={appearance === "ghostty" && isGhosttyActive() ? "success" : "secondary"}
+                size="sm"
+              >
+                {appearance === "ghostty"
+                  ? isGhosttyActive()
+                    ? "Active"
+                    : "Unavailable"
+                  : "Off"}
               </Badge>
             </SettingsRow>
           </SettingsSection>
@@ -180,34 +383,20 @@ function SectionPage({ section }: { section: SectionId }) {
     case "connections":
       return (
         <div className="flex flex-col gap-8">
-          <SettingsSection title="Machines">
+          <SettingsSection
+            title="Machines"
+            headerAction={
+              <Button size="sm" variant="outline" onClick={() => setMachineDialog({ mode: "add" })}>
+                <PlusIcon className="size-3.5" />
+                Add machine
+              </Button>
+            }
+          >
             <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
-              SSH endpoints and local sessions herdr-t3 can attach to.
+              SSH endpoints and the local session herdr-t3 can attach to.
             </p>
             {machines.map((m) => (
-              <SettingsRow
-                key={m.id}
-                label={m.label}
-                description={
-                  m.detail ??
-                  (m.kind === "local"
-                    ? "This machine"
-                    : (m.target ?? "SSH endpoint"))
-                }
-              >
-                <Badge
-                  variant={
-                    m.status === "online"
-                      ? "success"
-                      : m.status === "offline" || m.status === "unreachable" || m.status === "error"
-                        ? "error"
-                        : "warning"
-                  }
-                  size="sm"
-                >
-                  {m.status}
-                </Badge>
-              </SettingsRow>
+              <MachineRow key={m.id} machine={m} onDialog={setMachineDialog} />
             ))}
             {machines.length === 0 ? (
               <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4">
@@ -215,20 +404,79 @@ function SectionPage({ section }: { section: SectionId }) {
               </p>
             ) : null}
           </SettingsSection>
+          <MachineDialog state={machineDialog} onClose={() => setMachineDialog(null)} />
         </div>
       );
     case "terminal":
       return (
         <div className="flex flex-col gap-8">
           <SettingsSection title="Terminal">
-            <SettingsRow label="Font" description="Terminal font family.">
-              <Input className="w-56" defaultValue="SF Mono, Menlo, monospace" />
+            <SettingsRow label="Font" description="Terminal font family; empty uses the app monospace stack.">
+              <Input
+                key={terminal.fontFamily}
+                className="w-56"
+                defaultValue={terminal.fontFamily}
+                placeholder="SF Mono, Menlo, monospace"
+                aria-label="Terminal font family"
+                onBlur={(e) => {
+                  const value = e.currentTarget.value.trim();
+                  if (value !== terminal.fontFamily) setTerminalSettings({ fontFamily: value });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
             </SettingsRow>
             <SettingsRow label="Font size" description="Base terminal size in pixels.">
-              <Input className="w-24" defaultValue="13" />
+              <Input
+                className="w-24"
+                type="number"
+                min={8}
+                max={32}
+                step={0.5}
+                value={terminal.fontSize}
+                aria-label="Terminal font size"
+                onChange={(e) => {
+                  const value = Number(e.currentTarget.value);
+                  if (Number.isFinite(value)) setTerminalSettings({ fontSize: value });
+                }}
+              />
             </SettingsRow>
-            <SettingsRow label="Scrollback lines" description="Lines kept per pane.">
-              <Input className="w-24" defaultValue="10000" />
+            <SettingsRow label="Line height" description="Cell height as a multiple of the font size.">
+              <Select
+                value={terminal.lineHeight === null ? "auto" : String(terminal.lineHeight)}
+                onValueChange={(v) =>
+                  setTerminalSettings({ lineHeight: v === "auto" ? null : Number(v) })
+                }
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue>{terminal.lineHeight === null ? "Auto" : `${terminal.lineHeight}×`}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto</SelectItem>
+                  <SelectItem value="1.15">1.15×</SelectItem>
+                  <SelectItem value="1.3">1.3×</SelectItem>
+                  <SelectItem value="1.5">1.5×</SelectItem>
+                </SelectContent>
+              </Select>
+            </SettingsRow>
+            <SettingsRow
+              label="Scrollback lines"
+              description="Lines of history kept per pane; applies to open panes immediately."
+            >
+              <Input
+                className="w-24"
+                type="number"
+                min={100}
+                max={100000}
+                step={100}
+                value={terminal.scrollbackLines}
+                aria-label="Terminal scrollback lines"
+                onChange={(e) => {
+                  const value = Number(e.currentTarget.value);
+                  if (Number.isFinite(value)) setTerminalSettings({ scrollbackLines: value });
+                }}
+              />
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -236,7 +484,15 @@ function SectionPage({ section }: { section: SectionId }) {
     case "diagnostics":
       return (
         <div className="flex flex-col gap-8">
-          <SettingsSection title="Diagnostics">
+          <SettingsSection
+            title="Diagnostics"
+            headerAction={
+              <Button size="sm" variant="ghost" onClick={refreshHealth}>
+                <RefreshCwIcon className="size-3.5" />
+                Refresh
+              </Button>
+            }
+          >
             <SettingsRow label="Bridge" description="herdr RPC connection state.">
               <Badge
                 variant={
@@ -252,15 +508,51 @@ function SectionPage({ section }: { section: SectionId }) {
               </Badge>
             </SettingsRow>
             <SettingsRow
+              label="Herdr"
+              description={
+                health?.herdr.reachable
+                  ? `Reachable at ${health.herdr.socket}`
+                  : health
+                    ? `Unreachable${health.herdr.error ? ` — ${health.herdr.error}` : ""}`
+                    : healthError ?? "Checking…"
+              }
+            >
+              <Badge
+                variant={health ? (health.herdr.reachable ? "success" : "error") : "secondary"}
+                size="sm"
+              >
+                {health
+                  ? health.herdr.reachable
+                    ? `v${health.herdr.version ?? "?"} · protocol ${health.herdr.protocol ?? "?"}`
+                    : "Unreachable"
+                  : healthError
+                    ? "Error"
+                    : "Checking…"}
+              </Badge>
+            </SettingsRow>
+            <SettingsRow
               label="Ghostty engine"
               description="libghostty-vt WASM terminal core."
             >
-              <Badge variant="success" size="sm">
-                Loaded
+              <Badge
+                variant={
+                  ghosttyEngine === "ready" ? "success" : ghosttyEngine === "error" ? "error" : "secondary"
+                }
+                size="sm"
+              >
+                {ghosttyEngine === "idle"
+                  ? "Not loaded"
+                  : ghosttyEngine === "loading"
+                    ? "Loading…"
+                    : ghosttyEngine === "ready"
+                      ? "Ready"
+                      : "Error"}
               </Badge>
             </SettingsRow>
-            <SettingsRow label="Version" description="Build identity for support.">
-              <span className="font-mono text-xs text-muted-foreground">0.3.0-dev</span>
+            <SettingsRow label="App version" description="Build identity for support.">
+              <span className="font-mono text-xs text-muted-foreground">
+                {health ? `${health.version} (${health.commit.slice(0, 8)})` : healthError ? "Unavailable" : "…"}
+              </span>
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -270,7 +562,9 @@ function SectionPage({ section }: { section: SectionId }) {
         <div className="flex flex-col gap-8">
           <SettingsSection title="About">
             <SettingsRow label="herdr-t3" description="A personal GUI client for herdr.">
-              <span className="font-mono text-xs text-muted-foreground">0.3.0-dev</span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {health ? `${health.version} (${health.commit.slice(0, 8)})` : "…"}
+              </span>
             </SettingsRow>
             <SettingsRow
               label="Design system"
@@ -286,6 +580,14 @@ function SectionPage({ section }: { section: SectionId }) {
             >
               <Badge variant="secondary" size="sm">
                 Ghostty
+              </Badge>
+            </SettingsRow>
+            <SettingsRow
+              label="License"
+              description="herdr-t3 is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
+            >
+              <Badge variant="secondary" size="sm">
+                MIT
               </Badge>
             </SettingsRow>
           </SettingsSection>

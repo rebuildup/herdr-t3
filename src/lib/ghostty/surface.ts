@@ -198,6 +198,21 @@ export class GhosttySurface {
     if (readOnly) this.input.blur();
   }
 
+  /**
+   * Font settings changed (issue #85): update the draw font and re-measure
+   * the cell grid. A different cell size resizes the engine and fires
+   * onResize so the host can tell the pane's pty — the herdr session and
+   * its scrollback are untouched.
+   */
+  setFont(next: { fontFamily?: string; fontSize?: number; lineHeight?: number | null }): void {
+    if (next.fontFamily !== undefined) this.options.fontFamily = next.fontFamily;
+    if (next.fontSize !== undefined) this.options.fontSize = next.fontSize;
+    if (next.lineHeight === null) delete this.options.lineHeight;
+    else if (next.lineHeight !== undefined) this.options.lineHeight = next.lineHeight;
+    this.renderer.setFont({ fontFamily: this.options.fontFamily, fontSize: this.options.fontSize });
+    this.measure();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -248,6 +263,8 @@ export class GhosttySurface {
       && this.metrics.cellW === cellW && this.metrics.cellH === cellH;
     if (same) return;
     this.metrics = next;
+    this.root.dataset.cols = String(cols);
+    this.root.dataset.rows = String(rows);
     try {
       this.session.resize(cols, rows, cellW, cellH);
     } catch (error) {

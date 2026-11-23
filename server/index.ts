@@ -66,19 +66,27 @@ async function health(): Promise<Response> {
   let reachable = false;
   let version: string | undefined;
   let protocol: number | undefined;
+  let failure: string | undefined;
   try {
     const snapshot = await fetchSnapshot();
     reachable = true;
     version = snapshot.version;
     protocol = snapshot.protocol;
-  } catch {
+  } catch (error: unknown) {
     reachable = false;
+    failure = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   }
   return Response.json({
     ok: true,
     version: process.env["npm_package_version"] ?? "unknown",
     commit: COMMIT,
-    herdr: { reachable, socket: socketAddress(socket), ...(version ? { version } : {}), ...(protocol ? { protocol } : {}) },
+    herdr: {
+      reachable,
+      socket: socketAddress(socket),
+      ...(version ? { version } : {}),
+      ...(protocol ? { protocol } : {}),
+      ...(failure ? { error: failure } : {}),
+    },
   } satisfies import("../shared/protocol.ts").HealthResponse);
 }
 

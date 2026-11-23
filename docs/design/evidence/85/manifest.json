@@ -1,0 +1,68 @@
+{
+ "ticket": "85",
+ "milestone": "M3 real settings + connections UX",
+ "herdr-t3": "branch 85 (M3 settings/connections)",
+ "t3code": "9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
+ "m1_reference": "docs/design/evidence/83/",
+ "m2_reference": "docs/design/evidence/84/",
+ "herdr_session": "isolated ht3probe (herdr 0.9.5, protocol 22); fake SSH fixtures in isolated XDG_STATE_HOME registry",
+ "viewport": "1440x900 CSS @2x (2880x1800 px); narrow 480x800 @2x (960x1600 px)",
+ "note": "Settings sections now show real persisted state: launch-at-login disabled in browser capture, live machine rows with status, terminal font/scrollback controls, runtime diagnostics (bridge/herdr/ghostty/version). Raw PNG captures are local-only; committed files are q85 WebP.",
+ "captures": [
+  {
+   "file": "01-main-dark.webp",
+   "bytes": 75072,
+   "sha256": "e00bb69b4f2723f7"
+  },
+  {
+   "file": "02-settings-general.webp",
+   "bytes": 33684,
+   "sha256": "38c622d35b82c2ad"
+  },
+  {
+   "file": "03-settings-connections.webp",
+   "bytes": 41812,
+   "sha256": "e34be26d4c49b65c"
+  },
+  {
+   "file": "04-settings-appearance.webp",
+   "bytes": 33766,
+   "sha256": "278614ab8920bc8a"
+  },
+  {
+   "file": "05-palette.webp",
+   "bytes": 35854,
+   "sha256": "75a3e83b13c2b537"
+  },
+  {
+   "file": "06-main-light.webp",
+   "bytes": 73830,
+   "sha256": "a32b9041a9e38068"
+  },
+  {
+   "file": "07-narrow.webp",
+   "bytes": 53680,
+   "sha256": "92f159a9f83c9dcd"
+  },
+  {
+   "file": "08-narrow-sheet.webp",
+   "bytes": 18320,
+   "sha256": "0e895017c8ebcc2b"
+  },
+  {
+   "file": "09-settings-terminal.webp",
+   "bytes": 43010,
+   "sha256": "11085f95b9c8291c"
+  },
+  {
+   "file": "10-settings-diagnostics.webp",
+   "bytes": 44542,
+   "sha256": "32d30bb6adbe302d"
+  },
+  {
+   "file": "11-settings-about.webp",
+   "bytes": 42034,
+   "sha256": "af35cbc1b16c5227"
+  }
+ ]
+}
