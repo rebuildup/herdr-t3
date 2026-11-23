@@ -6,8 +6,8 @@
  * Local changes: herdr-t3 brand, real bridge machines for the pill, no
  * i18n/update-pill/undo-notice subsystems.
  */
-import { ArrowLeftIcon, ArrowRightIcon, SettingsIcon } from "lucide-react";
-import { useId, type ReactNode } from "react";
+import { ArrowLeftIcon, ArrowRightIcon, CircleXIcon, SettingsIcon } from "lucide-react";
+import { useId, useMemo, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { Badge } from "~/components/ui/badge";
@@ -21,8 +21,9 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { useBridgeState, machineListOf } from "./bridge";
-import { useRouteWorkspace } from "./view";
+import { useBridgeState, machineListOf, selectWorkspace } from "./bridge";
+import { machineStale, useRouteWorkspace } from "./view";
+import { workspaceTitle } from "~/lib/workspace";
 import { canNavigateHistory, navigate, navigateHistory, settingsHash, useRoute } from "./router";
 
 export const SidebarChromeHeader = function SidebarChromeHeader({
@@ -354,6 +355,68 @@ function SidebarUtilityItem({
   );
 }
 
+/**
+ * Attention aggregate (issue #110, info-architecture.md §4): surfaces the
+ * count of workspaces whose herdr-aggregated agent_status is "blocked"
+ * across all reachable machines, so a waiting agent is visible from any
+ * workspace instead of only inside the overview list. Clicking jumps to
+ * the first blocked workspace in machine order.
+ */
+const AttentionUtilityItem = function AttentionUtilityItem() {
+  const bridge = useBridgeState();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const blocked = useMemo(() => {
+    const out: { machine: string; workspaceId: string; title: string }[] = [];
+    for (const m of machineListOf(bridge)) {
+      if (machineStale(m)) continue;
+      for (const ws of bridge.snapshots[m.id]?.workspaces ?? []) {
+        if (ws.agent_status === "blocked") {
+          out.push({
+            machine: m.id,
+            workspaceId: ws.workspace_id,
+            title: workspaceTitle(ws),
+          });
+        }
+      }
+    }
+    return out;
+  }, [bridge]);
+  const first = blocked[0];
+  if (!first) return null;
+  const label =
+    blocked.length === 1
+      ? `1 agent blocked: ${first.title}`
+      : `${blocked.length} agents blocked`;
+  return (
+    <SidebarMenuItem className="shrink-0">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <SidebarMenuButton
+              aria-label={label}
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+                selectWorkspace(first.machine, first.workspaceId);
+              }}
+              size="icon"
+            />
+          }
+        >
+          <span className="relative flex items-center justify-center">
+            <CircleXIcon className="size-4 text-warning" />
+            {blocked.length > 1 ? (
+              <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-[9px] font-semibold leading-none text-background">
+                {blocked.length}
+              </span>
+            ) : null}
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">{label}</TooltipPopup>
+      </Tooltip>
+    </SidebarMenuItem>
+  );
+};
+
 const SidebarUtilityMenu = function SidebarUtilityMenu() {
   const { isMobile, setOpenMobile } = useSidebar();
   const closeMobileSidebar = () => {
@@ -366,6 +429,7 @@ const SidebarUtilityMenu = function SidebarUtilityMenu() {
 
   return (
     <SidebarMenu className="flex-row items-center">
+      <AttentionUtilityItem />
       <SidebarUtilityItem
         icon={<SettingsIcon />}
         label="Settings"
