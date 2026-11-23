@@ -66,7 +66,7 @@ export function CommandMenu({
   const bridge = useBridgeState();
   const branchIndex = useWorkspaceBranchIndex();
   const { machine, view } = useRouteWorkspace();
-  const { workspace, focusedPane, layout } = view;
+  const { workspace, tabs, activeTab, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
 
@@ -146,6 +146,80 @@ export function CommandMenu({
             focusedPane && void callRpc(machine, "pane.zoom", { pane_id: focusedPane.pane_id }),
         },
       );
+      // Keyboard alternatives for the drag operations (issue #111):
+      // tab reorder, workspace reorder within its machine, pane swap.
+      const tabIndex = activeTab ? tabs.findIndex((t) => t.tab_id === activeTab.tab_id) : -1;
+      if (tabIndex >= 0 && tabs.length > 1) {
+        if (tabIndex > 0) {
+          list.push({
+            id: "tab-move-left",
+            label: "Move tab left",
+            group: "Actions",
+            icon: <Columns2 className="size-4" />,
+            keywords: "tab reorder drag",
+            run: () =>
+              activeTab &&
+              void callRpc(machine, "tab.move", {
+                tab_id: activeTab.tab_id,
+                insert_index: tabIndex - 1,
+              }),
+          });
+        }
+        if (tabIndex < tabs.length - 1) {
+          list.push({
+            id: "tab-move-right",
+            label: "Move tab right",
+            group: "Actions",
+            icon: <Columns2 className="size-4" />,
+            keywords: "tab reorder drag",
+            run: () =>
+              activeTab &&
+              void callRpc(machine, "tab.move", {
+                tab_id: activeTab.tab_id,
+                insert_index: tabIndex + 1,
+              }),
+          });
+        }
+      }
+      const wsList = bridge.snapshots[machine]?.workspaces ?? [];
+      const wsIndex = wsList.findIndex((w) => w.workspace_id === workspace.workspace_id);
+      if (wsIndex >= 0 && wsList.length > 1) {
+        for (const [dir, label] of [
+          [-1, "Move workspace up"],
+          [1, "Move workspace down"],
+        ] as const) {
+          const target = wsIndex + dir;
+          if (target < 0 || target >= wsList.length) continue;
+          list.push({
+            id: `workspace-move-${dir}`,
+            label,
+            group: "Actions",
+            icon: <MonitorIcon className="size-4" />,
+            keywords: "workspace reorder drag",
+            run: () =>
+              void callRpc(machine, "workspace.move", {
+                workspace_id: workspace.workspace_id,
+                insert_index: target,
+              }),
+          });
+        }
+      }
+      if (focusedPane && view.tabPanes.length > 1) {
+        for (const direction of ["left", "right", "up", "down"] as const) {
+          list.push({
+            id: `pane-swap-${direction}`,
+            label: `Swap pane ${direction}`,
+            group: "Actions",
+            icon: <Columns2 className="size-4" />,
+            keywords: "pane swap move drag",
+            run: () =>
+              void callRpc(machine, "pane.swap", {
+                pane_id: focusedPane.pane_id,
+                direction,
+              }),
+          });
+        }
+      }
     }
 
     const machines = machineListOf(bridge);
