@@ -208,7 +208,9 @@ export async function newWorkspace(machine: string): Promise<boolean> {
 export function initBridge(): () => void {
   if (started) return () => {};
   started = true;
-  const disconnect = connectBridge();
+  // Listeners must subscribe before connectBridge(): the desktop IPC path
+  // notifies "open" synchronously inside connect(), so a later subscription
+  // would miss it and the status would stay "connecting" forever (issue #92).
   const offSnapshot = onSnapshot((snapshot, machine) => {
     setMachineError(machine, null);
     // Store the snapshot before clearing pending so waiters observing the
@@ -223,6 +225,7 @@ export function initBridge(): () => void {
   const offMachineStatus = onMachineStatus((machine) => {
     patch({ machines: { ...state.machines, [machine.id]: machine } });
   });
+  const disconnect = connectBridge();
   void ensureMachine(LOCAL_MACHINE);
   return () => {
     started = false;
