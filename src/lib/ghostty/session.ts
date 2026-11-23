@@ -84,6 +84,28 @@ export interface GhosttySessionOptions {
 
 let compiled: Promise<WebAssembly.Module> | null = null;
 
+/* Engine lifecycle for Diagnostics (issue #85): "idle" until the first pane
+ * asks for a session, "loading" while the WASM compiles/instantiates,
+ * "ready" once any session opened, "error" after a failed attempt. */
+export type GhosttyEngineStatus = "idle" | "loading" | "ready" | "error";
+let engineStatus: GhosttyEngineStatus = "idle";
+const statusListeners = new Set<() => void>();
+
+function setEngineStatus(next: GhosttyEngineStatus): void {
+  if (engineStatus === next) return;
+  engineStatus = next;
+  for (const listener of statusListeners) listener();
+}
+
+export function ghosttyEngineStatus(): GhosttyEngineStatus {
+  return engineStatus;
+}
+
+export function onGhosttyEngineStatus(listener: () => void): () => void {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
+}
+
 /**
  * The engine file, compiled once for the page; each session gets an instance of its own so a trap
  * in one pane's parse reaches no other pane's memory. The fetch is not streamed: the server and the
@@ -163,7 +185,18 @@ export class GhosttySession {
   }
 
   static async create(options: GhosttySessionOptions): Promise<GhosttySession> {
-    return openSession(new GhosttyModule(new WebAssembly.Instance(await compileGhostty(), {})), options);
+    setEngineStatus("loading");
+    try {
+      const session = openSession(
+        new GhosttyModule(new WebAssembly.Instance(await compileGhostty(), {})),
+        options,
+      );
+      setEngineStatus("ready");
+      return session;
+    } catch (error) {
+      setEngineStatus("error");
+      throw error;
+    }
   }
 
   /** the error that ended this session (a module trap or a failed call), or null */

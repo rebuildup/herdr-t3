@@ -1,104 +1,80 @@
-import { useEffect, useMemo, useState } from "react";
-import type { PaneInfo, TabInfo, WorkspaceInfo } from "../shared/protocol";
-import { useBridge } from "./hooks/useBridge";
-import { deriveWorkspaceView, workspaceTitle } from "./lib/workspace";
+/*
+ * App root for the T3 Code shell (issue #83, ADR-0008) with the Herdr
+ * bridge behind it (issue #84): AppShell (sidebar chrome) + routed
+ * content (workspace view or settings modal) + command palette. The
+ * bridge store owns connection/snapshot state; components derive views.
+ */
+import { useEffect, useState } from "react";
+
+import { TooltipProvider } from "./components/ui/tooltip";
+import { SidebarInset } from "./components/ui/sidebar";
 import {
-  getAppearanceMode,
   initAppearance,
   onAppearanceChange,
-  setAppearanceMode,
   type AppearanceMode,
 } from "./lib/theme";
-import { AppSidebar } from "./components/AppSidebar";
-import { WorkspaceTopbar } from "./components/WorkspaceTopbar";
-import { PaneGrid } from "./components/PaneGrid";
-import { CommandPalette } from "./components/CommandPalette";
-import { ShellShortcuts } from "./components/ShellShortcuts";
-import { RenameDialog, type RenameTarget } from "./components/RenameDialog";
-import { PaneMessageDialog } from "./components/PaneMessageDialog";
-import { AddMachineDialog } from "./components/AddMachineDialog";
-import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
-import { TooltipProvider } from "./components/ui/tooltip";
+import { getAppearanceMode } from "./lib/theme";
+import { syncDocumentElectronPlatformClasses, syncDocumentWindowControlsOverlayClass } from "./lib/windowControlsOverlay";
+import { AppShell } from "./shell/AppShell";
+import { WorkspaceHeader } from "./shell/WorkspaceHeader";
+import { WorkspaceCanvas } from "./shell/WorkspaceCanvas";
+import { SettingsModal } from "./shell/SettingsModal";
+import { CommandMenu } from "./shell/CommandMenu";
+import { initRouter, useRoute } from "./shell/router";
+import { initBridge } from "./shell/bridge";
+import { isElectron } from "./lib/env";
 
 export default function App() {
-  const bridge = useBridge();
-  const view = useMemo(() => deriveWorkspaceView(bridge.snapshot), [bridge.snapshot]);
-  const [rename, setRename] = useState<RenameTarget | null>(null);
-  const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
-  const [addMachine, setAddMachine] = useState(false);
+  const route = useRoute();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
-  const modalOpen =
-    rename !== null || messagePane !== null || addMachine || paletteOpen;
+  const [, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
 
   useEffect(() => {
+    initRouter();
+    const disconnectBridge = initBridge();
     initAppearance();
-    return onAppearanceChange(() => setAppearance(getAppearanceMode()));
+    const offAppearance = onAppearanceChange(() =>
+      setAppearance(getAppearanceMode()),
+    );
+    return () => {
+      disconnectBridge();
+      offAppearance();
+    };
   }, []);
 
-  const onNewWorkspace = () => void bridge.call("workspace.create", { focus: true });
+  useEffect(() => {
+    if (isElectron) {
+      return syncDocumentElectronPlatformClasses(navigator.platform);
+    }
+  }, []);
 
-  const onRenameWorkspace = (ws: WorkspaceInfo) =>
-    setRename({ kind: "workspace", id: ws.workspace_id, label: workspaceTitle(ws) });
+  useEffect(() => syncDocumentWindowControlsOverlayClass(), []);
 
-  const onRenameTab = (tab: TabInfo) =>
-    setRename({ kind: "tab", id: tab.tab_id, label: tab.label || `Tab ${tab.number}` });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
-  const onRenamePane = (pane: PaneInfo) =>
-    setRename({
-      kind: "pane",
-      id: pane.pane_id,
-      label: pane.terminal_title_stripped ?? pane.title ?? pane.label ?? pane.pane_id,
-    });
+  const isSettingsOpen = route.name === "settings";
 
   return (
     <TooltipProvider>
-      <SidebarProvider defaultOpen={true} storageKey="herdr-t3:sidebar-open">
-        <AppSidebar
-          bridge={bridge}
-          view={view}
-          appearance={appearance}
-          onAppearanceChange={setAppearanceMode}
-          onNewWorkspace={onNewWorkspace}
-          onAddMachine={() => setAddMachine(true)}
-          onRenameWorkspace={onRenameWorkspace}
-        />
-        <SidebarInset>
-          <WorkspaceTopbar
-            bridge={bridge}
-            view={view}
-            onRenameTab={onRenameTab}
-            onMessagePane={setMessagePane}
-            onRenamePane={onRenamePane}
-          />
-          <PaneGrid bridge={bridge} view={view} />
+      <AppShell>
+        <SidebarInset className="h-dvh min-h-0">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <WorkspaceHeader />
+            <WorkspaceCanvas />
+          </div>
         </SidebarInset>
-        <ShellShortcuts
-          bridge={bridge}
-          onPaletteOpen={() => setPaletteOpen(true)}
-          suppressed={modalOpen}
-          view={view}
-        />
-        <CommandPalette
-          actions={{
-            onAddMachine: () => setAddMachine(true),
-            onMessagePane: setMessagePane,
-            onRename: setRename,
-          }}
-          bridge={bridge}
-          onOpenChange={setPaletteOpen}
-          open={paletteOpen}
-          view={view}
-        />
-      </SidebarProvider>
-
-      <RenameDialog target={rename} machine={bridge.machine} onClose={() => setRename(null)} />
-      <PaneMessageDialog
-        pane={messagePane}
-        machine={bridge.machine}
-        onClose={() => setMessagePane(null)}
-      />
-      <AddMachineDialog open={addMachine} onClose={() => setAddMachine(false)} />
+        {isSettingsOpen ? <SettingsModal /> : null}
+        <CommandMenu open={paletteOpen} onOpenChange={setPaletteOpen} />
+      </AppShell>
     </TooltipProvider>
   );
 }

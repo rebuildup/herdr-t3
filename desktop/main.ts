@@ -28,7 +28,7 @@ const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
 // the only record of quit-time and startup exceptions on installed builds.
 diagInit({
   version: pkg.version,
-  commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+  commit: process.env.HERDR_T3_COMMIT ?? "unknown",
 });
 
 // app.getAppPath() is the app root at runtime: the project dir for
@@ -48,6 +48,65 @@ if (process.env["HERDR_T3_PROFILE"] === "dev") {
 let win: BrowserWindow | null = null;
 let manager: MachineManager | null = null;
 let ghostty: GhosttyThemeWatcher | null = null;
+
+/*
+ * Window chrome — ported from T3 Code's DesktopWindow.ts @ 9cc4018c
+ * (issue #83, ADR-0008 §1.3): macOS hiddenInset + traffic lights inside
+ * the 52px topbar, Windows hidden titleBarStyle + theme-synced overlay.
+ */
+const MACOS_WORKSPACE_TOPBAR_HEIGHT = 52;
+const MACOS_WINDOW_BUTTON_RADIUS = 7;
+const TITLEBAR_HEIGHT = 40;
+const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
+const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
+const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
+
+function initialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
+  return shouldUseDarkColors ? "#000000" : "#ffffff";
+}
+
+function windowTitleBarOptions(shouldUseDarkColors: boolean) {
+  if (process.platform === "darwin") {
+    return {
+      titleBarStyle: "hiddenInset" as const,
+      trafficLightPosition: {
+        x: 16,
+        y: MACOS_WORKSPACE_TOPBAR_HEIGHT / 2 - MACOS_WINDOW_BUTTON_RADIUS,
+      },
+    };
+  }
+  return {
+    titleBarStyle: "hidden" as const,
+    titleBarOverlay: {
+      color: TITLEBAR_COLOR,
+      height: TITLEBAR_HEIGHT,
+      symbolColor: shouldUseDarkColors ? TITLEBAR_DARK_SYMBOL_COLOR : TITLEBAR_LIGHT_SYMBOL_COLOR,
+    },
+  };
+}
+
+/** Keeps the macOS traffic lights centered in the topbar at any zoom level. */
+function syncMacosWindowButtons(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.isFullScreen()) return;
+  window.setWindowButtonPosition({
+    x: 16,
+    y: Math.round(
+      (MACOS_WORKSPACE_TOPBAR_HEIGHT * window.webContents.getZoomFactor()) / 2 -
+        MACOS_WINDOW_BUTTON_RADIUS,
+    ),
+  });
+}
+
+/** Re-applies theme-dependent native chrome (Windows overlay, background). */
+function syncWindowChrome(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const dark = nativeTheme.shouldUseDarkColors;
+  window.setBackgroundColor(initialWindowBackgroundColor(dark));
+  const options = windowTitleBarOptions(dark);
+  if ("titleBarOverlay" in options && typeof options.titleBarOverlay === "object") {
+    window.setTitleBarOverlay(options.titleBarOverlay);
+  }
+}
 
 /**
  * Diagnostics for external verify tools (pc-setup): the app exposes no
@@ -106,13 +165,18 @@ function externalUrlAllowed(url: string): boolean {
 }
 
 function createWindow(): void {
+  const shouldUseDarkColors = nativeTheme.shouldUseDarkColors;
   const bw = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
     minHeight: 600,
     title: "herdr-t3",
-    backgroundColor: "#000000",
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: initialWindowBackgroundColor(shouldUseDarkColors),
+    ...(process.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
+    ...windowTitleBarOptions(shouldUseDarkColors),
     webPreferences: {
       preload: join(APP_ROOT, "desktop", "preload.cjs"),
       contextIsolation: true,
@@ -123,6 +187,29 @@ function createWindow(): void {
   win = bw;
   const contents = bw.webContents;
   diagAttachWebContents(contents);
+
+  // Reveal only once the renderer can paint; a stuck load still surfaces
+  // the window so the failure is visible instead of an invisible app.
+  bw.once("ready-to-show", () => bw.show());
+  setTimeout(() => {
+    if (!bw.isDestroyed() && !bw.isVisible()) bw.show();
+  }, 10_000).unref();
+
+  if (process.platform === "darwin") {
+    bw.setAutoHideCursor(false);
+    syncMacosWindowButtons(bw);
+    contents.on("zoom-changed", () => syncMacosWindowButtons(bw));
+    bw.on("enter-full-screen", () => {
+      if (!bw.isDestroyed()) contents.send("herdr-t3:window-fullscreen-state", true);
+    });
+    bw.on("leave-full-screen", () => {
+      syncMacosWindowButtons(bw);
+      if (!bw.isDestroyed()) contents.send("herdr-t3:window-fullscreen-state", false);
+    });
+  }
+  nativeTheme.on("updated", () => {
+    if (!bw.isDestroyed()) syncWindowChrome(bw);
+  });
 
   bw.on("closed", () => {
     diag("info", "window.closed", "main window closed");
@@ -156,7 +243,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
     .then((snapshot) => ({
       ok: true,
       version: pkg.version,
-      commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+      commit: process.env.HERDR_T3_COMMIT ?? "unknown",
       herdr: {
         reachable: true,
         socket: socketAddress(socket),
@@ -167,7 +254,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
     .catch((error: unknown) => ({
       ok: true,
       version: pkg.version,
-      commit: process.env["HERDR_T3_COMMIT"] ?? "unknown",
+      commit: process.env.HERDR_T3_COMMIT ?? "unknown",
       herdr: {
         reachable: false,
         socket: socketAddress(socket),
@@ -204,6 +291,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle("herdr-t3:health", () => healthPayload());
 
+  // Synchronous fullscreen read + push channel used by the renderer to
+  // restore the traffic-light inset while the window is fullscreen.
+  ipcMain.on("herdr-t3:window-fullscreen-state", (event) => {
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+    event.returnValue = win.isFullScreen();
+  });
+
   ipcMain.handle("herdr-t3:snapshot", async (): Promise<Record<string, unknown>> => {
     try {
       const snapshot: SessionSnapshot = await fetchSnapshot();
@@ -215,6 +309,34 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
+
+  // Launch at login (issue #85): the OS owns the real state; the renderer
+  // only reads/writes it through this channel. Linux has no login-item API
+  // in Electron, so `supported` is false there and the UI stays disabled.
+  const loginItemState = () => {
+    const supported = process.platform === "darwin" || process.platform === "win32";
+    let openAtLogin = false;
+    if (supported) {
+      try {
+        openAtLogin = app.getLoginItemSettings().openAtLogin === true;
+      } catch {
+        /* treat as unsupported rather than crash the settings page */
+      }
+    }
+    return { supported, openAtLogin };
+  };
+  ipcMain.handle("herdr-t3:login-item", () => loginItemState());
+  ipcMain.handle("herdr-t3:login-item-set", (_event, openAtLogin: unknown) => {
+    if (typeof openAtLogin !== "boolean") return loginItemState();
+    if (process.platform === "darwin" || process.platform === "win32") {
+      try {
+        app.setLoginItemSettings({ openAtLogin });
+      } catch (error) {
+        diag("error", "loginItem.set", error instanceof Error ? error.message : String(error));
+      }
+    }
+    return loginItemState();
+  });
 
   // Renderer-reported JS errors (window.onerror / unhandledrejection forwarded
   // by the preload). Shape-checked and truncated; never carries frame data.

@@ -28,6 +28,7 @@ import {
 const LOCAL_ID = "local";
 const REFRESH_INTERVAL_MS = 60_000;
 const MACHINE_ADD_TIMEOUT_MS = 120_000;
+const MACHINE_OP_TIMEOUT_MS = 30_000;
 
 interface ManagedSession {
   session: BridgeSession;
@@ -38,11 +39,14 @@ export interface MachineManagerOptions {
   send: (frame: ServerFrame) => void;
   /** Override for tests: machine list source. */
   listMachines?: () => SavedMachine[];
+  /** Override for tests: the `herdr machine …` shell-out. */
+  runHerdr?: (args: string[], timeoutMs: number) => Promise<string>;
 }
 
 export class MachineManager {
   private readonly send: (frame: ServerFrame) => void;
   private readonly listSource: () => SavedMachine[];
+  private readonly herdrRunner: (args: string[], timeoutMs: number) => Promise<string>;
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly infos = new Map<string, MachineInfo>();
   private readonly resolving = new Map<string, Promise<void>>();
@@ -60,6 +64,7 @@ export class MachineManager {
   constructor(options: MachineManagerOptions) {
     this.send = options.send;
     this.listSource = options.listMachines ?? (() => loadSavedMachines());
+    this.herdrRunner = options.runHerdr ?? ((args, timeoutMs) => this.spawnHerdr(args, timeoutMs));
     this.infos.set(LOCAL_ID, {
       id: LOCAL_ID,
       label: "Local",
@@ -118,6 +123,9 @@ export class MachineManager {
       if (!seen.has(id)) this.infos.delete(id);
     }
     this.pushMachines();
+    // A missing local session means the last boot attempt failed; rebuild it
+    // so the app recovers once herdr comes back without a restart (#99).
+    if (!this.sessions.has(LOCAL_ID)) this.ensureLocal();
     // Probe machines that have no live session so the list shows real
     // reachability, not just "offline".
     for (const info of this.list()) {
@@ -148,6 +156,12 @@ export class MachineManager {
         return true;
       case "machine_add":
         void this.addMachine(frame);
+        return true;
+      case "machine_remove":
+        void this.removeMachine(frame);
+        return true;
+      case "machine_update":
+        void this.updateMachine(frame);
         return true;
       default:
         break;
@@ -206,6 +220,10 @@ export class MachineManager {
       case "rpc_result":
         if (!frame.ok && (frame.id === "boot" || frame.id === "bridge-health") && frame.error) {
           this.markFailure(machine, `${frame.error.code}: ${frame.error.message}`);
+          // A boot failure means the session never connected; drop it so a
+          // later connect()/refresh() can rebuild it instead of leaving the
+          // machine permanently disconnected until app restart (issue #99).
+          if (frame.id === "boot") this.disconnect(machine, true);
         }
         return;
       default:
@@ -429,12 +447,9 @@ export class MachineManager {
     }
   }
 
-  /** `herdr machine add` shell-out; approval-requiring steps stay manual. */
-  private async addMachine(frame: Extract<ClientFrame, { type: "machine_add" }>): Promise<void> {
-    const args = ["machine", "add", "--label", frame.label];
-    if (frame.session) args.push("--remote-session", frame.session);
-    args.push(frame.target);
-    const output = await new Promise<string>((resolve) => {
+  /** `herdr machine <args>` shell-out; approval-requiring steps stay manual. */
+  private spawnHerdr(args: string[], timeoutMs: number): Promise<string> {
+    return new Promise<string>((resolve) => {
       const child = spawn("herdr", args, { stdio: ["ignore", "pipe", "pipe"] });
       let text = "";
       const collect = (c: Buffer) => {
@@ -444,8 +459,8 @@ export class MachineManager {
       child.stderr?.on("data", collect);
       const timer = setTimeout(() => {
         child.kill();
-        resolve(`${text}\n[timed out after ${MACHINE_ADD_TIMEOUT_MS / 1000}s]`);
-      }, MACHINE_ADD_TIMEOUT_MS);
+        resolve(`${text}\n[timed out after ${timeoutMs / 1000}s]`);
+      }, timeoutMs);
       timer.unref?.();
       child.on("error", (err) => {
         clearTimeout(timer);
@@ -456,17 +471,51 @@ export class MachineManager {
         resolve(text + (code === 0 ? "" : `\n[exit ${code}]`));
       });
     });
-    const ok = !output.includes("[exit") && !output.includes("[timed out");
+  }
+
+  private machineResult(id: string, output: string, code: string, forcedOk?: boolean): void {
+    const ok = forcedOk ?? (!output.includes("[exit") && !output.includes("[timed out"));
     this.send(
       ok
-        ? { type: "rpc_result", id: frame.id, ok: true, result: { output } }
-        : {
-            type: "rpc_result",
-            id: frame.id,
-            ok: false,
-            error: { code: "machine_add_failed", message: output.slice(-500) },
-          },
+        ? { type: "rpc_result", id, ok: true, result: { output } }
+        : { type: "rpc_result", id, ok: false, error: { code, message: output.slice(-500) } },
     );
+  }
+
+  /** `herdr machine add` shell-out; approval-requiring steps stay manual. */
+  private async addMachine(frame: Extract<ClientFrame, { type: "machine_add" }>): Promise<void> {
+    const args = ["machine", "add", "--label", frame.label];
+    if (frame.session) args.push("--remote-session", frame.session);
+    args.push(frame.target);
+    const output = await this.herdrRunner(args, MACHINE_ADD_TIMEOUT_MS);
+    this.machineResult(frame.id, output, "machine_add_failed");
+    await this.refresh();
+  }
+
+  /** `herdr machine remove` shell-out; the registry refresh drops the session. */
+  private async removeMachine(frame: Extract<ClientFrame, { type: "machine_remove" }>): Promise<void> {
+    if (frame.machine === LOCAL_ID) {
+      this.machineResult(frame.id, "the local machine cannot be removed", "machine_remove_failed", false);
+      return;
+    }
+    const output = await this.herdrRunner(["machine", "remove", frame.machine], MACHINE_OP_TIMEOUT_MS);
+    this.machineResult(frame.id, output, "machine_remove_failed");
+    await this.refresh();
+  }
+
+  /** `herdr machine rename|enable|disable` shell-outs, run in order. */
+  private async updateMachine(frame: Extract<ClientFrame, { type: "machine_update" }>): Promise<void> {
+    const commands: string[][] = [];
+    if (frame.label !== undefined) commands.push(["machine", "rename", frame.machine, "--label", frame.label]);
+    if (frame.enabled !== undefined) {
+      commands.push(["machine", frame.enabled ? "enable" : "disable", frame.machine]);
+    }
+    let output = "";
+    for (const args of commands) {
+      output += await this.herdrRunner(args, MACHINE_OP_TIMEOUT_MS);
+      if (output.includes("[exit") || output.includes("[timed out")) break;
+    }
+    this.machineResult(frame.id, output.trim(), "machine_update_failed");
     await this.refresh();
   }
 }

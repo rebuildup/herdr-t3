@@ -10,5 +10,6 @@ dist/
 desktop/main.cjs
 release/
 
-# Raw screenshot captures are local artifacts; committed review images are WebP.
+# Evidence: raw captures stay local; only optimized WebP + manifest are committed.
 docs/design/evidence/**/*.png
+!docs/design/evidence/**/manifest.json

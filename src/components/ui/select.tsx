@@ -35,8 +35,12 @@ export function SelectTrigger({ className, children }: { className?: string; chi
   );
 }
 
-export function SelectValue() {
-  return <BaseSelect.Value className="min-w-0 flex-1 truncate data-[placeholder]:text-muted-foreground" />;
+export function SelectValue({ children }: { children?: ReactNode }) {
+  return (
+    <BaseSelect.Value className="min-w-0 flex-1 truncate data-[placeholder]:text-muted-foreground">
+      {children}
+    </BaseSelect.Value>
+  );
 }
 
 export function SelectContent({ children }: { children: ReactNode }) {

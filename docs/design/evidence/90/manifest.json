@@ -1,0 +1,93 @@
+{
+ "ticket": "90",
+ "milestone": "M4 v0.3.0 release candidate acceptance",
+ "herdr-t3": "release-0-3-0 @ 0c1d0bd (packaged electron-builder dir build, unsigned)",
+ "t3code": "9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
+ "references": "docs/design/evidence/83/ (M1), 84/ (M2), 85/ (M3)",
+ "app": "packaged ~/Applications/herdr-t3.app 0.3.0, Electron 45.4.1, launched with isolated HERDR_SOCKET=ht3probe + XDG_STATE_HOME=/tmp/ht3-m4-state (fake registry)",
+ "viewport": "1440x900 CSS @2x via CDP Page.captureScreenshot; narrow 480x800 @2x; window.png/chrome-crop.png are native macOS window captures",
+ "verified": [
+  "packaged file:// load, WASM ghostty renders (issue #71 regression)",
+  "health: version 0.3.0 + stamped commit 0c1d0bd + herdr 0.9.5/protocol 22 reachable",
+  "settings font-size 13->18 live grid resize 147x54->106x40, persists across app restart",
+  "machine rename via packaged UI -> real herdr machine rename -> isolated registry mutated",
+  "launch-at-login IPC supported on macOS",
+  "clean quit, no residual processes",
+  "v0.2.2 -> 0.3.0 upgrade keeps userData settings; rollback to 0.2.2 launches and reads same state",
+  "M4 fixes verified: settings Esc/backdrop dismiss, palette Esc, tab close no longer overlaps label",
+  "image review (codex exec -i): main+palette NEEDS-FIX -> fixed in #94; settings sections NEEDS-FIX (2 MAJOR) -> fixed/verified; disconnected state captured"
+ ],
+ "known_limitations": [
+  "Windows 11 WCO/native acceptance NOT verified on this macOS host",
+  "IME/Nerd Font glyph coverage not exercised in packaged app",
+  "canvas shows 'Connecting to herdr\u2026' for closed state while sidebar says 'Bridge disconnected \u2014 retrying\u2026' (minor label inconsistency)",
+  "distribution is manual electron-builder dir build + app copy; rebuildup/pc-setup contains no herdr-t3 install/verify rules (verified by repo inspection)"
+ ],
+ "captures": [
+  {
+   "file": "01-main-dark.webp",
+   "bytes": 96114,
+   "sha256": "3d8dff67f895e455"
+  },
+  {
+   "file": "02-settings-general.webp",
+   "bytes": 33676,
+   "sha256": "03279a6590dcc9cd"
+  },
+  {
+   "file": "03-settings-connections.webp",
+   "bytes": 41700,
+   "sha256": "cb54aadab7554398"
+  },
+  {
+   "file": "04-settings-appearance.webp",
+   "bytes": 37080,
+   "sha256": "27bdc0310b36077a"
+  },
+  {
+   "file": "05-palette.webp",
+   "bytes": 30752,
+   "sha256": "dece2e96e9140c30"
+  },
+  {
+   "file": "06-main-light.webp",
+   "bytes": 95510,
+   "sha256": "c0ab6ac53c7f11c8"
+  },
+  {
+   "file": "07-narrow.webp",
+   "bytes": 24756,
+   "sha256": "501ee7fc4251efc7"
+  },
+  {
+   "file": "09-settings-terminal.webp",
+   "bytes": 42750,
+   "sha256": "b29e326b93dd1527"
+  },
+  {
+   "file": "10-settings-diagnostics.webp",
+   "bytes": 44178,
+   "sha256": "fd61e1d4a04c59ab"
+  },
+  {
+   "file": "11-settings-about.webp",
+   "bytes": 42040,
+   "sha256": "635a5d2274c6dd80"
+  },
+  {
+   "file": "12-disconnected.webp",
+   "bytes": 23118,
+   "sha256": "bf41bdfe9c64ab72"
+  },
+  {
+   "file": "chrome-crop.webp",
+   "bytes": 1952,
+   "sha256": "813868420b1a4e66"
+  },
+  {
+   "file": "window.webp",
+   "bytes": 42954,
+   "sha256": "25efc8a9b2653c08"
+  }
+ ]
+}

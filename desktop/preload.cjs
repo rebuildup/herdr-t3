@@ -49,4 +49,25 @@ contextBridge.exposeInMainWorld("herdrT3", {
     ipcRenderer.on("herdr-t3:ghostty", handler);
     return () => ipcRenderer.removeListener("herdr-t3:ghostty", handler);
   },
+  /** Launch-at-login state; { supported:false } outside macOS/Windows. */
+  loginItem() {
+    return ipcRenderer.invoke("herdr-t3:login-item");
+  },
+  /** Set launch-at-login; resolves to the resulting OS state. */
+  setLoginItem(openAtLogin) {
+    return ipcRenderer.invoke("herdr-t3:login-item-set", openAtLogin === true);
+  },
+  /** Synchronous OS-fullscreen read (used for the macOS traffic-light inset). */
+  getWindowFullscreenState() {
+    return ipcRenderer.sendSync("herdr-t3:window-fullscreen-state") === true;
+  },
+  /** Push channel for OS-fullscreen transitions. */
+  onWindowFullscreenStateChange(listener) {
+    const handler = (_event, fullscreen) => {
+      if (typeof fullscreen === "boolean") listener(fullscreen);
+    };
+    ipcRenderer.on("herdr-t3:window-fullscreen-state", handler);
+    return () =>
+      ipcRenderer.removeListener("herdr-t3:window-fullscreen-state", handler);
+  },
 });

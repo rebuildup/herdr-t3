@@ -1,5 +1,8 @@
 # UI rules — T3 Code mapping (issue #36)
 
+Canonical screen structure: `docs/design/app-shell.md` (ADR-0008). This file
+covers lint-level rules only.
+
 Source of truth: `t3code/docs/internals/web-ui.md`, `t3code/AGENTS.md`, and the
 upstream oxlint setup (`vite.config.ts` lint block + `oxlint-plugin-t3code/`,
 pinned in `docs/upstream.md`). herdr-t3 enforces the applicable subset with

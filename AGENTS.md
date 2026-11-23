@@ -67,7 +67,8 @@ real failure mode, not a style preference.
   `<button>/<input>/<select>/<textarea>` into controls a primitive provides.
 - Theme-only rules use `@variant dark` / `@variant light`, not `.dark`
   selectors. No `style={{}}` for static values a class covers.
-- The terminal surface is a real terminal (xterm.js), visually distinct from
+- The terminal surface is a real terminal (libghostty-vt via
+  `GhosttySession`, ADR-0007), visually distinct from
   chat/conversation surfaces. Do not fabricate conversation, tool-call, or
   thread data herdr does not provide; do not force herdr panes into T3's
   Thread model.

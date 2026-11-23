@@ -38,6 +38,8 @@ interface DesktopBridge {
   onFrame(listener: (frame: ServerFrame) => void): () => void;
   health(): Promise<unknown>;
   snapshot(): Promise<unknown>;
+  loginItem?(): Promise<unknown>;
+  setLoginItem?(openAtLogin: boolean): Promise<unknown>;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -45,8 +47,35 @@ function desktopBridge(): DesktopBridge | null {
   return candidate ?? null;
 }
 
+/** Resolve with the next snapshot pushed for `machine` (30s ceiling). */
+function waitForPushedSnapshot(machine: string): Promise<SessionSnapshot> {
+  return new Promise<SessionSnapshot>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off();
+      reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
+    }, 30_000);
+    const off = onSnapshot((snapshot, m) => {
+      if (m !== machine) return;
+      clearTimeout(timer);
+      off();
+      resolve(snapshot);
+    });
+  });
+}
+
 export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<SessionSnapshot> {
   const ipc = desktopBridge();
+  // /api/session only knows the local endpoint; remote machines (and the
+  // desktop app, which has no REST) must wait for the pushed snapshot so a
+  // remote id can never be filled with local data.
+  if (!ipc && machine === LOCAL_MACHINE) {
+    const res = await fetch("/api/session");
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
+    }
+    return ((await res.json()) as SessionResponse).snapshot;
+  }
   if (ipc && machine === LOCAL_MACHINE) {
     // No REST endpoint in the desktop app: ask the main process for the
     // snapshot its bridge session already holds (covers renderer reloads).
@@ -60,36 +89,9 @@ export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<Ses
       throw new ApiError(res.error?.code ?? "herdr", res.error?.message ?? "herdr unreachable");
     }
     // Fall back to the next pushed frame if the reply was malformed.
-    return new Promise<SessionSnapshot>((resolve) => {
-      const off = onSnapshot((snapshot, m) => {
-        if (m !== LOCAL_MACHINE) return;
-        off();
-        resolve(snapshot);
-      });
-    });
+    return waitForPushedSnapshot(LOCAL_MACHINE);
   }
-  if (!ipc) {
-    const res = await fetch("/api/session");
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-      throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
-    }
-    return ((await res.json()) as SessionResponse).snapshot;
-  }
-  // Remote machine (or malformed local reply): wait for the next pushed
-  // snapshot tagged with this machine.
-  return new Promise<SessionSnapshot>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      off();
-      reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
-    }, 30_000);
-    const off = onSnapshot((snapshot, m) => {
-      if (m !== machine) return;
-      clearTimeout(timer);
-      off();
-      resolve(snapshot);
-    });
-  });
+  return waitForPushedSnapshot(machine);
 }
 
 export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => void;
@@ -297,7 +299,8 @@ export function machineDisconnect(machine: string): void {
   sendFrame({ type: "machine_disconnect", machine });
 }
 
-export function machineAdd(input: { label: string; target: string; session?: string | undefined }): Promise<unknown> {
+/** Machine-registry mutations correlate through the same rpc_result channel. */
+function machineCommand(frame: ClientFrame): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const ipc = desktopBridge();
     if (!ipc && (!ws || ws.readyState !== WebSocket.OPEN)) {
@@ -306,14 +309,48 @@ export function machineAdd(input: { label: string; target: string; session?: str
     }
     const id = `m${++rpcCounter}`;
     rpcWaiters.set(id, { resolve, reject });
-    const frame: ClientFrame = {
-      type: "machine_add",
-      id,
-      label: input.label,
-      target: input.target,
-      ...(input.session !== undefined ? { session: input.session } : {}),
-    };
+    // machine_* frames carry their own correlation id.
+    (frame as { id: string }).id = id;
     if (ipc) ipc.sendFrame(frame);
     else ws?.send(JSON.stringify(frame));
   });
+}
+
+export function machineAdd(input: { label: string; target: string; session?: string | undefined }): Promise<unknown> {
+  return machineCommand({
+    type: "machine_add",
+    id: "",
+    label: input.label,
+    target: input.target,
+    ...(input.session !== undefined ? { session: input.session } : {}),
+  });
+}
+
+export function machineRemove(machine: string): Promise<unknown> {
+  return machineCommand({ type: "machine_remove", id: "", machine });
+}
+
+export function machineUpdate(
+  machine: string,
+  update: { label?: string; enabled?: boolean },
+): Promise<unknown> {
+  return machineCommand({ type: "machine_update", id: "", machine, ...update });
+}
+
+/** Launch-at-login state; only the desktop preload exposes these. */
+export interface LoginItemState {
+  supported: boolean;
+  openAtLogin: boolean;
+}
+
+export function getLoginItem(): Promise<LoginItemState | null> {
+  const ipc = desktopBridge();
+  return (ipc?.loginItem ? ipc.loginItem() : Promise.resolve(null)) as Promise<LoginItemState | null>;
+}
+
+export function setLoginItem(openAtLogin: boolean): Promise<LoginItemState | null> {
+  const ipc = desktopBridge();
+  return (ipc?.setLoginItem ? ipc.setLoginItem(openAtLogin) : Promise.resolve(null)) as Promise<
+    LoginItemState | null
+  >;
 }
