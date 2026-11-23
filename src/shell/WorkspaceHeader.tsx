@@ -160,9 +160,8 @@ export function WorkspaceHeader() {
                     "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
                     // Reserve the hover-revealed close button's width so the
                     // label hit area can never overlap it (issue #94).
-                    selected ? "shrink-0 pe-8" : "",
                     selected
-                      ? "bg-accent text-foreground"
+                      ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >

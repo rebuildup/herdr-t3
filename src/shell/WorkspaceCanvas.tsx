@@ -43,8 +43,10 @@ function PaneSurface({
   return (
     <div
       className={cn(
-        "absolute overflow-hidden border",
-        focused ? "border-primary/60" : "border-border/60",
+        "absolute overflow-hidden border transition-colors",
+        // Focus treatment follows interaction.md: neutral emphasis, never a
+        // full blue frame (issue #112).
+        focused ? "border-foreground/25" : "border-border/50",
       )}
       style={style}
       // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
