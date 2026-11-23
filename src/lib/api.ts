@@ -45,8 +45,35 @@ function desktopBridge(): DesktopBridge | null {
   return candidate ?? null;
 }
 
+/** Resolve with the next snapshot pushed for `machine` (30s ceiling). */
+function waitForPushedSnapshot(machine: string): Promise<SessionSnapshot> {
+  return new Promise<SessionSnapshot>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off();
+      reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
+    }, 30_000);
+    const off = onSnapshot((snapshot, m) => {
+      if (m !== machine) return;
+      clearTimeout(timer);
+      off();
+      resolve(snapshot);
+    });
+  });
+}
+
 export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<SessionSnapshot> {
   const ipc = desktopBridge();
+  // /api/session only knows the local endpoint; remote machines (and the
+  // desktop app, which has no REST) must wait for the pushed snapshot so a
+  // remote id can never be filled with local data.
+  if (!ipc && machine === LOCAL_MACHINE) {
+    const res = await fetch("/api/session");
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
+    }
+    return ((await res.json()) as SessionResponse).snapshot;
+  }
   if (ipc && machine === LOCAL_MACHINE) {
     // No REST endpoint in the desktop app: ask the main process for the
     // snapshot its bridge session already holds (covers renderer reloads).
@@ -60,36 +87,9 @@ export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<Ses
       throw new ApiError(res.error?.code ?? "herdr", res.error?.message ?? "herdr unreachable");
     }
     // Fall back to the next pushed frame if the reply was malformed.
-    return new Promise<SessionSnapshot>((resolve) => {
-      const off = onSnapshot((snapshot, m) => {
-        if (m !== LOCAL_MACHINE) return;
-        off();
-        resolve(snapshot);
-      });
-    });
+    return waitForPushedSnapshot(LOCAL_MACHINE);
   }
-  if (!ipc) {
-    const res = await fetch("/api/session");
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-      throw new ApiError(body?.error?.code ?? "http", body?.error?.message ?? `session ${res.status}`);
-    }
-    return ((await res.json()) as SessionResponse).snapshot;
-  }
-  // Remote machine (or malformed local reply): wait for the next pushed
-  // snapshot tagged with this machine.
-  return new Promise<SessionSnapshot>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      off();
-      reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
-    }, 30_000);
-    const off = onSnapshot((snapshot, m) => {
-      if (m !== machine) return;
-      clearTimeout(timer);
-      off();
-      resolve(snapshot);
-    });
-  });
+  return waitForPushedSnapshot(machine);
 }
 
 export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => void;

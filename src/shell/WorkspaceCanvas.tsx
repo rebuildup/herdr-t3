@@ -1,99 +1,125 @@
 /*
- * Workspace canvas — the pane grid area for the M1 fixture shell
- * (issue #83). Renders fixture panes as terminal-surface placeholders;
- * M2 mounts real PaneTerminal surfaces here.
+ * Workspace canvas — the pane grid area driven by real bridge data
+ * (issue #84). Renders herdr's own pane layout (rects from the tab's
+ * PaneLayoutSnapshot) with Ghostty PaneTerminal surfaces; focus and zoom
+ * come from the snapshot, never local guesses. M1's fixture grid is gone.
  */
 import { cn } from "~/lib/utils";
-import { statusIcon } from "~/components/statusIcons";
-import { fixtureWorkspace } from "./fixtures";
-import { useRoute } from "./router";
-import { activeTabOf, focusedPaneOf, shellActions, useShellState } from "./store";
-import type { FixturePane } from "./fixtures";
+import { PaneTerminal } from "~/components/PaneTerminal";
+import { paneTitle } from "~/lib/workspace";
+import type { PaneInfo } from "../../shared/protocol";
+import { useRouteWorkspace } from "./view";
+import { callRpc, useBridgeState } from "./bridge";
 
-function FixturePaneSurface({
+function PaneSurface({
+  machine,
   pane,
-  tabId,
+  connected,
+  rect,
+  area,
   focused,
+  zoomed,
+  onFocus,
 }: {
-  pane: FixturePane;
-  tabId: string;
+  machine: string;
+  pane: PaneInfo;
+  connected: boolean;
+  rect: { x: number; y: number; width: number; height: number } | undefined;
+  area: { width: number; height: number };
   focused: boolean;
+  zoomed: boolean;
+  onFocus: () => void;
 }) {
+  const style = zoomed
+    ? { left: 0, top: 0, width: "100%", height: "100%" }
+    : rect
+      ? {
+          left: `${(rect.x / Math.max(area.width, 1)) * 100}%`,
+          top: `${(rect.y / Math.max(area.height, 1)) * 100}%`,
+          width: `${(rect.width / Math.max(area.width, 1)) * 100}%`,
+          height: `${(rect.height / Math.max(area.height, 1)) * 100}%`,
+        }
+      : undefined;
   return (
-    // oxlint-disable-next-line herdr-t3/no-raw-control -- pane surface is a composite terminal region; click-to-focus mirrors real pane focus
-    <button
-      type="button"
-      onClick={() => shellActions.focusPane(tabId, pane.id)}
+    <div
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-background text-left outline-none transition-shadow",
-        focused
-          ? "border-primary/50 ring-1 ring-primary/25"
-          : "border-border",
+        "absolute overflow-hidden border",
+        focused ? "border-primary/60" : "border-border/60",
       )}
+      style={style}
+      // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
+      title={paneTitle(pane)}
+      onMouseDown={() => {
+        if (!focused) onFocus();
+      }}
     >
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-        <span className="flex size-3.5 items-center justify-center">
-          {statusIcon(pane.agentStatus)}
-        </span>
-        <span className="truncate text-xs text-secondary-label">
-          {pane.title}
-          {pane.agent ? ` · ${pane.agent}` : ""}
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-3 font-mono text-2xs leading-5 text-muted-foreground">
-        <p>{"rebui@studio ~ %"}</p>
-        <p className="text-foreground/80">{"$ herdr-t3 dev"}</p>
-        <p>{"  vite v8.3.4  ready in 412 ms"}</p>
-        <p>{"  ➜  Local:   http://localhost:5737/"}</p>
-        <p className="mt-2 flex items-center gap-1">
-          <span className="text-foreground">{"$"}</span>
-          <span className="inline-block h-3.5 w-1.5 animate-pulse bg-foreground/70" />
-        </p>
-      </div>
-    </button>
+      <PaneTerminal machine={machine} paneId={pane.pane_id} connected={connected} />
+    </div>
   );
 }
 
 export function WorkspaceCanvas() {
-  const route = useRoute();
-  const shell = useShellState();
-  const workspace = fixtureWorkspace(
-    route.name === "workspace" ? route.workspaceId : null,
-  );
-  const tab = workspace ? activeTabOf(workspace, shell) : undefined;
-  const zoomed = tab !== undefined && shell.zoomedTab === tab.id;
+  const { machine, machineInfo, snapshot, view, stale } = useRouteWorkspace();
+  const bridge = useBridgeState();
+  const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
+  const zoomed = layout?.zoomed === true;
+  // Attach attempts are gated on the client bridge only: the server queues
+  // subscribes and reconnects ssh machines on demand, and machine reachability
+  // is already surfaced by the sidebar status.
+  const machineOnline = bridge.connection === "open";
 
-  const focusedPane = tab ? focusedPaneOf(tab, shell) : undefined;
-  const focusedId = focusedPane?.id;
-  // Zoomed tabs show only the focused pane.
-  const panes = !tab
-    ? []
-    : zoomed
-      ? [focusedPane ?? tab.panes[0]!].slice(0, 1)
-      : tab.panes;
-
-  if (!tab || panes.length === 0) {
-    return <div className="min-h-0 flex-1" />;
+  if (stale) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        {machineInfo?.label ?? machine} is {machineInfo?.status}
+        {machineInfo?.detail ? ` — ${machineInfo.detail}` : ""}. Reconnect from the sidebar to view live panes.
+      </div>
+    );
+  }
+  if (!snapshot) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        {bridge.connection === "open" ? "Loading session…" : "Connecting to herdr…"}
+      </div>
+    );
+  }
+  if (!workspace) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        No workspaces on this machine.
+      </div>
+    );
+  }
+  if (!activeTab || tabPanes.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        No panes in this tab.
+      </div>
+    );
   }
 
-  const gridClass =
-    panes.length === 1
-      ? "grid-cols-1"
-      : panes.length === 2
-        ? "grid-cols-2"
-        : panes.length === 3
-          ? "grid-cols-[2fr_1fr] grid-rows-2 [&>*:first-child]:row-span-2"
-          : "grid-cols-2 grid-rows-2";
+  // herdr's zoom shows only the focused pane, full-bleed (issue #75).
+  const visiblePanes = zoomed && focusedPane ? [focusedPane] : tabPanes;
+  const area = layout?.area ?? { width: 1, height: 1 };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 p-3">
-      <div className={cn("grid h-full w-full gap-2", gridClass)}>
-        {panes.map((pane) => (
-          <FixturePaneSurface
-            key={pane.id}
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
+      <div className="relative h-full w-full">
+        {visiblePanes.map((pane) => (
+          <PaneSurface
+            key={pane.pane_id}
+            machine={machine}
             pane={pane}
-            tabId={tab.id}
-            focused={pane.id === focusedId}
+            connected={machineOnline}
+            rect={layout?.panes.find((p) => p.pane_id === pane.pane_id)?.rect}
+            area={area}
+            focused={
+              layout
+                ? pane.pane_id === layout.focused_pane_id
+                : pane.focused
+            }
+            zoomed={zoomed}
+            onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
           />
         ))}
       </div>

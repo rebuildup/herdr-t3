@@ -1,18 +1,19 @@
 /*
- * Minimal hash router for the M1 fixture shell (issue #83).
- * file:// origins cannot pushState to app paths, so routes live in the
- * hash: "#/w/<workspaceId>", "#/settings/<section>". Keeps a small entry
- * stack so back/forward buttons know whether they can move.
+ * Minimal hash router for the app shell (issue #83, machine-aware in
+ * issue #84). file:// origins cannot pushState to app paths, so routes
+ * live in the hash: "#/w/<machine>/<workspaceId>", "#/settings/<section>".
+ * Keeps a small entry stack so back/forward buttons know whether they
+ * can move.
  */
 import { useSyncExternalStore } from "react";
 
 export type ShellRoute =
-  | { name: "workspace"; workspaceId: string | null }
+  | { name: "workspace"; machine: string | null; workspaceId: string | null }
   | { name: "settings"; section: string | null };
 
 const entries: string[] = [];
 let index = -1;
-let snapshot: ShellRoute = { name: "workspace", workspaceId: null };
+let snapshot: ShellRoute = { name: "workspace", machine: null, workspaceId: null };
 const listeners = new Set<() => void>();
 
 function currentHash(): string {
@@ -26,9 +27,22 @@ function parse(hash: string): ShellRoute {
     return { name: "settings", section: rest[0] ?? null };
   }
   if (head === "w") {
-    return { name: "workspace", workspaceId: rest[0] ?? null };
+    // "#/w/<machine>/<workspaceId>"; the legacy "#/w/<workspaceId>" form
+    // (single segment) is read as the local machine.
+    if (rest.length >= 2) {
+      return {
+        name: "workspace",
+        machine: decodeURIComponent(rest[0]!),
+        workspaceId: decodeURIComponent(rest[1]!),
+      };
+    }
+    return {
+      name: "workspace",
+      machine: null,
+      workspaceId: rest[0] ? decodeURIComponent(rest[0]) : null,
+    };
   }
-  return { name: "workspace", workspaceId: null };
+  return { name: "workspace", machine: null, workspaceId: null };
 }
 
 let lastMainHash = "#/";
@@ -38,8 +52,10 @@ function emit() {
   if (next.name === "workspace") lastMainHash = currentHash();
   if (
     next.name === snapshot.name &&
-    (next as { workspaceId?: string | null; section?: string | null }).workspaceId ===
-      (snapshot as { workspaceId?: string | null; section?: string | null }).workspaceId &&
+    (next as { machine?: string | null }).machine ===
+      (snapshot as { machine?: string | null }).machine &&
+    (next as { workspaceId?: string | null }).workspaceId ===
+      (snapshot as { workspaceId?: string | null }).workspaceId &&
     (next as { section?: string | null }).section === (snapshot as { section?: string | null }).section
   ) {
     return;
@@ -109,8 +125,8 @@ export function navigateHistory(direction: "back" | "forward") {
   else window.history.forward();
 }
 
-export function workspaceHash(workspaceId: string): string {
-  return `#/w/${workspaceId}`;
+export function workspaceHash(machine: string, workspaceId: string): string {
+  return `#/w/${encodeURIComponent(machine)}/${encodeURIComponent(workspaceId)}`;
 }
 
 export function settingsHash(section: string | null): string {

@@ -3,7 +3,7 @@
  * structure (issue #83, ADR-0008): topbar-height drag-region header with
  * brand + Electron history navigation + environment-identification pill,
  * and a footer utility icon row.
- * Local changes: herdr-t3 brand, fixture machines for the pill, no
+ * Local changes: herdr-t3 brand, real bridge machines for the pill, no
  * i18n/update-pill/undo-notice subsystems.
  */
 import { ArrowLeftIcon, ArrowRightIcon, SettingsIcon } from "lucide-react";
@@ -21,7 +21,8 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { FIXTURE_MACHINES, fixtureMachine, fixtureWorkspace } from "./fixtures";
+import { useBridgeState, machineListOf } from "./bridge";
+import { useRouteWorkspace } from "./view";
 import { canNavigateHistory, navigate, navigateHistory, settingsHash, useRoute } from "./router";
 
 export const SidebarChromeHeader = function SidebarChromeHeader({
@@ -30,10 +31,11 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
   isElectron: boolean;
 }) {
   const route = useRoute();
-  const workspace =
-    route.name === "workspace" ? fixtureWorkspace(route.workspaceId) : undefined;
-  const machine = workspace ? fixtureMachine(workspace.machineId) : undefined;
-  const showMachinePill = FIXTURE_MACHINES.length > 1 && machine !== undefined;
+  const bridge = useBridgeState();
+  const { machineInfo } = useRouteWorkspace();
+  const machineCount = machineListOf(bridge).length;
+  const showMachinePill =
+    route.name === "workspace" && machineCount > 1 && machineInfo !== undefined;
 
   return (
     <div
@@ -63,7 +65,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
         {showMachinePill ? (
           <div className="ml-1 flex h-7 items-center">
             <Badge data-environment-identification="pill" size="sm" variant="secondary">
-              {machine.label}
+              {machineInfo?.label}
             </Badge>
           </div>
         ) : null}

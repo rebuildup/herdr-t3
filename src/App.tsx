@@ -1,8 +1,8 @@
 /*
- * App root for the M1 fixture shell (issue #83, ADR-0008). Composes the
- * T3 Code app shell: AppShell (sidebar chrome) + routed content
- * (workspace view or settings modal) + command palette.
- * M2 swaps the fixture store/router data for the bridge snapshot.
+ * App root for the T3 Code shell (issue #83, ADR-0008) with the Herdr
+ * bridge behind it (issue #84): AppShell (sidebar chrome) + routed
+ * content (workspace view or settings modal) + command palette. The
+ * bridge store owns connection/snapshot state; components derive views.
  */
 import { useEffect, useState } from "react";
 
@@ -21,6 +21,7 @@ import { WorkspaceCanvas } from "./shell/WorkspaceCanvas";
 import { SettingsModal } from "./shell/SettingsModal";
 import { CommandMenu } from "./shell/CommandMenu";
 import { initRouter, useRoute } from "./shell/router";
+import { initBridge } from "./shell/bridge";
 import { isElectron } from "./lib/env";
 
 export default function App() {
@@ -30,8 +31,15 @@ export default function App() {
 
   useEffect(() => {
     initRouter();
+    const disconnectBridge = initBridge();
     initAppearance();
-    return onAppearanceChange(() => setAppearance(getAppearanceMode()));
+    const offAppearance = onAppearanceChange(() =>
+      setAppearance(getAppearanceMode()),
+    );
+    return () => {
+      disconnectBridge();
+      offAppearance();
+    };
   }, []);
 
   useEffect(() => {
