@@ -40,9 +40,9 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
 import { AgentStatusBadge } from "~/components/AgentStatusBadge";
-import { FIXTURE_MACHINES, fixtureMachine, fixtureWorkspace } from "./fixtures";
-import { navigate, useRoute } from "./router";
-import { activeTabOf, shellActions, useShellState } from "./store";
+import { fixtureMachine, fixtureWorkspace } from "./fixtures";
+import { useRoute } from "./router";
+import { activeTabOf, focusedPaneOf, shellActions, useShellState } from "./store";
 
 function HeaderIconButton({
   label,
@@ -101,8 +101,9 @@ export function WorkspaceHeader() {
     );
   }
 
-  const focusedPane = tab.panes[0];
+  const focusedPane = focusedPaneOf(tab, shell);
   const paneTitle = focusedPane?.title ?? "pane";
+  const paneCount = tab.panes.length;
 
   return (
     <header
@@ -223,12 +224,22 @@ export function WorkspaceHeader() {
               <Rows2 /> Split down
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() =>
-                focusedPane && shellActions.closePane(focusedPane.id)
-              }
-              disabled={!focusedPane}
+              onClick={() => shellActions.swapFocusedPane(tab.id)}
+              disabled={paneCount < 2}
             >
               <SquareSplitHorizontalIcon /> Swap pane
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => shellActions.focusNextPane(tab.id)}
+              disabled={paneCount < 2}
+            >
+              <Columns2 /> Focus next pane
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => focusedPane && shellActions.closePane(focusedPane.id)}
+              disabled={!focusedPane}
+            >
+              <XIcon /> Close pane
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => shellActions.toggleZoom(tab.id)}>
@@ -243,17 +254,18 @@ export function WorkspaceHeader() {
             >
               <PencilIcon /> Rename tab
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled
+              title="Available once the bridge is connected (M2)"
+            >
+              <MessageSquareTextIcon /> Send text to pane…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => shellActions.closeTab(tab.id)}>
               <XIcon /> Close tab
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <HeaderIconButton
-          label="Send text to pane"
-          disabled={!focusedPane}
-        >
-          <MessageSquareTextIcon className="size-3.5" />
-        </HeaderIconButton>
       </div>
     </header>
   );

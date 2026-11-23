@@ -49,4 +49,17 @@ contextBridge.exposeInMainWorld("herdrT3", {
     ipcRenderer.on("herdr-t3:ghostty", handler);
     return () => ipcRenderer.removeListener("herdr-t3:ghostty", handler);
   },
+  /** Synchronous OS-fullscreen read (used for the macOS traffic-light inset). */
+  getWindowFullscreenState() {
+    return ipcRenderer.sendSync("herdr-t3:window-fullscreen-state") === true;
+  },
+  /** Push channel for OS-fullscreen transitions. */
+  onWindowFullscreenStateChange(listener) {
+    const handler = (_event, fullscreen) => {
+      if (typeof fullscreen === "boolean") listener(fullscreen);
+    };
+    ipcRenderer.on("herdr-t3:window-fullscreen-state", handler);
+    return () =>
+      ipcRenderer.removeListener("herdr-t3:window-fullscreen-state", handler);
+  },
 });

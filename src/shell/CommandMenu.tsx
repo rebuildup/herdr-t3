@@ -6,7 +6,7 @@
  */
 import {
   Columns2,
-  FolderPlusIcon,
+  Maximize2Icon,
   MonitorIcon,
   MoonIcon,
   PanelLeftIcon,
@@ -32,9 +32,13 @@ import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
-import { FIXTURE_MACHINES, FIXTURE_WORKSPACES } from "./fixtures";
 import { navigate, settingsHash, workspaceHash } from "./router";
-import { shellActions, useShellState } from "./store";
+import {
+  activeTabOf,
+  getShellState,
+  shellActions,
+  useShellState,
+} from "./store";
 
 interface PaletteAction {
   id: string;
@@ -46,6 +50,15 @@ interface PaletteAction {
 }
 
 const GROUP_ORDER = ["Actions", "Workspaces", "Machines", "Appearance"];
+
+/** Workspace shown by the current route, falling back to the first one. */
+function activeWorkspace() {
+  const route = window.location.hash;
+  const match = route.match(/^#\/w\/([^/?#]+)/);
+  const state = getShellState();
+  const id = match ? decodeURIComponent(match[1]!) : null;
+  return state.workspaces.find((w) => w.id === id) ?? state.workspaces[0];
+}
 
 export function CommandMenu({
   open,
@@ -89,12 +102,39 @@ export function CommandMenu({
         run: () => navigate(settingsHash(null)),
       },
       {
+        id: "new-tab",
+        label: "New tab",
+        group: "Actions",
+        icon: <Columns2 />,
+        keywords: "pane tab",
+        run: () => {
+          const ws = activeWorkspace();
+          if (ws) shellActions.newTab(ws.id);
+        },
+      },
+      {
         id: "split-right",
         label: "Split pane right",
         group: "Actions",
         icon: <Columns2 />,
         keywords: "pane split",
-        run: () => {},
+        run: () => {
+          const ws = activeWorkspace();
+          const tab = ws ? activeTabOf(ws, getShellState()) : undefined;
+          if (tab) shellActions.splitPane(tab.id, "right");
+        },
+      },
+      {
+        id: "toggle-zoom",
+        label: shell.zoomedTab ? "Unzoom pane" : "Zoom pane",
+        group: "Actions",
+        icon: <Maximize2Icon />,
+        keywords: "pane zoom fullscreen",
+        run: () => {
+          const ws = activeWorkspace();
+          const tab = ws ? activeTabOf(ws, getShellState()) : undefined;
+          if (tab) shellActions.toggleZoom(tab.id);
+        },
       },
       ...shell.workspaces.map((ws) => ({
         id: `ws-${ws.id}`,
@@ -109,8 +149,8 @@ export function CommandMenu({
         label: `Machine: ${m.label}`,
         group: "Machines",
         icon: <MonitorIcon />,
-        keywords: m.status,
-        run: () => {},
+        keywords: `${m.status} ${m.kind}`,
+        run: () => navigate(settingsHash("connections")),
       })),
       {
         id: "theme-dark",

@@ -3,18 +3,34 @@
  * (issue #83). Renders fixture panes as terminal-surface placeholders;
  * M2 mounts real PaneTerminal surfaces here.
  */
-import { useMemo } from "react";
-
 import { cn } from "~/lib/utils";
 import { statusIcon } from "~/components/statusIcons";
 import { fixtureWorkspace } from "./fixtures";
 import { useRoute } from "./router";
-import { activeTabOf, useShellState } from "./store";
+import { activeTabOf, focusedPaneOf, shellActions, useShellState } from "./store";
 import type { FixturePane } from "./fixtures";
 
-function FixturePaneSurface({ pane }: { pane: FixturePane }) {
+function FixturePaneSurface({
+  pane,
+  tabId,
+  focused,
+}: {
+  pane: FixturePane;
+  tabId: string;
+  focused: boolean;
+}) {
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- pane surface is a composite terminal region; click-to-focus mirrors real pane focus
+    <button
+      type="button"
+      onClick={() => shellActions.focusPane(tabId, pane.id)}
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-background text-left outline-none transition-shadow",
+        focused
+          ? "border-primary/60 ring-1 ring-primary/40"
+          : "border-border",
+      )}
+    >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <span className="flex size-3.5 items-center justify-center">
           {statusIcon(pane.agentStatus)}
@@ -34,7 +50,7 @@ function FixturePaneSurface({ pane }: { pane: FixturePane }) {
           <span className="inline-block h-3.5 w-1.5 animate-pulse bg-foreground/70" />
         </p>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -47,10 +63,14 @@ export function WorkspaceCanvas() {
   const tab = workspace ? activeTabOf(workspace, shell) : undefined;
   const zoomed = tab !== undefined && shell.zoomedTab === tab.id;
 
-  const panes = useMemo(() => {
-    if (!tab) return [];
-    return zoomed ? tab.panes.slice(0, 1) : tab.panes;
-  }, [tab, zoomed]);
+  const focusedPane = tab ? focusedPaneOf(tab, shell) : undefined;
+  const focusedId = focusedPane?.id;
+  // Zoomed tabs show only the focused pane.
+  const panes = !tab
+    ? []
+    : zoomed
+      ? [focusedPane ?? tab.panes[0]!].slice(0, 1)
+      : tab.panes;
 
   if (!tab || panes.length === 0) {
     return <div className="min-h-0 flex-1" />;
@@ -69,7 +89,12 @@ export function WorkspaceCanvas() {
     <div className="flex min-h-0 min-w-0 flex-1 p-3">
       <div className={cn("grid h-full w-full gap-2", gridClass)}>
         {panes.map((pane) => (
-          <FixturePaneSurface key={pane.id} pane={pane} />
+          <FixturePaneSurface
+            key={pane.id}
+            pane={pane}
+            tabId={tab.id}
+            focused={pane.id === focusedId}
+          />
         ))}
       </div>
     </div>
