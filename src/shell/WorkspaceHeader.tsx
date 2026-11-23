@@ -87,6 +87,10 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
+  // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
+  // the drop maps to herdr `tab.move {tab_id, insert_index}`.
+  const [tabDragId, setTabDragId] = useState<string | null>(null);
+  const [tabDrop, setTabDrop] = useState<{ index: number; side: "before" | "after" } | null>(null);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
@@ -150,14 +154,50 @@ export function WorkspaceHeader() {
             out of view on narrow widths. */}
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-            {tabs.map((t) => {
+            {tabs.map((t, tabIndex) => {
               const selected = t.tab_id === activeTab.tab_id;
               const label = t.label || `Tab ${t.number}`;
+              const dropHere = tabDrop?.index === tabIndex ? tabDrop.side : null;
               return (
                 <div
                   key={t.tab_id}
+                  draggable={renamingTab !== t.tab_id}
+                  onDragStart={(e) => {
+                    setTabDragId(t.tab_id);
+                    e.dataTransfer.setData("text/plain", t.tab_id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    if (!tabDragId || tabDragId === t.tab_id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setTabDrop({
+                      index: tabIndex,
+                      side: e.clientX < rect.left + rect.width / 2 ? "before" : "after",
+                    });
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const dragId = tabDragId ?? e.dataTransfer.getData("text/plain");
+                    const side = dropHere ?? "before";
+                    setTabDragId(null);
+                    setTabDrop(null);
+                    if (!dragId || dragId === t.tab_id) return;
+                    const from = tabs.findIndex((x) => x.tab_id === dragId);
+                    if (from < 0) return;
+                    const to = tabIndex + (side === "after" ? 1 : 0);
+                    const insertIndex = to > from ? to - 1 : to;
+                    if (insertIndex === from) return;
+                    void rpc("tab.move", { tab_id: dragId, insert_index: insertIndex });
+                  }}
+                  onDragEnd={() => {
+                    setTabDragId(null);
+                    setTabDrop(null);
+                  }}
                   className={cn(
                     "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    tabDragId === t.tab_id && "opacity-50",
                     // Reserve the hover-revealed close button's width so the
                     // label hit area can never overlap it (issue #94).
                     selected
@@ -204,6 +244,14 @@ export function WorkspaceHeader() {
                     >
                       <XIcon className="size-3" />
                     </Button>
+                  ) : null}
+                  {dropHere ? (
+                    <span
+                      className={cn(
+                        "absolute top-0 h-full w-0.5 rounded-full bg-primary",
+                        dropHere === "before" ? "-left-0.5" : "-right-0.5",
+                      )}
+                    />
                   ) : null}
                 </div>
               );

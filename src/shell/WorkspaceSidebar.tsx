@@ -5,7 +5,7 @@
  * configured, flat list otherwise (app-shell.md §2). Mutations go through
  * whitelisted herdr RPC; snapshots pushed by the bridge update the UI.
  */
-import { Fragment, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   MonitorIcon,
@@ -278,6 +278,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const [confirmClose, setConfirmClose] = useState<{ machine: string; workspace: WorkspaceInfo } | null>(null);
   const searching = query.trim().length > 0;
   const branchIndex = useWorkspaceBranchIndex();
+  // Workspace drag-reorder (issue #111): HTML5 drag on each row, drop maps
+  // to herdr `workspace.move {workspace_id, insert_index}` within the same
+  // machine's ordered workspace list. Disabled while search-filtered.
+  const [wsDrag, setWsDrag] = useState<{ machine: string; id: string } | null>(null);
+  const [wsDrop, setWsDrop] = useState<{ key: string; side: "before" | "after" } | null>(null);
 
   const machines = machineListOf(bridge);
 
@@ -312,6 +317,65 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     }
     return all;
   }, [machines, workspacesByMachine, query, branchIndex]);
+
+  // Per-machine ordered id lists for drop-index math (flat mode only —
+  // grouped mode uses each folder's own `workspaces` array).
+  const flatIdsByMachine = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const f of filtered) {
+      const list = map.get(f.machine.id) ?? [];
+      list.push(f.workspace.workspace_id);
+      map.set(f.machine.id, list);
+    }
+    return map;
+  }, [filtered]);
+
+  const wsDragEnabled = !searching;
+  const wsDragProps = (
+    machineId: string,
+    wsId: string,
+    orderedIds: string[],
+    index: number,
+    key: string,
+  ) => ({
+    draggable: wsDragEnabled,
+    onDragStart: (e: DragEvent) => {
+      setWsDrag({ machine: machineId, id: wsId });
+      e.dataTransfer.setData("text/plain", wsId);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!wsDrag || wsDrag.machine !== machineId || wsDrag.id === wsId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = e.currentTarget.getBoundingClientRect();
+      setWsDrop({
+        key,
+        side: e.clientY < rect.top + rect.height / 2 ? "before" : "after",
+      });
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      const drag = wsDrag;
+      const side = wsDrop?.key === key ? wsDrop.side : "before";
+      setWsDrag(null);
+      setWsDrop(null);
+      if (!drag || drag.machine !== machineId || drag.id === wsId) return;
+      const from = orderedIds.indexOf(drag.id);
+      if (from < 0) return;
+      const to = index + (side === "after" ? 1 : 0);
+      const insertIndex = to > from ? to - 1 : to;
+      if (insertIndex === from) return;
+      void callRpc(machineId, "workspace.move", {
+        workspace_id: drag.id,
+        insert_index: insertIndex,
+      });
+    },
+    onDragEnd: () => {
+      setWsDrag(null);
+      setWsDrop(null);
+    },
+  });
 
   const grouped = !searching && machines.length > 1;
   const activeWorkspaceId = view.workspace?.workspace_id ?? null;
@@ -438,9 +502,36 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                       onNewWorkspace={() => newWorkspaceOn(machine.id)}
                     />
                     {!collapsed
-                      ? workspaces.map((ws) => (
-                          <li key={ws.workspace_id} className="list-none">
-                            <WorkspaceRow
+                      ? workspaces.map((ws, wsIndex) => {
+                          const orderedIds = workspaces.map((w) => w.workspace_id);
+                          const key = `${machine.id}:${ws.workspace_id}`;
+                          const dropSide = wsDrop?.key === key ? wsDrop.side : null;
+                          return (
+                            <li
+                              key={ws.workspace_id}
+                              className={cn(
+                                "relative list-none",
+                                wsDrag?.machine === machine.id &&
+                                  wsDrag.id === ws.workspace_id &&
+                                  "opacity-60",
+                              )}
+                              {...wsDragProps(
+                                machine.id,
+                                ws.workspace_id,
+                                orderedIds,
+                                wsIndex,
+                                key,
+                              )}
+                            >
+                              {dropSide ? (
+                                <span
+                                  className={cn(
+                                    "absolute left-0 top-0 h-0.5 w-full bg-primary",
+                                    dropSide === "after" && "top-auto bottom-0",
+                                  )}
+                                />
+                              ) : null}
+                              <WorkspaceRow
                               machine={machine}
                               workspace={ws}
                               isActive={
@@ -453,30 +544,60 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                                 setRename({ target, machine: machineId })
                               }
                               onClose={() => requestClose(machine, ws)}
-                            />
-                          </li>
-                        ))
+                              />
+                            </li>
+                          );
+                        })
                       : null}
                   </Fragment>
                 );
               })
-            : filtered.map(({ machine, workspace }) => (
-                <li key={`${machine.id}:${workspace.workspace_id}`} className="list-none">
-                  <WorkspaceRow
-                    machine={machine}
-                    workspace={workspace}
-                    isActive={
-                      workspace.workspace_id === activeWorkspaceId &&
-                      machine.id === activeMachineId
-                    }
-                    onNewWorkspace={() => newWorkspaceOn(machine.id)}
-                    onRename={(target, machineId) =>
-                      setRename({ target, machine: machineId })
-                    }
-                    onClose={() => requestClose(machine, workspace)}
-                  />
-                </li>
-              ))}
+            : filtered.map(({ machine, workspace }) => {
+                const key = `${machine.id}:${workspace.workspace_id}`;
+                const orderedIds = flatIdsByMachine.get(machine.id) ?? [];
+                const wsIndex = orderedIds.indexOf(workspace.workspace_id);
+                const dropSide = wsDrop?.key === key ? wsDrop.side : null;
+                return (
+                  <li
+                    key={key}
+                    className={cn(
+                      "relative list-none",
+                      wsDrag?.machine === machine.id &&
+                        wsDrag.id === workspace.workspace_id &&
+                        "opacity-60",
+                    )}
+                    {...wsDragProps(
+                      machine.id,
+                      workspace.workspace_id,
+                      orderedIds,
+                      wsIndex,
+                      key,
+                    )}
+                  >
+                    {dropSide ? (
+                      <span
+                        className={cn(
+                          "absolute left-0 top-0 h-0.5 w-full bg-primary",
+                          dropSide === "after" && "top-auto bottom-0",
+                        )}
+                      />
+                    ) : null}
+                    <WorkspaceRow
+                      machine={machine}
+                      workspace={workspace}
+                      isActive={
+                        workspace.workspace_id === activeWorkspaceId &&
+                        machine.id === activeMachineId
+                      }
+                      onNewWorkspace={() => newWorkspaceOn(machine.id)}
+                      onRename={(target, machineId) =>
+                        setRename({ target, machine: machineId })
+                      }
+                      onClose={() => requestClose(machine, workspace)}
+                    />
+                  </li>
+                );
+              })}
         </ul>
       </SidebarGroup>
       <RenameDialog
