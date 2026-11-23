@@ -89,8 +89,12 @@ Rules:
   T3's single-project sidebar.
 - Selecting a workspace navigates the content area (equivalent of
   selecting a thread). Tab/Pane state lives inside that view.
-- Settings/Connections/Diagnostics are utility pages reachable from the
-  sidebar footer, not modal dialogs.
+- Settings/Connections/Diagnostics are utility *routes* reachable from
+  the sidebar footer. T3 renders them inside `AppRouteModal` — a routed
+  overlay with its own section nav and breadcrumb — and herdr-t3 keeps
+  that structure. "Not modal dialogs" means no ad-hoc per-feature
+  configuration dialogs; settings themselves are one consistent routed
+  surface.
 
 ## 3. Settings information architecture
 
