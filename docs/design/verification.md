@@ -23,11 +23,17 @@ the maintainer's live session). Required states:
 
 | Surface | States |
 | --- | --- |
-| Sidebar | empty, populated, workspace selected/hover, context menu open |
-| Tab strip | single tab, multiple tabs, active/inactive, hover close, context menu |
-| Pane grid | single pane, split panes, focused/unfocused border, zoomed |
-| Terminal | idle shell, running agent, blocked prompt, scrollback |
-| Global | light, dark (`html.dark`), connecting, reconnecting, offline, error |
+| Sidebar | empty, populated, workspace selected/hover, context menu open, drag-reorder indicator, offline machine group |
+| Tab strip | single tab, multiple tabs, active/inactive, hover close, context menu, per-tab agent status, drag-reorder indicator, overflow scroll |
+| Pane grid | single pane, split panes, focused/unfocused (dimmed unfocused per `interaction.md`), zoomed, split-ratio drag, pane drag/swap affordance |
+| Pane chrome | agent kind + status indicator, title fallback chain, details/diagnostics access |
+| Status/utility area | bridge connecting/reconnecting, attention aggregate (blocked count), transient notice |
+| Terminal | idle shell, running agent, blocked prompt, scrollback, background image (fit/position/opacity variants), IME composition |
+| Global | light, dark (`html.dark`), connecting, reconnecting, offline, error, `prefers-reduced-motion` |
+
+v0.4.0 additions (issues #107–#115): every new interactive surface added by
+the program must appear here before its ticket merges; drag states and
+status badges are required captures, not optional.
 
 Procedure:
 
