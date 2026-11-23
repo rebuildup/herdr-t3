@@ -27,7 +27,7 @@ function FixturePaneSurface({
       className={cn(
         "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-background text-left outline-none transition-shadow",
         focused
-          ? "border-primary/60 ring-1 ring-primary/40"
+          ? "border-primary/50 ring-1 ring-primary/25"
           : "border-border",
       )}
     >

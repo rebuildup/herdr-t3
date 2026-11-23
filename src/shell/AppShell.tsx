@@ -117,9 +117,9 @@ function SidebarBrandWidthProbe({ onWidthChange }: { onWidthChange: (width: numb
       ref={observeWidth}
     >
       <div className="ml-[var(--workspace-titlebar-content-left)] flex gap-1">
-        <span className="inline-flex items-baseline gap-1 text-sm font-medium tracking-tight">
-          <span className="text-foreground">herdr</span>
-          <span className="text-muted-foreground">-t3</span>
+        <span className="inline-flex items-baseline gap-1 text-sm tracking-tight">
+          <span className="font-semibold text-foreground">herdr</span>
+          <span className="font-medium text-muted-foreground">-t3</span>
         </span>
         {isElectron ? <div className="w-[calc(2*var(--workspace-titlebar-control-size))]" /> : null}
       </div>
@@ -130,8 +130,10 @@ function SidebarBrandWidthProbe({ onWidthChange }: { onWidthChange: (width: numb
 function SidebarControl() {
   const { toggleSidebar } = useSidebar();
   const mobileSidebarSheetMounted = useMobileSidebarSheetMounted();
+  // T3 gates the control on showSidebar (the shell always has one), not on
+  // current visibility — on mobile the sheet-closed state must still show
+  // the trigger or navigation becomes unreachable.
   const isSidebarVisible = useSidebarVisibility();
-  const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -154,20 +156,18 @@ function SidebarControl() {
       )}
       data-sidebar-control=""
     >
-      {isSidebarVisible ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <SidebarTrigger
-                variant={isMacosDesktop ? "media-navigation" : "ghost"}
-                className="pointer-events-auto"
-                aria-label="Toggle main sidebar"
-              />
-            }
-          />
-          <TooltipPopup side="bottom">Toggle main sidebar (⌘B)</TooltipPopup>
-        </Tooltip>
-      ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <SidebarTrigger
+              variant={isSidebarVisible ? "media-navigation" : "ghost"}
+              className="pointer-events-auto"
+              aria-label="Toggle main sidebar"
+            />
+          }
+        />
+        <TooltipPopup side="bottom">Toggle main sidebar (⌘B)</TooltipPopup>
+      </Tooltip>
     </div>
   );
 }

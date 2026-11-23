@@ -77,7 +77,7 @@ export function CommandMenu({
         id: "new-workspace",
         label: "New workspace",
         group: "Actions",
-        icon: <SquarePenIcon />,
+        icon: <SquarePenIcon className="size-4" />,
         keywords: "create",
         run: () => {
           const target = shell.machines.find((m) => m.status === "online") ?? shell.machines[0];
@@ -89,7 +89,7 @@ export function CommandMenu({
         id: "toggle-sidebar",
         label: "Toggle sidebar",
         group: "Actions",
-        icon: <PanelLeftIcon />,
+        icon: <PanelLeftIcon className="size-4" />,
         keywords: "sidebar",
         run: toggleSidebar,
       },
@@ -97,7 +97,7 @@ export function CommandMenu({
         id: "settings",
         label: "Open settings",
         group: "Actions",
-        icon: <SettingsIcon />,
+        icon: <SettingsIcon className="size-4" />,
         keywords: "preferences",
         run: () => navigate(settingsHash(null)),
       },
@@ -105,7 +105,7 @@ export function CommandMenu({
         id: "new-tab",
         label: "New tab",
         group: "Actions",
-        icon: <Columns2 />,
+        icon: <Columns2 className="size-4" />,
         keywords: "pane tab",
         run: () => {
           const ws = activeWorkspace();
@@ -116,7 +116,7 @@ export function CommandMenu({
         id: "split-right",
         label: "Split pane right",
         group: "Actions",
-        icon: <Columns2 />,
+        icon: <Columns2 className="size-4" />,
         keywords: "pane split",
         run: () => {
           const ws = activeWorkspace();
@@ -128,7 +128,7 @@ export function CommandMenu({
         id: "toggle-zoom",
         label: shell.zoomedTab ? "Unzoom pane" : "Zoom pane",
         group: "Actions",
-        icon: <Maximize2Icon />,
+        icon: <Maximize2Icon className="size-4" />,
         keywords: "pane zoom fullscreen",
         run: () => {
           const ws = activeWorkspace();
@@ -140,7 +140,7 @@ export function CommandMenu({
         id: `ws-${ws.id}`,
         label: ws.title,
         group: "Workspaces",
-        icon: <MonitorIcon />,
+        icon: <MonitorIcon className="size-4" />,
         keywords: ws.machineId,
         run: () => navigate(workspaceHash(ws.id)),
       })),
@@ -148,7 +148,7 @@ export function CommandMenu({
         id: `mc-${m.id}`,
         label: `Machine: ${m.label}`,
         group: "Machines",
-        icon: <MonitorIcon />,
+        icon: <MonitorIcon className="size-4" />,
         keywords: `${m.status} ${m.kind}`,
         run: () => navigate(settingsHash("connections")),
       })),
@@ -156,7 +156,7 @@ export function CommandMenu({
         id: "theme-dark",
         label: "Appearance: Dark",
         group: "Appearance",
-        icon: <MoonIcon />,
+        icon: <MoonIcon className="size-4" />,
         keywords: "theme",
         run: () => setAppearanceMode("dark" as AppearanceMode),
       },
@@ -164,7 +164,7 @@ export function CommandMenu({
         id: "theme-light",
         label: "Appearance: Light",
         group: "Appearance",
-        icon: <SunIcon />,
+        icon: <SunIcon className="size-4" />,
         keywords: "theme",
         run: () => setAppearanceMode("light" as AppearanceMode),
       },
@@ -172,7 +172,7 @@ export function CommandMenu({
         id: "theme-system",
         label: "Appearance: System",
         group: "Appearance",
-        icon: <SunIcon />,
+        icon: <SunIcon className="size-4" />,
         keywords: "theme",
         run: () => setAppearanceMode("system" as AppearanceMode),
       },

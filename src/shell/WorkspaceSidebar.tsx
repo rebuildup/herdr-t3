@@ -81,18 +81,20 @@ function WorkspaceRow({
   workspace,
   machine,
   isActive,
+  inFolder = false,
   onNewWorkspace,
 }: {
   workspace: FixtureWorkspace;
   machine: FixtureMachine | undefined;
   isActive: boolean;
+  inFolder?: boolean;
   onNewWorkspace: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(workspace.title);
   const tabCount = workspace.tabs.length;
   const paneCount = workspace.tabs.reduce((n, t) => n + t.panes.length, 0);
-  const machineLabel = machine?.label;
+  const machineLabel = inFolder ? undefined : machine?.label;
 
   const commitRename = () => {
     setRenaming(false);
@@ -110,9 +112,13 @@ function WorkspaceRow({
         setRenaming(true);
       }}
       className={cn(
-        "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] text-left outline-none transition-colors",
+        "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] py-0 text-left outline-none transition-colors",
+        inFolder
+          ? "ps-7 pe-[var(--sidebar-row-content-inset)]"
+          : "px-[var(--sidebar-row-content-inset)]",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        isActive && "bg-sidebar-row-selected font-medium text-sidebar-foreground",
+        isActive &&
+          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
       )}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
@@ -276,7 +282,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const visibleMachines = shell.machines.filter(
     (m) => (byMachine.get(m.id)?.length ?? 0) > 0,
   );
-  const grouped = shell.machines.length > 1;
+  const grouped = !searching && shell.machines.length > 1;
   const activeWorkspaceId =
     route.name === "workspace" ? (route.workspaceId ?? shell.workspaces[0]?.id) : null;
 
@@ -384,6 +390,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                               workspace={ws}
                               machine={fixtureMachine(ws.machineId)}
                               isActive={ws.id === activeWorkspaceId}
+                              inFolder
                               onNewWorkspace={() => newWorkspaceOn(machine.id)}
                             />
                           </li>

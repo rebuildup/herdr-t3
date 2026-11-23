@@ -1,95 +1,120 @@
 {
-  "ticket": "83",
-  "milestone": "M1 fixture shell vs T3 Code",
-  "herdr-t3": "branch 83 @ a5ba83a",
-  "t3code": "9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
-  "viewport": "1440x900 CSS @2x (2880x1800 px); narrow 480x800 @2x (960x1600 px)",
-  "note": "Raw PNG captures are local-only artifacts; committed files are q85 WebP. t3/ holds pinned-T3 reference captures.",
-  "captures": [
-    {
-      "file": "01-main-dark.webp",
-      "bytes": 29174,
-      "sha256": "0acef6aa31579cf3"
-    },
-    {
-      "file": "02-settings-general.webp",
-      "bytes": 29196,
-      "sha256": "30182c1b57fcfe63"
-    },
-    {
-      "file": "03-settings-connections.webp",
-      "bytes": 29182,
-      "sha256": "1407d5b6bfb0d041"
-    },
-    {
-      "file": "04-settings-appearance.webp",
-      "bytes": 29178,
-      "sha256": "d8cbfe283f169d6a"
-    },
-    {
-      "file": "05-palette.webp",
-      "bytes": 30956,
-      "sha256": "ba3062279278f4de"
-    },
-    {
-      "file": "06-main-light.webp",
-      "bytes": 44910,
-      "sha256": "3e4f942509d4e3b7"
-    },
-    {
-      "file": "07-narrow.webp",
-      "bytes": 21674,
-      "sha256": "426ca7466af00e4e"
-    },
-    {
-      "file": "08-narrow-sheet.webp",
-      "bytes": 15574,
-      "sha256": "7eb212b1d04f7c00"
-    },
-    {
-      "file": "t3/t3-01-main.webp",
-      "bytes": 38704,
-      "sha256": "3cec50a3e4135cf0"
-    },
-    {
-      "file": "t3/t3-02-palette.webp",
-      "bytes": 43530,
-      "sha256": "a690c5dbffd6451b"
-    },
-    {
-      "file": "t3/t3-03-dark.webp",
-      "bytes": 41850,
-      "sha256": "46e74483a64e59a0"
-    },
-    {
-      "file": "t3/t3-04-light.webp",
-      "bytes": 41782,
-      "sha256": "ba9d036449e52e7c"
-    },
-    {
-      "file": "t3/t3-05-palette-dark.webp",
-      "bytes": 43380,
-      "sha256": "52d2aa0d08daa56a"
-    },
-    {
-      "file": "t3/t3-06-narrow-light.webp",
-      "bytes": 13402,
-      "sha256": "aed8ff8cb61359b4"
-    },
-    {
-      "file": "t3/t3-06-narrow.webp",
-      "bytes": 13458,
-      "sha256": "8272144d61c454fb"
-    },
-    {
-      "file": "t3/t3-07-narrow-sheet.webp",
-      "bytes": 15288,
-      "sha256": "d38514b394a169e5"
-    },
-    {
-      "file": "t3/t3-08-narrow-sheet-light.webp",
-      "bytes": 14702,
-      "sha256": "e19e88d02cebfc1c"
-    }
-  ]
+ "ticket": "83",
+ "milestone": "M1 fixture shell vs T3 Code",
+ "herdr-t3": "branch 83 @ a5ba83a",
+ "t3code": "9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
+ "viewport": "1440x900 CSS @2x (2880x1800 px); narrow 480x800 @2x (960x1600 px)",
+ "note": "Raw PNG captures are local-only artifacts; committed files are q85 WebP. t3/ holds pinned-T3 reference captures.",
+ "captures": [
+  {
+   "file": "01-main-dark.webp",
+   "bytes": 45240,
+   "sha256": "a284ec8449ac8337"
+  },
+  {
+   "file": "02-settings-general.webp",
+   "bytes": 33766,
+   "sha256": "e5a7644d8b4bce54"
+  },
+  {
+   "file": "03-settings-connections.webp",
+   "bytes": 34946,
+   "sha256": "9c1da7297c724aba"
+  },
+  {
+   "file": "04-settings-appearance.webp",
+   "bytes": 33406,
+   "sha256": "d9be9d632027cd6f"
+  },
+  {
+   "file": "05-palette.webp",
+   "bytes": 33000,
+   "sha256": "d9bb962ad094d95a"
+  },
+  {
+   "file": "06-main-light.webp",
+   "bytes": 44472,
+   "sha256": "00996cb67bf8f9b9"
+  },
+  {
+   "file": "07-narrow.webp",
+   "bytes": 21568,
+   "sha256": "9524f422dcfc70f4"
+  },
+  {
+   "file": "08-narrow-sheet.webp",
+   "bytes": 21166,
+   "sha256": "06c71b0c83003b8b"
+  },
+  {
+   "file": "t3/t3-01-main.webp",
+   "bytes": 38704,
+   "sha256": "3cec50a3e4135cf0"
+  },
+  {
+   "file": "t3/t3-02-palette.webp",
+   "bytes": 43530,
+   "sha256": "a690c5dbffd6451b"
+  },
+  {
+   "file": "t3/t3-03-dark.webp",
+   "bytes": 41850,
+   "sha256": "46e74483a64e59a0"
+  },
+  {
+   "file": "t3/t3-04-light.webp",
+   "bytes": 41782,
+   "sha256": "ba9d036449e52e7c"
+  },
+  {
+   "file": "t3/t3-05-palette-dark.webp",
+   "bytes": 43380,
+   "sha256": "52d2aa0d08daa56a"
+  },
+  {
+   "file": "t3/t3-06-narrow-light.webp",
+   "bytes": 13402,
+   "sha256": "aed8ff8cb61359b4"
+  },
+  {
+   "file": "t3/t3-06-narrow.webp",
+   "bytes": 13458,
+   "sha256": "8272144d61c454fb"
+  },
+  {
+   "file": "t3/t3-07-narrow-sheet.webp",
+   "bytes": 15288,
+   "sha256": "d38514b394a169e5"
+  },
+  {
+   "file": "t3/t3-08-narrow-sheet-light.webp",
+   "bytes": 14702,
+   "sha256": "e19e88d02cebfc1c"
+  },
+  {
+   "file": "t3/t3-09-settings-general.webp",
+   "bytes": 108480,
+   "sha256": "3d814b0482834960"
+  },
+  {
+   "file": "t3/t3-11-settings-appearance.webp",
+   "bytes": 85826,
+   "sha256": "2f1ec4a0230956f8"
+  },
+  {
+   "file": "t3/t3-10-settings-connections.webp",
+   "bytes": 49884,
+   "sha256": "17f720715bd690fa"
+  },
+  {
+   "file": "electron/electron-window.webp",
+   "bytes": 56016,
+   "sha256": "94b23cd79312d672"
+  },
+  {
+   "file": "electron/electron-chrome-crop.webp",
+   "bytes": 13468,
+   "sha256": "0daf082ffd2e7d0c"
+  }
+ ]
 }

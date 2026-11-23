@@ -6,17 +6,18 @@
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
-  ActivityIcon,
   ArrowLeftIcon,
   InfoIcon,
   PaletteIcon,
+  PlusIcon,
+  SearchIcon,
   ServerIcon,
   Settings2Icon,
   TerminalIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
@@ -24,6 +25,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { DialogBackdrop } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { Switch } from "~/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -31,6 +33,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import { Kbd } from "~/components/ui/kbd";
+import { SidebarInput } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   getAppearanceMode,
@@ -45,7 +49,7 @@ const SECTIONS = [
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
   { id: "connections", label: "Connections", icon: ServerIcon },
   { id: "terminal", label: "Terminal", icon: TerminalIcon },
-  { id: "diagnostics", label: "Diagnostics", icon: ActivityIcon },
+  { id: "diagnostics", label: "Diagnostics", icon: WrenchIcon },
   { id: "about", label: "About", icon: InfoIcon },
 ] as const;
 
@@ -61,11 +65,14 @@ function SettingsRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-foreground">{label}</div>
+    <div
+      data-slot="settings-row"
+      className="flex items-center justify-between gap-4 px-3 py-3 sm:px-4"
+    >
+      <div className="min-w-0 flex-1 space-y-1">
+        <h3 className="text-sm font-medium text-foreground">{label}</h3>
         {description ? (
-          <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>
+          <p className="text-xs leading-normal text-muted-foreground">{description}</p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -73,34 +80,31 @@ function SettingsRow({
   );
 }
 
-function FixtureToggle({ on, label }: { on: boolean; label: string }) {
+function SettingsSection({
+  title,
+  headerAction,
+  children,
+}: {
+  title: string;
+  headerAction?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    // oxlint-disable-next-line herdr-t3/no-raw-control -- fixture toggle; M3 wires real settings controls
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      className={cn(
-        "relative h-5 w-9 rounded-full transition-colors",
-        on ? "bg-primary" : "bg-input",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 size-4 rounded-full bg-white transition-all",
-          on ? "right-0.5" : "left-0.5",
-        )}
-      />
-    </button>
-  );
-}
-
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-1">
-      <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
-      <div className="divide-y divide-border/60">{children}</div>
+    <section className="flex flex-col gap-2.5">
+      <div className="flex min-h-7 items-center justify-between gap-x-4 px-3 sm:px-4">
+        <h2 className="flex min-h-7 items-center gap-2 text-base font-semibold text-foreground">
+          {title}
+        </h2>
+        {headerAction ? (
+          <div className="flex min-h-7 min-w-7 items-center justify-end">{headerAction}</div>
+        ) : null}
+      </div>
+      <div
+        data-slot="settings-group"
+        className="relative overflow-visible rounded-xl border border-border/60 bg-card/40 shadow-xs/5 *:not-first:border-t *:not-first:border-border/50 [&>[data-slot=settings-row]]:rounded-none"
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -114,13 +118,13 @@ function SectionPage({ section }: { section: SectionId }) {
         <div className="flex flex-col gap-8">
           <SettingsSection title="Application">
             <SettingsRow label="Launch at login" description="Start herdr-t3 when you sign in.">
-              <FixtureToggle on label="Launch at login" />
+              <Switch defaultChecked aria-label="Launch at login" />
             </SettingsRow>
             <SettingsRow
               label="Confirm before closing workspace"
               description="Ask before closing a workspace with running panes."
             >
-              <FixtureToggle on={false} label="Confirm before closing workspace" />
+              <Switch aria-label="Confirm before closing workspace" />
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -142,7 +146,15 @@ function SectionPage({ section }: { section: SectionId }) {
                 }}
               >
                 <SelectTrigger className="w-44">
-                  <SelectValue />
+                  <SelectValue>
+                    {appearance === "ghostty"
+                      ? "Ghostty sync"
+                      : appearance === "system"
+                        ? "System"
+                        : appearance === "dark"
+                          ? "Dark"
+                          : "Light"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ghostty">Ghostty sync</SelectItem>
@@ -166,8 +178,16 @@ function SectionPage({ section }: { section: SectionId }) {
     case "connections":
       return (
         <div className="flex flex-col gap-8">
-          <SettingsSection title="Machines">
-            <p className="pb-3 text-xs text-muted-foreground">
+          <SettingsSection
+            title="Machines"
+            headerAction={
+              <Button size="xs" variant="ghost-muted">
+                <PlusIcon className="size-3" />
+                Add machine
+              </Button>
+            }
+          >
+            <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
               SSH endpoints and local sessions herdr-t3 can attach to.
             </p>
             {FIXTURE_MACHINES.map((m) => (
@@ -188,11 +208,6 @@ function SectionPage({ section }: { section: SectionId }) {
                 </Badge>
               </SettingsRow>
             ))}
-            <div className="pt-3">
-              <Button variant="outline" size="sm">
-                Add machine…
-              </Button>
-            </div>
           </SettingsSection>
         </div>
       );
@@ -269,7 +284,25 @@ export function SettingsModal() {
   const nativeTitlebarHeight = useNativeTitlebarHeight();
   const section = (route.name === "settings" ? route.section : null) ?? "general";
   const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]!;
-  const ActiveIcon = active.icon;
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const searching = query.trim().length > 0;
+  const visibleSections = searching
+    ? SECTIONS.filter((s) => s.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : SECTIONS;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/") return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <DialogPrimitive.Root open>
@@ -286,6 +319,8 @@ export function SettingsModal() {
           className="fixed inset-0 z-50 flex items-center justify-center [-webkit-app-region:no-drag] sm:p-6 sm:pt-(--app-modal-sm-top) lg:p-10"
         >
           <DialogPrimitive.Popup
+            ref={popupRef}
+            initialFocus={popupRef}
             aria-label="Settings"
             data-app-modal=""
             className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:max-h-[60rem] sm:max-w-[80rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
@@ -296,34 +331,71 @@ export function SettingsModal() {
             />
             <div className="relative flex min-h-0 flex-1">
               {/* Section nav — SettingsSidebarNav equivalent. */}
-              <nav className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border/60 p-3 max-sm:hidden">
-                <div className="px-2 pb-2 pt-1 text-2xs font-medium uppercase tracking-wide text-sidebar-muted-foreground">
-                  Settings
-                </div>
-                {SECTIONS.map((s) => {
-                  const Icon = s.icon;
-                  const isActive = s.id === active.id;
-                  return (
-                    // oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 settings nav row; custom selected/hover chrome
-                    <button
-                      key={s.id}
+              <nav className="flex w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-sidebar px-2 pt-2 pb-3 text-sidebar-foreground max-sm:hidden">
+                <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/50">
+                  <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
+                  <SidebarInput
+                    ref={searchRef}
+                    nativeInput
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setQuery("");
+                    }}
+                    placeholder="Search"
+                    aria-label="Search settings"
+                    className="min-w-0 flex-1"
+                  />
+                  {searching ? (
+                    <Button
                       type="button"
-                      onClick={() => navigate(settingsHash(s.id))}
-                      className={cn(
-                        "flex h-8 items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-left text-sm outline-none transition-colors",
-                        isActive
-                          ? "bg-sidebar-row-selected font-medium text-sidebar-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-                      )}
+                      size="icon-micro"
+                      variant="ghost-muted"
+                      className="shrink-0"
+                      aria-label="Clear settings search"
+                      onClick={() => {
+                        setQuery("");
+                        searchRef.current?.focus();
+                      }}
                     >
-                      <Icon className="size-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                    </button>
-                  );
-                })}
+                      <XIcon className="size-3" />
+                    </Button>
+                  ) : (
+                    <Kbd>/</Kbd>
+                  )}
+                </div>
+                {searching && visibleSections.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">
+                    No settings found
+                  </p>
+                ) : null}
+                <div className="mt-1 flex flex-col gap-1">
+                  {visibleSections.map((s) => {
+                    const Icon = s.icon;
+                    const isActive = s.id === active.id;
+                    return (
+                      // oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 settings nav row; custom selected/hover chrome
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => navigate(settingsHash(s.id))}
+                        className={cn(
+                          "flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",
+                          isActive
+                            ? "bg-sidebar-row-selected font-medium text-sidebar-foreground"
+                            : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+                        )}
+                      >
+                        <Icon className="size-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </nav>
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/60 ps-5 pe-2">
+                <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border ps-5 pe-2">
                   {/* Mobile: section picker instead of breadcrumb. */}
                   <div className="flex min-w-0 items-center gap-1 sm:hidden">
                     <Button
@@ -374,11 +446,7 @@ export function SettingsModal() {
                   </div>
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                  <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
-                    <div className="flex items-center gap-2">
-                      <ActiveIcon className="size-5 text-muted-foreground" />
-                      <h1 className="text-lg font-semibold text-foreground">{active.label}</h1>
-                    </div>
+                  <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-5 pt-6 pb-12 sm:px-6">
                     <SectionPage section={active.id} />
                   </div>
                 </div>

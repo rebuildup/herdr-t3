@@ -127,15 +127,18 @@ export function WorkspaceHeader() {
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
 
-      {/* Tab strip — herdr tabs inside the selected workspace. */}
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag]">
+      {/* Tab strip — herdr tabs inside the selected workspace. The strip
+          scrolls internally; the surrounding header space stays draggable. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
         {workspace.tabs.map((t) => {
           const selected = t.id === tab.id;
           return (
             <div
               key={t.id}
               className={cn(
-                "group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm",
+                "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                selected ? "shrink-0" : "",
                 selected
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -169,10 +172,10 @@ export function WorkspaceHeader() {
                     setTabDraft(t.label);
                     setRenamingTab(t.id);
                   }}
-                  className="flex items-center gap-1.5"
+                  className="flex min-w-0 items-center gap-1.5"
                 >
                   {statusIcon(t.agentStatus)}
-                  <span className="max-w-40 truncate">{t.label || `Tab ${t.number}`}</span>
+                  <span className="min-w-0 max-w-40 truncate">{t.label || `Tab ${t.number}`}</span>
                 </button>
               )}
               {selected ? (
@@ -181,7 +184,7 @@ export function WorkspaceHeader() {
                   variant="ghost"
                   aria-label="Close tab"
                   // oxlint-disable-next-line shadcn/no-restyle -- hover-reveal affordance; no Button variant covers group-hover opacity
-                  className="opacity-0 group-hover:opacity-100"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100"
                   onClick={() => shellActions.closeTab(t.id)}
                 >
                   <XIcon className="size-3" />
@@ -196,11 +199,12 @@ export function WorkspaceHeader() {
         >
           <PlusIcon className="size-4" />
         </HeaderIconButton>
+        </div>
       </div>
 
       {/* Focused pane summary + actions. */}
-      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-        <div className="mr-1 flex min-w-0 items-center gap-2 text-xs text-secondary-label">
+      <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label">
           <span className="flex min-w-0 items-center gap-1.5">
             {focusedPane ? statusIcon(focusedPane.agentStatus) : null}
             <span className="truncate">
