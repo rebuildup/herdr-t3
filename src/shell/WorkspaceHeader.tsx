@@ -154,7 +154,9 @@ export function WorkspaceHeader() {
                   key={t.tab_id}
                   className={cn(
                     "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
-                    selected ? "shrink-0" : "",
+                    // Reserve the hover-revealed close button's width so the
+                    // label hit area can never overlap it (issue #94).
+                    selected ? "shrink-0 pe-8" : "",
                     selected
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
