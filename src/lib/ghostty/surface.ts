@@ -345,6 +345,12 @@ export class GhosttySurface {
     this.root.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.root.addEventListener("pointerup", (event) => this.pointerUp(event));
     this.root.addEventListener("pointercancel", () => { this.drag = null; });
+    // The mousedown default action moves focus to the element under the
+    // pointer — body here, since the textarea is click-through — which would
+    // undo the pointerdown focus and leave every keystroke unreachable
+    // (issue #104). Selection and mouse reports already run on pointer
+    // events, and listeners (pane.focus) still fire; only the default is off.
+    this.root.addEventListener("mousedown", (event) => event.preventDefault());
     this.root.addEventListener("wheel", (event) => this.wheel(event), { passive: false });
     this.root.addEventListener("contextmenu", (event) => event.preventDefault());
     this.input.addEventListener("keydown", (event) => this.keyDown(event));
