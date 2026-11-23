@@ -39,7 +39,7 @@ import {
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentStatusBadge } from "~/components/AgentStatusBadge";
+import { AgentStatusBadge, PaneStatusDetail } from "~/components/AgentStatusBadge";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -222,16 +222,27 @@ export function WorkspaceHeader() {
         {/* Focused pane summary + actions. Shrinks (label truncates) before
             the tab strip does, so narrow widths keep tabs readable. */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
-          <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden">
-            <span className="flex min-w-0 items-center gap-1.5">
-              {focusedPane ? statusIcon(focusedPane.agent_status) : null}
-              <span className="truncate">
-                {focusedTitle}
-                {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+              }
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {focusedPane ? statusIcon(focusedPane.agent_status) : null}
+                <span className="truncate">
+                  {focusedTitle}
+                  {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
+                </span>
               </span>
-            </span>
-            {focusedPane ? <AgentStatusBadge status={focusedPane.agent_status} /> : null}
-          </div>
+              {focusedPane ? <AgentStatusBadge status={focusedPane.agent_status} /> : null}
+            </TooltipTrigger>
+            {focusedPane ? (
+              <TooltipPopup side="bottom" className="max-w-64">
+                <PaneStatusDetail pane={focusedPane} />
+              </TooltipPopup>
+            ) : null}
+          </Tooltip>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<Button size="icon-sm" variant="ghost" aria-label="Pane actions" />}
