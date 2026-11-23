@@ -120,6 +120,13 @@ const paletteRun = async (text: string) => {
   await sleep(1400);
 };
 
+// Fail loudly when a capture would show a state the UI never reached.
+const assertDom = async (expr: string, label: string) => {
+  const ok = await evaluate(expr);
+  console.log(`${label}: ${ok ? "OK" : "FAILED"}`);
+  if (!ok) throw new Error(`DOM assertion failed: ${label}`);
+};
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const chrome = await launchChrome();
@@ -153,6 +160,10 @@ async function main() {
     // Collapse the sidebar via the topbar trigger.
     await click('[data-slot="sidebar-trigger"]');
     await sleep(600);
+    await assertDom(
+      `document.querySelector('[data-slot="sidebar"][data-state="collapsed"]') !== null`,
+      "sidebar collapsed",
+    );
     await shot("02-sidebar-collapsed");
     await click('[data-slot="sidebar-trigger"]');
     await sleep(600);
@@ -160,6 +171,10 @@ async function main() {
     // Command palette.
     await key("k", "KeyK", 75, 4);
     await sleep(700);
+    await assertDom(
+      `document.querySelector('[data-slot="command-dialog-popup"]') !== null`,
+      "command palette open",
+    );
     await shot("03-command-palette");
     await key("Escape", "Escape", 27);
     await sleep(400);
@@ -167,6 +182,7 @@ async function main() {
     // Workspace context menu on the "ops-ws" row of the probe session.
     await contextMenuRow("ops-ws");
     await sleep(600);
+    await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "sidebar context menu open");
     await shot("04-sidebar-context-menu");
     await key("Escape", "Escape", 27);
     await sleep(400);
@@ -174,6 +190,7 @@ async function main() {
     // Tab context menu (first tab row in the topbar).
     await contextMenu("header div.group");
     await sleep(600);
+    await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "tab context menu open");
     await shot("05-tab-context-menu");
     await key("Escape", "Escape", 27);
     await sleep(400);
@@ -209,10 +226,12 @@ async function main() {
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
     await send("Page.navigate", { url: BASE });
     await sleep(4500);
+    await assertDom(`document.documentElement.classList.contains("dark")`, "dark theme applied");
     await shot("09-dark");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
     await sleep(4500);
+    await assertDom(`!document.documentElement.classList.contains("dark")`, "light theme applied");
     await shot("10-light");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "system")`);
 
@@ -227,6 +246,10 @@ async function main() {
     await shot("11-narrow");
     await click('[data-slot="sidebar-trigger"]');
     await sleep(800);
+    await assertDom(
+      `document.querySelector('[data-slot="sheet-viewport"] [data-mobile="true"]') !== null`,
+      "mobile sheet open",
+    );
     await shot("12-narrow-sheet");
   } finally {
     chrome.kill();
