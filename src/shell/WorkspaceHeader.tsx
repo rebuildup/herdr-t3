@@ -200,9 +200,8 @@ export function WorkspaceHeader() {
                     tabDragId === t.tab_id && "opacity-50",
                     // Reserve the hover-revealed close button's width so the
                     // label hit area can never overlap it (issue #94).
-                    selected ? "shrink-0 pe-8" : "",
                     selected
-                      ? "bg-accent text-foreground"
+                      ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >

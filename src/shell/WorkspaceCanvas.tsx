@@ -55,8 +55,10 @@ function PaneSurface({
   return (
     <div
       className={cn(
-        "absolute overflow-hidden border",
-        focused ? "border-primary/60" : "border-border/60",
+        "absolute overflow-hidden border transition-colors",
+        // Focus treatment follows interaction.md: neutral emphasis, never a
+        // full blue frame (issue #112).
+        focused ? "border-foreground/25" : "border-border/50",
         dnd?.dropTarget && "ring-2 ring-inset ring-primary",
       )}
       style={style}
