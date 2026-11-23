@@ -30,6 +30,8 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useRoute } from "./router";
+import { useBridgeState } from "./bridge";
+import { syncWorktreeBranches } from "./worktrees";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 import { WorkspaceSidebarBody } from "./WorkspaceSidebar";
 
@@ -174,6 +176,12 @@ function SidebarControl() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const route = useRoute();
+  const bridge = useBridgeState();
+  // Resolve workspace -> git branch via worktree.list (issue #109); the
+  // store is TTL-cached so this effect is a cheap no-op between changes.
+  useEffect(() => {
+    syncWorktreeBranches(bridge.snapshots);
+  }, [bridge.snapshots]);
   const isSettingsOpen = route.name === "settings";
   const [sidebarWidth, setSidebarWidth] = useState(readInitialSidebarWidth);
   const [brandWidth, setBrandWidth] = useState(0);

@@ -89,6 +89,30 @@ export interface WorkspaceWorktreeInfo {
   repo_root: string;
 }
 
+/** One entry of a `worktree.list` response (`WorktreeInfo` in herdr's schema). */
+export interface WorktreeListEntry {
+  path: string;
+  branch?: string | null;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_prunable: boolean;
+  is_linked_worktree: boolean;
+  open_workspace_id?: string | null;
+  label: string;
+}
+
+/** `worktree.list` result: the resolved repo source plus every known worktree. */
+export interface WorktreeListResult {
+  source: {
+    repo_key: string;
+    repo_name: string;
+    repo_root: string;
+    source_checkout_path: string;
+    source_workspace_id?: string | null;
+  };
+  worktrees: WorktreeListEntry[];
+}
+
 export interface WorkspaceInfo {
   active_tab_id: string;
   agent_status: AgentStatus;
@@ -261,6 +285,7 @@ export const RPC_METHODS = [
   "agent.prompt",
   "agent.rename",
   "agent.start",
+  "worktree.list",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];

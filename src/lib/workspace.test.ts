@@ -139,6 +139,27 @@ describe("titles", () => {
     expect(workspaceTitle(wt)).toBe("repo");
   });
 
+  test("workspaceTitle prefers branch over derived label and repo name", () => {
+    const wt = {
+      ...ws("ws-3"),
+      label: "repo",
+      worktree: {
+        checkout_path: "/x",
+        is_linked_worktree: true,
+        repo_key: "k",
+        repo_name: "repo",
+        repo_root: "/x",
+      },
+    };
+    expect(workspaceTitle(wt, "feature/x")).toBe("feature/x");
+    expect(workspaceTitle(wt)).toBe("repo");
+  });
+
+  test("workspaceTitle keeps a custom label ahead of the branch", () => {
+    const custom = { ...ws("ws-4"), label: "my workspace" };
+    expect(workspaceTitle(custom, "feature/x")).toBe("my workspace");
+  });
+
   test("paneTitle prefers stripped terminal title", () => {
     const p = { ...pane("p1", "t1", "w1"), terminal_title_stripped: "dev" };
     expect(paneTitle(p)).toBe("dev");
