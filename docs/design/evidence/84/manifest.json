@@ -1,0 +1,52 @@
+{
+ "ticket": "84",
+ "milestone": "M2 real Herdr data vs M1 fixture shell",
+ "herdr-t3": "branch 84 (M2 bridge adapter)",
+ "t3code": "9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
+ "m1_reference": "docs/design/evidence/83/",
+ "herdr_session": "isolated ht3probe (herdr 0.9.5, protocol 22)",
+ "viewport": "1440x900 CSS @2x (2880x1800 px); narrow 480x800 @2x (960x1600 px)",
+ "note": "Real bridge data: machine folders (Local + saved SSH), workspace rows with tab/pane counts, herdr tab strip, live libghostty-vt terminals. Raw PNG captures are local-only; committed files are q85 WebP. Image review via codex exec -i: round 1 found terminal first-line clipping + narrow new-tab/+label issues; round 2 PASS except narrow tab clip; fixed and re-verified.",
+ "captures": [
+  {
+   "file": "01-main-dark.webp",
+   "bytes": 58930,
+   "sha256": "73e8c1656f539357"
+  },
+  {
+   "file": "02-settings-general.webp",
+   "bytes": 34032,
+   "sha256": "ff3cedc9e7eb0cc2"
+  },
+  {
+   "file": "03-settings-connections.webp",
+   "bytes": 37428,
+   "sha256": "9d7b68303ae98194"
+  },
+  {
+   "file": "04-settings-appearance.webp",
+   "bytes": 33692,
+   "sha256": "371d120287d8ae0b"
+  },
+  {
+   "file": "05-palette.webp",
+   "bytes": 34688,
+   "sha256": "92cf03dea9cad0d6"
+  },
+  {
+   "file": "06-main-light.webp",
+   "bytes": 58730,
+   "sha256": "385ef2abbccd3b40"
+  },
+  {
+   "file": "07-narrow.webp",
+   "bytes": 39620,
+   "sha256": "85d04de1f675e681"
+  },
+  {
+   "file": "08-narrow-sheet.webp",
+   "bytes": 19416,
+   "sha256": "ad82d2f781e510ae"
+  }
+ ]
+}

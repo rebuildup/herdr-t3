@@ -1,8 +1,8 @@
 /*
- * Command palette — T3 Code style (issue #83): CommandDialogPopup +
- * CommandPaletteContent-equivalent layout with grouped fixture actions.
- * Local changes: fixture actions only; no file/content search, threads,
- * or provider commands.
+ * Command palette — T3 Code style (issue #83) driven by real bridge data
+ * (issue #84): grouped actions over the routed workspace, workspace
+ * search across machines, machine switching, appearance modes. Every
+ * action is a whitelisted herdr RPC or shell navigation.
  */
 import {
   Columns2,
@@ -32,13 +32,17 @@ import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
-import { navigate, settingsHash, workspaceHash } from "./router";
+import { workspaceTitle } from "~/lib/workspace";
+import { navigate, settingsHash } from "./router";
 import {
-  activeTabOf,
-  getShellState,
-  shellActions,
-  useShellState,
-} from "./store";
+  callRpc,
+  ensureMachine,
+  machineListOf,
+  newWorkspace,
+  selectWorkspace,
+  useBridgeState,
+} from "./bridge";
+import { machineStale, useRouteWorkspace } from "./view";
 
 interface PaletteAction {
   id: string;
@@ -51,15 +55,6 @@ interface PaletteAction {
 
 const GROUP_ORDER = ["Actions", "Workspaces", "Machines", "Appearance"];
 
-/** Workspace shown by the current route, falling back to the first one. */
-function activeWorkspace() {
-  const route = window.location.hash;
-  const match = route.match(/^#\/w\/([^/?#]+)/);
-  const state = getShellState();
-  const id = match ? decodeURIComponent(match[1]!) : null;
-  return state.workspaces.find((w) => w.id === id) ?? state.workspaces[0];
-}
-
 export function CommandMenu({
   open,
   onOpenChange,
@@ -67,7 +62,9 @@ export function CommandMenu({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const shell = useShellState();
+  const bridge = useBridgeState();
+  const { machine, view } = useRouteWorkspace();
+  const { workspace, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
 
@@ -79,11 +76,7 @@ export function CommandMenu({
         group: "Actions",
         icon: <SquarePenIcon className="size-4" />,
         keywords: "create",
-        run: () => {
-          const target = shell.machines.find((m) => m.status === "online") ?? shell.machines[0];
-          if (!target) return;
-          navigate(workspaceHash(shellActions.newWorkspace(target.id)));
-        },
+        run: () => void newWorkspace(machine),
       },
       {
         id: "toggle-sidebar",
@@ -101,57 +94,82 @@ export function CommandMenu({
         keywords: "preferences",
         run: () => navigate(settingsHash(null)),
       },
-      {
-        id: "new-tab",
-        label: "New tab",
-        group: "Actions",
-        icon: <Columns2 className="size-4" />,
-        keywords: "pane tab",
-        run: () => {
-          const ws = activeWorkspace();
-          if (ws) shellActions.newTab(ws.id);
+    ];
+    if (workspace) {
+      list.push(
+        {
+          id: "new-tab",
+          label: "New tab",
+          group: "Actions",
+          icon: <Columns2 className="size-4" />,
+          keywords: "pane tab",
+          run: () =>
+            void callRpc(machine, "tab.create", {
+              workspace_id: workspace.workspace_id,
+              focus: true,
+            }),
         },
-      },
-      {
-        id: "split-right",
-        label: "Split pane right",
-        group: "Actions",
-        icon: <Columns2 className="size-4" />,
-        keywords: "pane split",
-        run: () => {
-          const ws = activeWorkspace();
-          const tab = ws ? activeTabOf(ws, getShellState()) : undefined;
-          if (tab) shellActions.splitPane(tab.id, "right");
+        {
+          id: "split-right",
+          label: "Split pane right",
+          group: "Actions",
+          icon: <Columns2 className="size-4" />,
+          keywords: "pane split",
+          run: () =>
+            focusedPane &&
+            void callRpc(machine, "pane.split", {
+              direction: "right",
+              target_pane_id: focusedPane.pane_id,
+              focus: true,
+            }),
         },
-      },
-      {
-        id: "toggle-zoom",
-        label: shell.zoomedTab ? "Unzoom pane" : "Zoom pane",
-        group: "Actions",
-        icon: <Maximize2Icon className="size-4" />,
-        keywords: "pane zoom fullscreen",
-        run: () => {
-          const ws = activeWorkspace();
-          const tab = ws ? activeTabOf(ws, getShellState()) : undefined;
-          if (tab) shellActions.toggleZoom(tab.id);
+        {
+          id: "toggle-zoom",
+          label: layout?.zoomed ? "Unzoom pane" : "Zoom pane",
+          group: "Actions",
+          icon: <Maximize2Icon className="size-4" />,
+          keywords: "pane zoom fullscreen",
+          run: () =>
+            focusedPane && void callRpc(machine, "pane.zoom", { pane_id: focusedPane.pane_id }),
         },
-      },
-      ...shell.workspaces.map((ws) => ({
-        id: `ws-${ws.id}`,
-        label: ws.title,
-        group: "Workspaces",
-        icon: <MonitorIcon className="size-4" />,
-        keywords: ws.machineId,
-        run: () => navigate(workspaceHash(ws.id)),
-      })),
-      ...shell.machines.map((m) => ({
+      );
+    }
+
+    const machines = machineListOf(bridge);
+    const multiMachine = machines.length > 1;
+    for (const m of machines) {
+      const snap = machineStale(m) ? undefined : bridge.snapshots[m.id];
+      for (const ws of snap?.workspaces ?? []) {
+        list.push({
+          id: `ws-${m.id}-${ws.workspace_id}`,
+          label: multiMachine
+            ? `${workspaceTitle(ws)} — ${m.label}`
+            : workspaceTitle(ws),
+          group: "Workspaces",
+          icon: <MonitorIcon className="size-4" />,
+          keywords: `${ws.workspace_id} ${m.label} ${ws.agent_status}`,
+          run: () => selectWorkspace(m.id, ws.workspace_id),
+        });
+      }
+    }
+    for (const m of machines) {
+      list.push({
         id: `mc-${m.id}`,
         label: `Machine: ${m.label}`,
         group: "Machines",
         icon: <MonitorIcon className="size-4" />,
-        keywords: `${m.status} ${m.kind}`,
-        run: () => navigate(settingsHash("connections")),
-      })),
+        keywords: `${m.status} ${m.kind} ${m.id}`,
+        run: () => {
+          void ensureMachine(m.id).then((snap) => {
+            const ws = snap?.workspaces.find((w) => w.workspace_id === snap.focused_workspace_id)
+              ?? snap?.workspaces[0];
+            if (ws) selectWorkspace(m.id, ws.workspace_id);
+            else navigate(settingsHash("connections"));
+          });
+        },
+      });
+    }
+    list.push(
       {
         id: "theme-dark",
         label: "Appearance: Dark",
@@ -176,9 +194,9 @@ export function CommandMenu({
         keywords: "theme",
         run: () => setAppearanceMode("system" as AppearanceMode),
       },
-    ];
+    );
     return list;
-  }, [shell.machines, shell.workspaces, toggleSidebar]);
+  }, [bridge, machine, workspace, focusedPane, layout, toggleSidebar]);
 
   const q = query.trim().toLowerCase();
   const filtered = q

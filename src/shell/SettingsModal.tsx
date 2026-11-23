@@ -1,15 +1,15 @@
 /*
  * Settings surface — port of T3 Code's AppRouteModal + SettingsSidebarNav
  * structure (issue #83, ADR-0008 §3): a large modal over the app with a
- * left section nav and grouped setting rows. Fixture content only; M3
- * wires real persistence.
+ * left section nav and grouped setting rows. Connections and Diagnostics
+ * read live bridge state (issue #84); persistence and connection editing
+ * remain M3 scope.
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   ArrowLeftIcon,
   InfoIcon,
   PaletteIcon,
-  PlusIcon,
   SearchIcon,
   ServerIcon,
   Settings2Icon,
@@ -41,7 +41,7 @@ import {
   setAppearanceMode,
   type AppearanceMode,
 } from "~/lib/theme";
-import { FIXTURE_MACHINES } from "./fixtures";
+import { machineListOf, useBridgeState } from "./bridge";
 import { closeSettings, navigate, settingsHash, useRoute } from "./router";
 
 const SECTIONS = [
@@ -111,6 +111,8 @@ function SettingsSection({
 
 function SectionPage({ section }: { section: SectionId }) {
   const [appearance, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+  const bridge = useBridgeState();
+  const machines = machineListOf(bridge);
 
   switch (section) {
     case "general":
@@ -178,29 +180,28 @@ function SectionPage({ section }: { section: SectionId }) {
     case "connections":
       return (
         <div className="flex flex-col gap-8">
-          <SettingsSection
-            title="Machines"
-            headerAction={
-              <Button size="xs" variant="ghost-muted">
-                <PlusIcon className="size-3" />
-                Add machine
-              </Button>
-            }
-          >
+          <SettingsSection title="Machines">
             <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
               SSH endpoints and local sessions herdr-t3 can attach to.
             </p>
-            {FIXTURE_MACHINES.map((m) => (
+            {machines.map((m) => (
               <SettingsRow
                 key={m.id}
                 label={m.label}
                 description={
-                  m.detail ?? (m.kind === "local" ? "This machine" : "SSH endpoint")
+                  m.detail ??
+                  (m.kind === "local"
+                    ? "This machine"
+                    : (m.target ?? "SSH endpoint"))
                 }
               >
                 <Badge
                   variant={
-                    m.status === "online" ? "success" : m.status === "offline" ? "error" : "warning"
+                    m.status === "online"
+                      ? "success"
+                      : m.status === "offline" || m.status === "unreachable" || m.status === "error"
+                        ? "error"
+                        : "warning"
                   }
                   size="sm"
                 >
@@ -208,6 +209,11 @@ function SectionPage({ section }: { section: SectionId }) {
                 </Badge>
               </SettingsRow>
             ))}
+            {machines.length === 0 ? (
+              <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4">
+                No machines configured yet.
+              </p>
+            ) : null}
           </SettingsSection>
         </div>
       );
@@ -232,8 +238,17 @@ function SectionPage({ section }: { section: SectionId }) {
         <div className="flex flex-col gap-8">
           <SettingsSection title="Diagnostics">
             <SettingsRow label="Bridge" description="herdr RPC connection state.">
-              <Badge variant="success" size="sm">
-                Connected
+              <Badge
+                variant={
+                  bridge.connection === "open" ? "success" : bridge.connection === "closed" ? "error" : "warning"
+                }
+                size="sm"
+              >
+                {bridge.connection === "open"
+                  ? "Connected"
+                  : bridge.connection === "connecting"
+                    ? "Connecting"
+                    : "Disconnected"}
               </Badge>
             </SettingsRow>
             <SettingsRow
@@ -245,7 +260,7 @@ function SectionPage({ section }: { section: SectionId }) {
               </Badge>
             </SettingsRow>
             <SettingsRow label="Version" description="Build identity for support.">
-              <span className="font-mono text-xs text-muted-foreground">0.3.0-dev · fixture</span>
+              <span className="font-mono text-xs text-muted-foreground">0.3.0-dev</span>
             </SettingsRow>
           </SettingsSection>
         </div>

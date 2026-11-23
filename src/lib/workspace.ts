@@ -7,17 +7,15 @@ import type {
 } from "../../shared/protocol";
 
 /*
- * Derived view of the selected machine's session snapshot: which workspace
- * is focused, which tab is active inside it, which panes that tab owns, and
- * the pane layout herdr reported for it. Pure derivation — the bridge
- * snapshot stays the single source of truth.
+ * Derived view of one workspace inside a machine's session snapshot: its
+ * tabs, the tab herdr marks active, that tab's panes, and the pane layout
+ * herdr reported. Pure derivation — the bridge snapshot stays the single
+ * source of truth. Works for the herdr-focused workspace and for any
+ * other workspace in the same snapshot (M2 multi-workspace display).
  */
 export interface WorkspaceView {
-  workspaces: WorkspaceInfo[];
+  workspace: WorkspaceInfo | undefined;
   tabs: TabInfo[];
-  panes: PaneInfo[];
-  activeWorkspace: WorkspaceInfo | undefined;
-  workspaceTabs: TabInfo[];
   activeTab: TabInfo | undefined;
   tabPanes: PaneInfo[];
   layout: PaneLayoutSnapshot | undefined;
@@ -28,34 +26,39 @@ export function workspaceTitle(ws: WorkspaceInfo): string {
   return ws.label || ws.worktree?.repo_name || ws.workspace_id;
 }
 
-export function deriveWorkspaceView(snapshot: SessionSnapshot | null): WorkspaceView {
+export function paneTitle(pane: PaneInfo): string {
+  return (
+    pane.terminal_title_stripped ??
+    pane.title ??
+    pane.label ??
+    pane.pane_id
+  );
+}
+
+export function deriveWorkspace(
+  snapshot: SessionSnapshot | null | undefined,
+  workspaceId: string | null,
+): WorkspaceView {
   const workspaces = snapshot?.workspaces ?? [];
-  const tabs = snapshot?.tabs ?? [];
-  const panes = snapshot?.panes ?? [];
-  const focusedWorkspaceId =
-    snapshot?.focused_workspace_id ?? workspaces.find((w) => w.focused)?.workspace_id;
-  const activeWorkspace =
-    workspaces.find((w) => w.workspace_id === focusedWorkspaceId) ?? workspaces[0];
-  const workspaceTabs = activeWorkspace
-    ? tabs.filter((t) => t.workspace_id === activeWorkspace.workspace_id)
+  const workspace =
+    (workspaceId
+      ? workspaces.find((w) => w.workspace_id === workspaceId)
+      : undefined) ??
+    workspaces.find((w) => w.workspace_id === snapshot?.focused_workspace_id) ??
+    workspaces.find((w) => w.focused) ??
+    workspaces[0];
+  const tabs = workspace
+    ? (snapshot?.tabs ?? []).filter((t) => t.workspace_id === workspace.workspace_id)
     : [];
   const activeTab =
-    workspaceTabs.find((t) => t.tab_id === activeWorkspace?.active_tab_id) ?? workspaceTabs[0];
-  const tabPanes = activeTab ? panes.filter((p) => p.tab_id === activeTab.tab_id) : [];
+    tabs.find((t) => t.tab_id === workspace?.active_tab_id) ?? tabs[0];
+  const tabPanes = activeTab
+    ? (snapshot?.panes ?? []).filter((p) => p.tab_id === activeTab.tab_id)
+    : [];
   const layout = snapshot?.layouts.find((l) => l.tab_id === activeTab?.tab_id);
   const focusedPane =
     tabPanes.find((p) => p.pane_id === layout?.focused_pane_id) ??
     tabPanes.find((p) => p.focused) ??
     tabPanes[0];
-  return {
-    workspaces,
-    tabs,
-    panes,
-    activeWorkspace,
-    workspaceTabs,
-    activeTab,
-    tabPanes,
-    layout,
-    focusedPane,
-  };
+  return { workspace, tabs, activeTab, tabPanes, layout, focusedPane };
 }

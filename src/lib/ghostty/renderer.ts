@@ -67,8 +67,10 @@ export class GhosttyRenderer {
     if (!bctx || !tctx) throw new Error("ghostty renderer: no 2d canvas");
     this.bctx = bctx;
     this.tctx = tctx;
-    bctx.textBaseline = "middle";
-    tctx.textBaseline = "middle";
+    // Alphabetic baseline: "middle" centers the em box and clips glyph tops
+    // when the measured cell height is tight (issue #84 visual review).
+    bctx.textBaseline = "alphabetic";
+    tctx.textBaseline = "alphabetic";
     this.top.setAttribute("aria-hidden", "true");
   }
 
@@ -175,10 +177,34 @@ export class GhosttyRenderer {
     }
   }
 
+  /** ascent/descent of the UI font, measured once per font/size pair */
+  private textMetrics: { key: string; ascent: number; descent: number } | null = null;
+
+  /**
+   * The alphabetic baseline y for a cell row: the font's ink box is centered
+   * in the cell so ascenders and descenders never touch the cell edges.
+   */
+  private baselineFor(rowTop: number): number {
+    const m = this.metrics!;
+    const key = `${this.options.fontSize}px ${this.options.fontFamily}`;
+    if (!this.textMetrics || this.textMetrics.key !== key) {
+      const probe = document.createElement("canvas").getContext("2d")!;
+      probe.font = key;
+      const box = probe.measureText("Mg");
+      this.textMetrics = {
+        key,
+        ascent: box.actualBoundingBoxAscent || this.options.fontSize * 0.8,
+        descent: box.actualBoundingBoxDescent || this.options.fontSize * 0.25,
+      };
+    }
+    const { ascent, descent } = this.textMetrics;
+    return rowTop + (m.cellH - (ascent + descent)) / 2 + ascent;
+  }
+
   private paintRowText(y: number): void {
     const m = this.metrics!;
     const { bctx } = this;
-    const mid = y * m.cellH + m.cellH / 2;
+    const baseline = this.baselineFor(y * m.cellH);
     for (const run of this.rows.get(y) ?? []) {
       const flags = run.flags;
       if (flags & STYLE_INVISIBLE) continue;
@@ -192,7 +218,7 @@ export class GhosttyRenderer {
       let cx = run.x * m.cellW;
       let width = 0;
       for (const cell of run.cells) {
-        if (cell.text !== " ") bctx.fillText(cell.text, cx, mid);
+        if (cell.text !== " ") bctx.fillText(cell.text, cx, baseline);
         const step = (cell.wide ? 2 : 1) * m.cellW;
         cx += step;
         width += step;
@@ -200,8 +226,8 @@ export class GhosttyRenderer {
       bctx.globalAlpha = prevAlpha;
       // underline and strikethrough are drawn: canvas text has no decoration channel
       const lines: number[] = [];
-      if (flags & STYLE_UNDERLINE_MASK) lines.push(mid + this.options.fontSize * 0.32);
-      if (flags & STYLE_STRIKE) lines.push(mid - this.options.fontSize * 0.18);
+      if (flags & STYLE_UNDERLINE_MASK) lines.push(baseline + this.options.fontSize * 0.15);
+      if (flags & STYLE_STRIKE) lines.push(baseline - this.options.fontSize * 0.3);
       if (lines.length) {
         bctx.fillStyle = color;
         for (const ly of lines) bctx.fillRect(run.x * m.cellW, ly, width, Math.max(1, m.cellH * 0.06));
