@@ -123,6 +123,9 @@ export class MachineManager {
       if (!seen.has(id)) this.infos.delete(id);
     }
     this.pushMachines();
+    // A missing local session means the last boot attempt failed; rebuild it
+    // so the app recovers once herdr comes back without a restart (#99).
+    if (!this.sessions.has(LOCAL_ID)) this.ensureLocal();
     // Probe machines that have no live session so the list shows real
     // reachability, not just "offline".
     for (const info of this.list()) {
@@ -217,6 +220,10 @@ export class MachineManager {
       case "rpc_result":
         if (!frame.ok && (frame.id === "boot" || frame.id === "bridge-health") && frame.error) {
           this.markFailure(machine, `${frame.error.code}: ${frame.error.message}`);
+          // A boot failure means the session never connected; drop it so a
+          // later connect()/refresh() can rebuild it instead of leaving the
+          // machine permanently disconnected until app restart (issue #99).
+          if (frame.id === "boot") this.disconnect(machine, true);
         }
         return;
       default:
