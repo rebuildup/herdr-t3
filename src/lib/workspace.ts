@@ -22,8 +22,16 @@ export interface WorkspaceView {
   focusedPane: PaneInfo | undefined;
 }
 
-export function workspaceTitle(ws: WorkspaceInfo): string {
-  return ws.label || ws.worktree?.repo_name || ws.workspace_id;
+export function workspaceTitle(
+  ws: WorkspaceInfo,
+  branch?: string | null,
+): string {
+  const label = ws.label?.trim();
+  const repo = ws.worktree?.repo_name?.trim();
+  // A label identical to the repo name is herdr's derived default, not a
+  // user-chosen name — the branch is more informative (info-architecture §2).
+  if (label && label !== repo) return label;
+  return branch?.trim() || repo || label || ws.workspace_id;
 }
 
 export function paneTitle(pane: PaneInfo): string {

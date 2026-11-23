@@ -44,6 +44,7 @@ import { paneTitle, workspaceTitle } from "~/lib/workspace";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc } from "./bridge";
+import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
@@ -86,6 +87,7 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
+  const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
     callRpc(machine, method, params);
@@ -103,6 +105,8 @@ export function WorkspaceHeader() {
   }
 
   const focusedTitle = focusedPane ? paneTitle(focusedPane) : "pane";
+  const wsTitle = workspaceTitle(workspace, branch);
+  const wsDisplay = branch && wsTitle !== branch ? `${wsTitle} · ${branch}` : wsTitle;
   const paneCount = tabPanes.length;
   const commitTabRename = (tab: TabInfo) => {
     setRenamingTab(null);
@@ -135,7 +139,7 @@ export function WorkspaceHeader() {
           <WorkspaceBreadcrumbSeparator />
           <WorkspaceBreadcrumbItem current>
             <WorkspaceBreadcrumbText>
-              <MiddleTruncate value={workspaceTitle(workspace)} />
+              <MiddleTruncate value={wsDisplay} />
             </WorkspaceBreadcrumbText>
           </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>

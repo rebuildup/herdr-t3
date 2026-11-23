@@ -43,6 +43,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { machineStale, useRouteWorkspace } from "./view";
+import { useWorkspaceBranchIndex } from "./worktrees";
 
 interface PaletteAction {
   id: string;
@@ -63,6 +64,7 @@ export function CommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const bridge = useBridgeState();
+  const branchIndex = useWorkspaceBranchIndex();
   const { machine, view } = useRouteWorkspace();
   const { workspace, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
@@ -151,14 +153,14 @@ export function CommandMenu({
     for (const m of machines) {
       const snap = machineStale(m) ? undefined : bridge.snapshots[m.id];
       for (const ws of snap?.workspaces ?? []) {
+        const branch = branchIndex.get(`${m.id}\n${ws.workspace_id}`);
+        const title = workspaceTitle(ws, branch);
         list.push({
           id: `ws-${m.id}-${ws.workspace_id}`,
-          label: multiMachine
-            ? `${workspaceTitle(ws)} — ${m.label}`
-            : workspaceTitle(ws),
+          label: multiMachine ? `${title} — ${m.label}` : title,
           group: "Workspaces",
           icon: <MonitorIcon className="size-4" />,
-          keywords: `${ws.workspace_id} ${m.label} ${ws.agent_status}`,
+          keywords: `${ws.workspace_id} ${m.label} ${ws.agent_status} ${branch ?? ""}`,
           run: () => selectWorkspace(m.id, ws.workspace_id),
         });
       }
@@ -207,7 +209,7 @@ export function CommandMenu({
       },
     );
     return list;
-  }, [bridge, machine, workspace, focusedPane, layout, toggleSidebar]);
+  }, [bridge, branchIndex, machine, workspace, focusedPane, layout, toggleSidebar]);
 
   const q = query.trim().toLowerCase();
   const filtered = q

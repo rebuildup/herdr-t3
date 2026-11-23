@@ -47,6 +47,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
+import { useWorkspaceBranch, useWorkspaceBranchIndex } from "./worktrees";
 import { LOCAL_MACHINE } from "~/lib/api";
 
 interface RenameState {
@@ -111,7 +112,8 @@ function WorkspaceRow({
   onClose: () => void;
 }) {
   const machineLabel = inFolder ? undefined : machine.label;
-  const title = workspaceTitle(workspace);
+  const branch = useWorkspaceBranch(machine.id, workspace.workspace_id);
+  const title = workspaceTitle(workspace, branch);
 
   const rowButton = (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite control, same exception as T3's thread rows
@@ -136,6 +138,11 @@ function WorkspaceRow({
         {title}
       </span>
       <span className="flex shrink-0 items-center gap-2">
+        {branch && title !== branch ? (
+          <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+            {branch}
+          </span>
+        ) : null}
         {machineLabel ? (
           <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
             {machineLabel}
@@ -270,6 +277,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const [rename, setRename] = useState<RenameState | null>(null);
   const [confirmClose, setConfirmClose] = useState<{ machine: string; workspace: WorkspaceInfo } | null>(null);
   const searching = query.trim().length > 0;
+  const branchIndex = useWorkspaceBranchIndex();
 
   const machines = machineListOf(bridge);
 
@@ -292,13 +300,18 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     const all: { machine: MachineInfo; workspace: WorkspaceInfo }[] = [];
     for (const m of machines) {
       for (const ws of workspacesByMachine.get(m.id) ?? []) {
-        if (!q || workspaceTitle(ws).toLowerCase().includes(q) || ws.workspace_id.toLowerCase().includes(q)) {
+        const branch = branchIndex.get(`${m.id}\n${ws.workspace_id}`);
+        if (
+          !q ||
+          workspaceTitle(ws, branch).toLowerCase().includes(q) ||
+          ws.workspace_id.toLowerCase().includes(q)
+        ) {
           all.push({ machine: m, workspace: ws });
         }
       }
     }
     return all;
-  }, [machines, workspacesByMachine, query]);
+  }, [machines, workspacesByMachine, query, branchIndex]);
 
   const grouped = !searching && machines.length > 1;
   const activeWorkspaceId = view.workspace?.workspace_id ?? null;
