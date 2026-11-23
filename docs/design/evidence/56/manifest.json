@@ -1,0 +1,188 @@
+[
+  {
+    "file": "01-sidebar-populated.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 121794
+  },
+  {
+    "file": "02-sidebar-collapsed.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 107370
+  },
+  {
+    "file": "03-command-palette.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 38982
+  },
+  {
+    "file": "04-sidebar-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 120254
+  },
+  {
+    "file": "05-tab-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 122042
+  },
+  {
+    "file": "07-pane-split.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 123054
+  },
+  {
+    "file": "08-pane-zoomed.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 123058
+  },
+  {
+    "file": "09-dark.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 29500
+  },
+  {
+    "file": "10-light.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 29418
+  },
+  {
+    "file": "11-narrow.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 81722
+  },
+  {
+    "file": "12-narrow-sheet.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 17594
+  },
+  {
+    "file": "t3/t3-01-main.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 41876
+  },
+  {
+    "file": "t3/t3-02-palette.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 46962
+  },
+  {
+    "file": "t3/t3-03-dark.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 44424
+  },
+  {
+    "file": "t3/t3-04-light.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 45186
+  },
+  {
+    "file": "t3/t3-05-palette-dark.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 46264
+  },
+  {
+    "file": "t3/t3-06-narrow.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 14194
+  },
+  {
+    "file": "t3/t3-07-narrow-sheet.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 17086
+  },
+  {
+    "file": "t3/t3-08-narrow-sheet-light.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 16864
+  },
+  {
+    "file": "t3/t3-06-narrow-light.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 14206
+  },
+  {
+    "file": "contact-sheet-1.webp",
+    "width": 1944,
+    "height": 1910,
+    "bytes": 156356
+  },
+  {
+    "file": "contact-sheet-2.webp",
+    "width": 1944,
+    "height": 1970,
+    "bytes": 79326
+  },
+  {
+    "file": "contact-sheet-t3.webp",
+    "width": 1944,
+    "height": 3278,
+    "bytes": 77696
+  },
+  {
+    "file": "cmp-main-light.webp",
+    "width": 2456,
+    "height": 802,
+    "bytes": 24908
+  },
+  {
+    "file": "cmp-main-dark.webp",
+    "width": 2456,
+    "height": 802,
+    "bytes": 24952
+  },
+  {
+    "file": "cmp-palette-dark.webp",
+    "width": 2456,
+    "height": 802,
+    "bytes": 31914
+  },
+  {
+    "file": "cmp-narrow-light.webp",
+    "width": 936,
+    "height": 802,
+    "bytes": 40482
+  },
+  {
+    "file": "cmp-sheet-light.webp",
+    "width": 936,
+    "height": 802,
+    "bytes": 14366
+  },
+  {
+    "file": "crop-sidebar-light.webp",
+    "width": 888,
+    "height": 1917,
+    "bytes": 21434
+  },
+  {
+    "file": "crop-topbar-light.webp",
+    "width": 15010,
+    "height": 604,
+    "bytes": 47490
+  },
+  {
+    "file": "crop-sidebar-dark.webp",
+    "width": 888,
+    "height": 1917,
+    "bytes": 21870
+  }
+]

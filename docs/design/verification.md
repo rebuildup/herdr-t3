@@ -49,3 +49,24 @@ T3 component in isolation) and record the verdict per state.
 current scaffold-era layout (sidebar + tab strip + pane grid, dark/light)
 captured against the isolated `ht3probe` session at the time of writing —
 it is a starting point for diff review, not a fidelity claim.
+
+### Capture and review pipeline (issue #69)
+
+- `bun scripts/capture-evidence.ts <outDir> [baseUrl]` drives headless
+  Chrome over CDP against the dev build and an isolated herdr session.
+  Every state is asserted before the PNG is saved: DOM checks for sidebar
+  collapse, palette, context menus, themes and the mobile sheet; session
+  facts (`/api/session` layout `zoomed`, pane counts) for split/zoom.
+- `python3 scripts/build-evidence-sheets.py docs/design/evidence/<ticket>`
+  converts raw PNG captures to committed WebP (q88) originals, builds
+  labeled contact sheets, side-by-side herdr-t3 vs T3 Code comparisons at
+  matched viewport/theme, and detail crops. Raw PNGs are gitignored local
+  artifacts; `manifest.json` records dimensions and byte sizes.
+- T3 Code reference captures come from the pinned checkout's dev server
+  on an isolated `--home-dir` seeded by `vp run migrate-dev-db`, paired
+  with a one-time token.
+- Multimodal review: `codex exec --sandbox read-only -i <image> -` with a
+  review prompt (see issue #69 for the prompt text) evaluates layout,
+  spacing, density, hierarchy and affordances against the T3 reference.
+  A separate pass checks full-resolution captures for sensitive strings
+  before publishing.
