@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import { rpc } from "../lib/api";
 import { focusPaneTerminal } from "../lib/paneFocus";
 import { agentStatusLabel, isKnownAgentStatus } from "./AgentStatusBadge";
@@ -21,8 +29,12 @@ interface ReadResult {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === "") return null;
   return (
-    <div className="flex gap-2 text-xs">
-      <span className="w-32 shrink-0 text-muted-foreground">{label}</span>
+    // Agent-state keys are long identifiers (e.g.
+    // local_override_shadowing_note); a fixed label column let them
+    // overflow into the value — a fixed label column with truncation
+    // keeps the pair separated (issue #142).
+    <div className="flex min-w-0 gap-3 text-xs">
+      <span className="w-44 shrink-0 truncate text-muted-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono">{value}</span>
     </div>
   );
@@ -126,16 +138,18 @@ export function PaneDetailsDialog({
   return (
     <Dialog open={pane !== null} onOpenChange={(open) => !open && requestClose()}>
       <DialogContent className="max-w-lg">
-        <DialogTitle>
-          {pane && isKnownAgentStatus(pane.agent_status)
-            ? `${agentStatusLabel(pane.agent_status)} pane details`
-            : "Pane details"}
-        </DialogTitle>
-        <DialogDescription>
-          Internal identifiers and diagnostics for {pane?.pane_id ?? ""}.
-        </DialogDescription>
+        <DialogHeader>
+          <DialogTitle>
+            {pane && isKnownAgentStatus(pane.agent_status)
+              ? `${agentStatusLabel(pane.agent_status)} pane details`
+              : "Pane details"}
+          </DialogTitle>
+          <DialogDescription>
+            Internal identifiers and diagnostics for {pane?.pane_id ?? ""}.
+          </DialogDescription>
+        </DialogHeader>
         {pane ? (
-          <div className="flex max-h-96 flex-col gap-4 overflow-y-auto">
+          <DialogPanel>
             <section className="flex flex-col gap-1">
               <Field label="workspace" value={pane.workspace_id} />
               <Field label="tab" value={pane.tab_id} />
@@ -199,13 +213,13 @@ export function PaneDetailsDialog({
                 ) : null}
               </section>
             ) : null}
-          </div>
+          </DialogPanel>
         ) : null}
-        <div className="flex justify-end">
+        <DialogFooter>
           <Button size="sm" variant="ghost" onClick={requestClose}>
             Close
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -204,7 +204,11 @@ function CommandItem({
   return (
     <AutocompleteItem
       className={cn(
-        "py-1.5 data-selected:bg-foreground/[0.06] data-highlighted:bg-foreground/[0.09] data-highlighted:text-foreground [&[data-highlighted][data-selected]]:bg-foreground/[0.09] [&[data-highlighted][data-selected]]:text-foreground",
+        // hover:bg-transparent keeps the primitive :hover accent from
+        // painting a second fill next to the data-highlighted row —
+        // highlightItemOnHover already routes pointer hover through
+        // data-highlighted, so one channel stays authoritative.
+        "py-1.5 hover:bg-transparent hover:text-inherit data-selected:bg-foreground/[0.06] data-highlighted:bg-foreground/[0.09] data-highlighted:text-foreground [&[data-highlighted][data-selected]]:bg-foreground/[0.09] [&[data-highlighted][data-selected]]:text-foreground",
         active !== undefined &&
           "cursor-pointer hover:bg-transparent hover:text-inherit data-highlighted:bg-transparent data-highlighted:text-inherit data-selected:bg-transparent data-selected:text-inherit [&[data-highlighted][data-selected]]:bg-transparent [&[data-highlighted][data-selected]]:text-inherit",
         active && "bg-accent! text-accent-foreground!",

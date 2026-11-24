@@ -117,13 +117,21 @@ function HistoryNavigationButton({
 }
 
 function SidebarBrand() {
+  // The mobile sheet is portaled outside the sidebar wrapper, so
+  // --workspace-titlebar-content-left (which reserves room for the
+  // collapse trigger that mobile hides) is unset there — fall back to
+  // the content inset or the wordmark sits flush against the sheet edge.
+  const { isMobile } = useSidebar();
   return (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 brand mark; custom geometry, not a Button variant
     <button
       type="button"
       aria-label="herdr-t3 home"
       onClick={() => navigate("#/")}
-      className="relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
+      className={cn(
+        "relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
+        isMobile && "ml-4",
+      )}
     >
       <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
         <span className="font-semibold text-foreground">
