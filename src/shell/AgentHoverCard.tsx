@@ -50,7 +50,7 @@ export function AgentHoverCard({
   // (issue #199); agent records can lag the OSC title herdr last saw.
   const title = pane
     ? paneTitle(pane)
-    : (agentWorkTarget(agent) ?? agentDisplayName(agent));
+    : (agentWorkTarget(agent, pane) ?? agentDisplayName(agent));
   const displayName = agentDisplayName(agent);
   const stateLabel = agentStateLabel(agent);
   const auxLabels = agentAuxStateLabels(agent);

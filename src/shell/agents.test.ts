@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   AgentInfo,
   MachineInfo,
+  PaneInfo,
   SessionSnapshot,
   WorkspaceInfo,
 } from "../../shared/protocol";
@@ -139,6 +140,33 @@ describe("row field resolution", () => {
     expect(agentWorkTarget(agent({ terminal_title: "raw", title: "t" }))).toBe("raw");
     expect(agentWorkTarget(agent({ title: "t" }))).toBe("t");
     expect(agentWorkTarget(agent({}))).toBeNull();
+  });
+
+  test("agentWorkTarget prefers the live pane title (issue #200)", () => {
+    const pane = {
+      agent_status: "working",
+      focused: false,
+      pane_id: "w1:p1",
+      revision: 1,
+      tab_id: "t1",
+      terminal_id: "term1",
+      terminal_title_stripped: "live title",
+      workspace_id: "w1",
+    } as PaneInfo;
+    expect(
+      agentWorkTarget(
+        agent({ terminal_title_stripped: "stale", title: "t" }),
+        pane,
+      ),
+    ).toBe("live title");
+    // Without pane title fields the agent record still resolves.
+    expect(
+      agentWorkTarget(agent({ terminal_title_stripped: "stale" }), {
+        ...pane,
+        terminal_title_stripped: null,
+        terminal_title: null,
+      }),
+    ).toBe("stale");
   });
 });
 

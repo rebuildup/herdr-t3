@@ -5,11 +5,11 @@
  * the Attention/Working/Done/Idle sections are a T3 settle/inbox-style
  * presentation mapping, not client-side state.
  *
- * Row model follows herdr's `AgentsSidebarConfig` token rows
- * (src/ui/sidebar/tokens.rs @ e8d7d97): line 1 carries where (status
- * icon, workspace identity, tab, machine) at primary text weight, line 2
- * carries state + what (resolved state label, agent label, work target,
- * auxiliary labels, pane disambiguator). Sort inside a section mirrors
+ * Row model follows T3 `SidebarThreadRow`'s information hierarchy
+ * (issue #200): line 1 is context + state (status icon, workspace/tab/
+ * machine location, resolved state label), line 2 is the work target
+ * (live pane terminal title) with agent identity and disambiguation as
+ * secondary meta. Sort inside a section mirrors
  * `AgentPanelSortConfig::Priority`: status priority, then
  * `state_change_seq` descending.
  *
@@ -24,6 +24,7 @@ import type {
   AgentInfo,
   AgentStatus,
   MachineInfo,
+  PaneInfo,
   SessionSnapshot,
   WorkspaceInfo,
 } from "../../shared/protocol";
@@ -172,10 +173,18 @@ export function agentDisplayName(agent: AgentInfo): string {
   );
 }
 
-/** Work target for line 2: stripped terminal title, then raw, then agent title. */
-export function agentWorkTarget(agent: AgentInfo): string | null {
+/**
+ * Work target: the live pane's OSC terminal title first (agent records can
+ * lag it), then the agent record's own title fields, then the agent title.
+ */
+export function agentWorkTarget(agent: AgentInfo, pane?: PaneInfo | null): string | null {
   return (
-    agent.terminal_title_stripped ?? agent.terminal_title ?? agent.title ?? null
+    pane?.terminal_title_stripped ??
+    pane?.terminal_title ??
+    agent.terminal_title_stripped ??
+    agent.terminal_title ??
+    agent.title ??
+    null
   );
 }
 
@@ -191,7 +200,7 @@ export function agentRowSignature(entry: AgentListEntry): string {
     entry.workspaceTitle,
     entry.tabLabel ?? "",
     agentDisplayName(agent),
-    agentWorkTarget(agent) ?? "",
+    agentWorkTarget(agent, entry.pane) ?? "",
   ].join("\u001f");
 }
 
@@ -205,6 +214,8 @@ export interface AgentListEntry {
   machine: MachineInfo;
   agent: AgentInfo;
   workspace: WorkspaceInfo | undefined;
+  /** Live pane record for the agent's pane, when the snapshot has one. */
+  pane?: PaneInfo | undefined;
   workspaceTitle: string;
   /** Tab label, shown only when the workspace has more than one tab (herdr `tab` token rule). */
   tabLabel: string | null;
@@ -228,6 +239,7 @@ export function collectAgentEntries(
     if (!snap) continue;
     const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
     const tabById = new Map(snap.tabs.map((t) => [t.tab_id, t]));
+    const paneById = new Map(snap.panes.map((p) => [p.pane_id, p]));
     for (const agent of snap.agents) {
       const ws = wsById.get(agent.workspace_id);
       const branch = ws ? branchIndex.get(`${machine.id}\n${ws.workspace_id}`) : undefined;
@@ -236,6 +248,7 @@ export function collectAgentEntries(
         machine,
         agent,
         workspace: ws,
+        pane: paneById.get(agent.pane_id),
         workspaceTitle: ws ? workspaceTitle(ws, branch) : agent.workspace_id,
         tabLabel: ws && ws.tab_count > 1 ? (tab?.label ?? null) : null,
       });
