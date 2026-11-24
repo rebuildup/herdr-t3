@@ -36,11 +36,12 @@ import { statusIcon } from "~/components/statusIcons";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
 import { getGeneralSettings } from "~/lib/settings";
 import { machineConnect, machineDisconnect } from "~/lib/api";
-import type { MachineInfo, WorkspaceInfo } from "../../shared/protocol";
+import type { AgentInfo, MachineInfo, WorkspaceInfo } from "../../shared/protocol";
 import { workspaceTitle } from "~/lib/workspace";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
+  ensureMachine,
   machineListOf,
   newWorkspace,
   selectWorkspace,
@@ -269,6 +270,76 @@ function MachineFolderHeader({
   );
 }
 
+/** herdr agent_sidebar parity (issue #113): status-priority ordering. */
+const AGENT_STATUS_RANK: Record<string, number> = {
+  blocked: 0,
+  working: 1,
+  done: 2,
+  idle: 3,
+};
+
+function agentRank(status: string): number {
+  return AGENT_STATUS_RANK[status] ?? 4;
+}
+
+function agentLabel(agent: AgentInfo): string {
+  return agent.name ?? agent.display_agent ?? agent.agent ?? "agent";
+}
+
+interface AgentListEntry {
+  machine: MachineInfo;
+  agent: AgentInfo;
+  workspace: WorkspaceInfo | undefined;
+  workspaceTitle: string;
+}
+
+/**
+ * One agent row in the Agents section. Clicking jumps to the agent's
+ * workspace and focuses its pane (`pane.focus` resolves across tabs and
+ * workspaces in herdr), mirroring the TUI agent sidebar's click-to-focus.
+ */
+function AgentRow({ entry, multiMachine }: { entry: AgentListEntry; multiMachine: boolean }) {
+  const { machine, agent } = entry;
+  const label = agentLabel(agent);
+  const stateLabel = Object.values(agent.state_labels ?? {}).find(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  return (
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite list, same exception as workspace rows
+    <button
+      type="button"
+      data-sidebar-row={agent.pane_id}
+      onClick={() => {
+        selectWorkspace(machine.id, agent.workspace_id);
+        void ensureMachine(machine.id).then(() =>
+          callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
+        );
+      }}
+      className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-0 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {statusIcon(agent.agent_status)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+        {label}
+        {stateLabel ? (
+          <span className="text-sidebar-muted-foreground"> · {stateLabel}</span>
+        ) : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+          {entry.workspaceTitle}
+        </span>
+        {multiMachine ? (
+          <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+            {machine.label}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
 export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }) {
   const bridge = useBridgeState();
   const { machine: routeMachine, view } = useRouteWorkspace();
@@ -405,6 +476,33 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     (n, m) => n + (workspacesByMachine.get(m.id)?.length ?? 0),
     0,
   );
+
+  // Agents section (issue #113, herdr agent_sidebar parity): every agent
+  // across live machines, ordered by attention — blocked first, matching
+  // herdr's status-priority sort. Hidden while searching and on stale
+  // machines whose snapshot is last-known state.
+  const agents = useMemo<AgentListEntry[]>(() => {
+    const list: AgentListEntry[] = [];
+    for (const m of machines) {
+      if (machineStale(m)) continue;
+      const snap = bridge.snapshots[m.id];
+      if (!snap) continue;
+      const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
+      for (const a of snap.agents) {
+        const ws = wsById.get(a.workspace_id);
+        const branch = ws ? branchIndex.get(`${m.id}\n${ws.workspace_id}`) : undefined;
+        list.push({
+          machine: m,
+          agent: a,
+          workspace: ws,
+          workspaceTitle: ws ? workspaceTitle(ws, branch) : a.workspace_id,
+        });
+      }
+    }
+    return list.sort(
+      (x, y) => agentRank(x.agent.agent_status) - agentRank(y.agent.agent_status),
+    );
+  }, [machines, bridge.snapshots, branchIndex]);
 
   return (
     <SidebarContent
@@ -600,6 +698,23 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
+      {!searching && agents.length > 0 ? (
+        <SidebarGroup>
+          <div className="px-2 pb-1 text-2xs font-medium text-sidebar-muted-foreground">
+            Agents
+          </div>
+          <ul className="relative flex flex-col gap-px" role="list">
+            {agents.map((entry) => (
+              <li
+                key={`${entry.machine.id}:${entry.agent.pane_id}`}
+                className="list-none"
+              >
+                <AgentRow entry={entry} multiMachine={machines.length > 1} />
+              </li>
+            ))}
+          </ul>
+        </SidebarGroup>
+      ) : null}
       <RenameDialog
         target={rename?.target ?? null}
         machine={rename?.machine ?? LOCAL_MACHINE}

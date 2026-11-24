@@ -48,6 +48,42 @@ export interface PaneScrollInfo {
   [key: string]: unknown;
 }
 
+/** `pane.process_info` result payload (`PaneProcessInfo` in herdr's schema). */
+export interface PaneProcessInfoProcess {
+  pid: number;
+  name: string;
+  argv0?: string | null;
+  argv?: string[] | null;
+  cmdline?: string | null;
+  cwd?: string | null;
+}
+
+export interface PaneProcessInfo {
+  pane_id: string;
+  shell_pid?: number | null;
+  foreground_process_group_id?: number | null;
+  tty?: string | null;
+  foreground_processes: PaneProcessInfoProcess[];
+}
+
+/** Inclusive display-cell columns of a detected link on a viewport row. */
+export interface PaneLinkRegion {
+  row: number;
+  start_col: number;
+  end_col: number;
+}
+
+/** `pane.link.resolve` result payload. */
+export interface PaneLinkResolveResult {
+  regions: PaneLinkRegion[];
+}
+
+/** `pane.link.activate` result payload. */
+export interface PaneLinkActivateResult {
+  url?: string | null;
+  handled: boolean;
+}
+
 export interface PaneInfo {
   agent?: string | null;
   agent_session?: AgentSessionInfo | null;
@@ -285,6 +321,12 @@ export const RPC_METHODS = [
   "agent.prompt",
   "agent.rename",
   "agent.start",
+  "agent.read",
+  "agent.explain",
+  "pane.focus_direction",
+  "pane.process_info",
+  "pane.link.resolve",
+  "pane.link.activate",
   "worktree.list",
 ] as const;
 
