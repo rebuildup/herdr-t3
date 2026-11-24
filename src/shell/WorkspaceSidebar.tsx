@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { CollapsibleSectionHeader } from "~/components/ui/collapsible-section-header";
+import { AgentHoverCard } from "./AgentHoverCard";
 import { getGeneralSettings } from "~/lib/settings";
 import { getLocalStorageBoolean, setLocalStorageBoolean } from "~/lib/localStorage";
 import { createSidebarListMotion } from "~/lib/sidebarListMotion";
@@ -420,7 +421,23 @@ function AgentRow({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger className="w-full">{rowButton}</ContextMenuTrigger>
+      <ContextMenuTrigger className="w-full">
+        {/* T3 ThreadHoverCard: hover/focus shows the facts the two-line row
+            truncates (issue #154). The tooltip trigger renders the row
+            button itself so there is no nested interactive element. */}
+        <Tooltip>
+          <TooltipTrigger render={rowButton} />
+          <TooltipPopup
+            side="right"
+            align="start"
+            sideOffset={4}
+            variant="glass"
+            className="text-left"
+          >
+            <AgentHoverCard entry={entry} multiMachine={multiMachine} pane={pane} />
+          </TooltipPopup>
+        </Tooltip>
+      </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={focusAgent}>
           <MousePointerClickIcon /> Focus
@@ -648,6 +665,31 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     agentsMotionRef.current?.update(true);
   }, [agentsLayoutKey]);
 
+  // FLIP motion for workspace rows (issue #154): same Sidebar.motion.ts
+  // port as the agents list — rows animate on add/remove/reorder/collapse.
+  // The key covers membership and order per machine plus folder collapse
+  // and search filtering, so unrelated snapshot churn does not re-measure.
+  const workspacesMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const attachWorkspacesList = useCallback((node: HTMLUListElement | null) => {
+    workspacesMotionRef.current?.dispose();
+    workspacesMotionRef.current = node ? createSidebarListMotion(node) : null;
+    workspacesMotionRef.current?.update(false);
+  }, []);
+  const workspacesLayoutKey = useMemo(() => {
+    if (searching) {
+      return filtered.map((f) => `${f.machine.id}:${f.workspace.workspace_id}`).join("|");
+    }
+    return machines
+      .map((m) => {
+        const ids = (workspacesByMachine.get(m.id) ?? []).map((w) => w.workspace_id);
+        return `${m.id}${collapsedMachines[m.id] ? ":c" : ""}:${ids.join(",")}`;
+      })
+      .join("|");
+  }, [searching, filtered, machines, workspacesByMachine, collapsedMachines]);
+  useLayoutEffect(() => {
+    workspacesMotionRef.current?.update(true);
+  }, [workspacesLayoutKey]);
+
   return (
     <SidebarContent
       fixedHeader={
@@ -724,7 +766,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             </button>
           </div>
         ) : null}
-        <ul className="relative flex flex-col gap-px" role="list">
+        <ul ref={attachWorkspacesList} className="relative flex flex-col gap-px" role="list">
           {grouped
             ? machines.map((machine) => {
                 const workspaces = workspacesByMachine.get(machine.id) ?? [];
