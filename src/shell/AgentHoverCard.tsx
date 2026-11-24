@@ -22,6 +22,7 @@ import {
   agentDisplayName,
   agentStateLabel,
   agentWorkTarget,
+  shortPaneId,
   type AgentListEntry,
 } from "./agents";
 
@@ -86,7 +87,9 @@ export function AgentHoverCard({
         ) : null}
         {location ? <DetailRow icon={<MapPinIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
-        <DetailRow icon={<SquareTerminalIcon />}>{agent.pane_id}</DetailRow>
+        {/* shortPaneId matches the row's meta token — the full
+            workspace-prefixed id contradicted the label (issue #204). */}
+        <DetailRow icon={<SquareTerminalIcon />}>{shortPaneId(agent.pane_id)}</DetailRow>
       </div>
     </div>
   );
