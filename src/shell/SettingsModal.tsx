@@ -61,6 +61,7 @@ import type { HealthResponse, MachineInfo } from "../../shared/protocol";
 import {
   getAppearanceMode,
   getGhosttyThemeName,
+  getTerminalBackground,
   isGhosttyActive,
   onAppearanceChange,
   setAppearanceMode,
@@ -128,7 +129,7 @@ function SettingsRow({
   description?: string;
   /** DOM id so settings search can scroll to this row (T3 search targets). */
   anchor?: string;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <div
@@ -388,6 +389,25 @@ function SectionPage({ section }: { section: SectionId }) {
                 }
               />
             </SettingsRow>
+            {(() => {
+              const bg = getTerminalBackground();
+              if (!bg.image) return null;
+              const img = bg.image;
+              const parts = [
+                img.fit ?? "contain",
+                img.position && img.position !== "center" ? img.position : null,
+                img.repeat ? "repeat" : null,
+                img.opacity !== undefined && img.opacity !== 1 ? `opacity ${img.opacity}` : null,
+                bg.opacity !== 1 ? `background opacity ${bg.opacity}` : null,
+              ].filter(Boolean);
+              return (
+                <SettingsRow
+                  anchor="setting-ghostty-background-image"
+                  label="Terminal background image"
+                  description={`${img.path}${parts.length ? ` — ${parts.join(", ")}` : ""}`}
+                />
+              );
+            })()}
           </SettingsSection>
         </div>
       );

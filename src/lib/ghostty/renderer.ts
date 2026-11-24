@@ -9,6 +9,10 @@
  * and `cursor` here are the theme's own colours, used where a run names none.
  */
 import type { GhosttySession } from "./session.ts";
+import type {
+  GhosttyBackgroundImageFit,
+  GhosttyBackgroundImagePosition,
+} from "../theme.ts";
 import {
   STYLE_BOLD,
   STYLE_FAINT,
@@ -34,6 +38,16 @@ export interface GhosttyRendererOptions {
   search?: string;
 }
 
+/** A loaded Ghostty `background-image` plus its placement options (issue #108). */
+export interface GhosttyBackgroundImageSpec {
+  image: HTMLImageElement;
+  /** `background-image-opacity`; relative to background-opacity, may exceed 1 */
+  opacity: number;
+  position: GhosttyBackgroundImagePosition;
+  fit: GhosttyBackgroundImageFit;
+  repeat: boolean;
+}
+
 interface Metrics { cols: number; rows: number; cellW: number; cellH: number; dpr: number }
 
 export class GhosttyRenderer {
@@ -52,6 +66,11 @@ export class GhosttyRenderer {
   private selection: ScreenRange | null = null;
   private highlights: ScreenRange[] = [];
   private cursorOn = true;
+  private bgImage: GhosttyBackgroundImageSpec | null = null;
+  private bgOpacity = 1;
+  /** fitted destination rect of the background image, recomputed per metrics */
+  private bgDest: { x: number; y: number; w: number; h: number; tile: boolean } | null = null;
+  private bgDestKey = "";
   private disposed = false;
 
   constructor(host: HTMLElement, session: GhosttySession, options: GhosttyRendererOptions) {
@@ -119,6 +138,20 @@ export class GhosttyRenderer {
     this.invalidate();
   }
 
+  /** `background-opacity`: alpha of the window background under text and cell colours */
+  setBackgroundOpacity(alpha: number): void {
+    this.bgOpacity = Math.min(1, Math.max(0, alpha));
+    this.invalidate();
+  }
+
+  /** a loaded `background-image` to draw under the cell grid, or null to clear it */
+  setBackgroundImage(spec: GhosttyBackgroundImageSpec | null): void {
+    this.bgImage = spec;
+    this.bgDest = null;
+    this.bgDestKey = "";
+    this.invalidate();
+  }
+
   /**
    * Pull the engine's changed rows into the cache and mark them for repaint. The surface calls
    * invalidate() on a scroll or resize so the next collect() refills every row; a changed image
@@ -161,8 +194,20 @@ export class GhosttyRenderer {
     for (const y of all) {
       const top = y * m.cellH;
       bctx.clearRect(0, top, W, m.cellH);
+      // Window background at `background-opacity`; when an image is set the
+      // background color only shows through where the image lets it
+      // (Ghostty mixes image over background at background-image-opacity,
+      // then applies background-opacity to the composite — approximated by
+      // alpha = imageOpacity * backgroundOpacity for the image draw).
+      const imageAlpha = this.bgImage
+        ? Math.min(1, Math.max(0, this.bgImage.opacity * this.bgOpacity))
+        : 0;
+      const bgAlpha = this.bgOpacity * (1 - Math.min(1, Math.max(0, this.bgImage?.opacity ?? 0)));
+      bctx.globalAlpha = bgAlpha;
       bctx.fillStyle = this.options.background;
       bctx.fillRect(0, top, W, m.cellH);
+      bctx.globalAlpha = 1;
+      this.paintBackgroundImage(top, m.cellH, imageAlpha);
       this.paintImages(0, top, m.cellH);
       this.paintRowBackgrounds(y);
       this.paintImages(1, top, m.cellH);
@@ -171,6 +216,91 @@ export class GhosttyRenderer {
     }
     this.pending.clear();
     this.paintOverlay(m);
+  }
+
+  /**
+   * The `background-image` fitted into the surface for the current metrics,
+   * honouring `background-image-fit`/`position`/`repeat` (issue #108).
+   * `repeat` tiles the image at its contain-fitted size — Ghostty repeats to
+   * fill gaps left by letterboxing, and cover/stretch already fill the
+   * surface so repetition is a no-op for them.
+   */
+  private backgroundDest(): { x: number; y: number; w: number; h: number; tile: boolean } | null {
+    const spec = this.bgImage;
+    const m = this.metrics;
+    if (!spec || !m) return null;
+    const W = m.cols * m.cellW;
+    const H = m.rows * m.cellH;
+    const iw = spec.image.naturalWidth || spec.image.width;
+    const ih = spec.image.naturalHeight || spec.image.height;
+    if (!iw || !ih || W <= 0 || H <= 0) return null;
+    const key = `${W}x${H}:${iw}x${ih}:${spec.fit}:${spec.position}:${spec.repeat}`;
+    if (this.bgDest && this.bgDestKey === key) return this.bgDest;
+
+    const [fx, fy] = (() => {
+      switch (spec.position) {
+        case "top-left": return [0, 0] as const;
+        case "top-center": return [0.5, 0] as const;
+        case "top-right": return [1, 0] as const;
+        case "center-left": return [0, 0.5] as const;
+        case "center-right": return [1, 0.5] as const;
+        case "bottom-left": return [0, 1] as const;
+        case "bottom-center": return [0.5, 1] as const;
+        case "bottom-right": return [1, 1] as const;
+        default: return [0.5, 0.5] as const;
+      }
+    })();
+    let w: number, h: number;
+    switch (spec.fit) {
+      case "stretch": w = W; h = H; break;
+      case "none": w = iw; h = ih; break;
+      case "cover": {
+        const s = Math.max(W / iw, H / ih);
+        w = iw * s; h = ih * s;
+        break;
+      }
+      default: { // contain
+        const s = Math.min(W / iw, H / ih);
+        w = iw * s; h = ih * s;
+      }
+    }
+    const tile = spec.repeat && spec.fit !== "cover" && spec.fit !== "stretch";
+    this.bgDest = { x: fx * (W - w), y: fy * (H - h), w, h, tile };
+    this.bgDestKey = key;
+    return this.bgDest;
+  }
+
+  /** draw the background image clipped to one row band */
+  private paintBackgroundImage(top: number, cellH: number, alpha: number): void {
+    const spec = this.bgImage;
+    const dest = this.backgroundDest();
+    const m = this.metrics;
+    if (!spec || !dest || !m || alpha <= 0) return;
+    const { bctx } = this;
+    const bandBottom = top + cellH;
+    bctx.save();
+    bctx.beginPath();
+    bctx.rect(0, top, m.cols * m.cellW, cellH);
+    bctx.clip();
+    bctx.globalAlpha = alpha;
+    if (dest.tile) {
+      // tile at the fitted single-image size; pattern transform scales the
+      // source to the tile and positions the first tile like `position` does
+      const pattern = bctx.createPattern(spec.image, "repeat");
+      if (pattern) {
+        const sx = dest.w / (spec.image.naturalWidth || spec.image.width);
+        const sy = dest.h / (spec.image.naturalHeight || spec.image.height);
+        pattern.setTransform(
+          new DOMMatrix().translateSelf(dest.x, dest.y).scaleSelf(sx, sy),
+        );
+        bctx.fillStyle = pattern;
+        bctx.fillRect(0, top, m.cols * m.cellW, cellH);
+      }
+    } else if (dest.y + dest.h > top && dest.y < bandBottom) {
+      bctx.drawImage(spec.image, dest.x, dest.y, dest.w, dest.h);
+    }
+    bctx.restore();
+    bctx.globalAlpha = 1;
   }
 
   private paintRowBackgrounds(y: number): void {

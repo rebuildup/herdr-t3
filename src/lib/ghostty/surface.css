@@ -35,3 +35,9 @@
 .ghostty-surface.is-focused {
   cursor: text;
 }
+
+/* the host resolved a pane link under the pointer (issue #113): pointer
+   affordance wins over the text cursor while the link is hovered */
+.ghostty-surface.is-link {
+  cursor: pointer;
+}

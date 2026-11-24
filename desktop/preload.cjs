@@ -49,6 +49,13 @@ contextBridge.exposeInMainWorld("herdrT3", {
     ipcRenderer.on("herdr-t3:ghostty", handler);
     return () => ipcRenderer.removeListener("herdr-t3:ghostty", handler);
   },
+  /**
+   * Read a Ghostty `background-image` path as a data URL (PNG/JPEG only,
+   * size-capped in the main process). Resolves null when unavailable.
+   */
+  ghosttyImage(filePath) {
+    return ipcRenderer.invoke("herdr-t3:ghostty-image", filePath);
+  },
   /** Launch-at-login state; { supported:false } outside macOS/Windows. */
   loginItem() {
     return ipcRenderer.invoke("herdr-t3:login-item");

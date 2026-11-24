@@ -25,11 +25,12 @@ import {
   SidebarTrigger,
   useMobileSidebarSheetMounted,
   useSidebar,
-  useSidebarVisibility,
 } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useRoute } from "./router";
+import { useBridgeState } from "./bridge";
+import { syncWorktreeBranches } from "./worktrees";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 import { WorkspaceSidebarBody } from "./WorkspaceSidebar";
 
@@ -133,7 +134,6 @@ function SidebarControl() {
   // T3 gates the control on showSidebar (the shell always has one), not on
   // current visibility — on mobile the sheet-closed state must still show
   // the trigger or navigation becomes unreachable.
-  const isSidebarVisible = useSidebarVisibility();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -160,7 +160,10 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
-              variant={isSidebarVisible ? "media-navigation" : "ghost"}
+              // T3 uses media-navigation only over a stage backdrop image;
+              // herdr-t3 has none, so the ghost variant keeps the icon
+              // visible on the light sidebar (issue #128).
+              variant="ghost"
               className="pointer-events-auto"
               aria-label="Toggle main sidebar"
             />
@@ -174,6 +177,12 @@ function SidebarControl() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const route = useRoute();
+  const bridge = useBridgeState();
+  // Resolve workspace -> git branch via worktree.list (issue #109); the
+  // store is TTL-cached so this effect is a cheap no-op between changes.
+  useEffect(() => {
+    syncWorktreeBranches(bridge.snapshots);
+  }, [bridge.snapshots]);
   const isSettingsOpen = route.name === "settings";
   const [sidebarWidth, setSidebarWidth] = useState(readInitialSidebarWidth);
   const [brandWidth, setBrandWidth] = useState(0);

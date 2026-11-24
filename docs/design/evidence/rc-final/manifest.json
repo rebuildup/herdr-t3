@@ -1,0 +1,49 @@
+{
+ "ticket": "106",
+ "milestone": "v0.4.0 release candidate — macOS real-device acceptance",
+ "herdr-t3": "release-0-4-0 @ 1c99884 (includes #132 focus fix, #134 palette/goto fix)",
+ "herdr": "0.9.5, isolated session ht3-rc",
+ "surface": "Electron dev build (HERDR_T3_PROFILE=dev, HERDR_T3_DEV_URL=localhost:5737) + headless Chrome CDP for dynamic checks",
+ "viewport": "2880x1800 px (retina)",
+ "captures": [
+  {
+   "file": "01-electron-ghostty-agent.webp",
+   "bytes": 37672,
+   "sha256": "52adae3a14362492",
+   "note": "Electron app, Ghostty theme sync ON (Ghostty Default Style Dark), user's background-image rendered under the cell grid (verified by pixel diff vs appearance=system: terminal-region meanAbsDiff 9.26 vs sidebar/header ~0.4), Agents section lists live opencode, header badge 'OpenCode · opencode — Idle'."
+  }
+ ],
+ "dynamic_verification": {
+  "method": "headless Chrome CDP (Input.dispatchKeyEvent/dispatchMouseEvent real events) + Electron CDP + herdr pane.read",
+  "results": [
+   "Cmd+Arrow pane focus_direction: OK (geometry-dependent direction)",
+   "focus return after pane menu Split right / palette actions / goto / worktrees / details: OK (issues #132, #134)",
+   "command palette item select (was dead onSelect->onClick bug, #134): OK",
+   "goto dialog open/jump/Escape + focus restore: OK",
+   "zoom pill show/hide: OK",
+   "Cmd+B sidebar toggle 256->0->256: OK",
+   "tab click switch w1:t1->w1:t4, workspace row click w1->w2: OK",
+   "pane/tab/workspace D&D + insert_index pre-removal semantics: verified earlier (PR #125)",
+   "terminal I/O bidirectional in Electron: insertText + key events + Enter reach pty, output renders (HT3RC_42)",
+   "agent status live: opencode launched in w2:p1 -> agent_status idle, Agents section + header badge",
+   "ghostty sync: palette applied (data-appearance=ghostty), background-image resolved to 5.1MB data URL and drawn (pixel diff proof)",
+   "restart persistence of tab order: verified earlier on ht3-rc"
+  ]
+ },
+ "notes": "Raw PNG captures are local-only (/tmp, docs/design/evidence/rc-*/). Windows 11 remains unverifiable from this machine (windows-wirt unresolvable). Terminal inner padding/rounding intentionally deferred per spec.",
+ "live_session_acceptance": {
+  "session": "~/Users/rebui/.config/herdr/herdr.sock (default live session, herdr 0.9.5)",
+  "topology": "6 workspaces / 10 panes / 6 agents (devin working/idle/done) at verification time",
+  "results": [
+   "GUI renders all live workspaces + Agents section with real agent_status (done/idle/working)",
+   "TUI/CLI -> GUI: 'herdr workspace create ht3-verify' appeared in sidebar within ~2.5s (events.subscribe push)",
+   "GUI -> TUI: workspace row click moved herdr focused_workspace_id wK9 -> wJC (verified via 'herdr api snapshot')",
+   "GUI -> pty: typed 'echo LIVEGUI_$((6*7))' + Enter in wK9:p1, 'herdr pane read' shows LIVEGUI_42",
+   "pty -> GUI: attach stream renders live pane output (opencode TUI verified on ht3-rc)",
+   "cleanup: ht3-verify workspace closed after verification; no live agent panes touched",
+   "app restart persistence: herdr owns pty/session; verified on ht3-rc restart earlier",
+   "unreachable/protocol-mismatch display: covered by machine-status UI from earlier milestones; live herdr was reachable throughout"
+  ],
+  "not_verified": "Windows 11 (windows-wirt unresolvable from this machine)"
+ }
+}

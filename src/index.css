@@ -55,6 +55,14 @@
   --workspace-gutter-start: calc(env(safe-area-inset-left) + var(--workspace-gutter));
   --workspace-gutter-end: calc(env(safe-area-inset-right) + var(--workspace-gutter));
 
+  /* Motion tokens (issue #115, docs/design/interaction.md §2): the single
+     duration/easing scale surfaces reference instead of ad-hoc values.
+     Color/opacity feedback stays on Tailwind's default transition
+     duration; these cover entrances, highlights and positional motion. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
   @variant sm {
     --workspace-gutter: 1.25rem;
   }
@@ -90,6 +98,7 @@
   --shadow-composer-dark: 0 14px 32px -18px rgb(0 0 0 / 75%);
   --color-zinc-25: oklch(99.2% 0 0);
   --animate-skeleton: skeleton 2.4s infinite;
+  --animate-notice-in: notice-in var(--motion-duration-fast) var(--motion-ease-standard);
 
   /* T3 appearance-contrast tokens: fall back to the base values (boost 0). */
   --contrast-foreground: var(--foreground);
@@ -168,6 +177,13 @@
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
 
   @keyframes skeleton {
     0%,
@@ -594,5 +610,21 @@
 
   @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
     background: var(--popover) !important;
+  }
+}
+
+/* Reduced motion (issue #115, docs/design/interaction.md §2): every
+   transition and animation collapses to an instant state change —
+   position and color switch immediately instead of animating. The
+   terminal cursor blink is JS-driven and unaffected (functional, not
+   decorative). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

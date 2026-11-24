@@ -20,8 +20,12 @@ import { WorkspaceHeader } from "./shell/WorkspaceHeader";
 import { WorkspaceCanvas } from "./shell/WorkspaceCanvas";
 import { SettingsModal } from "./shell/SettingsModal";
 import { CommandMenu } from "./shell/CommandMenu";
+import { NoticeToasts } from "./shell/NoticeToasts";
+import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
-import { initBridge } from "./shell/bridge";
+import { callRpc, ensureMachine, initBridge, selectWorkspace } from "./shell/bridge";
+import { onSnapshot } from "./lib/api";
+import type { SessionSnapshot } from "../shared/protocol";
 import { isElectron } from "./lib/env";
 
 export default function App() {
@@ -32,12 +36,28 @@ export default function App() {
   useEffect(() => {
     initRouter();
     const disconnectBridge = initBridge();
+    // Attention toasts (issue #113): diff each machine's pushed snapshots
+    // for agent blocked/done transitions. The first snapshot per machine
+    // is a baseline and never notifies.
+    const previous = new Map<string, SessionSnapshot>();
+    const offAttention = onSnapshot((snapshot, machine) => {
+      observeSnapshotAttention(machine, previous.get(machine) ?? null, snapshot, {
+        focusAgent: (m, workspaceId, paneId) => {
+          selectWorkspace(m, workspaceId);
+          void ensureMachine(m).then(() =>
+            callRpc(m, "pane.focus", { pane_id: paneId }).catch(() => {}),
+          );
+        },
+      });
+      previous.set(machine, snapshot);
+    });
     initAppearance();
     const offAppearance = onAppearanceChange(() =>
       setAppearance(getAppearanceMode()),
     );
     return () => {
       disconnectBridge();
+      offAttention();
       offAppearance();
     };
   }, []);
@@ -74,6 +94,7 @@ export default function App() {
         </SidebarInset>
         {isSettingsOpen ? <SettingsModal /> : null}
         <CommandMenu open={paletteOpen} onOpenChange={setPaletteOpen} />
+        <NoticeToasts />
       </AppShell>
     </TooltipProvider>
   );

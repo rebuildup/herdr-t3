@@ -7,7 +7,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import { machineAdd, machineRemove, machineUpdate, ApiError } from "../lib/api";
 import type { MachineInfo } from "../../shared/protocol";
 
@@ -95,50 +103,56 @@ export function MachineDialog({
   return (
     <Dialog open={state !== null} onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent>
-        <DialogTitle>{state ? titles[state.mode] : ""}</DialogTitle>
-        <DialogDescription>{state ? descriptions[state.mode] : ""}</DialogDescription>
-        {state?.mode === "add" ? (
-          <div className="mb-4 flex flex-col gap-2">
+        <DialogHeader>
+          <DialogTitle>{state ? titles[state.mode] : ""}</DialogTitle>
+          <DialogDescription>{state ? descriptions[state.mode] : ""}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <div className="flex flex-col gap-3">
+          {state?.mode === "add" ? (
+            <>
+              <Input
+                ref={inputRef}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Label (e.g. Workstation)"
+                aria-label="Machine label"
+              />
+              <Input
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                placeholder="Target (user@host or ssh alias)"
+                aria-label="SSH target"
+              />
+              <Input
+                value={session}
+                onChange={(e) => setSession(e.target.value)}
+                placeholder="Remote session (optional)"
+                aria-label="Remote herdr session"
+              />
+            </>
+          ) : state?.mode === "rename" ? (
             <Input
               ref={inputRef}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Label (e.g. Workstation)"
+              className="w-full"
               aria-label="Machine label"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit();
+                if (e.key === "Escape") onClose();
+              }}
             />
-            <Input
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              placeholder="Target (user@host or ssh alias)"
-              aria-label="SSH target"
-            />
-            <Input
-              value={session}
-              onChange={(e) => setSession(e.target.value)}
-              placeholder="Remote session (optional)"
-              aria-label="Remote herdr session"
-            />
+          ) : state?.mode === "remove" ? (
+            <p className="text-sm text-muted-foreground">
+              Remove <span className="font-medium text-foreground">{machine?.label}</span>
+              {machine?.target ? ` (${machine.target})` : ""}?
+            </p>
+          ) : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
           </div>
-        ) : state?.mode === "rename" ? (
-          <Input
-            ref={inputRef}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className="mb-4 w-full"
-            aria-label="Machine label"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-              if (e.key === "Escape") onClose();
-            }}
-          />
-        ) : state?.mode === "remove" ? (
-          <p className="mb-4 text-sm text-muted-foreground">
-            Remove <span className="font-medium text-foreground">{machine?.label}</span>
-            {machine?.target ? ` (${machine.target})` : ""}?
-          </p>
-        ) : null}
-        {error ? <p className="mb-3 text-xs text-destructive">{error}</p> : null}
-        <div className="flex justify-end gap-2">
+        </DialogPanel>
+        <DialogFooter>
           <Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
@@ -156,7 +170,7 @@ export function MachineDialog({
                   ? "Rename"
                   : "Remove"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

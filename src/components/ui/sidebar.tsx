@@ -36,7 +36,7 @@ import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState
 import { announceSidebarVisibility } from "~/lib/accessibility";
 
 const SIDEBAR_WIDTH = "16rem";
-const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing) * 3)";
+const SIDEBAR_WIDTH_MOBILE = "min(288px, 85vw)";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
 const SIDEBAR_TITLEBAR_CONTROL_SIZE = "max-sm:[--workspace-titlebar-control-size:--spacing(8)]";
@@ -353,7 +353,8 @@ function Sidebar({
             data-mobile="true"
             data-sidebar="sidebar"
             data-slot="sidebar"
-            showCloseButton={false}
+            showCloseButton
+            backdropClassName="bg-black/50"
             side={side}
             style={
               {
@@ -766,7 +767,7 @@ const sidebarMenuButtonVariants = cva(
     variants: {
       size: {
         default:
-          "h-8 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-sm",
+          "h-8 pointer-coarse:h-11 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-sm",
         icon: "size-8 justify-center rounded-[var(--control-radius)] p-0",
         lg: "h-12 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-2 text-sm group-data-[collapsible=icon]:p-0!",
         sm: "h-7 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-2 text-xs",
@@ -794,7 +795,14 @@ function SidebarMenuButton({
   const { isMobile, state } = useSidebar();
 
   const defaultProps = {
-    className: cn(sidebarMenuButtonVariants({ size, variant }), className),
+    className: cn(
+      sidebarMenuButtonVariants({ size, variant }),
+      // Inside the mobile sheet every row is a touch target: ≥44px
+      // regardless of pointer type so narrow fine-pointer captures and
+      // hybrid devices get the same affordance (issue #128).
+      isMobile && size !== "lg" && (size === "icon" ? "size-11" : "h-11"),
+      className,
+    ),
     "data-active": isActive,
     "data-sidebar": "menu-button",
     "data-size": size,

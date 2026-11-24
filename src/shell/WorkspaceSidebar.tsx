@@ -5,13 +5,17 @@
  * configured, flat list otherwise (app-shell.md §2). Mutations go through
  * whitelisted herdr RPC; snapshots pushed by the bridge update the UI.
  */
-import { Fragment, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   MonitorIcon,
+  MousePointerClickIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   SquarePenIcon,
+  UnplugIcon,
+  WifiIcon,
   WifiOffIcon,
   XIcon,
 } from "lucide-react";
@@ -33,20 +37,29 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { getGeneralSettings } from "~/lib/settings";
 import { machineConnect, machineDisconnect } from "~/lib/api";
-import type { MachineInfo, WorkspaceInfo } from "../../shared/protocol";
+import type { AgentInfo, MachineInfo, WorkspaceInfo } from "../../shared/protocol";
 import { workspaceTitle } from "~/lib/workspace";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
+  ensureMachine,
   machineListOf,
   newWorkspace,
   selectWorkspace,
   useBridgeState,
 } from "./bridge";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
+import { useWorkspaceBranch, useWorkspaceBranchIndex } from "./worktrees";
 import { LOCAL_MACHINE } from "~/lib/api";
 
 interface RenameState {
@@ -111,7 +124,8 @@ function WorkspaceRow({
   onClose: () => void;
 }) {
   const machineLabel = inFolder ? undefined : machine.label;
-  const title = workspaceTitle(workspace);
+  const branch = useWorkspaceBranch(machine.id, workspace.workspace_id);
+  const title = workspaceTitle(workspace, branch);
 
   const rowButton = (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite control, same exception as T3's thread rows
@@ -126,7 +140,11 @@ function WorkspaceRow({
           : "px-[var(--sidebar-row-content-inset)]",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         isActive &&
-          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
+          // Tinted neutral fill, no ring: a white bordered card on the
+          // zinc-50 sidebar read as a floating box in light mode, and a
+          // bare accent tint was too faint — foreground/6% keeps figure-
+          // ground separation in both themes (issue #128).
+          "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
@@ -136,6 +154,11 @@ function WorkspaceRow({
         {title}
       </span>
       <span className="flex shrink-0 items-center gap-2">
+        {branch && title !== branch ? (
+          <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+            {branch}
+          </span>
+        ) : null}
         {machineLabel ? (
           <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
             {machineLabel}
@@ -155,7 +178,7 @@ function WorkspaceRow({
         <ContextMenuItem
           onSelect={() => selectWorkspace(machine.id, workspace.workspace_id)}
         >
-          Focus
+          <MousePointerClickIcon /> Focus
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() =>
@@ -169,11 +192,15 @@ function WorkspaceRow({
             )
           }
         >
-          Rename…
+          <PencilIcon /> Rename…
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onNewWorkspace}>New workspace here</ContextMenuItem>
+        <ContextMenuItem onSelect={onNewWorkspace}>
+          <SquarePenIcon /> New workspace here
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onClose}>Close</ContextMenuItem>
+        <ContextMenuItem destructive onSelect={onClose}>
+          <XIcon /> Close
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -209,7 +236,12 @@ function MachineFolderHeader({
             ) : (
               <MonitorIcon className="size-4 shrink-0 text-sidebar-muted-foreground" />
             )}
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm font-medium",
+                offline ? "text-sidebar-muted-foreground" : "text-sidebar-foreground/90",
+              )}
+            >
               {machine.label}
             </span>
             {collapsed ? (
@@ -217,13 +249,18 @@ function MachineFolderHeader({
                 {count}
               </span>
             ) : null}
-            <ChevronDownIcon
-              aria-hidden
-              className={cn(
-                "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
-                collapsed && "-rotate-90",
-              )}
-            />
+            {/* An expanded group with zero workspaces has nothing to
+                disclose — hide the chevron instead of implying content
+                (issue #130). */}
+            {collapsed || count > 0 ? (
+              <ChevronDownIcon
+                aria-hidden
+                className={cn(
+                  "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+                  collapsed && "-rotate-90",
+                )}
+              />
+            ) : null}
           </button>
           <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
             <Tooltip>
@@ -246,19 +283,91 @@ function MachineFolderHeader({
         <ContextMenuContent>
           {offline ? (
             <ContextMenuItem onSelect={() => machineConnect(machine.id)}>
-              Connect
+              <WifiIcon /> Connect
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onSelect={() => machineDisconnect(machine.id)}>
-              Disconnect
+              <UnplugIcon /> Disconnect
             </ContextMenuItem>
           )}
           <ContextMenuItem onSelect={onNewWorkspace}>
-            New workspace here
+            <SquarePenIcon /> New workspace here
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     </li>
+  );
+}
+
+/** herdr agent_sidebar parity (issue #113): status-priority ordering. */
+const AGENT_STATUS_RANK: Record<string, number> = {
+  blocked: 0,
+  working: 1,
+  done: 2,
+  idle: 3,
+};
+
+function agentRank(status: string): number {
+  return AGENT_STATUS_RANK[status] ?? 4;
+}
+
+function agentLabel(agent: AgentInfo): string {
+  return agent.name ?? agent.display_agent ?? agent.agent ?? "agent";
+}
+
+interface AgentListEntry {
+  machine: MachineInfo;
+  agent: AgentInfo;
+  workspace: WorkspaceInfo | undefined;
+  workspaceTitle: string;
+}
+
+/**
+ * One agent row in the Agents section. Clicking jumps to the agent's
+ * workspace and focuses its pane (`pane.focus` resolves across tabs and
+ * workspaces in herdr), mirroring the TUI agent sidebar's click-to-focus.
+ */
+function AgentRow({ entry, multiMachine }: { entry: AgentListEntry; multiMachine: boolean }) {
+  const { machine, agent } = entry;
+  const label = agentLabel(agent);
+  const stateLabel = Object.values(agent.state_labels ?? {}).find(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  return (
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite list, same exception as workspace rows
+    <button
+      type="button"
+      data-sidebar-row={agent.pane_id}
+      onClick={() => {
+        selectWorkspace(machine.id, agent.workspace_id);
+        void ensureMachine(machine.id).then(() =>
+          callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
+        );
+      }}
+      className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-0 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {statusIcon(agent.agent_status)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+        {label}
+        {stateLabel ? (
+          <span className="text-sidebar-muted-foreground"> · {stateLabel}</span>
+        ) : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {/* Metadata stays visible in the ~288px mobile sheet too — the
+            lg:inline gate left six identical agent rows (issue #142). */}
+        <span className="max-w-28 truncate text-2xs text-sidebar-muted-foreground">
+          {entry.workspaceTitle}
+        </span>
+        {multiMachine ? (
+          <span className="max-w-20 truncate text-2xs text-sidebar-muted-foreground">
+            {machine.label}
+          </span>
+        ) : null}
+      </span>
+    </button>
   );
 }
 
@@ -270,6 +379,12 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const [rename, setRename] = useState<RenameState | null>(null);
   const [confirmClose, setConfirmClose] = useState<{ machine: string; workspace: WorkspaceInfo } | null>(null);
   const searching = query.trim().length > 0;
+  const branchIndex = useWorkspaceBranchIndex();
+  // Workspace drag-reorder (issue #111): HTML5 drag on each row, drop maps
+  // to herdr `workspace.move {workspace_id, insert_index}` within the same
+  // machine's ordered workspace list. Disabled while search-filtered.
+  const [wsDrag, setWsDrag] = useState<{ machine: string; id: string } | null>(null);
+  const [wsDrop, setWsDrop] = useState<{ key: string; side: "before" | "after" } | null>(null);
 
   const machines = machineListOf(bridge);
 
@@ -292,13 +407,79 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     const all: { machine: MachineInfo; workspace: WorkspaceInfo }[] = [];
     for (const m of machines) {
       for (const ws of workspacesByMachine.get(m.id) ?? []) {
-        if (!q || workspaceTitle(ws).toLowerCase().includes(q) || ws.workspace_id.toLowerCase().includes(q)) {
+        const branch = branchIndex.get(`${m.id}\n${ws.workspace_id}`);
+        if (
+          !q ||
+          workspaceTitle(ws, branch).toLowerCase().includes(q) ||
+          ws.workspace_id.toLowerCase().includes(q)
+        ) {
           all.push({ machine: m, workspace: ws });
         }
       }
     }
     return all;
-  }, [machines, workspacesByMachine, query]);
+  }, [machines, workspacesByMachine, query, branchIndex]);
+
+  // Per-machine ordered id lists for drop-index math (flat mode only —
+  // grouped mode uses each folder's own `workspaces` array).
+  const flatIdsByMachine = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const f of filtered) {
+      const list = map.get(f.machine.id) ?? [];
+      list.push(f.workspace.workspace_id);
+      map.set(f.machine.id, list);
+    }
+    return map;
+  }, [filtered]);
+
+  const wsDragEnabled = !searching;
+  const wsDragProps = (
+    machineId: string,
+    wsId: string,
+    orderedIds: string[],
+    index: number,
+    key: string,
+  ) => ({
+    draggable: wsDragEnabled,
+    onDragStart: (e: DragEvent) => {
+      setWsDrag({ machine: machineId, id: wsId });
+      e.dataTransfer.setData("text/plain", wsId);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!wsDrag || wsDrag.machine !== machineId || wsDrag.id === wsId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = e.currentTarget.getBoundingClientRect();
+      setWsDrop({
+        key,
+        side: e.clientY < rect.top + rect.height / 2 ? "before" : "after",
+      });
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      const drag = wsDrag;
+      const side = wsDrop?.key === key ? wsDrop.side : "before";
+      setWsDrag(null);
+      setWsDrop(null);
+      if (!drag || drag.machine !== machineId || drag.id === wsId) return;
+      const from = orderedIds.indexOf(drag.id);
+      if (from < 0) return;
+      const to = index + (side === "after" ? 1 : 0);
+      // herdr `insert_index` is a pre-removal insertion point (the item
+      // lands before the element currently at that index; `length`
+      // appends). Adjacent drops are no-ops. Verified on herdr 0.9.5.
+      if (to === from || to === from + 1) return;
+      void callRpc(machineId, "workspace.move", {
+        workspace_id: drag.id,
+        insert_index: to,
+      });
+    },
+    onDragEnd: () => {
+      setWsDrag(null);
+      setWsDrop(null);
+    },
+  });
 
   const grouped = !searching && machines.length > 1;
   const activeWorkspaceId = view.workspace?.workspace_id ?? null;
@@ -328,6 +509,33 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     (n, m) => n + (workspacesByMachine.get(m.id)?.length ?? 0),
     0,
   );
+
+  // Agents section (issue #113, herdr agent_sidebar parity): every agent
+  // across live machines, ordered by attention — blocked first, matching
+  // herdr's status-priority sort. Hidden while searching and on stale
+  // machines whose snapshot is last-known state.
+  const agents = useMemo<AgentListEntry[]>(() => {
+    const list: AgentListEntry[] = [];
+    for (const m of machines) {
+      if (machineStale(m)) continue;
+      const snap = bridge.snapshots[m.id];
+      if (!snap) continue;
+      const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
+      for (const a of snap.agents) {
+        const ws = wsById.get(a.workspace_id);
+        const branch = ws ? branchIndex.get(`${m.id}\n${ws.workspace_id}`) : undefined;
+        list.push({
+          machine: m,
+          agent: a,
+          workspace: ws,
+          workspaceTitle: ws ? workspaceTitle(ws, branch) : a.workspace_id,
+        });
+      }
+    }
+    return list.sort(
+      (x, y) => agentRank(x.agent.agent_status) - agentRank(y.agent.agent_status),
+    );
+  }, [machines, bridge.snapshots, branchIndex]);
 
   return (
     <SidebarContent
@@ -425,9 +633,36 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                       onNewWorkspace={() => newWorkspaceOn(machine.id)}
                     />
                     {!collapsed
-                      ? workspaces.map((ws) => (
-                          <li key={ws.workspace_id} className="list-none">
-                            <WorkspaceRow
+                      ? workspaces.map((ws, wsIndex) => {
+                          const orderedIds = workspaces.map((w) => w.workspace_id);
+                          const key = `${machine.id}:${ws.workspace_id}`;
+                          const dropSide = wsDrop?.key === key ? wsDrop.side : null;
+                          return (
+                            <li
+                              key={ws.workspace_id}
+                              className={cn(
+                                "relative list-none",
+                                wsDrag?.machine === machine.id &&
+                                  wsDrag.id === ws.workspace_id &&
+                                  "opacity-60",
+                              )}
+                              {...wsDragProps(
+                                machine.id,
+                                ws.workspace_id,
+                                orderedIds,
+                                wsIndex,
+                                key,
+                              )}
+                            >
+                              {dropSide ? (
+                                <span
+                                  className={cn(
+                                    "absolute left-0 top-0 h-0.5 w-full bg-primary",
+                                    dropSide === "after" && "top-auto bottom-0",
+                                  )}
+                                />
+                              ) : null}
+                              <WorkspaceRow
                               machine={machine}
                               workspace={ws}
                               isActive={
@@ -440,32 +675,81 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                                 setRename({ target, machine: machineId })
                               }
                               onClose={() => requestClose(machine, ws)}
-                            />
-                          </li>
-                        ))
+                              />
+                            </li>
+                          );
+                        })
                       : null}
                   </Fragment>
                 );
               })
-            : filtered.map(({ machine, workspace }) => (
-                <li key={`${machine.id}:${workspace.workspace_id}`} className="list-none">
-                  <WorkspaceRow
-                    machine={machine}
-                    workspace={workspace}
-                    isActive={
-                      workspace.workspace_id === activeWorkspaceId &&
-                      machine.id === activeMachineId
-                    }
-                    onNewWorkspace={() => newWorkspaceOn(machine.id)}
-                    onRename={(target, machineId) =>
-                      setRename({ target, machine: machineId })
-                    }
-                    onClose={() => requestClose(machine, workspace)}
-                  />
-                </li>
-              ))}
+            : filtered.map(({ machine, workspace }) => {
+                const key = `${machine.id}:${workspace.workspace_id}`;
+                const orderedIds = flatIdsByMachine.get(machine.id) ?? [];
+                const wsIndex = orderedIds.indexOf(workspace.workspace_id);
+                const dropSide = wsDrop?.key === key ? wsDrop.side : null;
+                return (
+                  <li
+                    key={key}
+                    className={cn(
+                      "relative list-none",
+                      wsDrag?.machine === machine.id &&
+                        wsDrag.id === workspace.workspace_id &&
+                        "opacity-60",
+                    )}
+                    {...wsDragProps(
+                      machine.id,
+                      workspace.workspace_id,
+                      orderedIds,
+                      wsIndex,
+                      key,
+                    )}
+                  >
+                    {dropSide ? (
+                      <span
+                        className={cn(
+                          "absolute left-0 top-0 h-0.5 w-full bg-primary",
+                          dropSide === "after" && "top-auto bottom-0",
+                        )}
+                      />
+                    ) : null}
+                    <WorkspaceRow
+                      machine={machine}
+                      workspace={workspace}
+                      isActive={
+                        workspace.workspace_id === activeWorkspaceId &&
+                        machine.id === activeMachineId
+                      }
+                      onNewWorkspace={() => newWorkspaceOn(machine.id)}
+                      onRename={(target, machineId) =>
+                        setRename({ target, machine: machineId })
+                      }
+                      onClose={() => requestClose(machine, workspace)}
+                    />
+                  </li>
+                );
+              })}
         </ul>
       </SidebarGroup>
+      {!searching && agents.length > 0 ? (
+        <div className="mt-1 border-t border-sidebar-border/60 pt-1">
+        <SidebarGroup>
+          <div className="px-2 pb-1 text-2xs font-medium text-sidebar-muted-foreground">
+            Agents
+          </div>
+          <ul className="relative flex flex-col gap-px" role="list">
+            {agents.map((entry) => (
+              <li
+                key={`${entry.machine.id}:${entry.agent.pane_id}`}
+                className="list-none"
+              >
+                <AgentRow entry={entry} multiMachine={machines.length > 1} />
+              </li>
+            ))}
+          </ul>
+        </SidebarGroup>
+        </div>
+      ) : null}
       <RenameDialog
         target={rename?.target ?? null}
         machine={rename?.machine ?? LOCAL_MACHINE}
@@ -473,14 +757,16 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       />
       <Dialog open={confirmClose !== null} onOpenChange={(open) => !open && setConfirmClose(null)}>
         <DialogContent>
-          <DialogTitle>Close workspace</DialogTitle>
-          <DialogDescription>
-            “{confirmClose ? workspaceTitle(confirmClose.workspace) : ""}” still has{" "}
-            {confirmClose?.workspace.pane_count ?? 0} pane
-            {(confirmClose?.workspace.pane_count ?? 0) === 1 ? "" : "s"}. Closing it ends those
-            sessions on the machine.
-          </DialogDescription>
-          <div className="flex justify-end gap-2">
+          <DialogHeader>
+            <DialogTitle>Close workspace</DialogTitle>
+            <DialogDescription>
+              “{confirmClose ? workspaceTitle(confirmClose.workspace) : ""}” still has{" "}
+              {confirmClose?.workspace.pane_count ?? 0} pane
+              {(confirmClose?.workspace.pane_count ?? 0) === 1 ? "" : "s"}. Closing it ends those
+              sessions on the machine.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button size="sm" variant="ghost" onClick={() => setConfirmClose(null)}>
               Cancel
             </Button>
@@ -499,7 +785,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             >
               Close workspace
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </SidebarContent>

@@ -18,6 +18,8 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
+import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
+import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
 import type { EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
 
 export interface GhosttySurfaceOptions {
@@ -38,9 +40,20 @@ export interface GhosttySurfaceOptions {
   onResize?(cols: number, rows: number): void;
   /** the session's engine trapped or failed: the host decides whether to reattach */
   onDead?(error: unknown): void;
+  /** accessible name for the hidden input that owns keyboard focus */
+  ariaLabel?: string;
 }
 
 interface CellMetrics { cols: number; rows: number; cellW: number; cellH: number }
+
+/** a `background-image` the host resolved to a loadable URL (issue #108) */
+export interface GhosttySurfaceBackgroundImage {
+  src: string;
+  opacity: number;
+  position: GhosttyBackgroundImagePosition;
+  fit: GhosttyBackgroundImageFit;
+  repeat: boolean;
+}
 
 /** wheel pixels per scroll line, roughly a mouse notch */
 const WHEEL_PIXELS_PER_LINE = 40;
@@ -67,6 +80,8 @@ export class GhosttySurface {
   private lastViewportTop: number | null = null;
   /** set by scrollTo: the next tick's viewport jump is the user's scroll, not new output */
   private scrollJump = false;
+  /** invalidates in-flight background-image loads so a stale spec cannot win */
+  private backgroundToken = 0;
   private disposed = false;
   private dead = false;
 
@@ -86,7 +101,7 @@ export class GhosttySurface {
     });
     this.input = document.createElement("textarea");
     this.input.className = "ghostty-input";
-    this.input.setAttribute("aria-label", "terminal input");
+    this.input.setAttribute("aria-label", options.ariaLabel ?? "terminal input");
     this.input.autocomplete = "off";
     this.input.autocapitalize = "off";
     this.input.setAttribute("autocorrect", "off");
@@ -148,6 +163,33 @@ export class GhosttySurface {
     this.schedule();
   }
 
+  /**
+   * The viewport cell under a client point, in ghostty viewport coordinates
+   * (col 0..cols-1, row 0..rows-1 of the *visible* viewport — the same space
+   * herdr's `pane.link.*` RPCs address via `ghostty_viewport_point`, so row 0
+   * is the top of the screen even when scrolled into history). Returns null
+   * outside the grid.
+   */
+  cellAtClientPoint(clientX: number, clientY: number): { col: number; row: number } | null {
+    const m = this.metrics;
+    if (!m) return null;
+    const rect = this.root.getBoundingClientRect();
+    const col = Math.floor((clientX - rect.left) / m.cellW);
+    const row = Math.floor((clientY - rect.top) / m.cellH);
+    if (col < 0 || col >= m.cols || row < 0 || row >= m.rows) return null;
+    return { col, row };
+  }
+
+  /** pointer cursor while the host reports a hoverable link under the pointer */
+  setLinkHover(on: boolean): void {
+    this.root.classList.toggle("is-link", on);
+  }
+
+  /** keep the input's accessible name in sync with the pane's current title */
+  setAriaLabel(label: string): void {
+    this.input.setAttribute("aria-label", label);
+  }
+
   scrollBy(lines: number): void {
     this.scrollTo(this.scrollOffset + lines);
   }
@@ -191,6 +233,46 @@ export class GhosttySurface {
     this.options.colors = colors;
     this.applyColors();
     this.schedule();
+  }
+
+  /** `background-opacity` from the Ghostty config (issue #108) */
+  setBackgroundOpacity(alpha: number): void {
+    this.renderer.setBackgroundOpacity(alpha);
+    this.schedule();
+  }
+
+  /**
+   * A `background-image` resolved to a URL (typically a data URL from the
+   * main process). The image loads asynchronously; a newer call or dispose
+   * cancels an in-flight load. `null` clears the image and falls back to the
+   * plain background color.
+   */
+  setBackgroundImage(spec: GhosttySurfaceBackgroundImage | null): void {
+    const token = ++this.backgroundToken;
+    if (!spec) {
+      this.renderer.setBackgroundImage(null);
+      this.schedule();
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      if (this.disposed || token !== this.backgroundToken) return;
+      const resolved: GhosttyBackgroundImageSpec = {
+        image,
+        opacity: spec.opacity,
+        position: spec.position,
+        fit: spec.fit,
+        repeat: spec.repeat,
+      };
+      this.renderer.setBackgroundImage(resolved);
+      this.schedule();
+    };
+    image.onerror = () => {
+      if (this.disposed || token !== this.backgroundToken) return;
+      this.renderer.setBackgroundImage(null);
+      this.schedule();
+    };
+    image.src = spec.src;
   }
 
   setReadOnly(readOnly: boolean): void {
@@ -345,6 +427,12 @@ export class GhosttySurface {
     this.root.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.root.addEventListener("pointerup", (event) => this.pointerUp(event));
     this.root.addEventListener("pointercancel", () => { this.drag = null; });
+    // The mousedown default action moves focus to the element under the
+    // pointer — body here, since the textarea is click-through — which would
+    // undo the pointerdown focus and leave every keystroke unreachable
+    // (issue #104). Selection and mouse reports already run on pointer
+    // events, and listeners (pane.focus) still fire; only the default is off.
+    this.root.addEventListener("mousedown", (event) => event.preventDefault());
     this.root.addEventListener("wheel", (event) => this.wheel(event), { passive: false });
     this.root.addEventListener("contextmenu", (event) => event.preventDefault());
     this.input.addEventListener("keydown", (event) => this.keyDown(event));

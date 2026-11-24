@@ -8,6 +8,8 @@
 import {
   Columns2,
   EllipsisIcon,
+  GitBranchIcon,
+  InfoIcon,
   Maximize2,
   MessageSquareTextIcon,
   Minimize2,
@@ -20,6 +22,7 @@ import {
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { focusPaneTerminal } from "~/lib/paneFocus";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import {
@@ -39,12 +42,15 @@ import {
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentStatusBadge } from "~/components/AgentStatusBadge";
+import { AgentStatusBadge, isKnownAgentStatus, PaneStatusDetail } from "~/components/AgentStatusBadge";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc } from "./bridge";
+import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
+import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -84,8 +90,15 @@ export function WorkspaceHeader() {
   const { workspace, tabs, activeTab, tabPanes, layout, focusedPane } = view;
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
+  // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
+  // the drop maps to herdr `tab.move {tab_id, insert_index}`.
+  const [tabDragId, setTabDragId] = useState<string | null>(null);
+  const [tabDrop, setTabDrop] = useState<{ index: number; side: "before" | "after" } | null>(null);
+  const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
     callRpc(machine, method, params);
@@ -103,6 +116,14 @@ export function WorkspaceHeader() {
   }
 
   const focusedTitle = focusedPane ? paneTitle(focusedPane) : "pane";
+  // Pane actions return focus to the terminal afterwards (issue #128):
+  // the deferred focus wins over the menu's own restoration to the trigger.
+  const paneAct = (fn: () => void) => () => {
+    fn();
+    setTimeout(() => focusPaneTerminal(), 0);
+  };
+  const wsTitle = workspaceTitle(workspace, branch);
+  const wsDisplay = branch && wsTitle !== branch ? `${wsTitle} · ${branch}` : wsTitle;
   const paneCount = tabPanes.length;
   const commitTabRename = (tab: TabInfo) => {
     setRenamingTab(null);
@@ -135,7 +156,7 @@ export function WorkspaceHeader() {
           <WorkspaceBreadcrumbSeparator />
           <WorkspaceBreadcrumbItem current>
             <WorkspaceBreadcrumbText>
-              <MiddleTruncate value={workspaceTitle(workspace)} />
+              <MiddleTruncate value={wsDisplay} />
             </WorkspaceBreadcrumbText>
           </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
@@ -145,20 +166,62 @@ export function WorkspaceHeader() {
             The new-tab action sits outside the scroller so it never slides
             out of view on narrow widths. */}
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {/* Hairline separating the workspace breadcrumb from the tab
+              strip — at narrow widths the two read as one run without it
+              (issue #130). */}
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border/60" />
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-            {tabs.map((t) => {
+            {tabs.map((t, tabIndex) => {
               const selected = t.tab_id === activeTab.tab_id;
               const label = t.label || `Tab ${t.number}`;
+              const dropHere = tabDrop?.index === tabIndex ? tabDrop.side : null;
               return (
                 <div
                   key={t.tab_id}
+                  draggable={renamingTab !== t.tab_id}
+                  onDragStart={(e) => {
+                    setTabDragId(t.tab_id);
+                    e.dataTransfer.setData("text/plain", t.tab_id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    if (!tabDragId || tabDragId === t.tab_id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setTabDrop({
+                      index: tabIndex,
+                      side: e.clientX < rect.left + rect.width / 2 ? "before" : "after",
+                    });
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const dragId = tabDragId ?? e.dataTransfer.getData("text/plain");
+                    const side = dropHere ?? "before";
+                    setTabDragId(null);
+                    setTabDrop(null);
+                    if (!dragId || dragId === t.tab_id) return;
+                    const from = tabs.findIndex((x) => x.tab_id === dragId);
+                    if (from < 0) return;
+                    const to = tabIndex + (side === "after" ? 1 : 0);
+                    // herdr `insert_index` is a pre-removal insertion point:
+                    // the tab lands before the element currently at that index
+                    // (`tabs.length` appends). Adjacent drops are no-ops.
+                    // Verified against herdr 0.9.5 (issue #115).
+                    if (to === from || to === from + 1) return;
+                    void rpc("tab.move", { tab_id: dragId, insert_index: to });
+                  }}
+                  onDragEnd={() => {
+                    setTabDragId(null);
+                    setTabDrop(null);
+                  }}
                   className={cn(
                     "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    tabDragId === t.tab_id && "opacity-50",
                     // Reserve the hover-revealed close button's width so the
                     // label hit area can never overlap it (issue #94).
-                    selected ? "shrink-0 pe-8" : "",
                     selected
-                      ? "bg-accent text-foreground"
+                      ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
@@ -184,7 +247,7 @@ export function WorkspaceHeader() {
                         setTabDraft(label);
                         setRenamingTab(t.tab_id);
                       }}
-                      className="flex min-w-0 items-center gap-1.5"
+                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
                       {statusIcon(t.agent_status)}
                       <span className="min-w-0 max-w-40 truncate">{label}</span>
@@ -195,12 +258,22 @@ export function WorkspaceHeader() {
                       size="icon-sm"
                       variant="ghost"
                       aria-label="Close tab"
-                      // oxlint-disable-next-line shadcn/no-restyle -- hover-reveal affordance; no Button variant covers group-hover opacity
-                      className="absolute right-0.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100"
+                      // Always visible on the active tab: the reserved width
+                      // must not read as dead space without an affordance
+                      // (issue #128).
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2"
                       onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
                     >
                       <XIcon className="size-3" />
                     </Button>
+                  ) : null}
+                  {dropHere ? (
+                    <span
+                      className={cn(
+                        "absolute top-0 h-full w-0.5 rounded-full bg-primary",
+                        dropHere === "before" ? "-left-0.5" : "-right-0.5",
+                      )}
+                    />
                   ) : null}
                 </div>
               );
@@ -222,77 +295,117 @@ export function WorkspaceHeader() {
         {/* Focused pane summary + actions. Shrinks (label truncates) before
             the tab strip does, so narrow widths keep tabs readable. */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
-          <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden">
-            <span className="flex min-w-0 items-center gap-1.5">
-              {focusedPane ? statusIcon(focusedPane.agent_status) : null}
-              <span className="truncate">
-                {focusedTitle}
-                {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+              }
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate">
+                  {focusedTitle}
+                  {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
+                </span>
               </span>
-            </span>
-            {focusedPane ? <AgentStatusBadge status={focusedPane.agent_status} /> : null}
-          </div>
+              {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
+                <AgentStatusBadge status={focusedPane.agent_status} />
+              ) : null}
+            </TooltipTrigger>
+            {focusedPane ? (
+              <TooltipPopup side="bottom" className="max-w-64">
+                <PaneStatusDetail pane={focusedPane} />
+              </TooltipPopup>
+            ) : null}
+          </Tooltip>
+          {zoomed ? (
+            <Button
+              variant="secondary"
+              size="compact"
+              aria-label="Unzoom pane"
+              onClick={() =>
+                focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id })
+              }
+            >
+              <Minimize2 className="size-3.5" />
+              <span className="max-sm:hidden">Zoomed</span>
+            </Button>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button size="icon-sm" variant="ghost" aria-label="Pane actions" />}
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Pane actions"
+                  // Neutral focus ring: the default blue ring read as a
+                  // stuck highlight after menu actions (issue #128).
+                  // oxlint-disable-next-line shadcn/no-restyle -- no variant provides a non-ring focus treatment
+                  className="focus-visible:ring-1 focus-visible:ring-foreground/30"
+                />
+              }
             >
               <EllipsisIcon className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="content">
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.split", {
-                    direction: "right",
-                    target_pane_id: focusedPane.pane_id,
-                    focus: true,
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "right",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
                 disabled={!focusedPane}
               >
                 <Columns2 /> Split right
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.split", {
-                    direction: "down",
-                    target_pane_id: focusedPane.pane_id,
-                    focus: true,
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "down",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
                 disabled={!focusedPane}
               >
                 <Rows2 /> Split down
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.swap", {
-                    pane_id: focusedPane.pane_id,
-                    direction: "right",
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.swap", {
+                      pane_id: focusedPane.pane_id,
+                      direction: "right",
+                    }),
+                )}
                 disabled={!focusedPane || paneCount < 2}
               >
                 <SquareSplitHorizontalIcon /> Swap pane
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={focusNextPane} disabled={paneCount < 2}>
+              <DropdownMenuItem onClick={paneAct(focusNextPane)} disabled={paneCount < 2}>
                 <Columns2 /> Focus next pane
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane && void rpc("pane.close", { pane_id: focusedPane.pane_id })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane && void rpc("pane.close", { pane_id: focusedPane.pane_id }),
+                )}
                 disabled={!focusedPane}
               >
                 <XIcon /> Close pane
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id }),
+                )}
                 disabled={!focusedPane}
               >
                 {zoomed ? <Minimize2 /> : <Maximize2 />}
@@ -326,7 +439,16 @@ export function WorkspaceHeader() {
                 <MessageSquareTextIcon />
                 {focusedPane?.agent ? "Prompt agent…" : "Send text to pane…"}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => focusedPane && setDetailsPane(focusedPane)}
+                disabled={!focusedPane}
+              >
+                <InfoIcon /> Details…
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
+                <GitBranchIcon /> Worktrees…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
               </DropdownMenuItem>
@@ -344,6 +466,18 @@ export function WorkspaceHeader() {
         machine={machine}
         onClose={() => setMessagePane(null)}
       />
+      <PaneDetailsDialog
+        pane={detailsPane}
+        machine={machine}
+        onClose={() => setDetailsPane(null)}
+      />
+      {worktreesOpen ? (
+        <WorktreesDialog
+          machine={machine}
+          workspace={workspace}
+          onClose={() => setWorktreesOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

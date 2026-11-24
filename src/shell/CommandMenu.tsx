@@ -6,13 +6,17 @@
  */
 import {
   Columns2,
+  GitBranchIcon,
   Maximize2Icon,
   MonitorIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
+  SquareTerminalIcon,
   SunIcon,
   SquarePenIcon,
+  SquarePlusIcon,
+  SquareSplitHorizontalIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -27,11 +31,25 @@ import {
   CommandItem,
   CommandList,
   CommandPanel,
+  CommandShortcut,
 } from "~/components/ui/command";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronUpIcon,
+} from "lucide-react";
+import { isMacPlatform } from "~/lib/shortcuts";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
+import { GotoDialog } from "./GotoDialog";
+import { focusPaneTerminal } from "~/lib/paneFocus";
+import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
 import {
@@ -43,6 +61,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { machineStale, useRouteWorkspace } from "./view";
+import { useWorkspaceBranchIndex } from "./worktrees";
 
 interface PaletteAction {
   id: string;
@@ -50,10 +69,31 @@ interface PaletteAction {
   group: string;
   icon?: React.ReactNode;
   keywords?: string;
+  /** Right-aligned keyboard hint, matching T3's palette rows (issue #128). */
+  shortcut?: string | undefined;
+  /** Trailing drill-in chevron for items that open a nested surface. */
+  drillIn?: boolean;
+  /** After running, return keyboard focus to the snapshot-focused pane's
+      terminal — the palette unmount would otherwise drop it to <body>
+      (issue #130). */
+  refocusPane?: boolean;
   run: () => void;
 }
 
 const GROUP_ORDER = ["Actions", "Workspaces", "Machines", "Appearance"];
+
+// The pane-focus palette entries mirror the global ⌘+Arrow / Ctrl+Alt+Arrow
+// chord (issue #113); advertise the real binding, not a guessed one.
+const PANE_FOCUS_ARROWS: Record<string, string> = {
+  left: "←",
+  right: "→",
+  up: "↑",
+  down: "↓",
+};
+function paneFocusShortcut(direction: string): string {
+  const arrow = PANE_FOCUS_ARROWS[direction] ?? "";
+  return isMacPlatform() ? `⌘${arrow}` : `Ctrl+Alt+${arrow}`;
+}
 
 export function CommandMenu({
   open,
@@ -63,10 +103,13 @@ export function CommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const bridge = useBridgeState();
+  const branchIndex = useWorkspaceBranchIndex();
   const { machine, view } = useRouteWorkspace();
-  const { workspace, focusedPane, layout } = view;
+  const { workspace, tabs, activeTab, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
+  const [gotoOpen, setGotoOpen] = useState(false);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
 
   // Explicit Escape fallback: the footer advertises "Esc Close", so closing
   // must not depend solely on the dialog primitive's dismissal path (issue #94).
@@ -95,6 +138,9 @@ export function CommandMenu({
         group: "Actions",
         icon: <PanelLeftIcon className="size-4" />,
         keywords: "sidebar",
+        // ⌘B is macOS-only in AppShell's keydown handler; advertise only
+        // where the binding actually exists.
+        shortcut: isMacPlatform() ? "⌘B" : undefined,
         run: toggleSidebar,
       },
       {
@@ -105,15 +151,34 @@ export function CommandMenu({
         keywords: "preferences",
         run: () => navigate(settingsHash(null)),
       },
+      {
+        id: "goto",
+        label: "Go to workspace, tab or pane…",
+        group: "Actions",
+        icon: <SquareTerminalIcon className="size-4" />,
+        keywords: "jump navigate finder search agent pane tab workspace goto",
+        drillIn: true,
+        run: () => setGotoOpen(true),
+      },
     ];
     if (workspace) {
+      list.push({
+        id: "worktrees",
+        label: "Worktrees…",
+        group: "Actions",
+        icon: <GitBranchIcon className="size-4" />,
+        keywords: "git worktree branch checkout repo",
+        drillIn: true,
+        run: () => setWorktreesOpen(true),
+      });
       list.push(
         {
           id: "new-tab",
           label: "New tab",
           group: "Actions",
-          icon: <Columns2 className="size-4" />,
+          icon: <SquarePlusIcon className="size-4" />,
           keywords: "pane tab",
+          refocusPane: true,
           run: () =>
             void callRpc(machine, "tab.create", {
               workspace_id: workspace.workspace_id,
@@ -126,6 +191,7 @@ export function CommandMenu({
           group: "Actions",
           icon: <Columns2 className="size-4" />,
           keywords: "pane split",
+          refocusPane: true,
           run: () =>
             focusedPane &&
             void callRpc(machine, "pane.split", {
@@ -140,10 +206,123 @@ export function CommandMenu({
           group: "Actions",
           icon: <Maximize2Icon className="size-4" />,
           keywords: "pane zoom fullscreen",
+          refocusPane: true,
           run: () =>
             focusedPane && void callRpc(machine, "pane.zoom", { pane_id: focusedPane.pane_id }),
         },
       );
+      // Keyboard alternatives for the drag operations (issue #111):
+      // tab reorder, workspace reorder within its machine, pane swap.
+      // herdr `insert_index` is a pre-removal insertion point: the item
+      // lands before the element currently at that index, so moving one
+      // step right/down targets the gap two positions ahead (issue #115,
+      // verified against herdr 0.9.5).
+      const tabIndex = activeTab ? tabs.findIndex((t) => t.tab_id === activeTab.tab_id) : -1;
+      if (tabIndex >= 0 && tabs.length > 1) {
+        if (tabIndex > 0) {
+          list.push({
+            id: "tab-move-left",
+            label: "Move tab left",
+            group: "Actions",
+            icon: <ChevronLeftIcon className="size-4" />,
+            keywords: "tab reorder drag",
+            refocusPane: true,
+            run: () =>
+              activeTab &&
+              void callRpc(machine, "tab.move", {
+                tab_id: activeTab.tab_id,
+                insert_index: tabIndex - 1,
+              }),
+          });
+        }
+        if (tabIndex < tabs.length - 1) {
+          list.push({
+            id: "tab-move-right",
+            label: "Move tab right",
+            group: "Actions",
+            icon: <ChevronRightIcon className="size-4" />,
+            keywords: "tab reorder drag",
+            refocusPane: true,
+            run: () =>
+              activeTab &&
+              void callRpc(machine, "tab.move", {
+                tab_id: activeTab.tab_id,
+                insert_index: tabIndex + 2,
+              }),
+          });
+        }
+      }
+      const wsList = bridge.snapshots[machine]?.workspaces ?? [];
+      const wsIndex = wsList.findIndex((w) => w.workspace_id === workspace.workspace_id);
+      if (wsIndex >= 0 && wsList.length > 1) {
+        for (const [dir, label] of [
+          [-1, "Move workspace up"],
+          [1, "Move workspace down"],
+        ] as const) {
+          // One step up targets the gap before the previous row
+          // (`wsIndex - 1`); one step down targets the gap after the next
+          // row (`wsIndex + 2`) because insert_index is pre-removal.
+          const target = dir === -1 ? wsIndex - 1 : wsIndex + 2;
+          if (target < 0 || target > wsList.length) continue;
+          list.push({
+            id: `workspace-move-${dir}`,
+            label,
+            group: "Actions",
+            icon:
+              dir === -1 ? (
+                <ChevronUpIcon className="size-4" />
+              ) : (
+                <ChevronDownIcon className="size-4" />
+              ),
+            keywords: "workspace reorder drag",
+            run: () =>
+              void callRpc(machine, "workspace.move", {
+                workspace_id: workspace.workspace_id,
+                insert_index: target,
+              }),
+          });
+        }
+      }
+      if (focusedPane && view.tabPanes.length > 1) {
+        for (const direction of ["left", "right", "up", "down"] as const) {
+          list.push({
+            id: `pane-swap-${direction}`,
+            label: `Swap pane ${direction}`,
+            group: "Actions",
+            icon: <SquareSplitHorizontalIcon className="size-4" />,
+            keywords: "pane swap move drag",
+            refocusPane: true,
+            run: () =>
+              void callRpc(machine, "pane.swap", {
+                pane_id: focusedPane.pane_id,
+                direction,
+              }),
+          });
+          // Keyboard-navigation equivalent (issue #113): herdr resolves the
+          // geometric neighbor itself, so this works across split shapes.
+          const focusArrows = {
+            left: ArrowLeftIcon,
+            right: ArrowRightIcon,
+            up: ArrowUpIcon,
+            down: ArrowDownIcon,
+          } as const;
+          const FocusArrow = focusArrows[direction];
+          list.push({
+            id: `pane-focus-${direction}`,
+            label: `Focus pane ${direction}`,
+            group: "Actions",
+            icon: <FocusArrow className="size-4" />,
+            keywords: "pane focus navigate arrow keyboard",
+            shortcut: paneFocusShortcut(direction),
+            refocusPane: true,
+            run: () =>
+              void callRpc(machine, "pane.focus_direction", {
+                pane_id: focusedPane.pane_id,
+                direction,
+              }),
+          });
+        }
+      }
     }
 
     const machines = machineListOf(bridge);
@@ -151,14 +330,14 @@ export function CommandMenu({
     for (const m of machines) {
       const snap = machineStale(m) ? undefined : bridge.snapshots[m.id];
       for (const ws of snap?.workspaces ?? []) {
+        const branch = branchIndex.get(`${m.id}\n${ws.workspace_id}`);
+        const title = workspaceTitle(ws, branch);
         list.push({
           id: `ws-${m.id}-${ws.workspace_id}`,
-          label: multiMachine
-            ? `${workspaceTitle(ws)} — ${m.label}`
-            : workspaceTitle(ws),
+          label: multiMachine ? `${title} — ${m.label}` : title,
           group: "Workspaces",
           icon: <MonitorIcon className="size-4" />,
-          keywords: `${ws.workspace_id} ${m.label} ${ws.agent_status}`,
+          keywords: `${ws.workspace_id} ${m.label} ${ws.agent_status} ${branch ?? ""}`,
           run: () => selectWorkspace(m.id, ws.workspace_id),
         });
       }
@@ -207,7 +386,7 @@ export function CommandMenu({
       },
     );
     return list;
-  }, [bridge, machine, workspace, focusedPane, layout, toggleSidebar]);
+  }, [bridge, branchIndex, machine, workspace, focusedPane, layout, toggleSidebar]);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -223,6 +402,7 @@ export function CommandMenu({
   })).filter((g) => g.items.length > 0);
 
   return (
+    <>
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandDialogPopup aria-label="Command palette" data-command-palette="true">
         <Command mode="none" value={query} onValueChange={setQuery}>
@@ -242,13 +422,22 @@ export function CommandMenu({
                     <CommandItem
                       key={item.id}
                       value={item.id}
-                      onSelect={() => {
+                      onClick={() => {
                         item.run();
+                        if (item.refocusPane) {
+                          // Deferred: the pushed snapshot must mark the new
+                          // focused pane before we can target its input.
+                          setTimeout(() => focusPaneTerminal(), 0);
+                        }
                         onOpenChange(false);
                       }}
                     >
                       {item.icon}
                       <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.drillIn ? (
+                        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
+                      ) : null}
+                      {item.shortcut ? <CommandShortcut>{item.shortcut}</CommandShortcut> : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -263,20 +452,20 @@ export function CommandMenu({
           <CommandFooter className="max-sm:flex-col max-sm:items-start">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
               <KbdGroup>
-                <Kbd>
+                <Kbd variant="outline">
                   <ArrowUpIcon />
                 </Kbd>
-                <Kbd>
+                <Kbd variant="outline">
                   <ArrowDownIcon />
                 </Kbd>
                 <span>Navigate</span>
               </KbdGroup>
               <KbdGroup>
-                <Kbd>Enter</Kbd>
+                <Kbd variant="outline">Enter</Kbd>
                 <span>Select</span>
               </KbdGroup>
               <KbdGroup>
-                <Kbd>Esc</Kbd>
+                <Kbd variant="outline">Esc</Kbd>
                 <span>Close</span>
               </KbdGroup>
             </div>
@@ -284,5 +473,14 @@ export function CommandMenu({
         </Command>
       </CommandDialogPopup>
     </CommandDialog>
+    <GotoDialog open={gotoOpen} onOpenChange={setGotoOpen} />
+    {worktreesOpen && workspace ? (
+      <WorktreesDialog
+        machine={machine}
+        workspace={workspace}
+        onClose={() => setWorktreesOpen(false)}
+      />
+    ) : null}
+    </>
   );
 }

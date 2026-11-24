@@ -48,6 +48,42 @@ export interface PaneScrollInfo {
   [key: string]: unknown;
 }
 
+/** `pane.process_info` result payload (`PaneProcessInfo` in herdr's schema). */
+export interface PaneProcessInfoProcess {
+  pid: number;
+  name: string;
+  argv0?: string | null;
+  argv?: string[] | null;
+  cmdline?: string | null;
+  cwd?: string | null;
+}
+
+export interface PaneProcessInfo {
+  pane_id: string;
+  shell_pid?: number | null;
+  foreground_process_group_id?: number | null;
+  tty?: string | null;
+  foreground_processes: PaneProcessInfoProcess[];
+}
+
+/** Inclusive display-cell columns of a detected link on a viewport row. */
+export interface PaneLinkRegion {
+  row: number;
+  start_col: number;
+  end_col: number;
+}
+
+/** `pane.link.resolve` result payload. */
+export interface PaneLinkResolveResult {
+  regions: PaneLinkRegion[];
+}
+
+/** `pane.link.activate` result payload. */
+export interface PaneLinkActivateResult {
+  url?: string | null;
+  handled: boolean;
+}
+
 export interface PaneInfo {
   agent?: string | null;
   agent_session?: AgentSessionInfo | null;
@@ -87,6 +123,47 @@ export interface WorkspaceWorktreeInfo {
   repo_key: string;
   repo_name: string;
   repo_root: string;
+}
+
+/** One entry of a `worktree.list` response (`WorktreeInfo` in herdr's schema). */
+export interface WorktreeListEntry {
+  path: string;
+  branch?: string | null;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_prunable: boolean;
+  is_linked_worktree: boolean;
+  open_workspace_id?: string | null;
+  label: string;
+}
+
+/** `worktree.list` result: the resolved repo source plus every known worktree. */
+export interface WorktreeListResult {
+  source: {
+    repo_key: string;
+    repo_name: string;
+    repo_root: string;
+    source_checkout_path: string;
+    source_workspace_id?: string | null;
+  };
+  worktrees: WorktreeListEntry[];
+}
+
+/**
+ * Shared payload of `worktree.create` / `worktree.open` /
+ * `worktree.remove` results (`WorktreeCreated` / `WorktreeOpened` /
+ * `WorktreeRemoved` in herdr's schema). The UI treats the pushed snapshot
+ * as truth; these fields are informational.
+ */
+export interface WorktreeMutationResult {
+  workspace?: WorkspaceInfo;
+  tab?: TabInfo;
+  root_pane?: PaneInfo;
+  worktree?: WorktreeListEntry;
+  already_open?: boolean;
+  workspace_id?: string;
+  path?: string;
+  forced?: boolean;
 }
 
 export interface WorkspaceInfo {
@@ -261,6 +338,16 @@ export const RPC_METHODS = [
   "agent.prompt",
   "agent.rename",
   "agent.start",
+  "agent.read",
+  "agent.explain",
+  "pane.focus_direction",
+  "pane.process_info",
+  "pane.link.resolve",
+  "pane.link.activate",
+  "worktree.list",
+  "worktree.create",
+  "worktree.open",
+  "worktree.remove",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
