@@ -435,11 +435,13 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       const from = orderedIds.indexOf(drag.id);
       if (from < 0) return;
       const to = index + (side === "after" ? 1 : 0);
-      const insertIndex = to > from ? to - 1 : to;
-      if (insertIndex === from) return;
+      // herdr `insert_index` is a pre-removal insertion point (the item
+      // lands before the element currently at that index; `length`
+      // appends). Adjacent drops are no-ops. Verified on herdr 0.9.5.
+      if (to === from || to === from + 1) return;
       void callRpc(machineId, "workspace.move", {
         workspace_id: drag.id,
-        insert_index: insertIndex,
+        insert_index: to,
       });
     },
     onDragEnd: () => {

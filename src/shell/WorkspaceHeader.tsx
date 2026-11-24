@@ -193,9 +193,12 @@ export function WorkspaceHeader() {
                     const from = tabs.findIndex((x) => x.tab_id === dragId);
                     if (from < 0) return;
                     const to = tabIndex + (side === "after" ? 1 : 0);
-                    const insertIndex = to > from ? to - 1 : to;
-                    if (insertIndex === from) return;
-                    void rpc("tab.move", { tab_id: dragId, insert_index: insertIndex });
+                    // herdr `insert_index` is a pre-removal insertion point:
+                    // the tab lands before the element currently at that index
+                    // (`tabs.length` appends). Adjacent drops are no-ops.
+                    // Verified against herdr 0.9.5 (issue #115).
+                    if (to === from || to === from + 1) return;
+                    void rpc("tab.move", { tab_id: dragId, insert_index: to });
                   }}
                   onDragEnd={() => {
                     setTabDragId(null);

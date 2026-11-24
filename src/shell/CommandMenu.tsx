@@ -170,6 +170,10 @@ export function CommandMenu({
       );
       // Keyboard alternatives for the drag operations (issue #111):
       // tab reorder, workspace reorder within its machine, pane swap.
+      // herdr `insert_index` is a pre-removal insertion point: the item
+      // lands before the element currently at that index, so moving one
+      // step right/down targets the gap two positions ahead (issue #115,
+      // verified against herdr 0.9.5).
       const tabIndex = activeTab ? tabs.findIndex((t) => t.tab_id === activeTab.tab_id) : -1;
       if (tabIndex >= 0 && tabs.length > 1) {
         if (tabIndex > 0) {
@@ -198,7 +202,7 @@ export function CommandMenu({
               activeTab &&
               void callRpc(machine, "tab.move", {
                 tab_id: activeTab.tab_id,
-                insert_index: tabIndex + 1,
+                insert_index: tabIndex + 2,
               }),
           });
         }
@@ -210,8 +214,11 @@ export function CommandMenu({
           [-1, "Move workspace up"],
           [1, "Move workspace down"],
         ] as const) {
-          const target = wsIndex + dir;
-          if (target < 0 || target >= wsList.length) continue;
+          // One step up targets the gap before the previous row
+          // (`wsIndex - 1`); one step down targets the gap after the next
+          // row (`wsIndex + 2`) because insert_index is pre-removal.
+          const target = dir === -1 ? wsIndex - 1 : wsIndex + 2;
+          if (target < 0 || target > wsList.length) continue;
           list.push({
             id: `workspace-move-${dir}`,
             label,
