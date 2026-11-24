@@ -180,8 +180,17 @@ async function main() {
     );
     await shot("01-sidebar-agents");
 
-    // 02 — agent row hover card (glass tooltip, T3 ThreadHoverCard)
-    const hover = await agentRowCenter(0);
+    // 02 — agent row hover card (glass tooltip, T3 ThreadHoverCard).
+    // Hover a row with a real OSC work title so the card's title row is
+    // exercised — untitled rows fall back to the agent name (issue #204).
+    const titledRowIndex = (await evaluate(`(() => {
+      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
+      const rows = ul ? [...ul.querySelectorAll("[data-sidebar-row]")] : [];
+      // Prefer an idle/done row whose line 2 carries a long OSC title.
+      const idx = rows.findIndex((r) => /update onboarding|fix flaky|refactor auth|triage sentry|review PR|port legacy/.test(r.textContent ?? ""));
+      return idx >= 0 ? idx : 0;
+    })()`)) as number;
+    const hover = await agentRowCenter(titledRowIndex);
     if (hover) {
       await mouse("mouseMoved", hover.x, hover.y);
       await sleep(1400);
@@ -214,7 +223,9 @@ async function main() {
       return null;
     })()`);
     console.log(`shelf expand: ${expanded ?? "skipped"}`);
-    await sleep(800);
+    // Clear pointer hover/focus so the shot shows only the expanded dock.
+    await mouse("mouseMoved", 700, 450);
+    await sleep(600);
     await shot("04-agent-shelf-expanded");
 
     // 05 — focus workspace w1 (multi-tab) then tab context menu
@@ -262,8 +273,16 @@ async function main() {
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     })()`);
     if (splitBtn) {
-      await mouse("mouseMoved", (splitBtn as { x: number }).x, (splitBtn as { y: number }).y);
-      await sleep(900);
+      const p = splitBtn as { x: number; y: number };
+      await mouse("mouseMoved", p.x, p.y);
+      // Tooltip open delay varies; poll for the popup before shooting so
+      // the evidence never captures a missing-tooltip state (issue #204).
+      let tipOpen = false;
+      for (let i = 0; i < 12 && !tipOpen; i++) {
+        await sleep(400);
+        tipOpen = !!(await evaluate(`document.querySelector('[role="tooltip"]')`));
+      }
+      console.log(`header tooltip open: ${tipOpen ? "OK" : "FAILED"}`);
       await shot("06b-header-tooltip");
       await mouse("mouseMoved", 700, 450);
       await sleep(300);
