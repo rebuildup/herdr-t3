@@ -8,8 +8,8 @@
  */
 import {
   BotIcon,
-  FolderIcon,
   FolderOpenIcon,
+  MapPinIcon,
   SquareTerminalIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -85,7 +85,7 @@ export function AgentHoverCard({
         {agentLabel !== title ? (
           <DetailRow icon={<BotIcon />}>{agentLabel}</DetailRow>
         ) : null}
-        {location ? <DetailRow icon={<FolderIcon />}>{location}</DetailRow> : null}
+        {location ? <DetailRow icon={<MapPinIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
         <DetailRow icon={<SquareTerminalIcon />}>{paneParts.join(" · ")}</DetailRow>
       </div>
