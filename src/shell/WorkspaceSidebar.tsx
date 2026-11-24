@@ -78,6 +78,7 @@ import {
   agentOrganizeKey,
   agentRowSignature,
   agentStateLabel,
+  isCollapsibleAgentSection,
   agentStateSeq,
   agentWorkTarget,
   collectAgentEntries,
@@ -763,17 +764,16 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     return counts;
   }, [visibleAgentEntries]);
 
-  // Shelf expansion persists per section like T3's shelf toggles:
-  // Working defaults open (it is the live work list), Done/Idle/Settled
-  // default collapsed (settled-shelf equivalents).
+  // Shelf expansion persists per section like T3's shelf toggles: the
+  // working/snoozed/settled bottom shelves all default collapsed, matching
+  // T3's useLocalStorage(..., false) defaults (Sidebar.tsx).
   const [agentShelves, setAgentShelves] = useState<
     Record<CollapsibleAgentSection, boolean>
   >(() => {
     const initial = {} as Record<CollapsibleAgentSection, boolean>;
     for (const section of COLLAPSIBLE_AGENT_SECTIONS) {
       initial[section] =
-        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ??
-        section === "working";
+        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ?? false;
     }
     return initial;
   });
@@ -802,7 +802,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     if (agentEntries.length === 0) return "";
     return AGENT_SECTIONS.map(
       (section) =>
-        `${section}:${section === "attention" ? "-" : agentShelves[section]}:` +
+        `${section}:${isCollapsibleAgentSection(section) ? agentShelves[section] : "-"}:` +
         agentSections[section]
           .map(
             (e) =>
@@ -1042,17 +1042,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               const list = agentSections[section];
               if (list.length === 0) return null;
               const expanded =
-                section === "attention" || agentShelves[section];
+                !isCollapsibleAgentSection(section) || agentShelves[section];
               return (
                 <Fragment key={section}>
                   <li className="list-none">
-                    {section === "attention" ? (
-                      <AgentSectionLabel
-                        label={AGENT_SECTION_LABELS[section]}
-                        count={list.length}
-                        attention
-                      />
-                    ) : (
+                    {isCollapsibleAgentSection(section) ? (
                       <CollapsibleSectionHeader
                         expanded={agentShelves[section]}
                         onClick={() => toggleAgentShelf(section)}
@@ -1062,6 +1056,12 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                       >
                         {AGENT_SECTION_LABELS[section]}
                       </CollapsibleSectionHeader>
+                    ) : (
+                      <AgentSectionLabel
+                        label={AGENT_SECTION_LABELS[section]}
+                        count={list.length}
+                        attention={section === "attention"}
+                      />
                     )}
                   </li>
                   {expanded

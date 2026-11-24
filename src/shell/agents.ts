@@ -37,11 +37,14 @@ export type AgentSection =
   | "snoozed"
   | "settled";
 
+// T3 sidebar order (Sidebar.logic.ts SidebarSection): the always-visible
+// list first, then the working/snoozed/settled shelves stacked at the
+// bottom — all collapsed by default.
 export const AGENT_SECTIONS: readonly AgentSection[] = [
   "attention",
-  "working",
   "done",
   "idle",
+  "working",
   "snoozed",
   "settled",
 ];
@@ -55,15 +58,22 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
   settled: "Settled",
 };
 
-/** Sections that render as collapsible shelves (attention is always open). */
+/**
+ * Sections that render as collapsible bottom shelves. Attention, Done and
+ * Idle are the always-visible list (T3's active region has no collapse).
+ */
 export const COLLAPSIBLE_AGENT_SECTIONS = [
   "working",
-  "done",
-  "idle",
   "snoozed",
   "settled",
 ] as const;
 export type CollapsibleAgentSection = (typeof COLLAPSIBLE_AGENT_SECTIONS)[number];
+
+export function isCollapsibleAgentSection(
+  section: AgentSection,
+): section is CollapsibleAgentSection {
+  return (COLLAPSIBLE_AGENT_SECTIONS as readonly AgentSection[]).includes(section);
+}
 
 export function agentSection(status: AgentStatus): AgentSection {
   switch (status) {

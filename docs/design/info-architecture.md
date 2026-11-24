@@ -130,17 +130,23 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
 | herdr `agent_status` | セクション | 根拠 |
 | --- | --- | --- |
 | `blocked` | **Attention** (最上位、常時展開・折りたたみ不可) | T3 の「人間の応答待ち」= inbox の最優先。herdr の status_priority でも最上位 |
-| `working` | **Working** (折りたたみ可、既定は展開) | T3 の working shelf 相当。herdr-t3 では live work list が主役のため既定展開 |
-| `done` | **Done** (折りたたみ可、既定は折りたたみ) | T3 の settled = 完了済みの棚。herdr `done` がそのまま対応 |
-| `idle` / `unknown` / 未知の status | **Idle** (折りたたみ可、既定は折りたたみ) | 要対応でない残り |
+| `done` | **Done** (常時展開・折りたたみ不可) | T3 の active list の一部 — エージェント完了はユーザー整理状態ではないため棚に畳まない |
+| `idle` / `unknown` / 未知の status | **Idle** (常時展開・折りたたみ不可) | 同上。要対応でない残りも active list に含める |
+| `working` | **Working** (下部 shelf、折りたたみ可、既定は折りたたみ) | T3 の working shelf と同じ位置・既定値 |
 
+- セクション順は T3 の SidebarSection と同じ構造: 常時表示リスト
+  (Attention → Done → Idle) が先、working → snoozed → settled の
+  折りたたみ shelf が下部に積まれる。T3 の active list に相当する
+  Done/Idle は collapse を持たない (T3 の active section に
+  disclosure がないのと同じ)。
 - セクション内ソート: herdr `AgentPanelSortConfig::Priority` と同じ
   `agent_status` 優先度 + `state_change_seq` 降順 (同順位は新しい状態変化が上、
   `state_change_seq` 欠落時は `revision` で代替、最後は `pane_id` で安定化)。
   T3 inbox の「return 順」は `state_change_seq` の新しい順で近似する —
   herdr に return timestamp はないため独自時刻状態を持たない。
-- Working/Done/Idle/Snoozed/Settled の折りたたみ状態は T3 の shelf expansion と同様に
-  localStorage へ永続化する。空セクションは header ごと表示しない。
+- Working/Snoozed/Settled の折りたたみ状態は T3 の shelf expansion と同様に
+  localStorage へ永続化し、**3棚とも既定は折りたたみ** (T3 の
+  `useLocalStorage(..., false)` と同じ)。空セクションは header ごと表示しない。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage
