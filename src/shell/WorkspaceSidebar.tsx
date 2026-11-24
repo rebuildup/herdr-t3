@@ -690,22 +690,46 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const [agentOrganize, setAgentOrganize] = useState<AgentOrganizeMap>(() =>
     readAgentOrganize(),
   );
+  // Machines without a usable snapshot cannot resolve organize records —
+  // partitionAgents carries their records through instead of pruning them
+  // on absent data (app start before the first snapshot would otherwise
+  // wipe every settle/snooze). `null` while the machine list itself has
+  // not loaded: nothing can be resolved yet.
+  const unresolvedAgentMachines = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of machines) {
+      if (machineStale(m) || bridge.snapshots[m.id] === undefined) set.add(m.id);
+    }
+    return set;
+  }, [machines, bridge.snapshots]);
   const agentPartition = useMemo(
-    () => partitionAgents(agentEntries, agentOrganize),
-    [agentEntries, agentOrganize],
+    () =>
+      partitionAgents(
+        agentEntries,
+        agentOrganize,
+        machines.length === 0 ? null : unresolvedAgentMachines,
+      ),
+    [agentEntries, agentOrganize, machines.length, unresolvedAgentMachines],
   );
   const agentSections = agentPartition.sections;
 
   // Keep storage and state in sync with the resolved map: auto-restored
-  // rows and records for closed panes are pruned on write-back.
+  // rows and records for closed panes are pruned on write-back. This
+  // effect is the single writer — organizeAgent only updates state, so a
+  // user action can never be overwritten by a stale resolved map.
   const agentOrganizeJson = JSON.stringify(agentPartition.organize);
   const lastAgentOrganizeJson = useRef<string | null>(null);
   useEffect(() => {
     if (lastAgentOrganizeJson.current === agentOrganizeJson) return;
     lastAgentOrganizeJson.current = agentOrganizeJson;
     writeAgentOrganize(agentPartition.organize);
-    setAgentOrganize(agentPartition.organize);
-  }, [agentOrganizeJson, agentPartition.organize]);
+    // Adopt the resolved map only while state still is the input this
+    // partition was computed from — an organize action landing between
+    // render and effect must not be clobbered by a stale resolved map.
+    setAgentOrganize((current) =>
+      current === agentOrganize ? agentPartition.organize : current,
+    );
+  }, [agentOrganizeJson, agentPartition.organize, agentOrganize]);
 
   const organizeAgent = (entry: AgentListEntry, action: AgentOrganizeAction) => {
     const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
@@ -719,7 +743,6 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
           seq: agentStateSeq(entry.agent),
         };
       }
-      writeAgentOrganize(next);
       return next;
     });
   };

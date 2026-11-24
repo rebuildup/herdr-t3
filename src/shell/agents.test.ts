@@ -324,6 +324,42 @@ describe("partitionAgents organize overlay (issue #173)", () => {
     );
     expect(active).toEqual({ [key("w1")]: { kind: "settled", seq: 5 } });
   });
+
+  test("records on machines without a usable snapshot are preserved, not pruned", () => {
+    // App start before the first snapshot lands: entries is empty but the
+    // stored map must survive — otherwise every settle/snooze wipes on
+    // reload. "local" has no snapshot yet -> unresolved.
+    const organize: AgentOrganizeMap = {
+      [key("w1")]: { kind: "settled", seq: 5 },
+      [agentOrganizeKey("remote", "r1")]: { kind: "snoozed", seq: 2 },
+    };
+    const { sections, organize: active } = partitionAgents([], organize, new Set(["local", "remote"]));
+    expect(active).toEqual(organize);
+    expect(sections.settled).toEqual([]);
+    expect(sections.snoozed).toEqual([]);
+  });
+
+  test("null unresolved set (machine list not loaded) preserves every unseen record", () => {
+    const organize: AgentOrganizeMap = {
+      [key("w1")]: { kind: "settled", seq: 5 },
+      [agentOrganizeKey("remote", "r1")]: { kind: "snoozed", seq: 2 },
+    };
+    const { organize: active } = partitionAgents([], organize, null);
+    expect(active).toEqual(organize);
+  });
+
+  test("seq advance still auto-returns on an unresolved machine", () => {
+    // The pane IS in entries (snapshot arrived) even though another machine
+    // is unresolved — seen records resolve normally.
+    const agentInfo = agent({ pane_id: "w1", agent_status: "working", state_change_seq: 6 });
+    const { sections, organize: active } = partitionAgents(
+      [entry(agentInfo)],
+      { [key("w1")]: { kind: "settled", seq: 5 } },
+      new Set(["other-machine"]),
+    );
+    expect(sections.working.map((e) => e.agent.pane_id)).toEqual(["w1"]);
+    expect(active).toEqual({});
+  });
 });
 
 function visibleAgentPanes(
