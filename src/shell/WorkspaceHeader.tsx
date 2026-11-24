@@ -120,7 +120,7 @@ export function WorkspaceHeader() {
   // the deferred focus wins over the menu's own restoration to the trigger.
   const paneAct = (fn: () => void) => () => {
     fn();
-    setTimeout(() => focusPaneTerminal(focusedPane?.pane_id), 0);
+    setTimeout(() => focusPaneTerminal(), 0);
   };
   const wsTitle = workspaceTitle(workspace, branch);
   const wsDisplay = branch && wsTitle !== branch ? `${wsTitle} · ${branch}` : wsTitle;

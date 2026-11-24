@@ -85,6 +85,7 @@ function PaneSurface({
           )}
           style={style}
           data-pane-id={pane.pane_id}
+          data-focused={focused || undefined}
           draggable={dnd !== undefined}
           onDragStart={dnd?.onDragStart}
           onDragOver={dnd?.onDragOver}
@@ -114,7 +115,7 @@ function PaneSurface({
         <ContextMenuItem
           onSelect={() => {
             onFocus();
-            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+            setTimeout(() => focusPaneTerminal(), 0);
           }}
         >
           <MousePointerClick /> Focus
@@ -126,7 +127,7 @@ function PaneSurface({
               target_pane_id: pane.pane_id,
               focus: true,
             });
-            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+            setTimeout(() => focusPaneTerminal(), 0);
           }}
         >
           <Columns2 /> Split right
@@ -138,7 +139,7 @@ function PaneSurface({
               target_pane_id: pane.pane_id,
               focus: true,
             });
-            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+            setTimeout(() => focusPaneTerminal(), 0);
           }}
         >
           <Rows2 /> Split down
@@ -147,7 +148,7 @@ function PaneSurface({
         <ContextMenuItem
           onSelect={() => {
             void callRpc(machine, "pane.zoom", { pane_id: pane.pane_id });
-            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+            setTimeout(() => focusPaneTerminal(), 0);
           }}
         >
           <Maximize2 /> {zoomed ? "Unzoom" : "Zoom"}
