@@ -6,6 +6,8 @@
  * the pushed snapshot is what updates the UI.
  */
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   Columns2,
   EllipsisIcon,
   GitBranchIcon,
@@ -13,6 +15,7 @@ import {
   Maximize2,
   MessageSquareTextIcon,
   Minimize2,
+  MousePointerClickIcon,
   PencilIcon,
   PlusIcon,
   Rows2,
@@ -33,6 +36,13 @@ import {
 } from "~/components/WorkspaceBreadcrumb";
 import { MiddleTruncate } from "~/components/ui/middle-truncate";
 import { Button } from "~/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "~/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -175,9 +185,8 @@ export function WorkspaceHeader() {
               const selected = t.tab_id === activeTab.tab_id;
               const label = t.label || `Tab ${t.number}`;
               const dropHere = tabDrop?.index === tabIndex ? tabDrop.side : null;
-              return (
+              const tabButton = (
                 <div
-                  key={t.tab_id}
                   draggable={renamingTab !== t.tab_id}
                   onDragStart={(e) => {
                     setTabDragId(t.tab_id);
@@ -218,11 +227,12 @@ export function WorkspaceHeader() {
                   className={cn(
                     "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
                     tabDragId === t.tab_id && "opacity-50",
-                    // Reserve the hover-revealed close button's width so the
-                    // label hit area can never overlap it (issue #94).
+                    // Reserve the close button's width so the label hit
+                    // area can never overlap it (issue #94): always on the
+                    // active tab, hover-revealed on the others (issue #152).
                     selected
                       ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      : "pe-1.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground group-hover:pe-8",
                   )}
                 >
                   {renamingTab === t.tab_id ? (
@@ -253,20 +263,27 @@ export function WorkspaceHeader() {
                       <span className="min-w-0 max-w-40 truncate">{label}</span>
                     </button>
                   )}
-                  {selected ? (
+                  {/* Close is a direct affordance on every tab: always
+                      visible on the active tab (the reserved width must not
+                      read as dead space, issue #128), hover/focus-revealed
+                      on the rest — T3's SidebarThreadRow pattern (issue
+                      #152). */}
+                  <span
+                    className={cn(
+                      "absolute right-0.5 top-1/2 -translate-y-1/2 transition-opacity",
+                      !selected &&
+                        "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+                    )}
+                  >
                     <Button
                       size="icon-sm"
                       variant="ghost"
                       aria-label="Close tab"
-                      // Always visible on the active tab: the reserved width
-                      // must not read as dead space without an affordance
-                      // (issue #128).
-                      className="absolute right-0.5 top-1/2 -translate-y-1/2"
                       onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
                     >
                       <XIcon className="size-3" />
                     </Button>
-                  ) : null}
+                  </span>
                   {dropHere ? (
                     <span
                       className={cn(
@@ -276,6 +293,61 @@ export function WorkspaceHeader() {
                     />
                   ) : null}
                 </div>
+              );
+              // Tab context menu (issue #152): restores the direct right-
+              // click operation path T3 Code threads have — focus, rename,
+              // reorder and close without opening the overflow menu.
+              return (
+                <ContextMenu key={t.tab_id}>
+                  <ContextMenuTrigger className="flex min-w-0">
+                    {tabButton}
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      disabled={selected}
+                      onSelect={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                    >
+                      <MousePointerClickIcon /> Focus tab
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        setTabDraft(label);
+                        setRenamingTab(t.tab_id);
+                      }}
+                    >
+                      <PencilIcon /> Rename…
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={tabIndex === 0}
+                      onSelect={() =>
+                        void rpc("tab.move", {
+                          tab_id: t.tab_id,
+                          insert_index: tabIndex - 1,
+                        })
+                      }
+                    >
+                      <ChevronLeftIcon /> Move left
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={tabIndex === tabs.length - 1}
+                      onSelect={() =>
+                        void rpc("tab.move", {
+                          tab_id: t.tab_id,
+                          insert_index: tabIndex + 2,
+                        })
+                      }
+                    >
+                      <ChevronRightIcon /> Move right
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      destructive
+                      onSelect={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                    >
+                      <XIcon /> Close tab
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               );
             })}
           </div>
