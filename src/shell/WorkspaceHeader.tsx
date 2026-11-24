@@ -230,15 +230,16 @@ export function WorkspaceHeader() {
                     // nested close button keeps its own small ring.
                     "has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-inset has-[>button:focus-visible]:ring-ring",
                     tabDragId === t.tab_id && "opacity-50",
-                    // Reserve the close button's width so the label hit
-                    // area can never overlap it (issue #94): always on the
-                    // active tab, hover/focus-revealed on the others
-                    // (issue #152). hover:/focus-within: — NOT group-hover:,
+                    // pe-8 is constant on every tab: the absolutely-
+                    // positioned close button always has reserved room and
+                    // hover/focus reveal never shifts the strip (issue
+                    // #204). hover:/focus-within: — NOT group-hover:,
                     // which only matches descendants of .group, never the
                     // .group element itself (issue #165).
+                    "pe-8",
                     selected
-                      ? "bg-accent pe-8 font-medium text-foreground"
-                      : "pe-1.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground hover:pe-8 focus-within:pe-8",
+                      ? "bg-accent font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
                   {renamingTab === t.tab_id ? (
@@ -309,7 +310,11 @@ export function WorkspaceHeader() {
               // reorder and close without opening the overflow menu.
               return (
                 <ContextMenu key={t.tab_id}>
-                  <ContextMenuTrigger className="flex min-w-0">
+                  {/* shrink-0: the trigger must never compress below the
+                      pill — a squeezed trigger lets the shrink-0 pill
+                      overflow into the next tab (issue #204). The scroller
+                      scrolls instead. */}
+                  <ContextMenuTrigger className="flex shrink-0">
                     {tabButton}
                   </ContextMenuTrigger>
                   <ContextMenuContent>
@@ -414,37 +419,41 @@ export function WorkspaceHeader() {
           ) : null}
           {/* Frequent pane layout actions stay visible as icon buttons —
               T3's PanelLayoutControls pattern: common operations are icons,
-              the rest live in the overflow menu (issue #194). */}
-          <HeaderIconButton
-            label="Split right"
-            disabled={!focusedPane}
-            onClick={paneAct(
-              () =>
-                focusedPane &&
-                void rpc("pane.split", {
-                  direction: "right",
-                  target_pane_id: focusedPane.pane_id,
-                  focus: true,
-                }),
-            )}
-          >
-            <Columns2 className="size-4" />
-          </HeaderIconButton>
-          <HeaderIconButton
-            label="Split down"
-            disabled={!focusedPane}
-            onClick={paneAct(
-              () =>
-                focusedPane &&
-                void rpc("pane.split", {
-                  direction: "down",
-                  target_pane_id: focusedPane.pane_id,
-                  focus: true,
-                }),
-            )}
-          >
-            <Rows2 className="size-4" />
-          </HeaderIconButton>
+              the rest live in the overflow menu (issue #194). Below `sm`
+              they fold into the menu so the tab strip keeps the width
+              (issue #204); the menu carries the same actions. */}
+          <div className="hidden items-center gap-1 sm:flex">
+            <HeaderIconButton
+              label="Split right"
+              disabled={!focusedPane}
+              onClick={paneAct(
+                () =>
+                  focusedPane &&
+                  void rpc("pane.split", {
+                    direction: "right",
+                    target_pane_id: focusedPane.pane_id,
+                    focus: true,
+                  }),
+              )}
+            >
+              <Columns2 className="size-4" />
+            </HeaderIconButton>
+            <HeaderIconButton
+              label="Split down"
+              disabled={!focusedPane}
+              onClick={paneAct(
+                () =>
+                  focusedPane &&
+                  void rpc("pane.split", {
+                    direction: "down",
+                    target_pane_id: focusedPane.pane_id,
+                    focus: true,
+                  }),
+              )}
+            >
+              <Rows2 className="size-4" />
+            </HeaderIconButton>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -462,6 +471,35 @@ export function WorkspaceHeader() {
               <EllipsisIcon className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="content">
+              <DropdownMenuItem
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "right",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
+                disabled={!focusedPane}
+              >
+                <Columns2 /> Split right
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "down",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
+                disabled={!focusedPane}
+              >
+                <Rows2 /> Split down
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={paneAct(
                   () =>
