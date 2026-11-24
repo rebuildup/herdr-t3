@@ -74,15 +74,16 @@ export function AgentHoverCard({
           {stateLabel}
           {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
         </DetailRow>
-        {agentLabel !== title ? (
-          <DetailRow
-            icon={
-              <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
-            }
-          >
-            {agentLabel}
-          </DetailRow>
-        ) : null}
+        {/* The provider row stays even when its label duplicates the title:
+            the brand mark is the row's payload, and a card whose row count
+            changes with title luck reads as broken (issue #204 review). */}
+        <DetailRow
+          icon={
+            <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
+          }
+        >
+          {agentLabel}
+        </DetailRow>
         {location ? <DetailRow icon={<MapPinIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
         {/* The card is where the full workspace-prefixed address belongs

@@ -168,6 +168,31 @@ describe("row field resolution", () => {
       }),
     ).toBe("stale");
   });
+
+  test("agentWorkTarget falls back to the pane metadata title", () => {
+    const pane = {
+      agent_status: "working",
+      focused: false,
+      pane_id: "w1:p1",
+      revision: 1,
+      tab_id: "t1",
+      terminal_id: "term1",
+      terminal_title_stripped: null,
+      terminal_title: null,
+      title: "metadata title",
+      workspace_id: "w1",
+    } as PaneInfo;
+    expect(agentWorkTarget(agent({ title: "agent title" }), pane)).toBe(
+      "metadata title",
+    );
+    // OSC terminal title still wins over metadata.
+    expect(
+      agentWorkTarget(agent({}), {
+        ...pane,
+        terminal_title_stripped: "osc title",
+      }),
+    ).toBe("osc title");
+  });
 });
 
 describe("collectAgentEntries", () => {

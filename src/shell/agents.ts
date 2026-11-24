@@ -181,6 +181,12 @@ export function agentWorkTarget(agent: AgentInfo, pane?: PaneInfo | null): strin
   return (
     pane?.terminal_title_stripped ??
     pane?.terminal_title ??
+    // Display metadata title (`pane report-metadata --title`, agent
+    // self-reports) is the pane's own "what am I doing" label — it beats
+    // the agent record's possibly-stale title fields (issue #204 review:
+    // untitled panes rendered the bare agent name as the row's work
+    // target even when the pane carried a meaningful title).
+    pane?.title ??
     agent.terminal_title_stripped ??
     agent.terminal_title ??
     agent.title ??

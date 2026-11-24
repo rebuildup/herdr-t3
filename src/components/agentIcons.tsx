@@ -6,6 +6,7 @@
  */
 import { useId } from "react";
 
+import { cn } from "~/lib/utils";
 import { AGENT_ICON_DATA, type AgentIconSpec } from "./agentIconData";
 
 export function agentIconSpec(agent: string | null | undefined): AgentIconSpec | null {
@@ -46,10 +47,21 @@ export function AgentProviderIcon({
   const spec = agentIconSpec(agent);
   const gradientId = useId();
   if (!spec) {
-    // T3 renders unknown providers as bare initials text, no tile.
+    // No brand asset: render the T3 initials fallback as a micro monogram
+    // badge so it carries the same visual weight and footprint as the SVG
+    // marks instead of reading as stray gray text (issue #204 review).
+    // The badge is an auto-width pill — a fixed size-3 box wrapped "DE"
+    // onto two lines inside the hover card's icon slot.
+    const boxClass = className
+      ?.split(" ")
+      .filter((token) => !token.startsWith("size-"))
+      .join(" ");
     return (
       <span
-        className="inline-flex shrink-0 items-center justify-center text-4xs font-semibold leading-none text-foreground/70"
+        className={cn(
+          "inline-flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-sm border border-border/70 bg-muted/60 px-0.5 font-semibold leading-none text-foreground/75 whitespace-nowrap text-4xs",
+          boxClass,
+        )}
         aria-hidden
       >
         {agentInitials(name)}
