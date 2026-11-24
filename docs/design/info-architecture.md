@@ -120,8 +120,12 @@ settled shelf に分割し、settle は「ユーザーが完了とみなした t
 仕組み (`packages/client-runtime/state/threadSettled.ts`,
 `threadInbox.ts`, `apps/web/src/components/Sidebar.tsx` @ `9cc4018`)。
 
-herdr-t3 は **herdr `AgentStatus` を唯一の状態源**とし、独自の settle
-状態をクライアント側に捏造しない。写像:
+herdr-t3 は **herdr `AgentStatus` を唯一の実行状態源**とする。
+エージェントの実行状態 (working/blocked/done/idle) をクライアント側で
+捏造・改変しないが、**ユーザー側の作業整理状態 (settle/snooze) は
+独立した UI 層の状態として保持してよい** (v0.5.0 再評価で明確化:
+T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の整理操作で
+あり、実行状態の主張ではない)。写像:
 
 | herdr `agent_status` | セクション | 根拠 |
 | --- | --- | --- |
@@ -137,6 +141,14 @@ herdr-t3 は **herdr `AgentStatus` を唯一の状態源**とし、独自の set
   herdr に return timestamp はないため独自時刻状態を持たない。
 - Working/Done/Idle の折りたたみ状態は T3 の shelf expansion と同様に
   localStorage へ永続化する。空セクションは header ごと表示しない。
+- **ユーザー settle/snooze (UI 層、実装予定)**: agent 行の context menu
+  から Settle / Snooze / Restore を提供し、`pane_id` + settle 時点の
+  `state_change_seq` を localStorage に保持する。settle/snooze された
+  行は対応する棚から隠れ (snooze は一覧から除外、settle は Settled
+  棚へ)、`state_change_seq` が進んだ時点で自動的に棚へ戻る — T3 の
+  inbox return に相当し、herdr の実状態は一切変更しない。表示上の
+  状態バッジは付けず、行の所属棚のみが変わる (実行状態との区別を
+  UI 上も明確にする)。
 - `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
   テキスト (現 status の label) と行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に
