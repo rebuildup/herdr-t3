@@ -161,6 +161,28 @@ export class GhosttySurface {
     this.schedule();
   }
 
+  /**
+   * The viewport cell under a client point, in ghostty viewport coordinates
+   * (col 0..cols-1, row 0..rows-1 of the *visible* viewport — the same space
+   * herdr's `pane.link.*` RPCs address via `ghostty_viewport_point`, so row 0
+   * is the top of the screen even when scrolled into history). Returns null
+   * outside the grid.
+   */
+  cellAtClientPoint(clientX: number, clientY: number): { col: number; row: number } | null {
+    const m = this.metrics;
+    if (!m) return null;
+    const rect = this.root.getBoundingClientRect();
+    const col = Math.floor((clientX - rect.left) / m.cellW);
+    const row = Math.floor((clientY - rect.top) / m.cellH);
+    if (col < 0 || col >= m.cols || row < 0 || row >= m.rows) return null;
+    return { col, row };
+  }
+
+  /** pointer cursor while the host reports a hoverable link under the pointer */
+  setLinkHover(on: boolean): void {
+    this.root.classList.toggle("is-link", on);
+  }
+
   scrollBy(lines: number): void {
     this.scrollTo(this.scrollOffset + lines);
   }

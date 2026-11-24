@@ -2,11 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import {
   onTerminalClosed,
   onTerminalData,
+  rpc,
   subscribeTerminal,
   terminalInput,
   terminalResize,
   unsubscribeTerminal,
 } from "../lib/api";
+import type {
+  PaneLinkActivateResult,
+  PaneLinkRegion,
+  PaneLinkResolveResult,
+} from "../../shared/protocol";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -210,6 +216,100 @@ export function PaneTerminal({
     };
     host.addEventListener("keydown", onFindKey, true);
 
+    // ---- pane links (issue #113, docs/design/herdr-parity.md) -----------
+    // herdr resolves links server-side from its own terminal state; this
+    // surface only reports viewport cells. Hover debounces `pane.link.resolve`
+    // for the pointer cursor; a press on a resolved region suppresses local
+    // selection/mouse reports and `pane.link.activate` opens the target on
+    // release. Older herdr without the methods simply never resolves, which
+    // is the designed fallback — links stay inert, selection unaffected.
+    const link = {
+      regions: [] as PaneLinkRegion[],
+      cell: null as { col: number; row: number } | null,
+      token: 0,
+      timer: null as ReturnType<typeof setTimeout> | null,
+      pending: null as { col: number; row: number } | null,
+    };
+    const linkCell = (event: PointerEvent) =>
+      surfaceRef.current?.cellAtClientPoint(event.clientX, event.clientY) ?? null;
+    const clearLinkHover = () => {
+      link.cell = null;
+      link.regions = [];
+      link.token += 1;
+      if (link.timer) clearTimeout(link.timer);
+      link.timer = null;
+      surfaceRef.current?.setLinkHover(false);
+    };
+    const inLinkRegion = (cell: { col: number; row: number }) =>
+      link.regions.some(
+        (r) => r.row === cell.row && cell.col >= r.start_col && cell.col <= r.end_col,
+      );
+    const onLinkPointerMove = (event: PointerEvent) => {
+      const cell = linkCell(event);
+      if (
+        !cell ||
+        (link.cell !== null && link.cell.col === cell.col && link.cell.row === cell.row)
+      ) {
+        if (!cell) clearLinkHover();
+        return;
+      }
+      link.cell = cell;
+      const token = ++link.token;
+      if (link.timer) clearTimeout(link.timer);
+      link.timer = setTimeout(() => {
+        link.timer = null;
+        if (token !== link.token || !link.cell) return;
+        const target = link.cell;
+        void rpc<PaneLinkResolveResult>(
+          "pane.link.resolve",
+          { pane_id: paneId, col: target.col, viewport_row: target.row },
+          machine,
+        )
+          .then((res) => {
+            if (token !== link.token || !link.cell) return;
+            link.regions = res?.regions ?? [];
+            surfaceRef.current?.setLinkHover(link.regions.length > 0);
+          })
+          .catch(() => {
+            if (token === link.token) link.regions = [];
+          });
+      }, 120);
+    };
+    const onLinkPointerLeave = () => clearLinkHover();
+    const onLinkPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const cell = linkCell(event);
+      if (!cell || !inLinkRegion(cell)) return;
+      // Suppress the surface's selection/mouse-report path for this press;
+      // the wrapper's pane.focus mousedown is skipped too, so focus here.
+      event.preventDefault();
+      event.stopPropagation();
+      link.pending = cell;
+      surfaceRef.current?.focus();
+      void rpc("pane.focus", { pane_id: paneId }, machine).catch(() => {});
+    };
+    const onLinkPointerUp = (event: PointerEvent) => {
+      const pending = link.pending;
+      if (!pending) return;
+      link.pending = null;
+      const cell = linkCell(event);
+      if (!cell || cell.col !== pending.col || cell.row !== pending.row) return;
+      void rpc<PaneLinkActivateResult>(
+        "pane.link.activate",
+        { pane_id: paneId, col: cell.col, viewport_row: cell.row },
+        machine,
+      )
+        .then((res) => {
+          const url = res?.url;
+          if (url) window.open(url, "_blank", "noopener,noreferrer");
+        })
+        .catch(() => {});
+    };
+    host.addEventListener("pointermove", onLinkPointerMove);
+    host.addEventListener("pointerleave", onLinkPointerLeave);
+    host.addEventListener("pointerdown", onLinkPointerDown, true);
+    window.addEventListener("pointerup", onLinkPointerUp);
+
     return () => {
       disposed = true;
       dataOff();
@@ -217,6 +317,12 @@ export function PaneTerminal({
       themeOff();
       settingsOff();
       host.removeEventListener("keydown", onFindKey, true);
+      host.removeEventListener("pointermove", onLinkPointerMove);
+      host.removeEventListener("pointerleave", onLinkPointerLeave);
+      host.removeEventListener("pointerdown", onLinkPointerDown, true);
+      window.removeEventListener("pointerup", onLinkPointerUp);
+      if (link.timer) clearTimeout(link.timer);
+      surfaceRef.current?.setLinkHover(false);
       if (bellTimer.current) clearTimeout(bellTimer.current);
       surfaceRef.current = null;
       surface?.dispose();

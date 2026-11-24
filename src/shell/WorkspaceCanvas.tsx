@@ -4,9 +4,18 @@
  * PaneLayoutSnapshot) with Ghostty PaneTerminal surfaces; focus and zoom
  * come from the snapshot, never local guesses. M1's fixture grid is gone.
  */
-import { useState, type DragEvent } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { cn } from "~/lib/utils";
+import { isEditableTarget, isMacPlatform } from "~/lib/shortcuts";
 import { PaneTerminal } from "~/components/PaneTerminal";
+import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "~/components/ui/context-menu";
 import { paneTitle } from "~/lib/workspace";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -21,6 +30,7 @@ function PaneSurface({
   focused,
   zoomed,
   onFocus,
+  onDetails,
   dnd,
 }: {
   machine: string;
@@ -31,6 +41,7 @@ function PaneSurface({
   focused: boolean;
   zoomed: boolean;
   onFocus: () => void;
+  onDetails: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
   dnd?:
     | {
@@ -53,28 +64,69 @@ function PaneSurface({
         }
       : undefined;
   return (
-    <div
-      className={cn(
-        "absolute overflow-hidden border transition-colors",
-        // Focus treatment follows interaction.md: neutral emphasis, never a
-        // full blue frame (issue #112).
-        focused ? "border-foreground/25" : "border-border/50",
-        dnd?.dropTarget && "ring-2 ring-inset ring-primary",
-      )}
-      style={style}
-      draggable={dnd !== undefined}
-      onDragStart={dnd?.onDragStart}
-      onDragOver={dnd?.onDragOver}
-      onDrop={dnd?.onDrop}
-      onDragEnd={dnd?.onDragEnd}
-      // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
-      title={paneTitle(pane)}
-      onMouseDown={() => {
-        if (!focused) onFocus();
-      }}
-    >
-      <PaneTerminal machine={machine} paneId={pane.pane_id} connected={connected} />
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger className="contents">
+        <div
+          className={cn(
+            "absolute overflow-hidden border transition-colors",
+            // Focus treatment follows interaction.md: neutral emphasis, never a
+            // full blue frame (issue #112).
+            focused ? "border-foreground/25" : "border-border/50",
+            dnd?.dropTarget && "ring-2 ring-inset ring-primary",
+          )}
+          style={style}
+          draggable={dnd !== undefined}
+          onDragStart={dnd?.onDragStart}
+          onDragOver={dnd?.onDragOver}
+          onDrop={dnd?.onDrop}
+          onDragEnd={dnd?.onDragEnd}
+          // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
+          title={paneTitle(pane)}
+          onMouseDown={() => {
+            if (!focused) onFocus();
+          }}
+        >
+          <PaneTerminal machine={machine} paneId={pane.pane_id} connected={connected} />
+        </div>
+      </ContextMenuTrigger>
+      {/* Pane context menu (issue #113): the right-click path herdr's TUI
+          offers, translated to GUI actions — every item is a whitelisted
+          herdr RPC or the details surface. */}
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={onFocus}>Focus</ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() =>
+            void callRpc(machine, "pane.split", {
+              direction: "right",
+              target_pane_id: pane.pane_id,
+              focus: true,
+            })
+          }
+        >
+          Split right
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() =>
+            void callRpc(machine, "pane.split", {
+              direction: "down",
+              target_pane_id: pane.pane_id,
+              focus: true,
+            })
+          }
+        >
+          Split down
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void callRpc(machine, "pane.zoom", { pane_id: pane.pane_id })}>
+          {zoomed ? "Unzoom" : "Zoom"}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onDetails}>Details…</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void callRpc(machine, "pane.close", { pane_id: pane.pane_id })}>
+          Close pane
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -91,6 +143,45 @@ export function WorkspaceCanvas() {
   // below so hook order stays stable across renders.
   const [paneDragId, setPaneDragId] = useState<string | null>(null);
   const [paneDropId, setPaneDropId] = useState<string | null>(null);
+  const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const focusedPaneId = focusedPane?.pane_id ?? layout?.focused_pane_id ?? null;
+
+  // Keyboard pane navigation (issue #113): ⌘+Arrow on macOS,
+  // Ctrl+Alt+Arrow elsewhere — modifier chords that never reach the pane
+  // anyway. Runs in capture phase so the terminal's own key handling can't
+  // consume the chord first; editable surfaces other than the terminal
+  // (palette, dialogs, rename fields) keep their keys.
+  useEffect(() => {
+    if (!focusedPaneId) return;
+    const directions: Record<string, string> = {
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      ArrowUp: "up",
+      ArrowDown: "down",
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        if (target.closest(".ghostty-input") === null && isEditableTarget(target)) return;
+        if (target.closest('[role="dialog"], [role="menu"], [data-command-palette]')) return;
+      }
+      const mac = isMacPlatform();
+      const chord = mac
+        ? event.metaKey && !event.ctrlKey && !event.altKey
+        : event.ctrlKey && event.altKey && !event.metaKey;
+      if (!chord) return;
+      const direction = directions[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      void callRpc(machine, "pane.focus_direction", {
+        pane_id: focusedPaneId,
+        direction,
+      });
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [machine, focusedPaneId]);
 
   if (stale) {
     return (
@@ -185,10 +276,16 @@ export function WorkspaceCanvas() {
             }
             zoomed={zoomed}
             onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
+            onDetails={() => setDetailsPane(pane)}
             dnd={paneDnd(pane)}
           />
         ))}
       </div>
+      <PaneDetailsDialog
+        pane={detailsPane}
+        machine={machine}
+        onClose={() => setDetailsPane(null)}
+      />
     </div>
   );
 }

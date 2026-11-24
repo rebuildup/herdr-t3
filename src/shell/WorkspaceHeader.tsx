@@ -8,6 +8,7 @@
 import {
   Columns2,
   EllipsisIcon,
+  InfoIcon,
   Maximize2,
   MessageSquareTextIcon,
   Minimize2,
@@ -46,6 +47,7 @@ import { useRouteWorkspace } from "./view";
 import { callRpc } from "./bridge";
 import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
+import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -85,6 +87,7 @@ export function WorkspaceHeader() {
   const { workspace, tabs, activeTab, tabPanes, layout, focusedPane } = view;
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -388,6 +391,12 @@ export function WorkspaceHeader() {
                 <MessageSquareTextIcon />
                 {focusedPane?.agent ? "Prompt agent…" : "Send text to pane…"}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => focusedPane && setDetailsPane(focusedPane)}
+                disabled={!focusedPane}
+              >
+                <InfoIcon /> Details…
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
@@ -405,6 +414,11 @@ export function WorkspaceHeader() {
         pane={messagePane}
         machine={machine}
         onClose={() => setMessagePane(null)}
+      />
+      <PaneDetailsDialog
+        pane={detailsPane}
+        machine={machine}
+        onClose={() => setDetailsPane(null)}
       />
     </>
   );

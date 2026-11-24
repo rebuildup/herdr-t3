@@ -218,6 +218,20 @@ export function CommandMenu({
                 direction,
               }),
           });
+          // Keyboard-navigation equivalent (issue #113): herdr resolves the
+          // geometric neighbor itself, so this works across split shapes.
+          list.push({
+            id: `pane-focus-${direction}`,
+            label: `Focus pane ${direction}`,
+            group: "Actions",
+            icon: <Columns2 className="size-4" />,
+            keywords: "pane focus navigate arrow keyboard",
+            run: () =>
+              void callRpc(machine, "pane.focus_direction", {
+                pane_id: focusedPane.pane_id,
+                direction,
+              }),
+          });
         }
       }
     }

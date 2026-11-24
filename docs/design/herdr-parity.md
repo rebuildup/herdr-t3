@@ -33,11 +33,12 @@ herdr-t3 `release-0-4-0` 時点の実装。
 | `pane.scroll` | ✅ | 既存 (scroll offset 取得)。scrollback UI は terminal 側 |
 | `layout.set_split_ratio` | 🔶 #111 | split 境界のドラッグリサイズ |
 | `layout.export` / `layout.apply` | ⏸ | pane 配置の保存/復元。需要が出たら検討 |
-| `pane.process_info` | 🔶 #109/#113 | `pane_id` 必須 (`target` 不可、AGENTS.md §3)。process/cwd 詳細表示用 |
+| `pane.process_info` | ✅ #113 | `pane_id` 必須 (`target` 不可、AGENTS.md §3)。Details dialog の process 表示 |
 | `pane.layout` | ⏸ | snapshot の `layouts` で代替可能。個別取得の需要なし |
-| `pane.neighbor` / `pane.edges` / `pane.focus_direction` | 🔶 #113 | キーボード pane ナビゲーション |
+| `pane.neighbor` / `pane.edges` | ⏸ | レイアウト問い合わせ系。`focus_direction` がナビゲーション需要を全てカバーするため JSON API 追加の必要なし |
+| `pane.focus_direction` | ✅ #113 | キーボード pane ナビゲーション (⌘+Arrow / Ctrl+Alt+Arrow) + コマンドパレット |
 | `pane.input.set` | ⏸ | bracketed paste 等のモード設定。terminal surface が管理 |
-| `pane.link.activate` / `pane.link.resolve` | 🔶 #113 | OSC8/ファイルリンクを開く |
+| `pane.link.activate` / `pane.link.resolve` | ✅ #113 | サーバ側 link detection。hover で resolve → pointer cursor、click で activate → `window.open`。herdr 0.9.5 schema で client_shell lane だが JSON API dispatch も存在 |
 | `pane.selection.read` | ⏸ | GUI は DOM selection を使う。herdr copy mode 相当は不要 |
 | `pane.edit_scrollback` | ⏸ | herdr TUI の copy-mode 編集。GUI では編集 UI を持たない |
 | `pane.wait_for_output` | ⏸ | agent 駆動の通知用途。v0.4.0 では不要 |
@@ -50,10 +51,10 @@ herdr-t3 `release-0-4-0` 時点の実装。
 | --- | --- | --- |
 | `agent.get` | ✅ | 既存 |
 | `agent.prompt` / `agent.rename` / `agent.start` | ✅ | 既存。prompt 応答は推測キー入力禁止 (AGENTS.md §3) |
-| `agent.list` | 🔶 #113 | snapshot の `agents` で大半を代替。詳細が必要なら追加 |
-| `agent.read` | 🔶 #113 | agent の状態・出力要約。詳細 panel 用 |
-| `agent.explain` | 🔶 #113 | agent_status の根拠説明。status tooltip/detail で有用 |
-| `agent.send_keys` | 🔶 #113 | agent 固有キー。`pane.send_keys` で代替可能なら不要 |
+| `agent.list` | ⏸ | snapshot の `agents` で全件取得可能。個別 list の需要なし |
+| `agent.read` | ✅ #113 | Details dialog の agent 出力要約 (直近30行) |
+| `agent.explain` | ✅ #113 | Details dialog の agent_status 根拠説明 |
+| `agent.send_keys` | ⏸ | `pane.send_keys` で代替可能。agent 固有キーの需要が出たら再検討 |
 | `agent.view.set` / `agent.view.clear` / `agent.focus` | ⏸ | herdr TUI の agent view (agent 専用画面)。JSON API で提供されるが GUI での専用 view は v0.4.0 対象外。必要になれば別 Issue |
 | `agent.wait` | ⏸ | `pane.wait_for_output` と同じく保留 |
 | `agent.report_*` / `report_metadata` / `clear_agent_authority` / `release_agent` | ❌ | herdr 内部/外部連携用。クライアントが呼ぶものではない |
@@ -62,8 +63,8 @@ herdr-t3 `release-0-4-0` 時点の実装。
 
 | method | 判定 | 備考 |
 | --- | --- | --- |
-| `notification.show` | 🔶 #113 | herdr 通知の表示。読み取り側 (通知一覧) は JSON API にない → client-shell 相当は toast/バッジで代替検討 |
-| `command.invoke` | 🔶 #113 | herdr カスタムコマンドをコマンドパレットへ統合 |
+| `notification.show` | ⏸ | outbound 専用 (herdr TUI client への toast 送出)。herdr-t3 は snapshot diff から自前 toast を出すため JSON API 側の読み取り手段がない限り到達不能 |
+| `command.invoke` | ⏸ | `command_id` は client-shell snapshot のみが発行する boot 乱数 namespace の opaque id で、JSON API に command 一覧 method がない → 到達不能。upstream の JSON API 追加が前提 |
 | `popup.close` | ⏸ | popup は client-shell 概念。GUI に対応物なし |
 | `server.reload_config` / `reload_agent_manifests` | ⏸ | 設定 UI が herdr config を触る設計ではない。需要が出れば |
 | `integration.*` / `plugin.*` | ❌ | herdr プラグイン基盤。クライアント機能ではない |
