@@ -412,6 +412,39 @@ export function WorkspaceHeader() {
               <span className="max-sm:hidden">Zoomed</span>
             </Button>
           ) : null}
+          {/* Frequent pane layout actions stay visible as icon buttons —
+              T3's PanelLayoutControls pattern: common operations are icons,
+              the rest live in the overflow menu (issue #194). */}
+          <HeaderIconButton
+            label="Split right"
+            disabled={!focusedPane}
+            onClick={paneAct(
+              () =>
+                focusedPane &&
+                void rpc("pane.split", {
+                  direction: "right",
+                  target_pane_id: focusedPane.pane_id,
+                  focus: true,
+                }),
+            )}
+          >
+            <Columns2 className="size-4" />
+          </HeaderIconButton>
+          <HeaderIconButton
+            label="Split down"
+            disabled={!focusedPane}
+            onClick={paneAct(
+              () =>
+                focusedPane &&
+                void rpc("pane.split", {
+                  direction: "down",
+                  target_pane_id: focusedPane.pane_id,
+                  focus: true,
+                }),
+            )}
+          >
+            <Rows2 className="size-4" />
+          </HeaderIconButton>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -429,34 +462,6 @@ export function WorkspaceHeader() {
               <EllipsisIcon className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="content">
-              <DropdownMenuItem
-                onClick={paneAct(
-                  () =>
-                    focusedPane &&
-                    void rpc("pane.split", {
-                      direction: "right",
-                      target_pane_id: focusedPane.pane_id,
-                      focus: true,
-                    }),
-                )}
-                disabled={!focusedPane}
-              >
-                <Columns2 /> Split right
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={paneAct(
-                  () =>
-                    focusedPane &&
-                    void rpc("pane.split", {
-                      direction: "down",
-                      target_pane_id: focusedPane.pane_id,
-                      focus: true,
-                    }),
-                )}
-                disabled={!focusedPane}
-              >
-                <Rows2 /> Split down
-              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={paneAct(
                   () =>
