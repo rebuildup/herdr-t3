@@ -271,6 +271,30 @@ export function terminalResize(machine: string, paneId: string, cols: number, ro
   sendFrame({ type: "terminal_resize", machine, paneId, cols, rows });
 }
 
+/** Structured pointer event; the bridge forwards it as herdr AttachMouse (SGR reports only when the pane enabled mouse mode). */
+export function terminalMouse(
+  machine: string,
+  paneId: string,
+  event: {
+    action: "press" | "motion" | "release" | "moved";
+    button?: "left" | "middle" | "right" | null;
+    column: number;
+    row: number;
+    modifiers?: number;
+  },
+): void {
+  sendFrame({ type: "terminal_mouse", machine, paneId, ...event });
+}
+
+/** Wheel scroll; the bridge forwards it as herdr AttachScroll which arbitrates mouse-report vs scrollback server-side. */
+export function terminalScroll(
+  machine: string,
+  paneId: string,
+  event: { direction: "up" | "down"; lines?: number; column?: number; row?: number; modifiers?: number },
+): void {
+  sendFrame({ type: "terminal_scroll", machine, paneId, ...event });
+}
+
 /** Call a whitelisted herdr RPC through the bridge, on the given machine. */
 export function rpc<T = unknown>(
   method: RpcMethod,

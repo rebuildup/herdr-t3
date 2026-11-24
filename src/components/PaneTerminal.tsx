@@ -5,6 +5,8 @@ import {
   rpc,
   subscribeTerminal,
   terminalInput,
+  terminalMouse,
+  terminalScroll,
   terminalResize,
   unsubscribeTerminal,
 } from "../lib/api";
@@ -133,6 +135,8 @@ export function PaneTerminal({
             ? { lineHeight: terminalSettings.lineHeight }
             : {}),
           onInput: send,
+          onMouse: (event) => terminalMouse(machine, paneId, event),
+          onWheel: (event) => terminalScroll(machine, paneId, event),
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
             setGrid((prev) => (prev && prev.cols === cols && prev.rows === rows ? prev : { cols, rows }));

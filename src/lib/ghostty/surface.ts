@@ -34,6 +34,33 @@ export interface GhosttySurfaceOptions {
   readOnly?: boolean;
   /** encoded user input — keys, mouse reports, paste, committed IME text — for the host to send to the pane */
   onInput?(bytes: Uint8Array): void;
+  /**
+   * Structured pointer events for hosts that forward them to herdr as
+   * AttachMouse (the server emits SGR reports only when the pane enabled mouse
+   * mode). When set, pointer press/drag/release/hover are delivered here
+   * instead of engine-encoded bytes, and local text selection continues in
+   * parallel — pane mode state is not visible to the client yet
+   * (herdrdev/herdr#6177), so selection must remain the safe default.
+   */
+  onMouse?(event: {
+    action: "press" | "motion" | "release" | "moved";
+    button?: "left" | "middle" | "right" | null;
+    column: number;
+    row: number;
+    modifiers: number;
+  }): void;
+  /**
+   * Wheel scroll for hosts that forward it as herdr AttachScroll; the server
+   * arbitrates mouse-report vs scrollback vs alternate-scroll. When set, the
+   * wheel routes here instead of scrolling the local viewport.
+   */
+  onWheel?(event: {
+    direction: "up" | "down";
+    lines: number;
+    column?: number;
+    row?: number;
+    modifiers: number;
+  }): void;
   onSelectionChange?(text: string | null): void;
   /** the local scroll position changed (rows above the bottom); 0 is the newest rows */
   onScroll?(rowsAboveBottom: number): void;
@@ -70,7 +97,30 @@ export class GhosttySurface {
   private metrics: CellMetrics | null = null;
   private scrollOffset = 0;
   private selection: ScreenRange | null = null;
-  private drag: { kind: "select" | "mouse"; anchor: ScreenPoint; moved: boolean; button?: EngineMouse["button"] } | null = null;
+  private drag: { kind: "select" | "mouse"; anchor: ScreenPoint; moved: boolean; button?: "left" | "middle" | "right"; reported?: boolean } | null = null;
+
+  /** crossterm KeyModifiers bits shared with herdr's AttachMouse/AttachScroll */
+  private static modsOf(event: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean }): number {
+    return (event.shiftKey ? 1 : 0) | (event.altKey ? 2 : 0) | (event.ctrlKey ? 4 : 0);
+  }
+
+  /** screen point -> pane-grid cell for structured AttachMouse/AttachScroll */
+  private attachCell(point: ScreenPoint): { column: number; row: number } | null {
+    if (!this.metrics) return null;
+    const cell = mouseReportCell(point, this.session.history().viewportTop, this.metrics.cols, this.metrics.rows);
+    return cell ? { column: cell.col, row: cell.row } : null;
+  }
+
+  private sendStructuredMouse(
+    action: "press" | "motion" | "release" | "moved",
+    button: "left" | "middle" | "right" | null,
+    point: ScreenPoint,
+    modifiers: number,
+  ): void {
+    const cell = this.attachCell(point);
+    if (!cell) return;
+    this.options.onMouse?.({ action, button, column: cell.column, row: cell.row, modifiers });
+  }
   private readonly composition = new CompositionTracker();
   /** viewport cell the IME composition text and candidate window anchor to */
   private imeAnchor: ScreenPoint | null = null;
@@ -553,7 +603,9 @@ export class GhosttySurface {
       this.fail(error);
       return;
     }
-    if (!sendsHoverMotion(modes.mouse) || !this.metrics) return;
+    // structured hosts forward motion unconditionally — the server drops it
+    // unless the pane enabled any-motion reporting
+    if ((!this.options.onMouse && !sendsHoverMotion(modes.mouse)) || !this.metrics) return;
     const cell = mouseReportCell(
       pending.point,
       this.session.history().viewportTop,
@@ -561,6 +613,14 @@ export class GhosttySurface {
       this.metrics.rows,
     );
     if (!cell) return;
+    if (this.options.onMouse) {
+      // buttonless motion for panes in "any"-motion mode; the server drops it otherwise
+      this.sendStructuredMouse("moved", null, pending.point, pending.mods
+        ? (pending.mods.shift ? 1 : 0) | (pending.mods.alt ? 2 : 0) | (pending.mods.ctrl ? 4 : 0)
+        : 0);
+      this.lastHoverSent = pending.point;
+      return;
+    }
     const mouse: EngineMouse = {
       action: "motion",
       col: cell.col,
@@ -714,13 +774,23 @@ export class GhosttySurface {
     if (!cell) return;
     const button = event.button === 0 ? "left" : event.button === 1 ? "middle" : "right";
     // shift+drag always selects, as xterm's does; otherwise a program that asked for the mouse gets it
-    if (pointerDragKind(event.shiftKey, this.mouseReporting()) === "mouse") {
-      this.drag = { kind: "mouse", anchor: cell, moved: false, button };
-      this.sendMouse("press", button, cell, event);
-    } else {
-      this.drag = { kind: "select", anchor: cell, moved: false };
+    const toMouse = pointerDragKind(event.shiftKey, this.mouseReporting()) === "mouse";
+    this.drag = { kind: toMouse ? "mouse" : "select", anchor: cell, moved: false, button };
+    if (!toMouse) {
       this.selection = { start: cell, end: cell };
       this.renderer.setSelection(null);
+    }
+    // Structured AttachMouse goes out for every press: herdr emits an SGR
+    // report only when the pane enabled mouse mode, so this is a no-op for
+    // plain shells while TUIs (vim, agent TUIs) receive the click. Shift
+    // forces local selection (xterm semantics), so it suppresses the report.
+    // Local selection continues in parallel until pane mode state reaches
+    // the client (herdrdev/herdr#6177).
+    if (toMouse) {
+      this.sendMouse("press", button, cell, event);
+    } else if (this.options.onMouse && !event.shiftKey) {
+      this.drag.reported = true;
+      this.sendStructuredMouse("press", button, cell, GhosttySurface.modsOf(event));
     }
     this.root.setPointerCapture(event.pointerId);
   }
@@ -742,6 +812,10 @@ export class GhosttySurface {
       if (drag.button) this.sendMouse("motion", drag.button, cell, event);
       return;
     }
+    // selection drag that also reports structured motion to the pane
+    if (this.options.onMouse && drag.reported && drag.button) {
+      this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
+    }
     const range = ordered(this.selection?.start ?? drag.anchor, cell);
     this.selection = range;
     const empty = range.start.x === range.end.x && range.start.y === range.end.y;
@@ -757,6 +831,9 @@ export class GhosttySurface {
     if (drag.kind === "mouse") {
       if (drag.button) this.sendMouse("release", drag.button, cell, event);
       return;
+    }
+    if (this.options.onMouse && drag.reported && drag.button) {
+      this.sendStructuredMouse("release", drag.button, cell, GhosttySurface.modsOf(event));
     }
     // a second or third quick click widens the selection to the word or the line under it
     const now = performance.now();
@@ -832,6 +909,20 @@ export class GhosttySurface {
         this.sendMouse("press", button, cell, event);
         this.sendMouse("release", button, cell, event);
       }
+      return;
+    }
+    if (this.options.onWheel) {
+      // herdr's AttachScroll arbitrates mouse-report vs scrollback vs
+      // alternate-scroll server-side, so the wheel needs no local mode state
+      const cell = this.cellAt(event);
+      const target = cell ? this.attachCell(cell) : null;
+      const lines = Math.max(1, Math.round(Math.abs(event.deltaY) / WHEEL_PIXELS_PER_LINE)) * Math.sign(event.deltaY);
+      this.options.onWheel({
+        direction: lines > 0 ? "down" : "up",
+        lines: Math.abs(lines),
+        ...(target ?? {}),
+        modifiers: GhosttySurface.modsOf(event),
+      });
       return;
     }
     const history = this.session.history();

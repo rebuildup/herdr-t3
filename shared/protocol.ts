@@ -285,6 +285,28 @@ export type ClientFrame =
   /** `data` is base64 bytes: encoded keys/mouse/paste and engine replies are arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_input"; paneId: string; data: string; machine?: string }
   | { type: "terminal_resize"; paneId: string; cols: number; rows: number; machine?: string }
+  /** Structured pointer event forwarded as herdr AttachMouse; the server emits SGR reports only when the pane enabled mouse mode. */
+  | {
+      type: "terminal_mouse";
+      paneId: string;
+      machine?: string;
+      action: "press" | "motion" | "release" | "moved";
+      button?: "left" | "middle" | "right" | null;
+      column: number;
+      row: number;
+      modifiers?: number;
+    }
+  /** Wheel scroll forwarded as herdr AttachScroll; the server arbitrates mouse-report vs scrollback vs alternate-scroll. */
+  | {
+      type: "terminal_scroll";
+      paneId: string;
+      machine?: string;
+      direction: "up" | "down";
+      lines?: number;
+      column?: number;
+      row?: number;
+      modifiers?: number;
+    }
   | { type: "list_machines" }
   | { type: "machine_connect"; machine: string }
   | { type: "machine_disconnect"; machine: string }
@@ -396,6 +418,31 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         typeof frame["rows"] === "number" &&
         Number.isFinite(frame["cols"]) &&
         Number.isFinite(frame["rows"]) &&
+        machineOk
+      );
+    case "terminal_mouse":
+      return (
+        typeof paneId === "string" &&
+        paneId.length > 0 &&
+        (frame["action"] === "press" || frame["action"] === "motion" || frame["action"] === "release" || frame["action"] === "moved") &&
+        (frame["button"] === undefined || frame["button"] === null ||
+          frame["button"] === "left" || frame["button"] === "middle" || frame["button"] === "right") &&
+        typeof frame["column"] === "number" &&
+        typeof frame["row"] === "number" &&
+        Number.isInteger(frame["column"]) &&
+        Number.isInteger(frame["row"]) &&
+        (frame["modifiers"] === undefined || typeof frame["modifiers"] === "number") &&
+        machineOk
+      );
+    case "terminal_scroll":
+      return (
+        typeof paneId === "string" &&
+        paneId.length > 0 &&
+        (frame["direction"] === "up" || frame["direction"] === "down") &&
+        (frame["lines"] === undefined || typeof frame["lines"] === "number") &&
+        (frame["column"] === undefined || typeof frame["column"] === "number") &&
+        (frame["row"] === undefined || typeof frame["row"] === "number") &&
+        (frame["modifiers"] === undefined || typeof frame["modifiers"] === "number") &&
         machineOk
       );
     case "list_machines":

@@ -137,6 +137,28 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
 - contextmenu の preventDefault は pane の right-click report を
   妨げない (press/release は pointer event で送出済み)。
 
+### 5.4 attach 経路の実トランスポート (v0.5.0)
+
+§5.1–5.3 が前提とする `session.modes()` は、TerminalAnsi attach
+ストリームには pane の mode 状態が含まれないため常に `none` のまま
+(herdrdev/herdr#6177)。そのため attach クライアントでは:
+
+- pointer press/drag/release/hover-motion は `terminal_mouse` frame →
+  herdr `AttachMouse` として構造化送信する。サーバ側
+  (`apply_client_terminal_input_events` → `encode_mouse_*`) が pane の
+  mode を見て SGR report を生成するため、mode OFF では無害な no-op、
+  mode ON では正しい report が届く。wheel は `terminal_scroll` →
+  `AttachScroll` で、サーバが wheel report / scrollback /
+  alternate-scroll を裁定する。
+- ローカル選択は mouse mode に関係なく常に動く (mode 状態が
+  クライアントに見えないため、選択を止める判断ができない)。
+  Shift+drag は structured mouse を送らず常にローカル選択
+  (xterm 準拠)。mode 状態が届くようになったら、report 中は
+  ローカル選択を抑止する §5.2 本来の境界に戻す。
+- focus report (CSI I/O) は attach 向けの client message が
+  プロトコルに存在しないため未対応。upstream #6177 の
+  `AttachFocus` + mode 通知の受け入れ待ち。
+
 ## 6. Paste / clipboard
 
 - `paste` event → `session.encodePaste` (mode 2004 bracketed paste を
