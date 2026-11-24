@@ -224,6 +224,11 @@ export function WorkspaceHeader() {
                     // outside flow, so a squeezed tab would let it overlap
                     // the icon/label (issue #165). Overflow scrolls instead.
                     "group relative flex min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    // Keyboard focus rings the whole pill, not just the
+                    // label button inside it (issue #165): has-[>button…]
+                    // matches only the direct-child label button, so the
+                    // nested close button keeps its own small ring.
+                    "has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-inset has-[>button:focus-visible]:ring-ring",
                     tabDragId === t.tab_id && "opacity-50",
                     // Reserve the close button's width so the label hit
                     // area can never overlap it (issue #94): always on the
@@ -258,7 +263,7 @@ export function WorkspaceHeader() {
                         setTabDraft(label);
                         setRenamingTab(t.tab_id);
                       }}
-                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none"
                     >
                       {statusIcon(t.agent_status)}
                       <span className="min-w-0 max-w-40 truncate">{label}</span>
