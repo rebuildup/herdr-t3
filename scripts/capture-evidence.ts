@@ -95,11 +95,12 @@ const contextMenu = (selector: string) =>
     el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
     return true;
   })()`);
-// Right-click the sidebar row whose label contains `text`.
+// Right-click the sidebar row whose label contains `text` (falls back to
+// the first row so the script works against any seeded session).
 const contextMenuRow = (text: string) =>
   evaluate(`(() => {
-    const el = [...document.querySelectorAll('[data-sidebar="menu-button"]')]
-      .find((b) => b.textContent.includes(${JSON.stringify(text)}));
+    const rows = [...document.querySelectorAll('[data-sidebar-row]')];
+    const el = rows.find((b) => b.textContent.includes(${JSON.stringify(text)})) ?? rows[0];
     if (!el) return false;
     const r = el.getBoundingClientRect();
     el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
@@ -187,40 +188,45 @@ async function main() {
     await key("Escape", "Escape", 27);
     await sleep(400);
 
-    // Tab context menu (first tab row in the topbar).
-    await contextMenu("header div.group");
+    // Pane context menu (first terminal surface in the canvas).
+    await contextMenu(".ghostty-surface");
     await sleep(600);
-    await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "tab context menu open");
-    await shot("05-tab-context-menu");
+    await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "pane context menu open");
+    await shot("05-pane-context-menu");
     await key("Escape", "Escape", 27);
     await sleep(400);
 
-    // Split the focused pane, zoom, and unzoom via the topbar icon buttons.
-    // Assert against /api/session so a missed click cannot pass as evidence.
+    // Split the focused pane, zoom, and unzoom via the "Pane actions"
+    // dropdown (the topbar's dedicated icon buttons were folded into the
+    // menu in #113). Assert against /api/session so a missed click cannot
+    // pass as evidence.
     const sessionFacts = () =>
       evaluate(`fetch("/api/session").then(r=>r.json()).then(d=>{
         const s=d.snapshot;
         const layout=s.layouts.find(l=>l.tab_id===s.focused_tab_id)||s.layouts[0];
         return { panes: s.panes.length, tabPanes: s.panes.filter(p=>p.tab_id===(layout&&layout.tab_id)).length, zoomed: !!(layout&&layout.zoomed), tabs: s.tabs.length, workspaces: s.workspaces.length };
       })`);
-    const iconClick = async (icon: string, expect: (f: any) => boolean, label: string) => {
+    const paneMenuRun = async (itemText: string, expect: (f: any) => boolean, label: string) => {
       const before = await sessionFacts();
-      await evaluate(`(() => {
-        const el = document.querySelector('[class*="lucide-' + ${JSON.stringify(icon)} + '"]');
-        el?.closest("button")?.click();
+      await evaluate(`document.querySelector('[aria-label="Pane actions"]')?.click()`);
+      await sleep(600);
+      const clicked = await evaluate(`(() => {
+        const el = [...document.querySelectorAll('[data-slot="menu-item"]')]
+          .find((b) => b.textContent.trim().startsWith(${JSON.stringify(itemText)}));
+        el?.click();
         return !!el;
       })()`);
       await sleep(1600);
       const after = await sessionFacts();
-      const ok = expect(after) && JSON.stringify(after) !== JSON.stringify(before);
+      const ok = clicked === true && expect(after) && JSON.stringify(after) !== JSON.stringify(before);
       console.log(`${label}: ${ok ? "OK" : "FAILED"}`, JSON.stringify(after));
       if (!ok) throw new Error(`state assertion failed for ${label}`);
     };
-    await iconClick("columns", (f) => f.tabPanes >= 2, "pane split");
+    await paneMenuRun("Split right", (f) => f.tabPanes >= 2, "pane split");
     await shot("07-pane-split");
-    await iconClick("maximize", (f) => f.zoomed === true, "pane zoom");
+    await paneMenuRun("Zoom", (f) => f.zoomed === true, "pane zoom");
     await shot("08-pane-zoomed");
-    await iconClick("minimize", (f) => f.zoomed === false, "pane unzoom");
+    await paneMenuRun("Unzoom", (f) => f.zoomed === false, "pane unzoom");
 
     // Dark / light appearance via the persisted setting + reload.
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
