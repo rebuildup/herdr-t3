@@ -27,6 +27,24 @@ export function setLocalStorageNumber(key: string, value: number): void {
   }
 }
 
+export function getLocalStorageJson<T>(key: string): T | null {
+  const raw = storage()?.getItem(key);
+  if (raw === null || raw === undefined) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function setLocalStorageJson(key: string, value: unknown): void {
+  try {
+    storage()?.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function getLocalStorageBoolean(key: string): boolean | null {
   const raw = storage()?.getItem(key);
   if (raw === "true") return true;

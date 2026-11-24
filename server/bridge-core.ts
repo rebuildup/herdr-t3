@@ -224,6 +224,11 @@ function attachTerminal(
       if (slot.gone) return;
       if (event.type === "terminal") {
         state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64"), machine: state.machine });
+      } else if (event.type === "mouse_capture") {
+        // herdr ServerMessage::MouseCapture: the attached pane's program
+        // currently requests mouse reporting (issue #169). Older herdr
+        // never sends it — the client keeps its conservative fallback.
+        state.send({ type: "terminal_mouse_capture", paneId, enabled: event.enabled, machine: state.machine });
       } else if (event.type === "shutdown") {
         dropTerminal(state, paneId, slot, event.reason ?? "herdr_shutdown");
         slot.link?.close();
@@ -295,6 +300,30 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       const resize = () => slot.link?.resize(frame.cols, frame.rows);
       if (slot.link) resize();
       else slot.queue.push(resize);
+      return;
+    }
+    case "terminal_mouse": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const mouse = () =>
+        slot.link?.mouse({
+          action: frame.action,
+          button: frame.button ?? null,
+          column: frame.column,
+          row: frame.row,
+          modifiers: frame.modifiers ?? 0,
+        });
+      if (slot.link) mouse();
+      else slot.queue.push(mouse);
+      return;
+    }
+    case "terminal_scroll": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const scroll = () =>
+        slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
+      if (slot.link) scroll();
+      else slot.queue.push(scroll);
       return;
     }
     // Machine-management frames are routed by the machine manager before

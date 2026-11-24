@@ -18,9 +18,10 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
+import { CompositionTracker, bypassesKeyEncoder, focusReport, mouseReportCell, pointerDragKind, sendsHoverMotion, wheelButton } from "./inputPolicy.ts";
 import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
 import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
-import type { EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
+import type { EngineModes, EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
 
 export interface GhosttySurfaceOptions {
   session: GhosttySession;
@@ -33,6 +34,34 @@ export interface GhosttySurfaceOptions {
   readOnly?: boolean;
   /** encoded user input — keys, mouse reports, paste, committed IME text — for the host to send to the pane */
   onInput?(bytes: Uint8Array): void;
+  /**
+   * Structured pointer events for hosts that forward them to herdr as
+   * AttachMouse (the server emits SGR reports only when the pane enabled mouse
+   * mode). When set, pointer press/drag/release/hover are delivered here
+   * instead of engine-encoded bytes. Selection-vs-report follows the pane's
+   * MouseCapture state pushed via setMouseCapture; while it is unknown the
+   * surface keeps local selection and forwards events in parallel — the
+   * server drops reports the pane did not ask for.
+   */
+  onMouse?(event: {
+    action: "press" | "motion" | "release" | "moved";
+    button?: "left" | "middle" | "right" | null;
+    column: number;
+    row: number;
+    modifiers: number;
+  }): void;
+  /**
+   * Wheel scroll for hosts that forward it as herdr AttachScroll; the server
+   * arbitrates mouse-report vs scrollback vs alternate-scroll. When set, the
+   * wheel routes here instead of scrolling the local viewport.
+   */
+  onWheel?(event: {
+    direction: "up" | "down";
+    lines: number;
+    column?: number;
+    row?: number;
+    modifiers: number;
+  }): void;
   onSelectionChange?(text: string | null): void;
   /** the local scroll position changed (rows above the bottom); 0 is the newest rows */
   onScroll?(rowsAboveBottom: number): void;
@@ -43,6 +72,15 @@ export interface GhosttySurfaceOptions {
   /** accessible name for the hidden input that owns keyboard focus */
   ariaLabel?: string;
 }
+
+/**
+ * herdr `ServerMessage::MouseCapture` state for the attached pane
+ * (issue #169): `true` while the pane's program requests mouse reporting,
+ * `false` while it does not, `null` when the server never reported (a
+ * non-attach host or herdr without the message). The surface uses it for
+ * the selection-vs-report decision; the server still gates every report.
+ */
+export type PaneMouseCapture = boolean | null;
 
 interface CellMetrics { cols: number; rows: number; cellW: number; cellH: number }
 
@@ -69,8 +107,42 @@ export class GhosttySurface {
   private metrics: CellMetrics | null = null;
   private scrollOffset = 0;
   private selection: ScreenRange | null = null;
-  private drag: { kind: "select" | "mouse"; anchor: ScreenPoint; moved: boolean; button?: EngineMouse["button"] } | null = null;
-  private composing = false;
+  private drag: { kind: "select" | "mouse"; anchor: ScreenPoint; moved: boolean; button?: "left" | "middle" | "right"; reported?: boolean } | null = null;
+
+  /** crossterm KeyModifiers bits shared with herdr's AttachMouse/AttachScroll */
+  private static modsOf(event: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean }): number {
+    return (event.shiftKey ? 1 : 0) | (event.altKey ? 2 : 0) | (event.ctrlKey ? 4 : 0);
+  }
+
+  /** screen point -> pane-grid cell for structured AttachMouse/AttachScroll */
+  private attachCell(point: ScreenPoint): { column: number; row: number } | null {
+    if (!this.metrics) return null;
+    const cell = mouseReportCell(point, this.session.history().viewportTop, this.metrics.cols, this.metrics.rows);
+    return cell ? { column: cell.col, row: cell.row } : null;
+  }
+
+  private sendStructuredMouse(
+    action: "press" | "motion" | "release" | "moved",
+    button: "left" | "middle" | "right" | null,
+    point: ScreenPoint,
+    modifiers: number,
+  ): void {
+    const cell = this.attachCell(point);
+    if (!cell) return;
+    this.options.onMouse?.({ action, button, column: cell.column, row: cell.row, modifiers });
+  }
+  private readonly composition = new CompositionTracker();
+  /** viewport cell the IME composition text and candidate window anchor to */
+  private imeAnchor: ScreenPoint | null = null;
+  /** last cursor position the engine reported visible, for hidden-cursor anchors */
+  private lastCursor: ScreenPoint | null = null;
+  /** the in-progress composition string drawn over the canvas at the anchor */
+  private readonly compositionView: HTMLDivElement;
+  /** latest hover cell waiting for the next frame's any-mode motion report */
+  private hoverPoint: { point: ScreenPoint; mods: EngineMouse["mods"] } | null = null;
+  private lastHoverSent: ScreenPoint | null = null;
+  /** pane mouse-report state pushed by the host (herdr MouseCapture); null = unknown */
+  private paneMouseCapture: PaneMouseCapture = null;
   private pressed = new Set<string>();
   private lastClick = { at: 0, count: 0 };
   private renderFrame = 0;
@@ -107,6 +179,15 @@ export class GhosttySurface {
     this.input.setAttribute("autocorrect", "off");
     this.input.spellcheck = false;
     this.root.append(this.input);
+    // The IME composition string is drawn here, not inside the transparent
+    // textarea: the textarea stays click-through and opacity:0, so without
+    // this layer the user cannot see what they are converting
+    // (docs/design/terminal-io.md §3.2).
+    this.compositionView = document.createElement("div");
+    this.compositionView.className = "ghostty-composition";
+    this.compositionView.hidden = true;
+    this.compositionView.setAttribute("aria-hidden", "true");
+    this.root.append(this.compositionView);
     this.applyColors();
     this.bind();
   }
@@ -400,6 +481,8 @@ export class GhosttySurface {
       try {
         cursor = this.session.cursorState();
       } catch { /* the frame below reports a dead engine */ }
+      if (cursor?.visible) this.lastCursor = { x: cursor.x, y: cursor.y };
+      this.flushHoverMotion();
       const blinking = cursor?.visible === true && cursor.blinking;
       this.renderer.setCursorVisible(!blinking || this.cursorPhase);
       this.renderer.collect();
@@ -420,13 +503,158 @@ export class GhosttySurface {
     }
   }
 
+  // ---- focus reports, IME composition, hover motion (terminal-io.md) ---------
+
+  private reportFocus(focused: boolean): void {
+    let reports: EngineModes["focusReports"];
+    try {
+      reports = this.session.modes().focusReports;
+    } catch (error) {
+      this.fail(error);
+      return;
+    }
+    const bytes = focusReport(focused, reports);
+    if (bytes) this.emit(bytes);
+  }
+
+  /** the cell an IME composition anchors to: live cursor, last seen, or viewport bottom-left */
+  private anchorForComposition(): ScreenPoint | null {
+    try {
+      const cursor = this.session.cursorState();
+      if (cursor.visible) return { x: cursor.x, y: cursor.y };
+    } catch (error) {
+      this.fail(error);
+    }
+    if (this.lastCursor) return this.lastCursor;
+    const m = this.metrics;
+    return m ? { x: 0, y: m.rows - 1 } : null;
+  }
+
+  private compositionStart(): void {
+    this.composition.start();
+    this.imeAnchor = this.anchorForComposition();
+    this.positionImeAnchor();
+    this.positionCompositionView("");
+  }
+
+  /**
+   * While composing, shrink the hidden textarea onto the anchor cell so the
+   * OS candidate window opens next to the terminal cursor instead of the
+   * pane's top-left corner. The textarea keeps `pointer-events: none`, so
+   * this changes nothing for pointer input.
+   */
+  private positionImeAnchor(): void {
+    const m = this.metrics;
+    const a = this.imeAnchor;
+    if (!m || !a) return;
+    this.input.style.left = `${a.x * m.cellW}px`;
+    this.input.style.top = `${a.y * m.cellH}px`;
+    this.input.style.width = `${m.cellW * 16}px`;
+    this.input.style.height = `${m.cellH * 2}px`;
+  }
+
+  private resetImeAnchor(): void {
+    this.input.style.left = "";
+    this.input.style.top = "";
+    this.input.style.width = "";
+    this.input.style.height = "";
+  }
+
+  private positionCompositionView(text: string): void {
+    const m = this.metrics;
+    const a = this.imeAnchor;
+    if (!m || !a) {
+      this.compositionView.hidden = true;
+      return;
+    }
+    this.compositionView.textContent = text;
+    this.compositionView.style.left = `${a.x * m.cellW}px`;
+    this.compositionView.style.top = `${a.y * m.cellH}px`;
+    this.compositionView.style.font = `${this.options.fontSize}px ${this.options.fontFamily}`;
+    this.compositionView.style.color = this.options.colors.foreground;
+    this.compositionView.hidden = false;
+  }
+
+  private endCompositionView(): void {
+    this.compositionView.hidden = true;
+    this.compositionView.textContent = "";
+    this.resetImeAnchor();
+    this.imeAnchor = null;
+  }
+
+  private queueHoverMotion(event: PointerEvent): void {
+    const cell = this.cellAt(event);
+    if (!cell || this.options.readOnly) {
+      this.hoverPoint = null;
+      return;
+    }
+    const mods: EngineMouse["mods"] = {};
+    if (event.shiftKey) mods.shift = true;
+    if (event.ctrlKey) mods.ctrl = true;
+    if (event.altKey) mods.alt = true;
+    this.hoverPoint = { point: cell, mods };
+    this.schedule();
+  }
+
+  /** send the pending buttonless motion once per frame, only in "any" mouse mode */
+  private flushHoverMotion(): void {
+    const pending = this.hoverPoint;
+    this.hoverPoint = null;
+    if (!pending || !this.metrics) return;
+    if (
+      this.lastHoverSent &&
+      this.lastHoverSent.x === pending.point.x &&
+      this.lastHoverSent.y === pending.point.y
+    ) {
+      return;
+    }
+    let modes: EngineModes;
+    try {
+      modes = this.session.modes();
+    } catch (error) {
+      this.fail(error);
+      return;
+    }
+    // structured hosts forward motion unconditionally — the server drops it
+    // unless the pane enabled any-motion reporting
+    if ((!this.options.onMouse && !sendsHoverMotion(modes.mouse)) || !this.metrics) return;
+    const cell = mouseReportCell(
+      pending.point,
+      this.session.history().viewportTop,
+      this.metrics.cols,
+      this.metrics.rows,
+    );
+    if (!cell) return;
+    if (this.options.onMouse) {
+      // buttonless motion for panes in "any"-motion mode; the server drops it otherwise
+      this.sendStructuredMouse("moved", null, pending.point, pending.mods
+        ? (pending.mods.shift ? 1 : 0) | (pending.mods.alt ? 2 : 0) | (pending.mods.ctrl ? 4 : 0)
+        : 0);
+      this.lastHoverSent = pending.point;
+      return;
+    }
+    const mouse: EngineMouse = {
+      action: "motion",
+      col: cell.col,
+      row: cell.row,
+      mods: pending.mods,
+    };
+    try {
+      this.emit(this.session.encodeMouse(mouse));
+      this.lastHoverSent = pending.point;
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
   // ---- input -----------------------------------------------------------------
 
   private bind(): void {
     this.root.addEventListener("pointerdown", (event) => this.pointerDown(event));
     this.root.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.root.addEventListener("pointerup", (event) => this.pointerUp(event));
-    this.root.addEventListener("pointercancel", () => { this.drag = null; });
+    this.root.addEventListener("pointercancel", () => { this.drag = null; this.hoverPoint = null; });
+    this.root.addEventListener("pointerleave", () => { this.hoverPoint = null; });
     // The mousedown default action moves focus to the element under the
     // pointer — body here, since the textarea is click-through — which would
     // undo the pointerdown focus and leave every keystroke unreachable
@@ -437,20 +665,30 @@ export class GhosttySurface {
     this.root.addEventListener("contextmenu", (event) => event.preventDefault());
     this.input.addEventListener("keydown", (event) => this.keyDown(event));
     this.input.addEventListener("keyup", (event) => this.keyUp(event));
-    this.input.addEventListener("compositionstart", () => { this.composing = true; });
+    // DECSET 1004: a pane that asked for focus events hears the surface's
+    // focus transitions as CSI I / CSI O (docs/design/terminal-io.md §4).
+    this.input.addEventListener("focus", () => this.reportFocus(true));
+    this.input.addEventListener("blur", () => this.reportFocus(false));
+    this.input.addEventListener("compositionstart", () => this.compositionStart());
+    this.input.addEventListener("compositionupdate", (event) => {
+      this.compositionView.textContent = (event as CompositionEvent).data;
+    });
     this.input.addEventListener("compositionend", (event) => {
-      this.composing = false;
-      const text = (event as CompositionEvent).data;
+      const text = this.composition.end((event as CompositionEvent).data);
+      this.endCompositionView();
       if (text) this.emit(this.session.inputText(text));
     });
     this.input.addEventListener("beforeinput", (event) => {
-      // text that did not come through a key (autocorrect, a dropped word, an IME commit some
-      // platforms deliver without composition events) is still typed text
-      if (this.composing) return;
+      // text that did not come through a key (autocorrect, a dropped word, an
+      // IME commit some platforms deliver without composition events) is still
+      // typed text; the tracker dedupes the commit's insertText echo
+      // (docs/design/terminal-io.md §3.1)
+      if (this.composition.active || (event as InputEvent).isComposing) return;
       const input = event as InputEvent;
       if (input.inputType === "insertText" && input.data) {
         event.preventDefault();
-        this.emit(this.session.inputText(input.data));
+        const text = this.composition.beforeInputText(input.data);
+        if (text !== null) this.emit(this.session.inputText(text));
       }
     });
     this.root.addEventListener("paste", (event) => this.paste(event));
@@ -465,8 +703,20 @@ export class GhosttySurface {
     this.options.onInput?.(bytes);
   }
 
+  /**
+   * Update the pane's mouse-capture state (herdr `MouseCapture`, pushed on
+   * attach and on every mode change). `null` restores the conservative
+   * fallback for hosts/servers that never report it.
+   */
+  setMouseCapture(enabled: PaneMouseCapture): void {
+    this.paneMouseCapture = enabled;
+  }
+
   private mouseReporting(): boolean {
     if (this.options.readOnly) return false;
+    // Pane mode state from the host wins: the attach stream never carries
+    // mode sets, so the engine's own mode tracking stays at defaults here.
+    if (this.paneMouseCapture !== null) return this.paneMouseCapture;
     try {
       return this.session.modes().mouse !== "none";
     } catch (error) {
@@ -475,10 +725,21 @@ export class GhosttySurface {
     }
   }
 
+  /** Kitty keyboard flag 8 ("report all keys"): text keys need encoder events, not beforeinput text */
+  private reportsAllKeys(): boolean {
+    try {
+      return (this.session.modes().kittyFlags & 0b1000) !== 0;
+    } catch (error) {
+      this.fail(error);
+      return false;
+    }
+  }
+
   private keyDown(event: KeyboardEvent): void {
-    if (this.composing || event.isComposing) return;
+    if (this.composition.active) return;
     // the platform's own shortcuts (copy, paste, reload, devtools) are not the pane's
     if (event.metaKey && !event.ctrlKey && !event.altKey) return;
+    if (bypassesKeyEncoder(event, () => this.reportsAllKeys())) return;
     const action = event.repeat ? "repeat" : "press";
     const key = engineKeyFor(event, action);
     if (key && this.session.hasKey(key.key)) {
@@ -542,31 +803,70 @@ export class GhosttySurface {
 
   private pointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+    this.hoverPoint = null;
     this.focus();
     const cell = this.cellAt(event);
     if (!cell) return;
     const button = event.button === 0 ? "left" : event.button === 1 ? "middle" : "right";
     // shift+drag always selects, as xterm's does; otherwise a program that asked for the mouse gets it
-    if (!event.shiftKey && this.mouseReporting()) {
-      this.drag = { kind: "mouse", anchor: cell, moved: false, button };
-      this.sendMouse("press", button, cell, event);
-    } else {
-      this.drag = { kind: "select", anchor: cell, moved: false };
+    const toMouse = pointerDragKind(event.shiftKey, this.mouseReporting()) === "mouse";
+    this.drag = { kind: toMouse ? "mouse" : "select", anchor: cell, moved: false, button };
+    if (!toMouse) {
       this.selection = { start: cell, end: cell };
       this.renderer.setSelection(null);
+    }
+    // Structured AttachMouse is the canonical report path on attach hosts
+    // (docs/design/terminal-io.md §5.4); the engine-encoded fallback only
+    // serves hosts without it. Selection-vs-report follows the pane's
+    // MouseCapture state (issue #169):
+    // - capture === true: the pane owns the mouse — reports only, no selection.
+    // - capture === false: the pane does not report — local selection only.
+    // - capture === null (server never reported): keep forwarding every
+    //   event and selecting in parallel — the server drops what the pane
+    //   did not ask for, so this stays correct on any herdr version.
+    if (toMouse) {
+      if (this.options.onMouse) {
+        this.sendStructuredMouse("press", button, cell, GhosttySurface.modsOf(event));
+      } else {
+        this.sendMouse("press", button, cell, event);
+      }
+    } else if (
+      this.options.onMouse &&
+      !event.shiftKey &&
+      this.paneMouseCapture !== false
+    ) {
+      this.drag.reported = true;
+      this.sendStructuredMouse("press", button, cell, GhosttySurface.modsOf(event));
     }
     this.root.setPointerCapture(event.pointerId);
   }
 
   private pointerMove(event: PointerEvent): void {
     const drag = this.drag;
-    if (!drag) return;
+    if (!drag) {
+      // A program in "any" mouse mode (1003) wants buttonless motion; it is
+      // flushed once per frame so a hover does not encode per event
+      // (docs/design/terminal-io.md §5.1).
+      this.queueHoverMotion(event);
+      return;
+    }
+    this.hoverPoint = null;
     const cell = this.cellAt(event);
     if (!cell) return;
     drag.moved = true;
     if (drag.kind === "mouse") {
-      if (drag.button) this.sendMouse("motion", drag.button, cell, event);
+      if (drag.button) {
+        if (this.options.onMouse) {
+          this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
+        } else {
+          this.sendMouse("motion", drag.button, cell, event);
+        }
+      }
       return;
+    }
+    // selection drag that also reports structured motion to the pane
+    if (this.options.onMouse && drag.reported && drag.button) {
+      this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
     }
     const range = ordered(this.selection?.start ?? drag.anchor, cell);
     this.selection = range;
@@ -581,8 +881,17 @@ export class GhosttySurface {
     this.drag = null;
     const cell = this.cellAt(event) ?? drag.anchor;
     if (drag.kind === "mouse") {
-      if (drag.button) this.sendMouse("release", drag.button, cell, event);
+      if (drag.button) {
+        if (this.options.onMouse) {
+          this.sendStructuredMouse("release", drag.button, cell, GhosttySurface.modsOf(event));
+        } else {
+          this.sendMouse("release", drag.button, cell, event);
+        }
+      }
       return;
+    }
+    if (this.options.onMouse && drag.reported && drag.button) {
+      this.sendStructuredMouse("release", drag.button, cell, GhosttySurface.modsOf(event));
     }
     // a second or third quick click widens the selection to the word or the line under it
     const now = performance.now();
@@ -613,9 +922,15 @@ export class GhosttySurface {
   }
 
   private sendMouse(action: EngineMouse["action"], button: EngineMouse["button"], cell: ScreenPoint, event: PointerEvent | WheelEvent): void {
+    if (!this.metrics) return;
     // the encoder works in viewport cells: the point's screen y maps back through the viewport top
-    const viewportY = cell.y - this.session.history().viewportTop;
-    if (viewportY < 0 || !this.metrics) return;
+    const target = mouseReportCell(
+      cell,
+      this.session.history().viewportTop,
+      this.metrics.cols,
+      this.metrics.rows,
+    );
+    if (!target) return;
     const mods: EngineMouse["mods"] = {};
     if (event.shiftKey) mods.shift = true;
     if (event.ctrlKey) mods.ctrl = true;
@@ -623,8 +938,8 @@ export class GhosttySurface {
     const mouse: EngineMouse = {
       action,
       button,
-      col: Math.min(cell.x, this.metrics.cols - 1),
-      row: Math.min(viewportY, this.metrics.rows - 1),
+      col: target.col,
+      row: target.row,
       mods,
     };
     try {
@@ -647,14 +962,25 @@ export class GhosttySurface {
     if (modes.mouse !== "none") {
       // a program that took the mouse gets the wheel as button 4/5 (and 6/7 sideways) reports
       const cell = this.cellAt(event);
-      if (cell) {
-        const vertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
-        const button = vertical
-          ? (event.deltaY < 0 ? "wheelUp" : "wheelDown")
-          : (event.deltaX < 0 ? "wheelLeft" : "wheelRight");
+      const button = wheelButton(event.deltaX, event.deltaY);
+      if (cell && button) {
         this.sendMouse("press", button, cell, event);
         this.sendMouse("release", button, cell, event);
       }
+      return;
+    }
+    if (this.options.onWheel) {
+      // herdr's AttachScroll arbitrates mouse-report vs scrollback vs
+      // alternate-scroll server-side, so the wheel needs no local mode state
+      const cell = this.cellAt(event);
+      const target = cell ? this.attachCell(cell) : null;
+      const lines = Math.max(1, Math.round(Math.abs(event.deltaY) / WHEEL_PIXELS_PER_LINE)) * Math.sign(event.deltaY);
+      this.options.onWheel({
+        direction: lines > 0 ? "down" : "up",
+        lines: Math.abs(lines),
+        ...(target ?? {}),
+        modifiers: GhosttySurface.modsOf(event),
+      });
       return;
     }
     const history = this.session.history();

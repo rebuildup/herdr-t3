@@ -35,6 +35,11 @@ persisted width, `SidebarRail` double-click resets width
   otherwise. Rows carry status icon, title, trailing meta; hover reveals
   actions; right-click opens a context menu; keyboard navigation
   (arrow keys / type-ahead) exists.
+- **Agents section (v0.5.0)** — a sectioned work list below the workspace
+  list, not a fixed enumeration: Attention / Working / Done (collapsed
+  shelf) / Idle sections over herdr `AgentInfo`, two-line rows per
+  `info-architecture.md` §6. It replaces the flat status-sorted list
+  shipped in v0.4.0.
 - **Footer** — utility icon row: Settings plus domain utilities (T3:
   Pull requests, Issues, Usage). Transient notices (undo, updates) sit
   beside them.
@@ -49,6 +54,12 @@ persisted width, `SidebarRail` double-click resets width
 - **Main view**: a 52px drag-region header containing a breadcrumb
   (project › thread in T3; machine › workspace in herdr-t3), in-view
   actions, and panel controls; below it the work canvas.
+  v0.5.0: the header carries direct icon actions for the most frequent
+  pane operations (split right/down, zoom) next to the overflow "⋯"
+  menu, which keeps only lower-frequency pane actions; the tab strip
+  items get hover-revealed close affordances and a restored context
+  menu. Role split between direct controls, context menus and the
+  overflow menu is defined in §4 (info-architecture.md §8).
 
 The header is `WorkspacePageHeader` (`components/WorkspacePageHeader.tsx`,
 already vendored) or the ChatView header equivalent: `drag-region`,
@@ -136,6 +147,12 @@ dialogs launched from them.
 - Keyboard: sidebar toggle shortcut, workspace/tab navigation,
   pane focus cycling — modeled on T3 `keybindings.ts` scope/context
   rules where they apply.
+- Direct control vs menu split (v0.5.0, info-architecture.md §8):
+  every row/tab exposes its primary action directly (click), its most
+  frequent secondary action on hover, and the full action set on
+  right-click context menu; the header "⋯" overflow holds only
+  lower-frequency pane actions. These channels are additive, not
+  mutually exclusive — the same operation may appear in more than one.
 
 ## 5. Milestones and acceptance
 

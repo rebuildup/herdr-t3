@@ -98,6 +98,7 @@ export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => v
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
 export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
+export type TerminalMouseCaptureListener = (machine: string, paneId: string, enabled: boolean) => void;
 export type MachinesListener = (machines: MachineInfo[]) => void;
 export type MachineStatusListener = (machine: MachineInfo) => void;
 
@@ -107,6 +108,7 @@ let wsListeners = new Set<SnapshotListener>();
 let statusListeners = new Set<StatusListener>();
 let terminalDataListeners = new Set<TerminalDataListener>();
 let terminalClosedListeners = new Set<TerminalClosedListener>();
+let terminalMouseCaptureListeners = new Set<TerminalMouseCaptureListener>();
 let machinesListeners = new Set<MachinesListener>();
 let machineStatusListeners = new Set<MachineStatusListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
@@ -141,6 +143,9 @@ function handleFrame(frame: ServerFrame): void {
       return;
     case "terminal_closed":
       for (const listener of terminalClosedListeners) listener(frame.machine, frame.paneId, frame.reason);
+      return;
+    case "terminal_mouse_capture":
+      for (const listener of terminalMouseCaptureListeners) listener(frame.machine, frame.paneId, frame.enabled);
       return;
     case "machines":
       for (const listener of machinesListeners) listener(frame.machines);
@@ -230,6 +235,11 @@ export function onTerminalClosed(listener: TerminalClosedListener): () => void {
   return () => terminalClosedListeners.delete(listener);
 }
 
+export function onTerminalMouseCapture(listener: TerminalMouseCaptureListener): () => void {
+  terminalMouseCaptureListeners.add(listener);
+  return () => terminalMouseCaptureListeners.delete(listener);
+}
+
 export function onMachines(listener: MachinesListener): () => void {
   machinesListeners.add(listener);
   return () => machinesListeners.delete(listener);
@@ -269,6 +279,30 @@ export function terminalInput(machine: string, paneId: string, data: Uint8Array)
 
 export function terminalResize(machine: string, paneId: string, cols: number, rows: number): void {
   sendFrame({ type: "terminal_resize", machine, paneId, cols, rows });
+}
+
+/** Structured pointer event; the bridge forwards it as herdr AttachMouse (SGR reports only when the pane enabled mouse mode). */
+export function terminalMouse(
+  machine: string,
+  paneId: string,
+  event: {
+    action: "press" | "motion" | "release" | "moved";
+    button?: "left" | "middle" | "right" | null;
+    column: number;
+    row: number;
+    modifiers?: number;
+  },
+): void {
+  sendFrame({ type: "terminal_mouse", machine, paneId, ...event });
+}
+
+/** Wheel scroll; the bridge forwards it as herdr AttachScroll which arbitrates mouse-report vs scrollback server-side. */
+export function terminalScroll(
+  machine: string,
+  paneId: string,
+  event: { direction: "up" | "down"; lines?: number; column?: number; row?: number; modifiers?: number },
+): void {
+  sendFrame({ type: "terminal_scroll", machine, paneId, ...event });
 }
 
 /** Call a whitelisted herdr RPC through the bridge, on the given machine. */

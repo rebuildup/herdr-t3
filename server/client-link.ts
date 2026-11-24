@@ -99,15 +99,60 @@ function msgAttachTerminal(terminalId: string, takeover: boolean): number[] {
 }
 
 /** AttachScrollSource::Wheel = 0, AttachScrollDirection::Up = 0 / Down = 1. */
-function attachScroll(direction: "up" | "down", lines: number): number[] {
+function attachScroll(
+  direction: "up" | "down",
+  lines: number,
+  column?: number,
+  row?: number,
+  modifiers = 0,
+): number[] {
   return [
     ...vi(6),
     ...vi(0), // source Wheel
     ...vi(direction === "up" ? 0 : 1),
     ...vi(lines),
-    0, // column: Option<u16> None
-    0, // row: Option<u16> None
-    ...vi(0), // modifiers
+    ...(column === undefined ? [0] : [1, ...vi(column)]), // column: Option<u16>
+    ...(row === undefined ? [0] : [1, ...vi(row)]), // row: Option<u16>
+    ...vi(modifiers),
+  ];
+}
+
+/* --------------------------- AttachMouse -------------------------------- */
+// ClientMessage::AttachMouse is variant 16 (wire.rs). The server encodes SGR
+// reports only when the pane enabled the matching mouse mode; pane mode
+// state arrives separately as ServerMessage::MouseCapture (variant 8).
+
+export type AttachMouseAction = "press" | "motion" | "release" | "moved";
+export type AttachMouseButton = "left" | "middle" | "right";
+
+// ClientMouseKind: Down = 0, Up = 1, Drag = 2 (all carry a button),
+// Moved = 3 (buttonless), Scroll* = 4..7 (unused here; wheel goes via AttachScroll).
+const MOUSE_KIND: Record<AttachMouseAction, number> = { press: 0, release: 1, motion: 2, moved: 3 };
+// ClientMouseButton: Left = 0, Right = 1, Middle = 2 (wire.rs order).
+const MOUSE_BUTTON: Record<AttachMouseButton, number> = { left: 0, right: 1, middle: 2 };
+
+/** crossterm KeyModifiers bits: SHIFT = 1, ALT = 2, CONTROL = 4. */
+export function mouseModifiers(event: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean }): number {
+  return (event.shiftKey ? 1 : 0) | (event.altKey ? 2 : 0) | (event.ctrlKey ? 4 : 0);
+}
+
+export function attachMouse(
+  action: AttachMouseAction,
+  button: AttachMouseButton | null,
+  column: number,
+  row: number,
+  modifiers: number,
+): number[] {
+  const kind = MOUSE_KIND[action];
+  const kindBytes =
+    kind === 3 ? [...vi(kind)] : [...vi(kind), ...vi(MOUSE_BUTTON[button ?? "left"])];
+  return [
+    ...vi(16), // ClientMessage::AttachMouse
+    ...kindBytes, // ClientMouseKind (Down/Up/Drag carry a ClientMouseButton)
+    ...vi(0), ...vi(column), ...vi(row), // ClientMousePosition::Cell
+    0, // geometry: Option<ClientMouseGeometry> None (cell metrics unknown)
+    ...vi(modifiers),
+    ...vi(1), // lines (wheel clicks; unused for button events)
   ];
 }
 
@@ -124,6 +169,7 @@ export type ServerEvent =
   | { type: "welcome"; version: number; terminalAnsi: boolean; error: string | null }
   | { type: "terminal"; seq: number; width: number; height: number; full: boolean; bytes: Uint8Array }
   | { type: "shutdown"; reason: string | null }
+  | { type: "mouse_capture"; enabled: boolean; sgrPixels: boolean }
   | { type: "other"; variant: number };
 
 function readOptionString(buf: Uint8Array, offset: number): [string | null, number] {
@@ -173,6 +219,19 @@ export function decodeServerMessage(payload: Uint8Array): ServerEvent {
         const [reason] = readOptionString(payload, offset);
         return { type: "shutdown", reason };
       }
+      case 8: {
+        // MouseCapture { enabled: bool, sgr_pixels: bool } — pushed to
+        // writable TerminalAttach clients on attach and on change since
+        // herdr 0.9.0 (wire.rs ServerMessage). `enabled` is the attached
+        // pane's mouse_reporting_enabled(); the server still gates every
+        // AttachMouse/AttachScroll report against the pane's modes.
+        if (offset + 2 > payload.length) throw new Error("truncated mouse capture");
+        return {
+          type: "mouse_capture",
+          enabled: payload[offset] === 1,
+          sgrPixels: payload[offset + 1] === 1,
+        };
+      }
       default:
         return { type: "other", variant: v };
     }
@@ -188,11 +247,20 @@ export interface LinkHandlers {
   onClose: (reason: string) => void;
 }
 
+export interface TerminalMouseEvent {
+  action: AttachMouseAction;
+  button?: AttachMouseButton | null;
+  column: number;
+  row: number;
+  modifiers?: number;
+}
+
 export interface TerminalLink {
   readonly terminalId: string;
   write: (data: Uint8Array) => void;
   resize: (cols: number, rows: number) => void;
-  scroll: (direction: "up" | "down", lines?: number) => void;
+  scroll: (direction: "up" | "down", lines?: number, column?: number, row?: number, modifiers?: number) => void;
+  mouse: (event: TerminalMouseEvent) => void;
   close: () => void;
 }
 
@@ -288,7 +356,10 @@ export function openTerminalLink(
             terminalId,
             write: (data) => send(clientInput(data)),
             resize: (cols, rows) => send(clientResize(cols, rows)),
-            scroll: (direction, lines = 3) => send(attachScroll(direction, lines)),
+            scroll: (direction, lines = 3, column, row, modifiers) =>
+              send(attachScroll(direction, lines, column, row, modifiers)),
+            mouse: (event) =>
+              send(attachMouse(event.action, event.button ?? null, event.column, event.row, event.modifiers ?? 0)),
             close: () => {
               if (closed) return;
               closed = true;

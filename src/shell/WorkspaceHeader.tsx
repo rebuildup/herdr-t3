@@ -6,6 +6,8 @@
  * the pushed snapshot is what updates the UI.
  */
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   Columns2,
   EllipsisIcon,
   GitBranchIcon,
@@ -13,13 +15,14 @@ import {
   Maximize2,
   MessageSquareTextIcon,
   Minimize2,
+  MousePointerClickIcon,
   PencilIcon,
   PlusIcon,
   Rows2,
   SquareSplitHorizontalIcon,
   XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { focusPaneTerminal } from "~/lib/paneFocus";
@@ -34,6 +37,13 @@ import {
 import { MiddleTruncate } from "~/components/ui/middle-truncate";
 import { Button } from "~/components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "~/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -44,6 +54,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
 import { AgentStatusBadge, isKnownAgentStatus, PaneStatusDetail } from "~/components/AgentStatusBadge";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
+import { moveInsertIndex } from "~/lib/reorder";
+import { nextPaneInReadingOrder } from "~/lib/paneOrder";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc } from "./bridge";
@@ -98,6 +110,20 @@ export function WorkspaceHeader() {
   // the drop maps to herdr `tab.move {tab_id, insert_index}`.
   const [tabDragId, setTabDragId] = useState<string | null>(null);
   const [tabDrop, setTabDrop] = useState<{ index: number; side: "before" | "after" } | null>(null);
+  // Scroll-edge fade: the hidden-scrollbar strip gives no overflow cue,
+  // so a right-edge mask appears whenever tabs actually overflow
+  // (issue #204 review).
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    const check = () => setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tabs]);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
@@ -132,16 +158,9 @@ export function WorkspaceHeader() {
   };
   /** Focus the pane after `pane` in herdr's layout reading order. */
   const focusNextPane = () => {
-    if (!focusedPane || paneCount < 2) return;
-    const ordered = [...tabPanes].sort((a, b) => {
-      const ra = layout?.panes.find((p) => p.pane_id === a.pane_id)?.rect;
-      const rb = layout?.panes.find((p) => p.pane_id === b.pane_id)?.rect;
-      if (!ra || !rb) return 0;
-      return ra.y - rb.y || ra.x - rb.x;
-    });
-    const index = ordered.findIndex((p) => p.pane_id === focusedPane.pane_id);
-    const next = ordered[(index + 1) % ordered.length];
-    if (next) void rpc("pane.focus", { pane_id: next.pane_id });
+    if (!focusedPane) return;
+    const next = nextPaneInReadingOrder(tabPanes, layout, focusedPane.pane_id);
+    if (next) void rpc("pane.focus", { pane_id: next });
   };
 
   return (
@@ -170,14 +189,20 @@ export function WorkspaceHeader() {
               strip — at narrow widths the two read as one run without it
               (issue #130). */}
           <span aria-hidden className="h-4 w-px shrink-0 bg-border/60" />
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div
+            ref={tabStripRef}
+            className={cn(
+              "flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
+              tabsOverflow &&
+                "[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]",
+            )}
+          >
             {tabs.map((t, tabIndex) => {
               const selected = t.tab_id === activeTab.tab_id;
               const label = t.label || `Tab ${t.number}`;
               const dropHere = tabDrop?.index === tabIndex ? tabDrop.side : null;
-              return (
+              const tabButton = (
                 <div
-                  key={t.tab_id}
                   draggable={renamingTab !== t.tab_id}
                   onDragStart={(e) => {
                     setTabDragId(t.tab_id);
@@ -203,26 +228,43 @@ export function WorkspaceHeader() {
                     if (!dragId || dragId === t.tab_id) return;
                     const from = tabs.findIndex((x) => x.tab_id === dragId);
                     if (from < 0) return;
-                    const to = tabIndex + (side === "after" ? 1 : 0);
                     // herdr `insert_index` is a pre-removal insertion point:
                     // the tab lands before the element currently at that index
                     // (`tabs.length` appends). Adjacent drops are no-ops.
                     // Verified against herdr 0.9.5 (issue #115).
-                    if (to === from || to === from + 1) return;
-                    void rpc("tab.move", { tab_id: dragId, insert_index: to });
+                    const insertIndex = moveInsertIndex(from, tabIndex, side);
+                    if (insertIndex === null) return;
+                    void rpc("tab.move", { tab_id: dragId, insert_index: insertIndex });
                   }}
                   onDragEnd={() => {
                     setTabDragId(null);
                     setTabDrop(null);
                   }}
                   className={cn(
-                    "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    // shrink-0: the absolutely-positioned close button sits
+                    // outside flow, so a squeezed tab would let it overlap
+                    // the icon/label (issue #165). Overflow scrolls instead.
+                    "group relative flex min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    // Keyboard focus rings the whole pill, not just the
+                    // label button inside it (issue #165): has-[>button…]
+                    // matches only the direct-child label button, so the
+                    // nested close button keeps its own small ring.
+                    "has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-inset has-[>button:focus-visible]:ring-ring",
                     tabDragId === t.tab_id && "opacity-50",
-                    // Reserve the hover-revealed close button's width so the
-                    // label hit area can never overlap it (issue #94).
+                    // pe-8 is constant on every tab: the absolutely-
+                    // positioned close button always has reserved room and
+                    // hover/focus reveal never shifts the strip (issue
+                    // #204). hover:/focus-within: — NOT group-hover:,
+                    // which only matches descendants of .group, never the
+                    // .group element itself (issue #165). pe-7 pairs with
+                    // the icon-xs close button (issue #204).
+                    "pe-7",
                     selected
-                      ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      ? // The inset ring keeps the active pill distinct from
+                        // an hovered inactive tab — both share bg-accent, so
+                        // fill alone cannot carry selection (issue #204).
+                        "bg-accent font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
                   {renamingTab === t.tab_id ? (
@@ -243,30 +285,45 @@ export function WorkspaceHeader() {
                     <button
                       type="button"
                       onClick={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      // Prevent mousedown focus: a clicked tab kept a
+                      // persistent focus ring while hovering siblings
+                      // (issue #204 review). Keyboard focus is unaffected.
+                      onMouseDown={(e) => e.preventDefault()}
                       onDoubleClick={() => {
                         setTabDraft(label);
                         setRenamingTab(t.tab_id);
                       }}
-                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none"
                     >
                       {statusIcon(t.agent_status)}
                       <span className="min-w-0 max-w-40 truncate">{label}</span>
                     </button>
                   )}
-                  {selected ? (
+                  {/* Close is a direct affordance on every tab: always
+                      visible on the active tab (the reserved width must not
+                      read as dead space, issue #128), hover/focus-revealed
+                      on the rest — T3's SidebarThreadRow pattern (issue
+                      #152). */}
+                  <span
+                    className={cn(
+                      // Invisible until revealed, but still hit-testable —
+                      // gate pointer events so it cannot swallow label
+                      // clicks in the unpadded state (issue #165).
+                      "absolute right-0.5 top-1/2 -translate-y-1/2 transition-opacity",
+                      selected
+                        ? "pointer-events-auto"
+                        : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100",
+                    )}
+                  >
                     <Button
-                      size="icon-sm"
+                      size="icon-xs"
                       variant="ghost"
                       aria-label="Close tab"
-                      // Always visible on the active tab: the reserved width
-                      // must not read as dead space without an affordance
-                      // (issue #128).
-                      className="absolute right-0.5 top-1/2 -translate-y-1/2"
                       onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
                     >
                       <XIcon className="size-3" />
                     </Button>
-                  ) : null}
+                  </span>
                   {dropHere ? (
                     <span
                       className={cn(
@@ -276,6 +333,65 @@ export function WorkspaceHeader() {
                     />
                   ) : null}
                 </div>
+              );
+              // Tab context menu (issue #152): restores the direct right-
+              // click operation path T3 Code threads have — focus, rename,
+              // reorder and close without opening the overflow menu.
+              return (
+                <ContextMenu key={t.tab_id}>
+                  {/* shrink-0: the trigger must never compress below the
+                      pill — a squeezed trigger lets the shrink-0 pill
+                      overflow into the next tab (issue #204). The scroller
+                      scrolls instead. */}
+                  <ContextMenuTrigger className="flex shrink-0">
+                    {tabButton}
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      disabled={selected}
+                      onSelect={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                    >
+                      <MousePointerClickIcon /> Focus tab
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        setTabDraft(label);
+                        setRenamingTab(t.tab_id);
+                      }}
+                    >
+                      <PencilIcon /> Rename…
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={tabIndex === 0}
+                      onSelect={() =>
+                        void rpc("tab.move", {
+                          tab_id: t.tab_id,
+                          insert_index: tabIndex - 1,
+                        })
+                      }
+                    >
+                      <ChevronLeftIcon /> Move left
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={tabIndex === tabs.length - 1}
+                      onSelect={() =>
+                        void rpc("tab.move", {
+                          tab_id: t.tab_id,
+                          insert_index: tabIndex + 2,
+                        })
+                      }
+                    >
+                      <ChevronRightIcon /> Move right
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      destructive
+                      onSelect={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                    >
+                      <XIcon /> Close tab
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               );
             })}
           </div>
@@ -330,6 +446,43 @@ export function WorkspaceHeader() {
               <span className="max-sm:hidden">Zoomed</span>
             </Button>
           ) : null}
+          {/* Frequent pane layout actions stay visible as icon buttons —
+              T3's PanelLayoutControls pattern: common operations are icons,
+              the rest live in the overflow menu (issue #194). Below `sm`
+              they fold into the menu so the tab strip keeps the width
+              (issue #204); the menu carries the same actions. */}
+          <div className="hidden items-center gap-1 sm:flex">
+            <HeaderIconButton
+              label="Split right"
+              disabled={!focusedPane}
+              onClick={paneAct(
+                () =>
+                  focusedPane &&
+                  void rpc("pane.split", {
+                    direction: "right",
+                    target_pane_id: focusedPane.pane_id,
+                    focus: true,
+                  }),
+              )}
+            >
+              <Columns2 className="size-4" />
+            </HeaderIconButton>
+            <HeaderIconButton
+              label="Split down"
+              disabled={!focusedPane}
+              onClick={paneAct(
+                () =>
+                  focusedPane &&
+                  void rpc("pane.split", {
+                    direction: "down",
+                    target_pane_id: focusedPane.pane_id,
+                    focus: true,
+                  }),
+              )}
+            >
+              <Rows2 className="size-4" />
+            </HeaderIconButton>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -375,6 +528,7 @@ export function WorkspaceHeader() {
               >
                 <Rows2 /> Split down
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={paneAct(
                   () =>

@@ -673,11 +673,20 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarFooter({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"div"> & {
+  /** "separated" adds a hairline above the footer so a scrolling list
+      above it terminates cleanly (issue #204). */
+  variant?: "default" | "separated";
+}) {
   return (
     <div
       className={cn(
         "flex flex-col gap-2 px-[var(--sidebar-content-inset)] pt-1 pb-[var(--sidebar-content-inset)]",
+        variant === "separated" && "border-t border-sidebar-border/60",
         className,
       )}
       data-sidebar="footer"

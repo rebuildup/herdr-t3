@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeServerMessage, encodeVarint } from "./client-link.ts";
+import { attachMouse, decodeServerMessage, encodeVarint } from "./client-link.ts";
 
 describe("encodeVarint (bincode 2 standard)", () => {
   test("values up to 250 are a single literal byte", () => {
@@ -13,6 +13,30 @@ describe("encodeVarint (bincode 2 standard)", () => {
     expect(encodeVarint(65535)).toEqual([251, 255, 255]);
     expect(encodeVarint(65536)).toEqual([252, 0, 0, 1, 0]);
     expect(encodeVarint(0x0102030405)).toEqual([253, 5, 4, 3, 2, 1, 0, 0, 0]);
+  });
+});
+
+describe("attachMouse (ClientMessage::AttachMouse, variant 16)", () => {
+  test("press encodes Down(Left) at a cell position", () => {
+    // [16, kind=Down(0)+button=Left(0), position=Cell(0)+col+row, geometry=None, modifiers, lines]
+    expect(attachMouse("press", "left", 10, 5, 0)).toEqual([
+      16, 0, 0, 0, 10, 5, 0, 0, 1,
+    ]);
+  });
+
+  test("release encodes Up(Right)", () => {
+    expect(attachMouse("release", "right", 1, 2, 4)).toEqual([
+      16, 1, 1, 0, 1, 2, 0, 4, 1,
+    ]);
+  });
+
+  test("motion encodes Drag(Middle); moved is buttonless", () => {
+    expect(attachMouse("motion", "middle", 3, 4, 0)).toEqual([
+      16, 2, 2, 0, 3, 4, 0, 0, 1,
+    ]);
+    expect(attachMouse("moved", null, 3, 4, 0)).toEqual([
+      16, 3, 0, 3, 4, 0, 0, 1,
+    ]);
   });
 });
 
@@ -62,9 +86,28 @@ describe("decodeServerMessage", () => {
     expect(decodeServerMessage(payload)).toEqual({ type: "shutdown", reason: "bye" });
   });
 
+  test("decodes MouseCapture (variant 8) with both flags", () => {
+    // MouseCapture { enabled: bool, sgr_pixels: bool }
+    expect(decodeServerMessage(new Uint8Array([8, 1, 0]))).toEqual({
+      type: "mouse_capture",
+      enabled: true,
+      sgrPixels: false,
+    });
+    expect(decodeServerMessage(new Uint8Array([8, 1, 1]))).toEqual({
+      type: "mouse_capture",
+      enabled: true,
+      sgrPixels: true,
+    });
+    expect(decodeServerMessage(new Uint8Array([8, 0, 0]))).toEqual({
+      type: "mouse_capture",
+      enabled: false,
+      sgrPixels: false,
+    });
+  });
+
   test("skips unhandled variants without decoding their payload", () => {
-    // variant 8 (MouseCapture) with arbitrary trailing bytes
-    expect(decodeServerMessage(new Uint8Array([8, 1, 0, 0xde, 0xad]))).toEqual({ type: "other", variant: 8 });
+    // variant 9 (TerminalBell) with arbitrary trailing bytes
+    expect(decodeServerMessage(new Uint8Array([9, 1, 0, 0xde, 0xad]))).toEqual({ type: "other", variant: 9 });
   });
 
   test("rejects truncated frames", () => {

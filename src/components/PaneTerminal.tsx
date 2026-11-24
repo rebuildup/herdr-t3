@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   onTerminalClosed,
   onTerminalData,
+  onTerminalMouseCapture,
   rpc,
   subscribeTerminal,
   terminalInput,
+  terminalMouse,
+  terminalScroll,
   terminalResize,
   unsubscribeTerminal,
 } from "../lib/api";
@@ -72,6 +75,7 @@ export function PaneTerminal({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttySurface | null>(null);
+  const mouseCaptureRef = useRef<boolean | null>(null);
   const sizeRef = useRef({ cols: 80, rows: 24 });
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
@@ -133,6 +137,8 @@ export function PaneTerminal({
             ? { lineHeight: terminalSettings.lineHeight }
             : {}),
           onInput: send,
+          onMouse: (event) => terminalMouse(machine, paneId, event),
+          onWheel: (event) => terminalScroll(machine, paneId, event),
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
             setGrid((prev) => (prev && prev.cols === cols && prev.rows === rows ? prev : { cols, rows }));
@@ -144,6 +150,9 @@ export function PaneTerminal({
           ...(label ? { ariaLabel: `terminal ${label}` } : {}),
         });
         surfaceRef.current = surface;
+        if (mouseCaptureRef.current !== null) {
+          surface.setMouseCapture(mouseCaptureRef.current);
+        }
         surface.attach();
         for (const bytes of pending.splice(0)) surface.write(bytes);
         // applyTheme is defined below in this effect; the .then callback runs
@@ -159,6 +168,14 @@ export function PaneTerminal({
       const bytes = decodeBase64(data);
       if (surfaceRef.current) surfaceRef.current.write(bytes);
       else pending.push(bytes);
+    });
+    // herdr MouseCapture (issue #169): the pane's program asked for mouse
+    // reporting. Events can arrive before the WASM surface exists, so the
+    // latest value is kept in a ref and applied on creation.
+    const mouseCaptureOff = onTerminalMouseCapture((m, id, enabled) => {
+      if (m !== machine || id !== paneId) return;
+      mouseCaptureRef.current = enabled;
+      surfaceRef.current?.setMouseCapture(enabled);
     });
     const closedOff = onTerminalClosed((m, id, reason) => {
       if (m !== machine || id !== paneId) return;
@@ -317,6 +334,7 @@ export function PaneTerminal({
     return () => {
       disposed = true;
       dataOff();
+      mouseCaptureOff();
       closedOff();
       themeOff();
       settingsOff();

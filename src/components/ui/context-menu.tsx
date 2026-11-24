@@ -35,7 +35,10 @@ export function ContextMenuContent({ children, className }: { children: ReactNod
       <BaseContextMenu.Positioner className="z-[130]" sideOffset={4}>
         <BaseContextMenu.Popup
           className={cn(
-            "dropdown-glass relative w-max min-w-40 max-w-[calc(100vw-2rem)] rounded-lg shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] outline-none dark:shadow-[0_18px_44px_-12px_rgb(0_0_0/90%)] dark:ring-1 dark:ring-foreground/10",
+            // T3 popover entrance (popover.tsx): scale+opacity from the
+            // transform origin on the motion tokens — compositor-only
+            // properties, collapsed by the global reduced-motion rule.
+            "dropdown-glass relative w-max min-w-40 max-w-[calc(100vw-2rem)] origin-(--transform-origin) rounded-lg shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] outline-none transition-[scale,opacity] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-standard)] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 focus:outline-none dark:shadow-[0_18px_44px_-12px_rgb(0_0_0/90%)] dark:ring-1 dark:ring-foreground/10",
             "[-webkit-app-region:no-drag]",
           )}
         >

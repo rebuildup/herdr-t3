@@ -5,13 +5,29 @@
  * configured, flat list otherwise (app-shell.md §2). Mutations go through
  * whitelisted herdr RPC; snapshots pushed by the bridge update the UI.
  */
-import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import {
+  CheckCheckIcon,
   ChevronDownIcon,
+  CopyIcon,
+  InfoIcon,
   MonitorIcon,
+  MoonIcon,
   MousePointerClickIcon,
   PencilIcon,
   PlusIcon,
+  RotateCcwIcon,
   SearchIcon,
   SquarePenIcon,
   UnplugIcon,
@@ -37,6 +53,7 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
+import { AgentProviderIcon, agentIconSpec } from "~/components/agentIcons";
 import {
   Dialog,
   DialogContent,
@@ -45,10 +62,36 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { CollapsibleSectionHeader } from "~/components/ui/collapsible-section-header";
+import { AgentHoverCard } from "./AgentHoverCard";
 import { getGeneralSettings } from "~/lib/settings";
+import { getLocalStorageBoolean, setLocalStorageBoolean } from "~/lib/localStorage";
+import { createSidebarListMotion } from "~/lib/sidebarListMotion";
 import { machineConnect, machineDisconnect } from "~/lib/api";
-import type { AgentInfo, MachineInfo, WorkspaceInfo } from "../../shared/protocol";
+import type { MachineInfo, PaneInfo, WorkspaceInfo } from "../../shared/protocol";
+import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import {
+  AGENT_SECTIONS,
+  AGENT_SECTION_LABELS,
+  COLLAPSIBLE_AGENT_SECTIONS,
+  agentAuxStateLabels,
+  agentDisplayName,
+  agentOrganizeKey,
+  agentRowSignature,
+  agentStateLabel,
+  isCollapsibleAgentSection,
+  agentStateSeq,
+  agentWorkTarget,
+  collectAgentEntries,
+  partitionAgents,
+  shortPaneId,
+  type AgentListEntry,
+  type AgentOrganizeMap,
+  type CollapsibleAgentSection,
+} from "./agents";
+import { readAgentOrganize, writeAgentOrganize } from "./agentOrganizeStore";
 import { workspaceTitle } from "~/lib/workspace";
+import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
@@ -134,7 +177,10 @@ function WorkspaceRow({
       data-sidebar-row={workspace.workspace_id}
       onClick={() => selectWorkspace(machine.id, workspace.workspace_id)}
       className={cn(
-        "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] py-0 text-left outline-none transition-colors",
+        // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
+        // rows): identity on line 1, branch/meta on line 2 — never squeezed
+        // into one truncating row (issue #153).
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] py-1.5 text-left outline-none transition-colors",
         inFolder
           ? "ps-7 pe-[var(--sidebar-row-content-inset)]"
           : "px-[var(--sidebar-row-content-inset)]",
@@ -147,26 +193,24 @@ function WorkspaceRow({
           "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {statusIcon(workspace.agent_status)}
+      <span className="flex w-full min-w-0 items-center gap-2.5">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {statusIcon(workspace.agent_status)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {title}
+        </span>
       </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-        {title}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
         {branch && title !== branch ? (
-          <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
-            {branch}
-          </span>
+          <span className="min-w-0 truncate">{branch}</span>
         ) : null}
-        {machineLabel ? (
-          <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
-            {machineLabel}
-          </span>
-        ) : null}
-        <span className="text-2xs tabular-nums text-sidebar-muted-foreground">
+        <span className="shrink-0 tabular-nums">
           {workspace.tab_count}t · {workspace.pane_count}p
         </span>
+        {machineLabel ? (
+          <span className="min-w-0 truncate">{machineLabel}</span>
+        ) : null}
       </span>
     </button>
   );
@@ -196,6 +240,13 @@ function WorkspaceRow({
         </ContextMenuItem>
         <ContextMenuItem onSelect={onNewWorkspace}>
           <SquarePenIcon /> New workspace here
+        </ContextMenuItem>
+        {/* Internal IDs stay out of the default UI (info-architecture.md
+            §5/§7); the context menu is where they can be inspected. */}
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(workspace.workspace_id)}
+        >
+          <CopyIcon /> Copy workspace ID
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem destructive onSelect={onClose}>
@@ -299,75 +350,222 @@ function MachineFolderHeader({
   );
 }
 
-/** herdr agent_sidebar parity (issue #113): status-priority ordering. */
-const AGENT_STATUS_RANK: Record<string, number> = {
-  blocked: 0,
-  working: 1,
-  done: 2,
-  idle: 3,
-};
-
-function agentRank(status: string): number {
-  return AGENT_STATUS_RANK[status] ?? 4;
+/**
+ * Static section label for the Attention shelf — always expanded
+ * (info-architecture.md §6.2), so it is a label, not a disclosure.
+ */
+function AgentSectionLabel({
+  label,
+  count,
+  attention = false,
+}: {
+  label: string;
+  count: number;
+  /** Attention is always expanded, so it has no chevron; tint the label
+      warning instead (issue #165). */
+  attention?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        // pe matches the row content inset so the count ends on the same
+        // right rail as row content — no chevron column is reserved
+        // (issue #204 review).
+        "flex h-8 w-full items-center gap-2 ps-2 pe-[var(--sidebar-row-content-inset)] text-xs font-medium",
+        attention ? "text-warning-foreground" : "text-sidebar-muted-foreground",
+      )}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="min-w-0 flex-1" />
+      <span className="font-normal tabular-nums">{count}</span>
+    </div>
+  );
 }
 
-function agentLabel(agent: AgentInfo): string {
-  return agent.name ?? agent.display_agent ?? agent.agent ?? "agent";
-}
-
-interface AgentListEntry {
-  machine: MachineInfo;
-  agent: AgentInfo;
-  workspace: WorkspaceInfo | undefined;
-  workspaceTitle: string;
-}
+type AgentOrganizeAction = "settle" | "snooze" | "restore";
 
 /**
- * One agent row in the Agents section. Clicking jumps to the agent's
- * workspace and focuses its pane (`pane.focus` resolves across tabs and
- * workspaces in herdr), mirroring the TUI agent sidebar's click-to-focus.
+ * One agent row in the Agents shelves. Two lines per T3
+ * `SidebarThreadRow`'s hierarchy (issue #200,
+ * info-architecture.md §6.1): line 1 is context + state at secondary
+ * weight (status icon, workspace/tab/machine, resolved state label),
+ * line 2 leads with the work target — the live pane's terminal title —
+ * with agent identity, pane disambiguator and auxiliary labels as meta.
+ * Clicking jumps to the agent's workspace and focuses its pane
+ * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
+ * the TUI agent sidebar's click-to-focus.
  */
-function AgentRow({ entry, multiMachine }: { entry: AgentListEntry; multiMachine: boolean }) {
+function AgentRow({
+  entry,
+  multiMachine,
+  showPaneId,
+  pane,
+  shelf,
+  onDetails,
+  onOrganize,
+}: {
+  entry: AgentListEntry;
+  multiMachine: boolean;
+  /** Sibling rows render identically without it — append the pane token (issue #165). */
+  showPaneId: boolean;
+  pane: PaneInfo | undefined;
+  /** User-organize shelf the row currently sits in, if any (issue #173). */
+  shelf: "settled" | "snoozed" | undefined;
+  onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
+  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction) => void;
+}) {
   const { machine, agent } = entry;
-  const label = agentLabel(agent);
-  const stateLabel = Object.values(agent.state_labels ?? {}).find(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
-  return (
+  const stateLabel = agentStateLabel(agent);
+  const displayName = agentDisplayName(agent);
+  const workTarget = agentWorkTarget(agent, pane);
+  const auxLabels = agentAuxStateLabels(agent);
+  // Line 2 leads with the work target; the agent name joins the meta
+  // only when it adds information beyond the title.
+  const rowTitle = workTarget ?? displayName;
+  // When the display name is just the harness id and a brand mark already
+  // renders at the row's trailing edge, repeating it as meta is noise —
+  // drop it and give the title back the width (issue #204 review).
+  const nameIsRedundantHarness =
+    !!agent.agent &&
+    displayName === agent.agent &&
+    agentIconSpec(agent.agent) !== null;
+  const metaParts = [
+    workTarget !== null && workTarget !== displayName && !nameIsRedundantHarness
+      ? displayName
+      : null,
+    showPaneId ? shortPaneId(agent.pane_id) : null,
+  ].filter((part): part is string => part !== null);
+  const focusAgent = () => {
+    selectWorkspace(machine.id, agent.workspace_id);
+    void ensureMachine(machine.id).then(() =>
+      callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
+    );
+  };
+  const rowButton = (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite list, same exception as workspace rows
     <button
       type="button"
       data-sidebar-row={agent.pane_id}
-      onClick={() => {
-        selectWorkspace(machine.id, agent.workspace_id);
-        void ensureMachine(machine.id).then(() =>
-          callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
-        );
-      }}
-      className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-0 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      onClick={focusAgent}
+      className={cn(
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-left outline-none transition-colors",
+        "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        agent.focused && "bg-foreground/[0.06] font-medium text-sidebar-foreground",
+      )}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {statusIcon(agent.agent_status)}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-        {label}
-        {stateLabel ? (
-          <span className="text-sidebar-muted-foreground"> · {stateLabel}</span>
-        ) : null}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        {/* Metadata stays visible in the ~288px mobile sheet too — the
-            lg:inline gate left six identical agent rows (issue #142). */}
-        <span className="max-w-28 truncate text-2xs text-sidebar-muted-foreground">
-          {entry.workspaceTitle}
+      <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {statusIcon(agent.agent_status)}
         </span>
-        {multiMachine ? (
-          <span className="max-w-20 truncate text-2xs text-sidebar-muted-foreground">
-            {machine.label}
+        <span className="min-w-0 flex-1 truncate">
+          {entry.workspaceTitle}
+          {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
+          {multiMachine ? ` · ${machine.label}` : null}
+        </span>
+        <span className="shrink-0">{stateLabel}</span>
+      </span>
+      {/* ps-6 aligns line 2 with line 1's text: size-4 icon (16px) +
+          gap-2 (8px) = 24px. ps-6.5 left a 2px rail mismatch (issue
+          #204 review). */}
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6">
+        {/* Title and meta are separate flex items (issue #204 review):
+            concatenating them inside one truncating node sliced mid-
+            separator ("update onboarding docs ...") and dropped the
+            agent name entirely on long titles. The title truncates;
+            the meta keeps its own bounded width. */}
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {rowTitle}
+        </span>
+        {metaParts.length > 0 ? (
+          <span className="max-w-40 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
+            {metaParts.join(" · ")}
           </span>
         ) : null}
+        {auxLabels.length > 0 ? (
+          <span className="max-w-32 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
+            {auxLabels.join(" · ")}
+          </span>
+        ) : null}
+        <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
       </span>
     </button>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className="w-full">
+        {/* T3 ThreadHoverCard: hover/focus shows the facts the two-line row
+            truncates (issue #154). The tooltip trigger renders the row
+            button itself so there is no nested interactive element. */}
+        <Tooltip>
+          <TooltipTrigger render={rowButton} />
+          <TooltipPopup
+            side="right"
+            align="start"
+            sideOffset={16}
+            variant="glass"
+            className="text-left"
+          >
+            <AgentHoverCard entry={entry} multiMachine={multiMachine} pane={pane} />
+          </TooltipPopup>
+        </Tooltip>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={focusAgent}>
+          <MousePointerClickIcon /> Focus
+        </ContextMenuItem>
+        {pane ? (
+          <ContextMenuItem onSelect={() => onDetails(entry, pane)}>
+            <InfoIcon /> Details…
+          </ContextMenuItem>
+        ) : null}
+        {/* User-side shelf organization (issue #173): UI-layer only,
+            herdr state is untouched. Shelved rows can be restored or
+            moved to the other shelf; natural-section rows offer
+            Settle/Snooze. T3 keeps snoozed threads reachable for manual
+            unsnooze — the Snoozed shelf mirrors that. */}
+        <ContextMenuSeparator />
+        {shelf === "settled" ? (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+              <RotateCcwIcon /> Restore
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
+              <MoonIcon /> Snooze
+            </ContextMenuItem>
+          </>
+        ) : shelf === "snoozed" ? (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+              <RotateCcwIcon /> Restore
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+              <CheckCheckIcon /> Settle
+            </ContextMenuItem>
+          </>
+        ) : (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+              <CheckCheckIcon /> Settle
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
+              <MoonIcon /> Snooze
+            </ContextMenuItem>
+          </>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(agent.pane_id)}
+        >
+          <CopyIcon /> Copy pane ID
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(agent.workspace_id)}
+        >
+          <CopyIcon /> Copy workspace ID
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -465,14 +663,14 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       if (!drag || drag.machine !== machineId || drag.id === wsId) return;
       const from = orderedIds.indexOf(drag.id);
       if (from < 0) return;
-      const to = index + (side === "after" ? 1 : 0);
       // herdr `insert_index` is a pre-removal insertion point (the item
       // lands before the element currently at that index; `length`
       // appends). Adjacent drops are no-ops. Verified on herdr 0.9.5.
-      if (to === from || to === from + 1) return;
+      const insertIndex = moveInsertIndex(from, index, side);
+      if (insertIndex === null) return;
       void callRpc(machineId, "workspace.move", {
         workspace_id: drag.id,
-        insert_index: to,
+        insert_index: insertIndex,
       });
     },
     onDragEnd: () => {
@@ -510,36 +708,212 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     0,
   );
 
-  // Agents section (issue #113, herdr agent_sidebar parity): every agent
-  // across live machines, ordered by attention — blocked first, matching
-  // herdr's status-priority sort. Hidden while searching and on stale
+  // Agents shelves (issue #151, info-architecture.md §6): every agent
+  // across live machines partitioned into Attention/Working/Done/Idle —
+  // a T3 settle/inbox-style presentation over herdr AgentStatus, which
+  // stays the only status source. Hidden while searching and on stale
   // machines whose snapshot is last-known state.
-  const agents = useMemo<AgentListEntry[]>(() => {
-    const list: AgentListEntry[] = [];
+  const agentEntries = useMemo(
+    () => collectAgentEntries(machines, bridge.snapshots, machineStale, branchIndex),
+    [machines, bridge.snapshots, branchIndex],
+  );
+
+  // User-side settle/snooze overlay (issue #173): localStorage-persisted,
+  // keyed by machine+pane with the state_change_seq at action time.
+  // partitionAgents resolves it against live snapshots — seq advance
+  // auto-returns the row, vanished panes drop their record.
+  const [agentOrganize, setAgentOrganize] = useState<AgentOrganizeMap>(() =>
+    readAgentOrganize(),
+  );
+  // Machines without a usable snapshot cannot resolve organize records —
+  // partitionAgents carries their records through instead of pruning them
+  // on absent data (app start before the first snapshot would otherwise
+  // wipe every settle/snooze). `null` while the machine list itself has
+  // not loaded: nothing can be resolved yet.
+  const unresolvedAgentMachines = useMemo(() => {
+    const set = new Set<string>();
     for (const m of machines) {
-      if (machineStale(m)) continue;
-      const snap = bridge.snapshots[m.id];
-      if (!snap) continue;
-      const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
-      for (const a of snap.agents) {
-        const ws = wsById.get(a.workspace_id);
-        const branch = ws ? branchIndex.get(`${m.id}\n${ws.workspace_id}`) : undefined;
-        list.push({
-          machine: m,
-          agent: a,
-          workspace: ws,
-          workspaceTitle: ws ? workspaceTitle(ws, branch) : a.workspace_id,
-        });
-      }
+      if (machineStale(m) || bridge.snapshots[m.id] === undefined) set.add(m.id);
     }
-    return list.sort(
-      (x, y) => agentRank(x.agent.agent_status) - agentRank(y.agent.agent_status),
+    return set;
+  }, [machines, bridge.snapshots]);
+  const agentPartition = useMemo(
+    () =>
+      partitionAgents(
+        agentEntries,
+        agentOrganize,
+        machines.length === 0 ? null : unresolvedAgentMachines,
+      ),
+    [agentEntries, agentOrganize, machines.length, unresolvedAgentMachines],
+  );
+  const agentSections = agentPartition.sections;
+  // The collapsible shelves dock below the scroll area (issue #204
+  // review): with a long always-visible list the shelves used to sit
+  // below the fold with no cue. Headers stay pinned; expanded rows
+  // scroll inside the dock's own max-height.
+  const agentListHasEntries = AGENT_SECTIONS.some(
+    (section) => !isCollapsibleAgentSection(section) && agentSections[section].length > 0,
+  );
+  const agentShelfHasEntries = COLLAPSIBLE_AGENT_SECTIONS.some(
+    (section) => agentSections[section].length > 0,
+  );
+  // First populated shelf owns the separator above the shelf region —
+  // later shelves flow under it without their own hairline.
+  const firstShelfSection = COLLAPSIBLE_AGENT_SECTIONS.find(
+    (section) => agentSections[section].length > 0,
+  );
+  const renderAgentRow = (
+    entry: AgentListEntry,
+    shelf?: "settled" | "snoozed",
+    className?: string,
+  ) => (
+    <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
+      <AgentRow
+        entry={entry}
+        multiMachine={machines.length > 1}
+        showPaneId={(agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1}
+        pane={entry.pane}
+        shelf={shelf}
+        onDetails={(e, p) => setAgentDetails({ machine: e.machine.id, pane: p })}
+        onOrganize={organizeAgent}
+      />
+    </li>
+  );
+
+  // Keep storage and state in sync with the resolved map: auto-restored
+  // rows and records for closed panes are pruned on write-back. This
+  // effect is the single writer — organizeAgent only updates state, so a
+  // user action can never be overwritten by a stale resolved map.
+  const agentOrganizeJson = JSON.stringify(agentPartition.organize);
+  const lastAgentOrganizeJson = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastAgentOrganizeJson.current === agentOrganizeJson) return;
+    lastAgentOrganizeJson.current = agentOrganizeJson;
+    writeAgentOrganize(agentPartition.organize);
+    // Adopt the resolved map only while state still is the input this
+    // partition was computed from — an organize action landing between
+    // render and effect must not be clobbered by a stale resolved map.
+    setAgentOrganize((current) =>
+      current === agentOrganize ? agentPartition.organize : current,
     );
-  }, [machines, bridge.snapshots, branchIndex]);
+  }, [agentOrganizeJson, agentPartition.organize, agentOrganize]);
+
+  const organizeAgent = (entry: AgentListEntry, action: AgentOrganizeAction) => {
+    const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
+    setAgentOrganize((prev) => {
+      const next = { ...prev };
+      if (action === "restore") {
+        delete next[key];
+      } else {
+        next[key] = {
+          kind: action === "settle" ? "settled" : "snoozed",
+          seq: agentStateSeq(entry.agent),
+        };
+      }
+      return next;
+    });
+  };
+
+  // Rows that would render identically get a pane-id disambiguator
+  // (issue #165): count agentRowSignature across rendered entries only —
+  // shelves render their rows when expanded, so shelved rows count too.
+  const visibleAgentEntries = useMemo(
+    () => AGENT_SECTIONS.flatMap((section) => agentSections[section]),
+    [agentSections],
+  );
+  const agentSignatureCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of visibleAgentEntries) {
+      const key = agentRowSignature(entry);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [visibleAgentEntries]);
+
+  // Shelf expansion persists per section like T3's shelf toggles: the
+  // working/snoozed/settled bottom shelves all default collapsed, matching
+  // T3's useLocalStorage(..., false) defaults (Sidebar.tsx).
+  const [agentShelves, setAgentShelves] = useState<
+    Record<CollapsibleAgentSection, boolean>
+  >(() => {
+    const initial = {} as Record<CollapsibleAgentSection, boolean>;
+    for (const section of COLLAPSIBLE_AGENT_SECTIONS) {
+      initial[section] =
+        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ?? false;
+    }
+    return initial;
+  });
+  const toggleAgentShelf = (section: CollapsibleAgentSection) => {
+    setAgentShelves((prev) => {
+      const next = { ...prev, [section]: !prev[section] };
+      setLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`, next[section]);
+      return next;
+    });
+  };
+  const [agentDetails, setAgentDetails] = useState<{
+    machine: string;
+    pane: PaneInfo;
+  } | null>(null);
+
+  // FLIP motion for agent rows (issue #151, Sidebar.motion.ts port):
+  // rows animate on add/move/remove and section collapse, keyed on the
+  // rendered membership+order so unrelated renders do not re-measure.
+  const agentsMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const attachAgentsList = useCallback((node: HTMLUListElement | null) => {
+    agentsMotionRef.current?.dispose();
+    agentsMotionRef.current = node ? createSidebarListMotion(node) : null;
+    agentsMotionRef.current?.update(false);
+  }, []);
+  const agentsLayoutKey = useMemo(() => {
+    if (agentEntries.length === 0) return "";
+    return AGENT_SECTIONS.map(
+      (section) =>
+        `${section}:${isCollapsibleAgentSection(section) ? agentShelves[section] : "-"}:` +
+        agentSections[section]
+          .map(
+            (e) =>
+              `${e.machine.id}:${e.agent.pane_id}:${e.agent.agent_status}:${e.agent.state_change_seq ?? e.agent.revision}`,
+          )
+          .join(","),
+    ).join("|");
+  }, [agentEntries.length, agentSections, agentShelves]);
+  useLayoutEffect(() => {
+    agentsMotionRef.current?.update(true);
+  }, [agentsLayoutKey]);
+
+  // FLIP motion for workspace rows (issue #154): same Sidebar.motion.ts
+  // port as the agents list — rows animate on add/remove/reorder/collapse.
+  // The key covers membership and order per machine plus folder collapse
+  // and search filtering, so unrelated snapshot churn does not re-measure.
+  const workspacesMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const attachWorkspacesList = useCallback((node: HTMLUListElement | null) => {
+    workspacesMotionRef.current?.dispose();
+    workspacesMotionRef.current = node ? createSidebarListMotion(node) : null;
+    workspacesMotionRef.current?.update(false);
+  }, []);
+  const workspacesLayoutKey = useMemo(() => {
+    if (searching) {
+      return filtered.map((f) => `${f.machine.id}:${f.workspace.workspace_id}`).join("|");
+    }
+    return machines
+      .map((m) => {
+        const ids = (workspacesByMachine.get(m.id) ?? []).map((w) => w.workspace_id);
+        return `${m.id}${collapsedMachines[m.id] ? ":c" : ""}:${ids.join(",")}`;
+      })
+      .join("|");
+  }, [searching, filtered, machines, workspacesByMachine, collapsedMachines]);
+  useLayoutEffect(() => {
+    workspacesMotionRef.current?.update(true);
+  }, [workspacesLayoutKey]);
 
   return (
+    <>
     <SidebarContent
       fixedHeader={
+        // The hairline separates the sticky search row from scrolled
+        // content — without it a mid-scroll cut leaves rows looking
+        // orphaned directly under the search field (issue #204 review).
+        <>
         <SidebarGroup className="z-[1]">
           <div className="flex items-center gap-1">
             <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
@@ -583,6 +957,8 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             </div>
           </div>
         </SidebarGroup>
+        <div aria-hidden className="h-px w-full bg-sidebar-border/60" />
+        </>
       }
     >
       <SidebarGroup className="flex-1" role="presentation">
@@ -613,7 +989,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             </button>
           </div>
         ) : null}
-        <ul className="relative flex flex-col gap-px" role="list">
+        <ul ref={attachWorkspacesList} className="relative flex flex-col gap-px" role="list">
           {grouped
             ? machines.map((machine) => {
                 const workspaces = workspacesByMachine.get(machine.id) ?? [];
@@ -731,21 +1107,67 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
-      {!searching && agents.length > 0 ? (
-        <div className="mt-1 border-t border-sidebar-border/60 pt-1">
+      {!searching && (agentListHasEntries || agentShelfHasEntries) ? (
+        <div
+          className={cn(
+            "mt-1 pt-1",
+            agentListHasEntries && "border-t border-sidebar-border/60",
+          )}
+        >
         <SidebarGroup>
-          <div className="px-2 pb-1 text-2xs font-medium text-sidebar-muted-foreground">
-            Agents
-          </div>
-          <ul className="relative flex flex-col gap-px" role="list">
-            {agents.map((entry) => (
-              <li
-                key={`${entry.machine.id}:${entry.agent.pane_id}`}
-                className="list-none"
-              >
-                <AgentRow entry={entry} multiMachine={machines.length > 1} />
-              </li>
-            ))}
+          <ul ref={attachAgentsList} className="relative flex flex-col gap-px" role="list">
+            {AGENT_SECTIONS.map((section) => {
+              const list = agentSections[section];
+              if (list.length === 0) return null;
+              if (isCollapsibleAgentSection(section)) {
+                // Below md the pinned dock would starve the always-visible
+                // list on short sheets (issue #204 review): shelves render
+                // inline at the end of this scroll list instead, so the
+                // whole agents region scrolls as one.
+                const expanded = agentShelves[section];
+                const shelfKind =
+                  section === "settled" || section === "snoozed" ? section : undefined;
+                return (
+                  <Fragment key={section}>
+                    <li
+                      className={cn(
+                        "list-none md:hidden",
+                        section === firstShelfSection &&
+                          "mt-2 border-t border-sidebar-border pt-1",
+                      )}
+                    >
+                      <CollapsibleSectionHeader
+                        chevron="leading"
+                        expanded={expanded}
+                        onClick={() => toggleAgentShelf(section)}
+                        accessory={
+                          <span className="font-normal tabular-nums">{list.length}</span>
+                        }
+                      >
+                        {AGENT_SECTION_LABELS[section]}
+                      </CollapsibleSectionHeader>
+                    </li>
+                    {expanded
+                      ? list.map((entry) =>
+                          renderAgentRow(entry, shelfKind, "md:hidden"),
+                        )
+                      : null}
+                  </Fragment>
+                );
+              }
+              return (
+                <Fragment key={section}>
+                  <li className="list-none">
+                    <AgentSectionLabel
+                      label={AGENT_SECTION_LABELS[section]}
+                      count={list.length}
+                      attention={section === "attention"}
+                    />
+                  </li>
+                  {list.map((entry) => renderAgentRow(entry))}
+                </Fragment>
+              );
+            })}
           </ul>
         </SidebarGroup>
         </div>
@@ -754,6 +1176,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         target={rename?.target ?? null}
         machine={rename?.machine ?? LOCAL_MACHINE}
         onClose={() => setRename(null)}
+      />
+      <PaneDetailsDialog
+        pane={agentDetails?.pane ?? null}
+        machine={agentDetails?.machine ?? LOCAL_MACHINE}
+        onClose={() => setAgentDetails(null)}
       />
       <Dialog open={confirmClose !== null} onOpenChange={(open) => !open && setConfirmClose(null)}>
         <DialogContent>
@@ -789,5 +1216,48 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         </DialogContent>
       </Dialog>
     </SidebarContent>
+      {/* Pinned shelf dock (issue #204): Working/Snoozed/Settled headers
+          stay visible above the footer regardless of how long the
+          always-visible list grows; expanded rows scroll inside the
+          dock's max-height. */}
+      {!searching && agentShelfHasEntries ? (
+        <div className="hidden max-h-[45%] shrink-0 overflow-y-auto border-t border-sidebar-border px-[var(--sidebar-content-inset)] pb-[var(--sidebar-content-inset)] pt-1 md:block">
+          <ul className="flex flex-col gap-px" role="list">
+            {AGENT_SECTIONS.map((section) => {
+              if (!isCollapsibleAgentSection(section)) return null;
+              const list = agentSections[section];
+              if (list.length === 0) return null;
+              const expanded = agentShelves[section];
+              return (
+                <Fragment key={section}>
+                  <li className="list-none">
+                    <CollapsibleSectionHeader
+                      chevron="leading"
+                      expanded={expanded}
+                      onClick={() => toggleAgentShelf(section)}
+                      accessory={
+                        <span className="font-normal tabular-nums">{list.length}</span>
+                      }
+                    >
+                      {AGENT_SECTION_LABELS[section]}
+                    </CollapsibleSectionHeader>
+                  </li>
+                  {expanded
+                    ? list.map((entry) =>
+                        renderAgentRow(
+                          entry,
+                          section === "settled" || section === "snoozed"
+                            ? section
+                            : undefined,
+                        ),
+                      )
+                    : null}
+                </Fragment>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 }
