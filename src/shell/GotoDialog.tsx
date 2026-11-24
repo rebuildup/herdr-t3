@@ -12,7 +12,7 @@ import {
   Columns2,
   MonitorIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Command,
@@ -37,6 +37,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { machineStale } from "./view";
+import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useWorkspaceBranchIndex } from "./worktrees";
 
 function rowIcon(row: GotoRow) {
@@ -100,14 +101,22 @@ export function GotoDialog({
   const branchIndex = useWorkspaceBranchIndex();
   const [query, setQuery] = useState("");
 
+  // Closing must return focus to the working terminal: the dialog was
+  // opened from the palette whose own focus restore target is gone by
+  // then, so without this focus drops to <body> (issue #134).
+  const close = useCallback(() => {
+    onOpenChange(false);
+    setTimeout(() => focusPaneTerminal(), 0);
+  }, [onOpenChange]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false);
+      if (event.key === "Escape") close();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onOpenChange]);
+  }, [open, close]);
 
   const machines = machineListOf(bridge);
   const rows = useMemo(
@@ -134,7 +143,7 @@ export function GotoDialog({
   );
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <CommandDialogPopup aria-label="Go to" data-command-palette="true">
         <Command mode="none" value={query} onValueChange={setQuery}>
           <div className="relative">
@@ -153,9 +162,9 @@ export function GotoDialog({
                     <CommandItem
                       key={row.id}
                       value={row.id}
-                      onSelect={() => {
+                      onClick={() => {
                         jumpTo(row);
-                        onOpenChange(false);
+                        close();
                       }}
                     >
                       <span

@@ -48,7 +48,7 @@ import { isMacPlatform } from "~/lib/shortcuts";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
 import { GotoDialog } from "./GotoDialog";
-import { focusPaneTerminal } from "./paneFocus";
+import { focusPaneTerminal } from "~/lib/paneFocus";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
@@ -422,7 +422,7 @@ export function CommandMenu({
                     <CommandItem
                       key={item.id}
                       value={item.id}
-                      onSelect={() => {
+                      onClick={() => {
                         item.run();
                         if (item.refocusPane) {
                           // Deferred: the pushed snapshot must mark the new
