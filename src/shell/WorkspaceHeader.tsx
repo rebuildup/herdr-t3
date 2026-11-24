@@ -233,7 +233,7 @@ export function WorkspaceHeader() {
                         setTabDraft(label);
                         setRenamingTab(t.tab_id);
                       }}
-                      className="flex min-w-0 items-center gap-1.5"
+                      className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
                       {statusIcon(t.agent_status)}
                       <span className="min-w-0 max-w-40 truncate">{label}</span>

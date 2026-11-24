@@ -21,7 +21,7 @@ function NoticeCard({ notice }: { notice: Notice }) {
   return (
     <div
       role="status"
-      className="flex w-80 items-start gap-2 rounded-md border border-border bg-popover p-3 text-sm shadow-md"
+      className="animate-notice-in flex w-80 items-start gap-2 rounded-md border border-border bg-popover p-3 text-sm shadow-md"
     >
       <div className="min-w-0 flex-1">
         <div className="font-medium text-popover-foreground">{notice.title}</div>

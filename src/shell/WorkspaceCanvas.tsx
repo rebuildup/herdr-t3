@@ -86,7 +86,12 @@ function PaneSurface({
             if (!focused) onFocus();
           }}
         >
-          <PaneTerminal machine={machine} paneId={pane.pane_id} connected={connected} />
+          <PaneTerminal
+            machine={machine}
+            paneId={pane.pane_id}
+            connected={connected}
+            label={paneTitle(pane)}
+          />
         </div>
       </ContextMenuTrigger>
       {/* Pane context menu (issue #113): the right-click path herdr's TUI

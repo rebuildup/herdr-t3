@@ -14,7 +14,7 @@ import type { AgentStatus, MachineStatus } from "../../shared/protocol";
 export function statusIcon(status: AgentStatus) {
   switch (status) {
     case "working":
-      return <Loader2 className="size-3.5 animate-spin" />;
+      return <Loader2 className="size-3.5 motion-safe:animate-spin" />;
     case "blocked":
       return <CircleX className="size-3.5 text-warning" />;
     case "done":
@@ -32,7 +32,7 @@ export function machineStatusIcon(status: MachineStatus) {
       return <Wifi className="size-3.5 text-success" />;
     case "connecting":
     case "reconnecting":
-      return <RefreshCw className="size-3 animate-spin text-muted-foreground" />;
+      return <RefreshCw className="size-3 motion-safe:animate-spin text-muted-foreground" />;
     case "auth_required":
       return <CircleX className="size-3.5 text-warning" />;
     case "disabled":

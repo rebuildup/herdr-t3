@@ -40,6 +40,8 @@ export interface GhosttySurfaceOptions {
   onResize?(cols: number, rows: number): void;
   /** the session's engine trapped or failed: the host decides whether to reattach */
   onDead?(error: unknown): void;
+  /** accessible name for the hidden input that owns keyboard focus */
+  ariaLabel?: string;
 }
 
 interface CellMetrics { cols: number; rows: number; cellW: number; cellH: number }
@@ -99,7 +101,7 @@ export class GhosttySurface {
     });
     this.input = document.createElement("textarea");
     this.input.className = "ghostty-input";
-    this.input.setAttribute("aria-label", "terminal input");
+    this.input.setAttribute("aria-label", options.ariaLabel ?? "terminal input");
     this.input.autocomplete = "off";
     this.input.autocapitalize = "off";
     this.input.setAttribute("autocorrect", "off");
@@ -181,6 +183,11 @@ export class GhosttySurface {
   /** pointer cursor while the host reports a hoverable link under the pointer */
   setLinkHover(on: boolean): void {
     this.root.classList.toggle("is-link", on);
+  }
+
+  /** keep the input's accessible name in sync with the pane's current title */
+  setAriaLabel(label: string): void {
+    this.input.setAttribute("aria-label", label);
   }
 
   scrollBy(lines: number): void {

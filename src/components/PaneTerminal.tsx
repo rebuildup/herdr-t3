@@ -61,11 +61,14 @@ export function PaneTerminal({
   paneId,
   connected,
   className,
+  label,
 }: {
   machine: string;
   paneId: string;
   connected: boolean;
   className?: string;
+  /** pane title used for the terminal input's accessible name (issue #115) */
+  label?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttySurface | null>(null);
@@ -138,6 +141,7 @@ export function PaneTerminal({
           onDead: (error) => {
             setEngineError(error instanceof Error ? error.message : String(error));
           },
+          ...(label ? { ariaLabel: `terminal ${label}` } : {}),
         });
         surfaceRef.current = surface;
         surface.attach();
@@ -329,6 +333,12 @@ export function PaneTerminal({
       session?.dispose();
     };
   }, [machine, paneId]);
+
+  // Keep the input's accessible name tracking the pane title without
+  // rebuilding the surface (issue #115).
+  useEffect(() => {
+    surfaceRef.current?.setAriaLabel(label ? `terminal ${label}` : "terminal input");
+  }, [label]);
 
   // (Re)subscribe once the surface has measured its grid and whenever the
   // bridge connection is up. The server queues input/resize until the attach
