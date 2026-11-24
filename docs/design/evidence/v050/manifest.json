@@ -1,0 +1,74 @@
+[
+  {
+    "file": "01-sidebar-agents.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 41598
+  },
+  {
+    "file": "02-agent-hover-card.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 45472
+  },
+  {
+    "file": "03-agent-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 46868
+  },
+  {
+    "file": "04-agent-shelf-idle-expanded.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 46356
+  },
+  {
+    "file": "05-tab-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 46826
+  },
+  {
+    "file": "06-tab-hover-close.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 42072
+  },
+  {
+    "file": "07-light-agents.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 41554
+  },
+  {
+    "file": "08-narrow.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 8270
+  },
+  {
+    "file": "09-narrow-sheet-agents.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 25962
+  },
+  {
+    "file": "cmp-sidebar-dark.webp",
+    "width": 2896,
+    "height": 940,
+    "bytes": 32326
+  },
+  {
+    "file": "cmp-sidebar-light.webp",
+    "width": 2896,
+    "height": 940,
+    "bytes": 31444
+  },
+  {
+    "file": "contact-sheet.webp",
+    "width": 2160,
+    "height": 1422,
+    "bytes": 53820
+  }
+]

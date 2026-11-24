@@ -8,12 +8,14 @@ import type {
 import {
   agentAuxStateLabels,
   agentDisplayName,
+  agentRowSignature,
   agentSection,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
   compareAgents,
   partitionAgents,
+  shortPaneId,
   type AgentListEntry,
 } from "./agents";
 
@@ -230,5 +232,32 @@ describe("partitionAgents", () => {
     expect(sections.working.map((e) => e.agent.pane_id)).toEqual(["w1"]);
     expect(sections.done.map((e) => e.agent.pane_id)).toEqual(["d1"]);
     expect(sections.idle.map((e) => e.agent.pane_id)).toEqual(["i1"]);
+  });
+});
+
+describe("agentRowSignature / shortPaneId", () => {
+  test("identical rendered rows share a signature; pane id alone does not split it", () => {
+    const a = entry(agent({ pane_id: "w1:p1", agent: "pi", terminal_title_stripped: "pi" }));
+    const b = entry(agent({ pane_id: "w1:p2", agent: "pi", terminal_title_stripped: "pi" }));
+    const c = entry(agent({ pane_id: "w1:p3", agent: "pi", terminal_title_stripped: "fix bug" }));
+    expect(agentRowSignature(a)).toBe(agentRowSignature(b));
+    expect(agentRowSignature(a)).not.toBe(agentRowSignature(c));
+  });
+
+  test("signature separates workspace, tab and agent label differences", () => {
+    const base = agent({ agent: "pi" });
+    const a = entry(base);
+    const otherWs = { ...entry(base), workspaceTitle: "other" };
+    const otherTab = { ...entry(base), tabLabel: "Tab 2" };
+    const otherAgent = entry(agent({ agent: "claude", name: "claude" }));
+    expect(agentRowSignature(a)).not.toBe(agentRowSignature(otherWs));
+    expect(agentRowSignature(a)).not.toBe(agentRowSignature(otherTab));
+    expect(agentRowSignature(a)).not.toBe(agentRowSignature(otherAgent));
+  });
+
+  test("shortPaneId strips the workspace prefix", () => {
+    expect(shortPaneId("w1:p4")).toBe("p4");
+    expect(shortPaneId("p4")).toBe("p4");
+    expect(shortPaneId("host:w2:p9")).toBe("p9");
   });
 });

@@ -109,8 +109,8 @@ herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設
 
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
-| 1 | status icon + 状態テキスト (state_labels 解決値) + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) | 「どこで・どの状態か」 |
-| 2 | agent 種別/表示名 (display_agent > name > agent > title) + 作業対象 (`terminal_title_stripped` > `terminal_title` > `title`) + 補助 state label | 「何の作業か」— ツール名はここに留める |
+| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) | 「どこで」— セクション名が状態を担うため attribution を primary weight に置く (issue #165) |
+| 2 | 状態テキスト (state_labels 解決値) + agent 種別/表示名 (display_agent > name > agent > title) + 作業対象 (`terminal_title_stripped` > `terminal_title` > `title`) + 補助 state label + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) | 「どの状態で・何の作業か」— ツール名はここに留める |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
 
@@ -137,10 +137,13 @@ herdr-t3 は **herdr `AgentStatus` を唯一の状態源**とし、独自の set
   herdr に return timestamp はないため独自時刻状態を持たない。
 - Working/Done/Idle の折りたたみ状態は T3 の shelf expansion と同様に
   localStorage へ永続化する。空セクションは header ごと表示しない。
-- `state_labels` (herdr が提供する状態別カスタム label) は行1の状態
+- `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
   テキスト (現 status の label) と行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に
   限定する (§4 と同じ規則)。
+- Attention セクション header は常時展開のため chevron を持たないが、
+  collapsible shelf の count と桁位置を揃えるため chevron 相当の幅を
+  予約し、header 自体を warning 色で強調する (issue #165)。
 
 ### 6.3 操作
 
