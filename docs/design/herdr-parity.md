@@ -18,7 +18,7 @@ herdr-t3 `release-0-4-0` 時点の実装。
 | --- | --- | --- |
 | `session.snapshot` | ✅ | 既存 |
 | `workspace.create` / `focus` / `close` / `rename` | ✅ | 既存 |
-| `workspace.move` | 🔶 #111 | `insert_index` 指定の並び替え。sidebar D&D |
+| `workspace.move` | ✅ #111/#115 | `insert_index` 指定の並び替え。sidebar D&D。**`insert_index` は pre-removal の挿入位置** (現在その index にある要素の前に挿入、`length` は末尾追加)。herdr 0.9.5 で実測確認済み — post-removal と誤解すると後方ドロップが 1 つ手前に着地する |
 | `workspace.move_block` | 🔶 #111 | 複数 workspace の一括移動。単一 D&D のみなら不要になる可能性 |
 | `workspace.report_metadata` | ⏸ | metadata tokens は agent/外部連携向け。herdr-t3 は読み取り側のみでよい。表示が必要になれば `tokens` は既に `WorkspaceInfo` にある |
 | `worktree.list` / `create` / `open` / `remove` | ✅ #114 | herdr ネイティブ worktree。**Worktrunk UI とは別物** (AGENTS.md §5 は Worktrunk を対象外とするが herdr worktree は in-scope)。WorktreesDialog が open/create/remove を提供。`remove` は open 済み linked-worktree workspace の `workspace_id` が必須 (herdr schema) のため、open entry のみ Remove 可 |
@@ -27,7 +27,7 @@ herdr-t3 `release-0-4-0` 時点の実装。
 
 | method | 判定 | 備考 |
 | --- | --- | --- |
-| `tab.create` / `focus` / `close` / `rename` / `move` | ✅/🔶 | `tab.move` は #111 で D&D 化 |
+| `tab.create` / `focus` / `close` / `rename` / `move` | ✅/🔶 | `tab.move` は #111 で D&D 化。`insert_index` の pre-removal 意味論は `workspace.move` と同じ (herdr 0.9.5 実測) |
 | `pane.split` / `close` / `focus` / `rename` / `zoom` / `resize` / `clear` | ✅ | 既存 |
 | `pane.move` / `pane.swap` | 🔶 #111 | pane D&D・tab 間移動。`destination`/`direction` の schema は `src/api/schema/panes.rs` |
 | `pane.scroll` | ✅ | 既存 (scroll offset 取得)。scrollback UI は terminal 側 |
