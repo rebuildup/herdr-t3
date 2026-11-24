@@ -224,6 +224,11 @@ function attachTerminal(
       if (slot.gone) return;
       if (event.type === "terminal") {
         state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64"), machine: state.machine });
+      } else if (event.type === "mouse_capture") {
+        // herdr ServerMessage::MouseCapture: the attached pane's program
+        // currently requests mouse reporting (issue #169). Older herdr
+        // never sends it — the client keeps its conservative fallback.
+        state.send({ type: "terminal_mouse_capture", paneId, enabled: event.enabled, machine: state.machine });
       } else if (event.type === "shutdown") {
         dropTerminal(state, paneId, slot, event.reason ?? "herdr_shutdown");
         slot.link?.close();

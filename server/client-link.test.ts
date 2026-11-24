@@ -86,9 +86,28 @@ describe("decodeServerMessage", () => {
     expect(decodeServerMessage(payload)).toEqual({ type: "shutdown", reason: "bye" });
   });
 
+  test("decodes MouseCapture (variant 8) with both flags", () => {
+    // MouseCapture { enabled: bool, sgr_pixels: bool }
+    expect(decodeServerMessage(new Uint8Array([8, 1, 0]))).toEqual({
+      type: "mouse_capture",
+      enabled: true,
+      sgrPixels: false,
+    });
+    expect(decodeServerMessage(new Uint8Array([8, 1, 1]))).toEqual({
+      type: "mouse_capture",
+      enabled: true,
+      sgrPixels: true,
+    });
+    expect(decodeServerMessage(new Uint8Array([8, 0, 0]))).toEqual({
+      type: "mouse_capture",
+      enabled: false,
+      sgrPixels: false,
+    });
+  });
+
   test("skips unhandled variants without decoding their payload", () => {
-    // variant 8 (MouseCapture) with arbitrary trailing bytes
-    expect(decodeServerMessage(new Uint8Array([8, 1, 0, 0xde, 0xad]))).toEqual({ type: "other", variant: 8 });
+    // variant 9 (TerminalBell) with arbitrary trailing bytes
+    expect(decodeServerMessage(new Uint8Array([9, 1, 0, 0xde, 0xad]))).toEqual({ type: "other", variant: 9 });
   });
 
   test("rejects truncated frames", () => {

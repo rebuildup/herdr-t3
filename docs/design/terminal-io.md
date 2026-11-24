@@ -150,14 +150,24 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   mode ON では正しい report が届く。wheel は `terminal_scroll` →
   `AttachScroll` で、サーバが wheel report / scrollback /
   alternate-scroll を裁定する。
-- ローカル選択は mouse mode に関係なく常に動く (mode 状態が
-  クライアントに見えないため、選択を止める判断ができない)。
-  Shift+drag は structured mouse を送らず常にローカル選択
-  (xterm 準拠)。mode 状態が届くようになったら、report 中は
-  ローカル選択を抑止する §5.2 本来の境界に戻す。
+- **pane の mouse capture 状態は `ServerMessage::MouseCapture`
+  (variant 8) で届く** (herdr 0.9.0+、protocol 22。attach 時と
+  変化時に push)。`enabled` は attach 先 pane の
+  `mouse_reporting_enabled()` で、selection-vs-report の判定に使う
+  (`GhosttySurface.setMouseCapture`)。`sgr_pixels` は pixel mouse
+  非対応のため未使用 (cell 座標のみ送る)。
+- ローカル選択と report の境界 (§5.2) は capture 状態で決まる:
+  `enabled=true` なら report のみ (ローカル選択なし)、
+  `enabled=false` ならローカル選択のみ (structured mouse は送らない)、
+  未受信 (古い herdr / 非 attach ホスト) なら従来どおり全イベントを
+  転送しつつ選択も並行させる — サーバが不要な report を落とすため
+  どの herdr 版でも正しく、mode OFF の pane に無駄な frame を
+  送らない分だけ効率的。Shift+drag は capture 状態に関係なく常に
+  ローカル選択 (xterm 準拠)。
 - focus report (CSI I/O) は attach 向けの client message が
-  プロトコルに存在しないため未対応。upstream #6177 の
-  `AttachFocus` + mode 通知の受け入れ待ち。
+  プロトコルに存在しないため未対応。upstream #6177 は
+  `AttachFocus` 提案を Ideas discussion へ誘導して close 済み —
+  本実装の受け入れ待ち。
 
 ## 6. Paste / clipboard
 
