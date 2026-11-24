@@ -453,7 +453,10 @@ function AgentRow({
         </span>
         <span className="shrink-0">{stateLabel}</span>
       </span>
-      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5">
+      {/* ps-6 aligns line 2 with line 1's text: size-4 icon (16px) +
+          gap-2 (8px) = 24px. ps-6.5 left a 2px rail mismatch (issue
+          #204 review). */}
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6">
         <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
           {rowTitle}
           {metaParts.length > 0 ? (
@@ -484,7 +487,7 @@ function AgentRow({
           <TooltipPopup
             side="right"
             align="start"
-            sideOffset={4}
+            sideOffset={8}
             variant="glass"
             className="text-left"
           >
@@ -729,6 +732,12 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     [agentEntries, agentOrganize, machines.length, unresolvedAgentMachines],
   );
   const agentSections = agentPartition.sections;
+  // The collapsible shelves stack below the always-visible list; the
+  // first rendered shelf gets a hairline so the two regions read as
+  // separate groups (issue #204 review).
+  const firstShelfSection = AGENT_SECTIONS.find(
+    (section) => isCollapsibleAgentSection(section) && agentSections[section].length > 0,
+  );
 
   // Keep storage and state in sync with the resolved map: auto-restored
   // rows and records for closed panes are pruned on write-back. This
@@ -1061,7 +1070,13 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                 !isCollapsibleAgentSection(section) || agentShelves[section];
               return (
                 <Fragment key={section}>
-                  <li className="list-none">
+                  <li
+                    className={cn(
+                      "list-none",
+                      section === firstShelfSection &&
+                        "mt-2 border-t border-sidebar-border/60 pt-1",
+                    )}
+                  >
                     {isCollapsibleAgentSection(section) ? (
                       <CollapsibleSectionHeader
                         expanded={agentShelves[section]}

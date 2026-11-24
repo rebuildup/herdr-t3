@@ -204,16 +204,18 @@ async function main() {
       await sleep(400);
     }
 
-    // 04 — expand the Idle shelf (collapsed by default) to show settled rows
+    // 04 — expand the first bottom shelf (Working/Snoozed/Settled, all
+    // collapsed by default per the T3 shelf model) to show shelved rows
     const expanded = await evaluate(`(() => {
-      const headers = [...document.querySelectorAll("button[aria-expanded]")];
-      const idle = headers.find((b) => /idle/i.test(b.textContent));
-      if (idle && idle.getAttribute("aria-expanded") === "false") { idle.click(); return true; }
-      return false;
+      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
+      const header = ul && [...ul.querySelectorAll('button[aria-expanded="false"]')]
+        .find((b) => /working|snoozed|settled/i.test(b.textContent));
+      if (header) { header.click(); return header.textContent.trim(); }
+      return null;
     })()`);
-    console.log(`idle shelf expand: ${expanded ? "OK" : "skipped"}`);
+    console.log(`shelf expand: ${expanded ?? "skipped"}`);
     await sleep(800);
-    await shot("04-agent-shelf-idle-expanded");
+    await shot("04-agent-shelf-expanded");
 
     // 05 — focus workspace w1 (multi-tab) then tab context menu
     await evaluate(`(() => {
@@ -234,7 +236,8 @@ async function main() {
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await sleep(400);
 
-    // 06 — hover an inactive tab to reveal its close button
+    // 06 — hover an inactive tab to reveal its close button (padding is
+    // constant now, so the strip must not shift — issue #204)
     const tabHover = await evaluate(`(() => {
       const tabs = [...document.querySelectorAll("header [draggable]")];
       const el = tabs.find((t) => !t.className.includes("bg-accent")) ?? tabs[1];
@@ -250,11 +253,35 @@ async function main() {
       await sleep(300);
     }
 
-    // 07 — light theme agents section
+    // 06b — header icon-button tooltip (Split right) for the tooltip
+    // coverage gap in the RC review (issue #204)
+    const splitBtn = await evaluate(`(() => {
+      const b = document.querySelector('header button[aria-label="Split right"]');
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`);
+    if (splitBtn) {
+      await mouse("mouseMoved", (splitBtn as { x: number }).x, (splitBtn as { y: number }).y);
+      await sleep(900);
+      await shot("06b-header-tooltip");
+      await mouse("mouseMoved", 700, 450);
+      await sleep(300);
+    }
+
+    // 07 — light theme agents section + hover card (glass popup coverage)
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
     await sleep(5000);
     await shot("07-light-agents");
+    const lightHover = await agentRowCenter(0);
+    if (lightHover) {
+      await mouse("mouseMoved", lightHover.x, lightHover.y);
+      await sleep(1400);
+      await shot("07b-light-hover-card");
+      await mouse("mouseMoved", 700, 450);
+      await sleep(300);
+    }
 
     // 08/09 — back to dark for the narrow captures
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);

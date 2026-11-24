@@ -239,7 +239,7 @@ export function WorkspaceHeader() {
                     "pe-8",
                     selected
                       ? "bg-accent font-medium text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
                   {renamingTab === t.tab_id ? (
