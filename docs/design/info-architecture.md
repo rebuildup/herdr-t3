@@ -139,16 +139,20 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   `state_change_seq` 欠落時は `revision` で代替、最後は `pane_id` で安定化)。
   T3 inbox の「return 順」は `state_change_seq` の新しい順で近似する —
   herdr に return timestamp はないため独自時刻状態を持たない。
-- Working/Done/Idle の折りたたみ状態は T3 の shelf expansion と同様に
+- Working/Done/Idle/Settled の折りたたみ状態は T3 の shelf expansion と同様に
   localStorage へ永続化する。空セクションは header ごと表示しない。
-- **ユーザー settle/snooze (UI 層、実装予定)**: agent 行の context menu
-  から Settle / Snooze / Restore を提供し、`pane_id` + settle 時点の
-  `state_change_seq` を localStorage に保持する。settle/snooze された
-  行は対応する棚から隠れ (snooze は一覧から除外、settle は Settled
-  棚へ)、`state_change_seq` が進んだ時点で自動的に棚へ戻る — T3 の
+- **ユーザー settle/snooze (UI 層)**: agent 行の context menu
+  から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
+  操作時点の `state_change_seq` を localStorage
+  (`herdr-t3:sidebar:agents:organize`) に保持する。settle/snooze
+  された行は対応する棚から隠れ (snooze は一覧から除外、settle は
+  折りたたみ可の **Settled** 棚 — 既定は折りたたみ — へ)、
+  `state_change_seq` が進んだ時点で自動的に棚へ戻る — T3 の
   inbox return に相当し、herdr の実状態は一切変更しない。表示上の
   状態バッジは付けず、行の所属棚のみが変わる (実行状態との区別を
-  UI 上も明確にする)。
+  UI 上も明確にする)。snooze された行は一覧に出ないため手動
+  Restore の経路はなく、状態変化による自動復帰のみ (settled 行は
+  Restore / Snooze に切替可能)。
 - `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
   テキスト (現 status の label) と行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に

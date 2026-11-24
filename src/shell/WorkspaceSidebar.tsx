@@ -8,6 +8,7 @@
 import {
   Fragment,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -17,13 +18,16 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CheckCheckIcon,
   ChevronDownIcon,
   CopyIcon,
   InfoIcon,
   MonitorIcon,
+  MoonIcon,
   MousePointerClickIcon,
   PencilIcon,
   PlusIcon,
+  RotateCcwIcon,
   SearchIcon,
   SquarePenIcon,
   UnplugIcon,
@@ -71,15 +75,19 @@ import {
   COLLAPSIBLE_AGENT_SECTIONS,
   agentAuxStateLabels,
   agentDisplayName,
+  agentOrganizeKey,
   agentRowSignature,
   agentStateLabel,
+  agentStateSeq,
   agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
   shortPaneId,
   type AgentListEntry,
+  type AgentOrganizeMap,
   type CollapsibleAgentSection,
 } from "./agents";
+import { readAgentOrganize, writeAgentOrganize } from "./agentOrganizeStore";
 import { workspaceTitle } from "~/lib/workspace";
 import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
@@ -370,6 +378,8 @@ function AgentSectionLabel({
   );
 }
 
+type AgentOrganizeAction = "settle" | "snooze" | "restore";
+
 /**
  * One agent row in the Agents shelves. Two lines per herdr's agent token
  * rows (info-architecture.md §6.1): line 1 is where (status icon +
@@ -383,14 +393,19 @@ function AgentRow({
   multiMachine,
   showPaneId,
   pane,
+  settled,
   onDetails,
+  onOrganize,
 }: {
   entry: AgentListEntry;
   multiMachine: boolean;
   /** Sibling rows render identically without it — append the pane token (issue #165). */
   showPaneId: boolean;
   pane: PaneInfo | undefined;
+  /** Row currently sits in the user-settled shelf (issue #173). */
+  settled: boolean;
   onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
+  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction) => void;
 }) {
   const { machine, agent } = entry;
   const stateLabel = agentStateLabel(agent);
@@ -469,6 +484,29 @@ function AgentRow({
             <InfoIcon /> Details…
           </ContextMenuItem>
         ) : null}
+        {/* User-side shelf organization (issue #173): UI-layer only,
+            herdr state is untouched. Settled rows can be restored or
+            moved to snoozed; other rows offer Settle/Snooze. */}
+        <ContextMenuSeparator />
+        {settled ? (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+              <RotateCcwIcon /> Restore
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
+              <MoonIcon /> Snooze
+            </ContextMenuItem>
+          </>
+        ) : (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+              <CheckCheckIcon /> Settle
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
+              <MoonIcon /> Snooze
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={() => void navigator.clipboard?.writeText(agent.pane_id)}
@@ -633,22 +671,67 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     () => collectAgentEntries(machines, bridge.snapshots, machineStale, branchIndex),
     [machines, bridge.snapshots, branchIndex],
   );
-  const agentSections = useMemo(() => partitionAgents(agentEntries), [agentEntries]);
+
+  // User-side settle/snooze overlay (issue #173): localStorage-persisted,
+  // keyed by machine+pane with the state_change_seq at action time.
+  // partitionAgents resolves it against live snapshots — seq advance
+  // auto-returns the row, vanished panes drop their record.
+  const [agentOrganize, setAgentOrganize] = useState<AgentOrganizeMap>(() =>
+    readAgentOrganize(),
+  );
+  const agentPartition = useMemo(
+    () => partitionAgents(agentEntries, agentOrganize),
+    [agentEntries, agentOrganize],
+  );
+  const agentSections = agentPartition.sections;
+
+  // Keep storage and state in sync with the resolved map: auto-restored
+  // rows and records for closed panes are pruned on write-back.
+  const agentOrganizeJson = JSON.stringify(agentPartition.organize);
+  const lastAgentOrganizeJson = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastAgentOrganizeJson.current === agentOrganizeJson) return;
+    lastAgentOrganizeJson.current = agentOrganizeJson;
+    writeAgentOrganize(agentPartition.organize);
+    setAgentOrganize(agentPartition.organize);
+  }, [agentOrganizeJson, agentPartition.organize]);
+
+  const organizeAgent = (entry: AgentListEntry, action: AgentOrganizeAction) => {
+    const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
+    setAgentOrganize((prev) => {
+      const next = { ...prev };
+      if (action === "restore") {
+        delete next[key];
+      } else {
+        next[key] = {
+          kind: action === "settle" ? "settled" : "snoozed",
+          seq: agentStateSeq(entry.agent),
+        };
+      }
+      writeAgentOrganize(next);
+      return next;
+    });
+  };
 
   // Rows that would render identically get a pane-id disambiguator
-  // (issue #165): count agentRowSignature across all entries.
+  // (issue #165): count agentRowSignature across rendered entries only —
+  // snoozed rows are not rendered and must not force disambiguation.
+  const visibleAgentEntries = useMemo(
+    () => AGENT_SECTIONS.flatMap((section) => agentSections[section]),
+    [agentSections],
+  );
   const agentSignatureCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const entry of agentEntries) {
+    for (const entry of visibleAgentEntries) {
       const key = agentRowSignature(entry);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [agentEntries]);
+  }, [visibleAgentEntries]);
 
   // Shelf expansion persists per section like T3's shelf toggles:
-  // Working defaults open (it is the live work list), Done/Idle default
-  // collapsed (settled-shelf equivalents).
+  // Working defaults open (it is the live work list), Done/Idle/Settled
+  // default collapsed (settled-shelf equivalents).
   const [agentShelves, setAgentShelves] = useState<
     Record<CollapsibleAgentSection, boolean>
   >(() => {
@@ -917,7 +1000,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
-      {!searching && agentEntries.length > 0 ? (
+      {!searching && visibleAgentEntries.length > 0 ? (
         <div className="mt-1 border-t border-sidebar-border/60 pt-1">
         <SidebarGroup>
           <ul ref={attachAgentsList} className="relative flex flex-col gap-px" role="list">
@@ -964,9 +1047,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                                 (agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1
                               }
                               pane={pane}
+                              settled={section === "settled"}
                               onDetails={(e, p) =>
                                 setAgentDetails({ machine: e.machine.id, pane: p })
                               }
+                              onOrganize={organizeAgent}
                             />
                           </li>
                         );

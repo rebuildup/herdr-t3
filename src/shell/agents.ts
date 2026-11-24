@@ -12,6 +12,13 @@
  * auxiliary labels, pane disambiguator). Sort inside a section mirrors
  * `AgentPanelSortConfig::Priority`: status priority, then
  * `state_change_seq` descending.
+ *
+ * User-side organize state (settle/snooze, issue #173) is a separate
+ * input: `AgentOrganizeMap` records which pane the user shelved and the
+ * `state_change_seq` observed at that moment. It never alters herdr's
+ * reported status — settled rows move to the Settled shelf, snoozed rows
+ * leave the list, and a `state_change_seq` advance auto-returns the row
+ * to its natural section (info-architecture.md §6.2).
  */
 import type {
   AgentInfo,
@@ -22,13 +29,14 @@ import type {
 } from "../../shared/protocol";
 import { workspaceTitle } from "../lib/workspace";
 
-export type AgentSection = "attention" | "working" | "done" | "idle";
+export type AgentSection = "attention" | "working" | "done" | "idle" | "settled";
 
 export const AGENT_SECTIONS: readonly AgentSection[] = [
   "attention",
   "working",
   "done",
   "idle",
+  "settled",
 ];
 
 export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
@@ -36,10 +44,16 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
   working: "Working",
   done: "Done",
   idle: "Idle",
+  settled: "Settled",
 };
 
 /** Sections that render as collapsible shelves (attention is always open). */
-export const COLLAPSIBLE_AGENT_SECTIONS = ["working", "done", "idle"] as const;
+export const COLLAPSIBLE_AGENT_SECTIONS = [
+  "working",
+  "done",
+  "idle",
+  "settled",
+] as const;
 export type CollapsibleAgentSection = (typeof COLLAPSIBLE_AGENT_SECTIONS)[number];
 
 export function agentSection(status: AgentStatus): AgentSection {
@@ -69,7 +83,7 @@ function statusPriority(status: AgentStatus): number {
   return AGENT_STATUS_PRIORITY[status] ?? 0;
 }
 
-function stateSeq(agent: AgentInfo): number {
+export function agentStateSeq(agent: AgentInfo): number {
   return agent.state_change_seq ?? agent.revision;
 }
 
@@ -77,7 +91,7 @@ function stateSeq(agent: AgentInfo): number {
 export function compareAgents(a: AgentInfo, b: AgentInfo): number {
   return (
     statusPriority(b.agent_status) - statusPriority(a.agent_status) ||
-    stateSeq(b) - stateSeq(a) ||
+    agentStateSeq(b) - agentStateSeq(a) ||
     a.pane_id.localeCompare(b.pane_id)
   );
 }
@@ -216,14 +230,80 @@ export interface AgentSections {
   working: AgentListEntry[];
   done: AgentListEntry[];
   idle: AgentListEntry[];
+  /** User-settled rows (issue #173) — herdr status is unchanged, only shelf membership. */
+  settled: AgentListEntry[];
 }
 
-/** Partition into T3-style shelves; each shelf keeps herdr priority order. */
-export function partitionAgents(entries: AgentListEntry[]): AgentSections {
-  const sections: AgentSections = { attention: [], working: [], done: [], idle: [] };
+/**
+ * User-side organize record (issue #173): which shelf the user put the
+ * agent on, plus the `state_change_seq` observed at action time. A later
+ * seq advance means the agent did something new and the row returns to
+ * its natural section automatically (T3 inbox return equivalent).
+ */
+export type AgentOrganizeKind = "settled" | "snoozed";
+
+export interface AgentOrganizeRecord {
+  kind: AgentOrganizeKind;
+  seq: number;
+}
+
+/**
+ * Organize records keyed by machine + pane. pane_id alone is not unique
+ * across machines, so the key carries both (same `\n` convention as the
+ * workspace branch index).
+ */
+export type AgentOrganizeMap = Record<string, AgentOrganizeRecord>;
+
+export function agentOrganizeKey(machineId: string, paneId: string): string {
+  return `${machineId}\n${paneId}`;
+}
+
+export interface AgentPartition {
+  sections: AgentSections;
+  /**
+   * Organize records still in effect after this partition: auto-restored
+   * rows (seq advanced) and records for panes that vanished are dropped,
+   * so persisting this map prunes stale entries.
+   */
+  organize: AgentOrganizeMap;
+}
+
+/**
+ * Partition into T3-style shelves; each shelf keeps herdr priority order.
+ * `organize` is the user-side settle/snooze overlay: settled rows go to
+ * the Settled shelf, snoozed rows are excluded from the list entirely,
+ * and either returns to its natural section once `state_change_seq`
+ * advances past the recorded value.
+ */
+export function partitionAgents(
+  entries: AgentListEntry[],
+  organize: AgentOrganizeMap = {},
+): AgentPartition {
+  const sections: AgentSections = {
+    attention: [],
+    working: [],
+    done: [],
+    idle: [],
+    settled: [],
+  };
+  const active: AgentOrganizeMap = {};
   const sorted = [...entries].sort((a, b) => compareAgents(a.agent, b.agent));
   for (const entry of sorted) {
+    const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
+    const record = organize[key];
+    // State advanced since the user shelved it — auto-return to the
+    // natural section and drop the record (T3 inbox return; herdr state
+    // itself never changed).
+    const shelved =
+      record !== undefined && agentStateSeq(entry.agent) <= record.seq
+        ? record
+        : undefined;
+    if (shelved !== undefined) {
+      active[key] = shelved;
+      if (shelved.kind === "settled") sections.settled.push(entry);
+      continue;
+    }
     sections[agentSection(entry.agent.agent_status)].push(entry);
   }
-  return sections;
+  return { sections, organize: active };
 }
