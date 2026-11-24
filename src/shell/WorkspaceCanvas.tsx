@@ -17,9 +17,18 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { paneTitle } from "~/lib/workspace";
+import { focusPaneTerminal } from "./paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc, useBridgeState } from "./bridge";
+import {
+  Columns2,
+  Info,
+  Maximize2,
+  MousePointerClick,
+  Rows2,
+  X,
+} from "lucide-react";
 
 function PaneSurface({
   machine,
@@ -75,6 +84,7 @@ function PaneSurface({
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
           )}
           style={style}
+          data-pane-id={pane.pane_id}
           draggable={dnd !== undefined}
           onDragStart={dnd?.onDragStart}
           onDragOver={dnd?.onDragOver}
@@ -98,37 +108,59 @@ function PaneSurface({
           offers, translated to GUI actions — every item is a whitelisted
           herdr RPC or the details surface. */}
       <ContextMenuContent>
-        <ContextMenuItem onSelect={onFocus}>Focus</ContextMenuItem>
+        {/* Menu actions return focus to this pane's terminal afterwards
+            (issue #128); the deferred focus wins over the menu's own
+            focus restoration to the trigger. */}
         <ContextMenuItem
-          onSelect={() =>
+          onSelect={() => {
+            onFocus();
+            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+          }}
+        >
+          <MousePointerClick /> Focus
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
             void callRpc(machine, "pane.split", {
               direction: "right",
               target_pane_id: pane.pane_id,
               focus: true,
-            })
-          }
+            });
+            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+          }}
         >
-          Split right
+          <Columns2 /> Split right
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() =>
+          onSelect={() => {
             void callRpc(machine, "pane.split", {
               direction: "down",
               target_pane_id: pane.pane_id,
               focus: true,
-            })
-          }
+            });
+            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+          }}
         >
-          Split down
+          <Rows2 /> Split down
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void callRpc(machine, "pane.zoom", { pane_id: pane.pane_id })}>
-          {zoomed ? "Unzoom" : "Zoom"}
+        <ContextMenuItem
+          onSelect={() => {
+            void callRpc(machine, "pane.zoom", { pane_id: pane.pane_id });
+            setTimeout(() => focusPaneTerminal(pane.pane_id), 0);
+          }}
+        >
+          <Maximize2 /> {zoomed ? "Unzoom" : "Zoom"}
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onDetails}>Details…</ContextMenuItem>
+        <ContextMenuItem onSelect={onDetails}>
+          <Info /> Details…
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void callRpc(machine, "pane.close", { pane_id: pane.pane_id })}>
-          Close pane
+        <ContextMenuItem
+          destructive
+          onSelect={() => void callRpc(machine, "pane.close", { pane_id: pane.pane_id })}
+        >
+          <X /> Close pane
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

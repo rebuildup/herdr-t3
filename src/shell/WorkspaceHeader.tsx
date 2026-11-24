@@ -22,6 +22,7 @@ import {
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { focusPaneTerminal } from "./paneFocus";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import {
@@ -115,6 +116,12 @@ export function WorkspaceHeader() {
   }
 
   const focusedTitle = focusedPane ? paneTitle(focusedPane) : "pane";
+  // Pane actions return focus to the terminal afterwards (issue #128):
+  // the deferred focus wins over the menu's own restoration to the trigger.
+  const paneAct = (fn: () => void) => () => {
+    fn();
+    setTimeout(() => focusPaneTerminal(focusedPane?.pane_id), 0);
+  };
   const wsTitle = workspaceTitle(workspace, branch);
   const wsDisplay = branch && wsTitle !== branch ? `${wsTitle} · ${branch}` : wsTitle;
   const paneCount = tabPanes.length;
@@ -247,8 +254,10 @@ export function WorkspaceHeader() {
                       size="icon-sm"
                       variant="ghost"
                       aria-label="Close tab"
-                      // oxlint-disable-next-line shadcn/no-restyle -- hover-reveal affordance; no Button variant covers group-hover opacity
-                      className="absolute right-0.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100"
+                      // Always visible on the active tab: the reserved width
+                      // must not read as dead space without an affordance
+                      // (issue #128).
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2"
                       onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
                     >
                       <XIcon className="size-3" />
@@ -289,7 +298,6 @@ export function WorkspaceHeader() {
               }
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                {focusedPane ? statusIcon(focusedPane.agent_status) : null}
                 <span className="truncate">
                   {focusedTitle}
                   {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
@@ -303,67 +311,95 @@ export function WorkspaceHeader() {
               </TooltipPopup>
             ) : null}
           </Tooltip>
+          {zoomed ? (
+            <Button
+              variant="secondary"
+              size="compact"
+              aria-label="Unzoom pane"
+              onClick={() =>
+                focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id })
+              }
+            >
+              <Minimize2 className="size-3.5" />
+              <span className="max-sm:hidden">Zoomed</span>
+            </Button>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button size="icon-sm" variant="ghost" aria-label="Pane actions" />}
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Pane actions"
+                  // Neutral focus ring: the default blue ring read as a
+                  // stuck highlight after menu actions (issue #128).
+                  // oxlint-disable-next-line shadcn/no-restyle -- no variant provides a non-ring focus treatment
+                  className="focus-visible:ring-1 focus-visible:ring-foreground/30"
+                />
+              }
             >
               <EllipsisIcon className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="content">
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.split", {
-                    direction: "right",
-                    target_pane_id: focusedPane.pane_id,
-                    focus: true,
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "right",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
                 disabled={!focusedPane}
               >
                 <Columns2 /> Split right
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.split", {
-                    direction: "down",
-                    target_pane_id: focusedPane.pane_id,
-                    focus: true,
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.split", {
+                      direction: "down",
+                      target_pane_id: focusedPane.pane_id,
+                      focus: true,
+                    }),
+                )}
                 disabled={!focusedPane}
               >
                 <Rows2 /> Split down
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane &&
-                  void rpc("pane.swap", {
-                    pane_id: focusedPane.pane_id,
-                    direction: "right",
-                  })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane &&
+                    void rpc("pane.swap", {
+                      pane_id: focusedPane.pane_id,
+                      direction: "right",
+                    }),
+                )}
                 disabled={!focusedPane || paneCount < 2}
               >
                 <SquareSplitHorizontalIcon /> Swap pane
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={focusNextPane} disabled={paneCount < 2}>
+              <DropdownMenuItem onClick={paneAct(focusNextPane)} disabled={paneCount < 2}>
                 <Columns2 /> Focus next pane
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane && void rpc("pane.close", { pane_id: focusedPane.pane_id })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane && void rpc("pane.close", { pane_id: focusedPane.pane_id }),
+                )}
                 disabled={!focusedPane}
               >
                 <XIcon /> Close pane
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() =>
-                  focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id })
-                }
+                onClick={paneAct(
+                  () =>
+                    focusedPane && void rpc("pane.zoom", { pane_id: focusedPane.pane_id }),
+                )}
                 disabled={!focusedPane}
               >
                 {zoomed ? <Minimize2 /> : <Maximize2 />}

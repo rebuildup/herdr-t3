@@ -25,7 +25,6 @@ import {
   SidebarTrigger,
   useMobileSidebarSheetMounted,
   useSidebar,
-  useSidebarVisibility,
 } from "~/components/ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -135,7 +134,6 @@ function SidebarControl() {
   // T3 gates the control on showSidebar (the shell always has one), not on
   // current visibility — on mobile the sheet-closed state must still show
   // the trigger or navigation becomes unreachable.
-  const isSidebarVisible = useSidebarVisibility();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -162,7 +160,10 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
-              variant={isSidebarVisible ? "media-navigation" : "ghost"}
+              // T3 uses media-navigation only over a stage backdrop image;
+              // herdr-t3 has none, so the ghost variant keeps the icon
+              // visible on the light sidebar (issue #128).
+              variant="ghost"
               className="pointer-events-auto"
               aria-label="Toggle main sidebar"
             />

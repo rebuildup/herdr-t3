@@ -66,6 +66,7 @@ function SheetPopup({
   showCloseButton = true,
   keepMounted = false,
   transitionDurationMs,
+  backdropClassName,
   side = "right",
   variant = "default",
   style,
@@ -74,6 +75,9 @@ function SheetPopup({
   showCloseButton?: boolean;
   keepMounted?: boolean;
   transitionDurationMs?: number;
+  /** Extra classes for the scrim; used when the default bg-background/60
+      backdrop is too faint against a light canvas. */
+  backdropClassName?: string;
   side?: "right" | "left" | "top" | "bottom";
   variant?: "default" | "inset";
 }) {
@@ -86,11 +90,12 @@ function SheetPopup({
   return (
     <SheetPortal keepMounted={keepMounted}>
       <SheetBackdrop
-        className={
+        className={cn(
           instant
             ? "transition-none! data-ending-style:opacity-100! data-starting-style:opacity-100!"
-            : undefined
-        }
+            : undefined,
+          backdropClassName,
+        )}
         style={transitionStyle}
       />
       <SheetViewport side={side} variant={variant}>

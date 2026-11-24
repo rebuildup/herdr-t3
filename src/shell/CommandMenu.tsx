@@ -15,6 +15,8 @@ import {
   SquareTerminalIcon,
   SunIcon,
   SquarePenIcon,
+  SquarePlusIcon,
+  SquareSplitHorizontalIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -29,9 +31,20 @@ import {
   CommandItem,
   CommandList,
   CommandPanel,
+  CommandShortcut,
 } from "~/components/ui/command";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronUpIcon,
+} from "lucide-react";
+import { isMacPlatform } from "~/lib/shortcuts";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
 import { GotoDialog } from "./GotoDialog";
@@ -55,10 +68,27 @@ interface PaletteAction {
   group: string;
   icon?: React.ReactNode;
   keywords?: string;
+  /** Right-aligned keyboard hint, matching T3's palette rows (issue #128). */
+  shortcut?: string | undefined;
+  /** Trailing drill-in chevron for items that open a nested surface. */
+  drillIn?: boolean;
   run: () => void;
 }
 
 const GROUP_ORDER = ["Actions", "Workspaces", "Machines", "Appearance"];
+
+// The pane-focus palette entries mirror the global ⌘+Arrow / Ctrl+Alt+Arrow
+// chord (issue #113); advertise the real binding, not a guessed one.
+const PANE_FOCUS_ARROWS: Record<string, string> = {
+  left: "←",
+  right: "→",
+  up: "↑",
+  down: "↓",
+};
+function paneFocusShortcut(direction: string): string {
+  const arrow = PANE_FOCUS_ARROWS[direction] ?? "";
+  return isMacPlatform() ? `⌘${arrow}` : `Ctrl+Alt+${arrow}`;
+}
 
 export function CommandMenu({
   open,
@@ -103,6 +133,9 @@ export function CommandMenu({
         group: "Actions",
         icon: <PanelLeftIcon className="size-4" />,
         keywords: "sidebar",
+        // ⌘B is macOS-only in AppShell's keydown handler; advertise only
+        // where the binding actually exists.
+        shortcut: isMacPlatform() ? "⌘B" : undefined,
         run: toggleSidebar,
       },
       {
@@ -119,6 +152,7 @@ export function CommandMenu({
         group: "Actions",
         icon: <SquareTerminalIcon className="size-4" />,
         keywords: "jump navigate finder search agent pane tab workspace goto",
+        drillIn: true,
         run: () => setGotoOpen(true),
       },
     ];
@@ -129,6 +163,7 @@ export function CommandMenu({
         group: "Actions",
         icon: <GitBranchIcon className="size-4" />,
         keywords: "git worktree branch checkout repo",
+        drillIn: true,
         run: () => setWorktreesOpen(true),
       });
       list.push(
@@ -136,7 +171,7 @@ export function CommandMenu({
           id: "new-tab",
           label: "New tab",
           group: "Actions",
-          icon: <Columns2 className="size-4" />,
+          icon: <SquarePlusIcon className="size-4" />,
           keywords: "pane tab",
           run: () =>
             void callRpc(machine, "tab.create", {
@@ -181,7 +216,7 @@ export function CommandMenu({
             id: "tab-move-left",
             label: "Move tab left",
             group: "Actions",
-            icon: <Columns2 className="size-4" />,
+            icon: <ChevronLeftIcon className="size-4" />,
             keywords: "tab reorder drag",
             run: () =>
               activeTab &&
@@ -196,7 +231,7 @@ export function CommandMenu({
             id: "tab-move-right",
             label: "Move tab right",
             group: "Actions",
-            icon: <Columns2 className="size-4" />,
+            icon: <ChevronRightIcon className="size-4" />,
             keywords: "tab reorder drag",
             run: () =>
               activeTab &&
@@ -223,7 +258,12 @@ export function CommandMenu({
             id: `workspace-move-${dir}`,
             label,
             group: "Actions",
-            icon: <MonitorIcon className="size-4" />,
+            icon:
+              dir === -1 ? (
+                <ChevronUpIcon className="size-4" />
+              ) : (
+                <ChevronDownIcon className="size-4" />
+              ),
             keywords: "workspace reorder drag",
             run: () =>
               void callRpc(machine, "workspace.move", {
@@ -239,7 +279,7 @@ export function CommandMenu({
             id: `pane-swap-${direction}`,
             label: `Swap pane ${direction}`,
             group: "Actions",
-            icon: <Columns2 className="size-4" />,
+            icon: <SquareSplitHorizontalIcon className="size-4" />,
             keywords: "pane swap move drag",
             run: () =>
               void callRpc(machine, "pane.swap", {
@@ -249,12 +289,20 @@ export function CommandMenu({
           });
           // Keyboard-navigation equivalent (issue #113): herdr resolves the
           // geometric neighbor itself, so this works across split shapes.
+          const focusArrows = {
+            left: ArrowLeftIcon,
+            right: ArrowRightIcon,
+            up: ArrowUpIcon,
+            down: ArrowDownIcon,
+          } as const;
+          const FocusArrow = focusArrows[direction];
           list.push({
             id: `pane-focus-${direction}`,
             label: `Focus pane ${direction}`,
             group: "Actions",
-            icon: <Columns2 className="size-4" />,
+            icon: <FocusArrow className="size-4" />,
             keywords: "pane focus navigate arrow keyboard",
+            shortcut: paneFocusShortcut(direction),
             run: () =>
               void callRpc(machine, "pane.focus_direction", {
                 pane_id: focusedPane.pane_id,
@@ -369,6 +417,10 @@ export function CommandMenu({
                     >
                       {item.icon}
                       <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.drillIn ? (
+                        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
+                      ) : null}
+                      {item.shortcut ? <CommandShortcut>{item.shortcut}</CommandShortcut> : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -383,20 +435,20 @@ export function CommandMenu({
           <CommandFooter className="max-sm:flex-col max-sm:items-start">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
               <KbdGroup>
-                <Kbd>
+                <Kbd variant="outline">
                   <ArrowUpIcon />
                 </Kbd>
-                <Kbd>
+                <Kbd variant="outline">
                   <ArrowDownIcon />
                 </Kbd>
                 <span>Navigate</span>
               </KbdGroup>
               <KbdGroup>
-                <Kbd>Enter</Kbd>
+                <Kbd variant="outline">Enter</Kbd>
                 <span>Select</span>
               </KbdGroup>
               <KbdGroup>
-                <Kbd>Esc</Kbd>
+                <Kbd variant="outline">Esc</Kbd>
                 <span>Close</span>
               </KbdGroup>
             </div>
