@@ -54,6 +54,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
 import { AgentStatusBadge, isKnownAgentStatus, PaneStatusDetail } from "~/components/AgentStatusBadge";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
+import { moveInsertIndex } from "~/lib/reorder";
+import { nextPaneInReadingOrder } from "~/lib/paneOrder";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc } from "./bridge";
@@ -142,16 +144,9 @@ export function WorkspaceHeader() {
   };
   /** Focus the pane after `pane` in herdr's layout reading order. */
   const focusNextPane = () => {
-    if (!focusedPane || paneCount < 2) return;
-    const ordered = [...tabPanes].sort((a, b) => {
-      const ra = layout?.panes.find((p) => p.pane_id === a.pane_id)?.rect;
-      const rb = layout?.panes.find((p) => p.pane_id === b.pane_id)?.rect;
-      if (!ra || !rb) return 0;
-      return ra.y - rb.y || ra.x - rb.x;
-    });
-    const index = ordered.findIndex((p) => p.pane_id === focusedPane.pane_id);
-    const next = ordered[(index + 1) % ordered.length];
-    if (next) void rpc("pane.focus", { pane_id: next.pane_id });
+    if (!focusedPane) return;
+    const next = nextPaneInReadingOrder(tabPanes, layout, focusedPane.pane_id);
+    if (next) void rpc("pane.focus", { pane_id: next });
   };
 
   return (
@@ -212,13 +207,13 @@ export function WorkspaceHeader() {
                     if (!dragId || dragId === t.tab_id) return;
                     const from = tabs.findIndex((x) => x.tab_id === dragId);
                     if (from < 0) return;
-                    const to = tabIndex + (side === "after" ? 1 : 0);
                     // herdr `insert_index` is a pre-removal insertion point:
                     // the tab lands before the element currently at that index
                     // (`tabs.length` appends). Adjacent drops are no-ops.
                     // Verified against herdr 0.9.5 (issue #115).
-                    if (to === from || to === from + 1) return;
-                    void rpc("tab.move", { tab_id: dragId, insert_index: to });
+                    const insertIndex = moveInsertIndex(from, tabIndex, side);
+                    if (insertIndex === null) return;
+                    void rpc("tab.move", { tab_id: dragId, insert_index: insertIndex });
                   }}
                   onDragEnd={() => {
                     setTabDragId(null);

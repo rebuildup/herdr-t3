@@ -146,6 +146,39 @@ describe("ghostty session: input encoding", () => {
     s.dispose();
   });
 
+  it("follows the mouse-mode matrix: reports reach the pane only in the modes that ask", async () => {
+    const { session: s } = await session(80, 24);
+    s.resize(80, 24, 8, 16);
+    const press = { action: "press" as const, button: "left" as const, col: 3, row: 4 };
+    const release = { action: "release" as const, button: "left" as const, col: 3, row: 4 };
+    const drag = { action: "motion" as const, button: "left" as const, col: 5, row: 6 };
+    const hover = { action: "motion" as const, col: 5, row: 6 };
+    const wheel = { action: "press" as const, button: "wheelUp" as const, col: 3, row: 4 };
+
+    // no mouse mode: every gesture stays local (selection / scrollback)
+    for (const event of [press, release, drag, hover, wheel]) {
+      expect(s.encodeMouse(event).length).toBe(0);
+    }
+
+    s.write("\x1b[?1006h\x1b[?1002h"); // SGR + button-event tracking
+    expect(s.modes().mouse).toBe("button");
+    expect(text(s.encodeMouse(press))).toMatch(/^\x1b\[<0;4;5M$/);
+    expect(text(s.encodeMouse(release))).toMatch(/^\x1b\[<0;4;5m$/);
+    expect(s.encodeMouse(drag).length).toBeGreaterThan(0); // held-button motion reports
+    expect(s.encodeMouse(hover).length).toBe(0); // buttonless motion does not
+    expect(s.encodeMouse(wheel).length).toBeGreaterThan(0);
+
+    s.write("\x1b[?1003h"); // any-event tracking
+    expect(s.modes().mouse).toBe("any");
+    expect(text(s.encodeMouse(hover))).toMatch(/^\x1b\[<35;6;7M$/);
+
+    s.write("\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l");
+    for (const event of [press, release, drag, hover, wheel]) {
+      expect(s.encodeMouse(event).length).toBe(0);
+    }
+    s.dispose();
+  });
+
   it("reports buttonless motion only in 'any' mouse mode", async () => {
     const { session: s } = await session(80, 24);
     s.resize(80, 24, 8, 16);

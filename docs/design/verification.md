@@ -64,6 +64,32 @@ bun run build
 Compare each capture side-by-side with the equivalent T3 screen (or the
 T3 component in isolation) and record the verdict per state.
 
+## RC verification checklist (issue #155)
+
+Release-candidate gate: run on **both macOS and Windows 11** against an
+isolated herdr session. Every row must be exercised by hand; an
+unverified row blocks the release — "not checked" is not a pass.
+Automated contract tests cover the deterministic halves
+(`terminal-io.md` §7.1); this list covers what only a real OS + real IME +
+real TUI can prove.
+
+| # | Area | macOS | Windows 11 | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | IME composition: 変換開始 → 変換中文字がカーソル位置に見える → 確定で1回だけ pane へ → 取消で0回 → 連続2回の独立 commit | ☐ | ☐ | 日本語 IME。候補ウィンドウが端末カーソル直下に出ること |
+| 2 | 変換中キー (Enter 確定 / 矢印 / Esc) が pane に漏れない | ☐ | ☐ | 変換中アプリ (vim 等) で確認 |
+| 3 | focus report: mode 1004 を有効化した pane で pane↔GUI chrome のフォーカス移動に CSI I/O | ☐ | ☐ | `printf '\e[?1004h'` 系のテスト pane |
+| 4 | TUI マウス: mouse capture 中のクリック/ドラッグ/ホイールがアプリへ届く (vim/neovim, htop, tmux 等) | ☐ | ☐ | |
+| 5 | mouse capture 中の **Shift+drag ローカル選択** とコピー | ☐ | ☐ | 選択が pane に送られないこと |
+| 6 | scrollback wheel (mouse OFF) と app wheel (mouse ON) の切替 | ☐ | ☐ | |
+| 7 | Agents 管理: Attention/Working/Done/Idle shelf の識別・折りたたみ・状態遷移・行クリックで workspace+pane へ移動・context menu (Focus/Details/Copy IDs)・ホバー詳細カード | ☐ | ☐ | agent 状態を実際に遷移させて確認 |
+| 8 | タブ直接操作: クリック選択・hover close・ダブルクリック rename・context menu (Focus/Rename/Move/Close)・ドラッグ並び替え | ☐ | ☐ | insert_index の位置が herdr と一致 |
+| 9 | ワークスペース階層: 2行行 (title+branch/meta)・machine folder・ドラッグ並び替え・検索 | ☐ | ☐ | |
+| 10 | アニメーション: 一覧の追加/移動/消失 FLIP・shelf 開閉・menu/tooltip 出現・agent 状態遷移の色変化 | ☐ | ☐ | |
+| 11 | `prefers-reduced-motion`: 上記すべてが即時切替 (アニメーションなし) | ☐ | ☐ | OS 設定で reduce を有効化 |
+| 12 | ホバー詳細: agent 行ホバーカード・workspace/tab の tooltip | ☐ | ☐ | |
+| 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant |
+| 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
+
 ## Evidence
 
 `docs/design/evidence/` holds baseline captures. `baseline-*.png` is the
