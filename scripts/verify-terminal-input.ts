@@ -38,8 +38,9 @@ async function paneRead(lines = 200): Promise<string> {
   return out;
 }
 
+const HEADLESS = process.env.CDP_HEADLESS !== "0";
 const proc = Bun.spawn(
-  [CHROME, "--headless=new", `--remote-debugging-port=${PORT}`,
+  [CHROME, ...(HEADLESS ? ["--headless=new"] : []), `--remote-debugging-port=${PORT}`,
    "--no-first-run", "--user-data-dir=/tmp/herdr-t3-cdp-verify", "about:blank"],
   { stdout: "ignore", stderr: "pipe" },
 );
@@ -67,9 +68,11 @@ const send = (method: string, params: Record<string, unknown> = {}) => {
   return new Promise((res) => pending.set(id, res));
 };
 const ev = async (expression: string) =>
-  ((await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })) as {
-    result?: { value?: unknown }; exceptionDetails?: unknown;
-  });
+  (((await send("Runtime.evaluate", {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  })) as { result?: { value?: unknown } }).result?.value);
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -158,35 +161,80 @@ screen = await paneRead();
 const selLeak = /\^\[\[<3[0-9];|\^\[\[<0;/.test(screen.slice(lenBefore));
 record("5 shift+drag no app leak", !selLeak, selLeak ? "leaked escapes" : "no new SGR sequences");
 
-// --- items 1-2: IME composition via CDP imeSetComposition ---
-const compRes = await send("Input.imeSetComposition", {
-  text: "にほん",
-  selectionStart: 3,
-  selectionEnd: 3,
-  replacementStart: -1,
-  replacementEnd: -1,
-});
-await sleep(600);
+// --- items 1-2: IME composition ---
+// CDP Input.imeSetComposition wedges the whole CDP session on this Chrome
+// (headless and headed), so drive the surface's own DOM handlers with
+// synthetic CompositionEvent/InputEvent instead — the same
+// compositionstart/update/end → CompositionTracker → inputText → pty path
+// a real OS IME produces. What stays unverified here is the OS IME layer
+// itself (marked text, candidate window, cancel keys), which is the
+// human-acceptance remainder.
+const imeDispatch = (expr: string) =>
+  ev(`(() => {
+    const t = document.querySelector(".ghostty-input");
+    if (!t) return "no-input";
+    t.focus();
+    ${expr}
+    return "ok";
+  })()`);
+
+await imeDispatch(`
+  t.dispatchEvent(new CompositionEvent("compositionstart", { data: "", bubbles: true }));
+  t.dispatchEvent(new CompositionEvent("compositionupdate", { data: "にほん", bubbles: true }));
+`);
+await sleep(400);
 const compState = (await ev(`(() => {
   const v = document.querySelector(".ghostty-composition");
   return v ? { hidden: v.hidden, text: v.textContent } : null;
 })()`)) as { hidden: boolean; text: string } | null;
 record(
   "1 ime composition visible",
-  !!compRes && !!compState && !compState.hidden && compState.text.includes("にほん"),
+  !!compState && !compState.hidden && compState.text.includes("にほん"),
   JSON.stringify(compState),
 );
-// commit: insertText delivers the committed string once
-await send("Input.insertText", { text: "日本語" });
+// commit: compositionend emits the text once; the platform's insertText
+// echo of the same commit must be deduped, not sent twice.
+await imeDispatch(`
+  t.dispatchEvent(new CompositionEvent("compositionend", { data: "日本語", bubbles: true }));
+  t.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: "日本語", bubbles: true, cancelable: true }));
+`);
 await sleep(600);
 screen = await paneRead();
 const commits = (screen.match(/日本語/g) ?? []).length;
-record("1/2 ime commit reaches pane once", commits >= 1, `日本語 occurrences=${commits}`);
+record("1/2 ime commit reaches pane once", commits === 1, `日本語 occurrences=${commits}`);
 const compAfter = (await ev(`(() => {
   const v = document.querySelector(".ghostty-composition");
   return v ? { hidden: v.hidden, text: v.textContent } : null;
 })()`)) as { hidden: boolean } | null;
 record("2 composition cleared after commit", !!compAfter?.hidden, JSON.stringify(compAfter));
+
+// A different insertText right after the echo window is real typed text
+// and must reach the pane (dedupe only swallows the commit echo).
+await imeDispatch(`
+  t.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: "テスト", bubbles: true, cancelable: true }));
+`);
+await sleep(400);
+screen = await paneRead();
+record(
+  "2b non-echo insertText forwards",
+  (screen.match(/テスト/g) ?? []).length >= 1,
+  `テスト occurrences=${(screen.match(/テスト/g) ?? []).length}`,
+);
+
+// Cancelled composition (empty compositionend) sends nothing.
+const lenBeforeCancel = (await paneRead()).length;
+await imeDispatch(`
+  t.dispatchEvent(new CompositionEvent("compositionstart", { data: "", bubbles: true }));
+  t.dispatchEvent(new CompositionEvent("compositionupdate", { data: "にほん", bubbles: true }));
+  t.dispatchEvent(new CompositionEvent("compositionend", { data: "", bubbles: true }));
+`);
+await sleep(400);
+screen = await paneRead();
+record(
+  "2c cancelled composition sends nothing",
+  !screen.slice(lenBeforeCancel).includes("にほん"),
+  screen.split("\n").slice(-2).join(" | "),
+);
 
 console.log("\n=== summary ===");
 const fails = results.filter((r) => !r.pass);
