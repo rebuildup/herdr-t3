@@ -323,6 +323,13 @@ export type ServerFrame =
   | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string }; machine?: string }
   /** `data` is base64: terminal output is arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_data"; paneId: string; data: string; machine: string }
+  /**
+   * herdr `ServerMessage::MouseCapture` for the attached pane (issue #169):
+   * the pane's program currently requests mouse reporting. A selection-vs-
+   * report hint only — the server still gates every AttachMouse/AttachScroll
+   * report against the pane's modes. Absent on herdr < 0.9.0.
+   */
+  | { type: "terminal_mouse_capture"; paneId: string; enabled: boolean; machine: string }
   | { type: "terminal_closed"; paneId: string; reason?: string; machine: string }
   | { type: "machines"; machines: MachineInfo[] }
   | { type: "machine_status"; machine: MachineInfo };

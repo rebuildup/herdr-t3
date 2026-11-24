@@ -119,9 +119,8 @@ function attachScroll(
 
 /* --------------------------- AttachMouse -------------------------------- */
 // ClientMessage::AttachMouse is variant 16 (wire.rs). The server encodes SGR
-// reports only when the pane enabled the matching mouse mode, so the client
-// may forward every pointer event unconditionally (herdr#6177 tracks the
-// missing mode-state channel needed for selection-vs-report UX).
+// reports only when the pane enabled the matching mouse mode; pane mode
+// state arrives separately as ServerMessage::MouseCapture (variant 8).
 
 export type AttachMouseAction = "press" | "motion" | "release" | "moved";
 export type AttachMouseButton = "left" | "middle" | "right";
@@ -170,6 +169,7 @@ export type ServerEvent =
   | { type: "welcome"; version: number; terminalAnsi: boolean; error: string | null }
   | { type: "terminal"; seq: number; width: number; height: number; full: boolean; bytes: Uint8Array }
   | { type: "shutdown"; reason: string | null }
+  | { type: "mouse_capture"; enabled: boolean; sgrPixels: boolean }
   | { type: "other"; variant: number };
 
 function readOptionString(buf: Uint8Array, offset: number): [string | null, number] {
@@ -218,6 +218,19 @@ export function decodeServerMessage(payload: Uint8Array): ServerEvent {
         // ServerShutdown { reason: Option<String> }
         const [reason] = readOptionString(payload, offset);
         return { type: "shutdown", reason };
+      }
+      case 8: {
+        // MouseCapture { enabled: bool, sgr_pixels: bool } — pushed to
+        // writable TerminalAttach clients on attach and on change since
+        // herdr 0.9.0 (wire.rs ServerMessage). `enabled` is the attached
+        // pane's mouse_reporting_enabled(); the server still gates every
+        // AttachMouse/AttachScroll report against the pane's modes.
+        if (offset + 2 > payload.length) throw new Error("truncated mouse capture");
+        return {
+          type: "mouse_capture",
+          enabled: payload[offset] === 1,
+          sgrPixels: payload[offset + 1] === 1,
+        };
       }
       default:
         return { type: "other", variant: v };

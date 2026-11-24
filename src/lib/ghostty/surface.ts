@@ -38,9 +38,10 @@ export interface GhosttySurfaceOptions {
    * Structured pointer events for hosts that forward them to herdr as
    * AttachMouse (the server emits SGR reports only when the pane enabled mouse
    * mode). When set, pointer press/drag/release/hover are delivered here
-   * instead of engine-encoded bytes, and local text selection continues in
-   * parallel — pane mode state is not visible to the client yet
-   * (herdrdev/herdr#6177), so selection must remain the safe default.
+   * instead of engine-encoded bytes. Selection-vs-report follows the pane's
+   * MouseCapture state pushed via setMouseCapture; while it is unknown the
+   * surface keeps local selection and forwards events in parallel — the
+   * server drops reports the pane did not ask for.
    */
   onMouse?(event: {
     action: "press" | "motion" | "release" | "moved";
@@ -71,6 +72,15 @@ export interface GhosttySurfaceOptions {
   /** accessible name for the hidden input that owns keyboard focus */
   ariaLabel?: string;
 }
+
+/**
+ * herdr `ServerMessage::MouseCapture` state for the attached pane
+ * (issue #169): `true` while the pane's program requests mouse reporting,
+ * `false` while it does not, `null` when the server never reported (a
+ * non-attach host or herdr without the message). The surface uses it for
+ * the selection-vs-report decision; the server still gates every report.
+ */
+export type PaneMouseCapture = boolean | null;
 
 interface CellMetrics { cols: number; rows: number; cellW: number; cellH: number }
 
@@ -131,6 +141,8 @@ export class GhosttySurface {
   /** latest hover cell waiting for the next frame's any-mode motion report */
   private hoverPoint: { point: ScreenPoint; mods: EngineMouse["mods"] } | null = null;
   private lastHoverSent: ScreenPoint | null = null;
+  /** pane mouse-report state pushed by the host (herdr MouseCapture); null = unknown */
+  private paneMouseCapture: PaneMouseCapture = null;
   private pressed = new Set<string>();
   private lastClick = { at: 0, count: 0 };
   private renderFrame = 0;
@@ -691,8 +703,20 @@ export class GhosttySurface {
     this.options.onInput?.(bytes);
   }
 
+  /**
+   * Update the pane's mouse-capture state (herdr `MouseCapture`, pushed on
+   * attach and on every mode change). `null` restores the conservative
+   * fallback for hosts/servers that never report it.
+   */
+  setMouseCapture(enabled: PaneMouseCapture): void {
+    this.paneMouseCapture = enabled;
+  }
+
   private mouseReporting(): boolean {
     if (this.options.readOnly) return false;
+    // Pane mode state from the host wins: the attach stream never carries
+    // mode sets, so the engine's own mode tracking stays at defaults here.
+    if (this.paneMouseCapture !== null) return this.paneMouseCapture;
     try {
       return this.session.modes().mouse !== "none";
     } catch (error) {
@@ -780,15 +804,26 @@ export class GhosttySurface {
       this.selection = { start: cell, end: cell };
       this.renderer.setSelection(null);
     }
-    // Structured AttachMouse goes out for every press: herdr emits an SGR
-    // report only when the pane enabled mouse mode, so this is a no-op for
-    // plain shells while TUIs (vim, agent TUIs) receive the click. Shift
-    // forces local selection (xterm semantics), so it suppresses the report.
-    // Local selection continues in parallel until pane mode state reaches
-    // the client (herdrdev/herdr#6177).
+    // Structured AttachMouse is the canonical report path on attach hosts
+    // (docs/design/terminal-io.md §5.4); the engine-encoded fallback only
+    // serves hosts without it. Selection-vs-report follows the pane's
+    // MouseCapture state (issue #169):
+    // - capture === true: the pane owns the mouse — reports only, no selection.
+    // - capture === false: the pane does not report — local selection only.
+    // - capture === null (server never reported): keep forwarding every
+    //   event and selecting in parallel — the server drops what the pane
+    //   did not ask for, so this stays correct on any herdr version.
     if (toMouse) {
-      this.sendMouse("press", button, cell, event);
-    } else if (this.options.onMouse && !event.shiftKey) {
+      if (this.options.onMouse) {
+        this.sendStructuredMouse("press", button, cell, GhosttySurface.modsOf(event));
+      } else {
+        this.sendMouse("press", button, cell, event);
+      }
+    } else if (
+      this.options.onMouse &&
+      !event.shiftKey &&
+      this.paneMouseCapture !== false
+    ) {
       this.drag.reported = true;
       this.sendStructuredMouse("press", button, cell, GhosttySurface.modsOf(event));
     }
@@ -809,7 +844,13 @@ export class GhosttySurface {
     if (!cell) return;
     drag.moved = true;
     if (drag.kind === "mouse") {
-      if (drag.button) this.sendMouse("motion", drag.button, cell, event);
+      if (drag.button) {
+        if (this.options.onMouse) {
+          this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
+        } else {
+          this.sendMouse("motion", drag.button, cell, event);
+        }
+      }
       return;
     }
     // selection drag that also reports structured motion to the pane
@@ -829,7 +870,13 @@ export class GhosttySurface {
     this.drag = null;
     const cell = this.cellAt(event) ?? drag.anchor;
     if (drag.kind === "mouse") {
-      if (drag.button) this.sendMouse("release", drag.button, cell, event);
+      if (drag.button) {
+        if (this.options.onMouse) {
+          this.sendStructuredMouse("release", drag.button, cell, GhosttySurface.modsOf(event));
+        } else {
+          this.sendMouse("release", drag.button, cell, event);
+        }
+      }
       return;
     }
     if (this.options.onMouse && drag.reported && drag.button) {

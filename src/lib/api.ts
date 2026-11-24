@@ -98,6 +98,7 @@ export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => v
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
 export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
+export type TerminalMouseCaptureListener = (machine: string, paneId: string, enabled: boolean) => void;
 export type MachinesListener = (machines: MachineInfo[]) => void;
 export type MachineStatusListener = (machine: MachineInfo) => void;
 
@@ -107,6 +108,7 @@ let wsListeners = new Set<SnapshotListener>();
 let statusListeners = new Set<StatusListener>();
 let terminalDataListeners = new Set<TerminalDataListener>();
 let terminalClosedListeners = new Set<TerminalClosedListener>();
+let terminalMouseCaptureListeners = new Set<TerminalMouseCaptureListener>();
 let machinesListeners = new Set<MachinesListener>();
 let machineStatusListeners = new Set<MachineStatusListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
@@ -141,6 +143,9 @@ function handleFrame(frame: ServerFrame): void {
       return;
     case "terminal_closed":
       for (const listener of terminalClosedListeners) listener(frame.machine, frame.paneId, frame.reason);
+      return;
+    case "terminal_mouse_capture":
+      for (const listener of terminalMouseCaptureListeners) listener(frame.machine, frame.paneId, frame.enabled);
       return;
     case "machines":
       for (const listener of machinesListeners) listener(frame.machines);
@@ -228,6 +233,11 @@ export function onTerminalData(listener: TerminalDataListener): () => void {
 export function onTerminalClosed(listener: TerminalClosedListener): () => void {
   terminalClosedListeners.add(listener);
   return () => terminalClosedListeners.delete(listener);
+}
+
+export function onTerminalMouseCapture(listener: TerminalMouseCaptureListener): () => void {
+  terminalMouseCaptureListeners.add(listener);
+  return () => terminalMouseCaptureListeners.delete(listener);
 }
 
 export function onMachines(listener: MachinesListener): () => void {
