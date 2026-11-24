@@ -16,13 +16,11 @@ import type { ReactNode } from "react";
 import type { PaneInfo } from "../../shared/protocol";
 import { AgentProviderIcon } from "~/components/agentIcons";
 import { statusIcon } from "~/components/statusIcons";
-import { paneTitle } from "~/lib/workspace";
 import {
   agentAuxStateLabels,
   agentDisplayName,
   agentStateLabel,
   agentWorkTarget,
-  shortPaneId,
   type AgentListEntry,
 } from "./agents";
 
@@ -47,11 +45,11 @@ export function AgentHoverCard({
   pane: PaneInfo | undefined;
 }) {
   const { machine, agent } = entry;
-  // Title is the live pane title when the pane record is available
-  // (issue #199); agent records can lag the OSC title herdr last saw.
-  const title = pane
-    ? paneTitle(pane)
-    : (agentWorkTarget(agent, pane) ?? agentDisplayName(agent));
+  // Title resolves through agentWorkTarget — the live pane terminal
+  // title when present, never the raw pane id fallback paneTitle()
+  // would produce for untitled panes (issue #204 review: "w1:p7" as a
+  // heading duplicated the pane-id row and contradicted the row label).
+  const title = agentWorkTarget(agent, pane) ?? agentDisplayName(agent);
   const displayName = agentDisplayName(agent);
   const stateLabel = agentStateLabel(agent);
   const auxLabels = agentAuxStateLabels(agent);
@@ -87,9 +85,9 @@ export function AgentHoverCard({
         ) : null}
         {location ? <DetailRow icon={<MapPinIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
-        {/* shortPaneId matches the row's meta token — the full
-            workspace-prefixed id contradicted the label (issue #204). */}
-        <DetailRow icon={<SquareTerminalIcon />}>{shortPaneId(agent.pane_id)}</DetailRow>
+        {/* The card is where the full workspace-prefixed address belongs
+            — the row shows only the short disambiguation token. */}
+        <DetailRow icon={<SquareTerminalIcon />}>{agent.pane_id}</DetailRow>
       </div>
     </div>
   );

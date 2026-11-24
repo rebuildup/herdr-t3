@@ -258,7 +258,7 @@ const SidebarUtilityMenu = function SidebarUtilityMenu() {
 
 export const SidebarChromeFooter = function SidebarChromeFooter() {
   return (
-    <SidebarFooter>
+    <SidebarFooter variant="separated">
       <SidebarUtilityMenu />
     </SidebarFooter>
   );

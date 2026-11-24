@@ -22,7 +22,7 @@ import {
   SquareSplitHorizontalIcon,
   XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { focusPaneTerminal } from "~/lib/paneFocus";
@@ -110,6 +110,20 @@ export function WorkspaceHeader() {
   // the drop maps to herdr `tab.move {tab_id, insert_index}`.
   const [tabDragId, setTabDragId] = useState<string | null>(null);
   const [tabDrop, setTabDrop] = useState<{ index: number; side: "before" | "after" } | null>(null);
+  // Scroll-edge fade: the hidden-scrollbar strip gives no overflow cue,
+  // so a right-edge mask appears whenever tabs actually overflow
+  // (issue #204 review).
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    const check = () => setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tabs]);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
@@ -175,7 +189,14 @@ export function WorkspaceHeader() {
               strip — at narrow widths the two read as one run without it
               (issue #130). */}
           <span aria-hidden className="h-4 w-px shrink-0 bg-border/60" />
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          <div
+            ref={tabStripRef}
+            className={cn(
+              "flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
+              tabsOverflow &&
+                "[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]",
+            )}
+          >
             {tabs.map((t, tabIndex) => {
               const selected = t.tab_id === activeTab.tab_id;
               const label = t.label || `Tab ${t.number}`;
@@ -235,8 +256,9 @@ export function WorkspaceHeader() {
                     // hover/focus reveal never shifts the strip (issue
                     // #204). hover:/focus-within: — NOT group-hover:,
                     // which only matches descendants of .group, never the
-                    // .group element itself (issue #165).
-                    "pe-8",
+                    // .group element itself (issue #165). pe-7 pairs with
+                    // the icon-xs close button (issue #204).
+                    "pe-7",
                     selected
                       ? "bg-accent font-medium text-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -260,6 +282,10 @@ export function WorkspaceHeader() {
                     <button
                       type="button"
                       onClick={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      // Prevent mousedown focus: a clicked tab kept a
+                      // persistent focus ring while hovering siblings
+                      // (issue #204 review). Keyboard focus is unaffected.
+                      onMouseDown={(e) => e.preventDefault()}
                       onDoubleClick={() => {
                         setTabDraft(label);
                         setRenamingTab(t.tab_id);
@@ -287,7 +313,7 @@ export function WorkspaceHeader() {
                     )}
                   >
                     <Button
-                      size="icon-sm"
+                      size="icon-xs"
                       variant="ghost"
                       aria-label="Close tab"
                       onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
