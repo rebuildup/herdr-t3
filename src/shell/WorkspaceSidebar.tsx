@@ -229,7 +229,12 @@ function MachineFolderHeader({
             ) : (
               <MonitorIcon className="size-4 shrink-0 text-sidebar-muted-foreground" />
             )}
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm font-medium",
+                offline ? "text-sidebar-muted-foreground" : "text-sidebar-foreground/90",
+              )}
+            >
               {machine.label}
             </span>
             {collapsed ? (

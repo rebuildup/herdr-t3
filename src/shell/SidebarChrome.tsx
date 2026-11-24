@@ -125,7 +125,7 @@ function SidebarBrand() {
       onClick={() => navigate("#/")}
       className="relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
     >
-      <span className="inline-flex min-w-0 items-baseline gap-0.5 text-sm tracking-tight">
+      <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
         <span className="font-semibold text-foreground">
           herdr
         </span>

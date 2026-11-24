@@ -244,7 +244,7 @@ export function WorktreesDialog({
         </div>
 
         {error ? (
-          <p className="text-xs text-destructive">{error}</p>
+          <p className="text-xs text-error-foreground">{error}</p>
         ) : null}
 
         <div className="flex items-end gap-2 border-t border-border pt-3">

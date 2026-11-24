@@ -3,7 +3,7 @@ import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { rpc } from "../lib/api";
 import { focusPaneTerminal } from "../lib/paneFocus";
-import { agentStatusLabel } from "./AgentStatusBadge";
+import { agentStatusLabel, isKnownAgentStatus } from "./AgentStatusBadge";
 import type {
   PaneInfo,
   PaneProcessInfo,
@@ -126,7 +126,11 @@ export function PaneDetailsDialog({
   return (
     <Dialog open={pane !== null} onOpenChange={(open) => !open && requestClose()}>
       <DialogContent className="max-w-lg">
-        <DialogTitle>{pane ? agentStatusLabel(pane.agent_status) : ""} pane details</DialogTitle>
+        <DialogTitle>
+          {pane && isKnownAgentStatus(pane.agent_status)
+            ? `${agentStatusLabel(pane.agent_status)} pane details`
+            : "Pane details"}
+        </DialogTitle>
         <DialogDescription>
           Internal identifiers and diagnostics for {pane?.pane_id ?? ""}.
         </DialogDescription>
