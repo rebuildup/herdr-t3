@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import { rpc } from "../lib/api";
 import type { RpcMethod } from "../../shared/protocol";
 
@@ -53,26 +61,30 @@ export function RenameDialog({
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogTitle>Rename {target?.kind}</DialogTitle>
-        <DialogDescription>Shown in the {target?.kind} list and tab strip.</DialogDescription>
-        <Input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-            if (e.key === "Escape") onClose();
-          }}
-          className="mb-4 w-full"
-        />
-        <div className="flex justify-end gap-2">
+        <DialogHeader>
+          <DialogTitle>Rename {target?.kind}</DialogTitle>
+          <DialogDescription>Shown in the {target?.kind} list and tab strip.</DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <Input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+              if (e.key === "Escape") onClose();
+            }}
+            className="w-full"
+          />
+        </DialogPanel>
+        <DialogFooter>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button size="sm" onClick={submit}>
             Rename
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -14,7 +14,7 @@ import type { AgentStatus, MachineStatus } from "../../shared/protocol";
 export function statusIcon(status: AgentStatus) {
   switch (status) {
     case "working":
-      return <Loader2 className="size-3.5 motion-safe:animate-spin" />;
+      return <Loader2 className="size-3.5 text-primary motion-safe:animate-spin" />;
     case "blocked":
       return <CircleX className="size-3.5 text-warning" />;
     case "done":

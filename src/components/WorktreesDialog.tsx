@@ -19,6 +19,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -162,13 +165,16 @@ export function WorktreesDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && requestClose()}>
       <DialogContent className="max-w-xl">
-        <DialogTitle>Worktrees{repoName ? ` — ${repoName}` : ""}</DialogTitle>
-        <DialogDescription>
-          Git worktrees herdr knows for this repository. Open creates or
-          focuses a workspace; remove deletes the checkout.
-        </DialogDescription>
+        <DialogHeader>
+          <DialogTitle>Worktrees{repoName ? ` — ${repoName}` : ""}</DialogTitle>
+          <DialogDescription>
+            Git worktrees herdr knows for this repository. Open creates or
+            focuses a workspace; remove deletes the checkout.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="flex max-h-80 flex-col gap-1 overflow-y-auto">
+        <DialogPanel>
+          <div className="flex flex-col gap-1">
           {loading ? (
             <p className="py-4 text-center text-xs text-muted-foreground">
               Loading worktrees…
@@ -241,13 +247,13 @@ export function WorktreesDialog({
               </div>
             );
           })}
-        </div>
+          </div>
 
-        {error ? (
-          <p className="text-xs text-error-foreground">{error}</p>
-        ) : null}
+          {error ? (
+            <p className="text-xs text-error-foreground">{error}</p>
+          ) : null}
 
-        <div className="flex items-end gap-2 border-t border-border pt-3">
+          <div className="flex items-end gap-2 border-t border-border pt-3">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
             Branch
             <Input
@@ -279,13 +285,14 @@ export function WorktreesDialog({
           >
             <PlusIcon /> New worktree
           </Button>
-        </div>
+          </div>
+        </DialogPanel>
 
-        <div className="flex justify-end">
+        <DialogFooter>
           <Button size="sm" variant="ghost" onClick={requestClose}>
             Close
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
 
       {/* Remove confirm: destructive and workspace-scoped — herdr deletes
@@ -300,20 +307,24 @@ export function WorktreesDialog({
         }}
       >
         <DialogContent className="max-w-md">
-          <DialogTitle>Remove worktree?</DialogTitle>
-          <DialogDescription>
-            herdr will delete the checkout at{" "}
-            <span className="font-mono">{confirmRemove?.path}</span> and close
-            its workspace. Uncommitted changes are lost unless forced off.
-          </DialogDescription>
-          <label className="flex items-center gap-2 text-sm">
-            <Switch
-              checked={forceRemove}
-              onCheckedChange={setForceRemove}
-            />
-            Force removal
-          </label>
-          <div className="flex justify-end gap-2">
+          <DialogHeader>
+            <DialogTitle>Remove worktree?</DialogTitle>
+            <DialogDescription>
+              herdr will delete the checkout at{" "}
+              <span className="font-mono">{confirmRemove?.path}</span> and close
+              its workspace. Uncommitted changes are lost unless forced off.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch
+                checked={forceRemove}
+                onCheckedChange={setForceRemove}
+              />
+              Force removal
+            </label>
+          </DialogPanel>
+          <DialogFooter>
             <Button
               size="sm"
               variant="ghost"
@@ -332,7 +343,7 @@ export function WorktreesDialog({
             >
               Remove
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Dialog>

@@ -37,7 +37,14 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { getGeneralSettings } from "~/lib/settings";
 import { machineConnect, machineDisconnect } from "~/lib/api";
 import type { AgentInfo, MachineInfo, WorkspaceInfo } from "../../shared/protocol";
@@ -349,11 +356,13 @@ function AgentRow({ entry, multiMachine }: { entry: AgentListEntry; multiMachine
         ) : null}
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+        {/* Metadata stays visible in the ~288px mobile sheet too — the
+            lg:inline gate left six identical agent rows (issue #142). */}
+        <span className="max-w-28 truncate text-2xs text-sidebar-muted-foreground">
           {entry.workspaceTitle}
         </span>
         {multiMachine ? (
-          <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
+          <span className="max-w-20 truncate text-2xs text-sidebar-muted-foreground">
             {machine.label}
           </span>
         ) : null}
@@ -723,6 +732,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         </ul>
       </SidebarGroup>
       {!searching && agents.length > 0 ? (
+        <div className="mt-1 border-t border-sidebar-border/60 pt-1">
         <SidebarGroup>
           <div className="px-2 pb-1 text-2xs font-medium text-sidebar-muted-foreground">
             Agents
@@ -738,6 +748,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             ))}
           </ul>
         </SidebarGroup>
+        </div>
       ) : null}
       <RenameDialog
         target={rename?.target ?? null}
@@ -746,14 +757,16 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       />
       <Dialog open={confirmClose !== null} onOpenChange={(open) => !open && setConfirmClose(null)}>
         <DialogContent>
-          <DialogTitle>Close workspace</DialogTitle>
-          <DialogDescription>
-            “{confirmClose ? workspaceTitle(confirmClose.workspace) : ""}” still has{" "}
-            {confirmClose?.workspace.pane_count ?? 0} pane
-            {(confirmClose?.workspace.pane_count ?? 0) === 1 ? "" : "s"}. Closing it ends those
-            sessions on the machine.
-          </DialogDescription>
-          <div className="flex justify-end gap-2">
+          <DialogHeader>
+            <DialogTitle>Close workspace</DialogTitle>
+            <DialogDescription>
+              “{confirmClose ? workspaceTitle(confirmClose.workspace) : ""}” still has{" "}
+              {confirmClose?.workspace.pane_count ?? 0} pane
+              {(confirmClose?.workspace.pane_count ?? 0) === 1 ? "" : "s"}. Closing it ends those
+              sessions on the machine.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button size="sm" variant="ghost" onClick={() => setConfirmClose(null)}>
               Cancel
             </Button>
@@ -772,7 +785,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             >
               Close workspace
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </SidebarContent>

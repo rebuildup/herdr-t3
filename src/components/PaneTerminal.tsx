@@ -393,7 +393,12 @@ export function PaneTerminal({
             {engineError !== null ? `terminal error: ${engineError}` : `terminal closed: ${closedReason}`}
           </span>
           {closedReason !== null && !takeover && closedReason.includes("attached client") && (
-            <Button size="sm" variant="outline" onClick={() => setTakeover(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto max-w-full text-center whitespace-normal"
+              onClick={() => setTakeover(true)}
+            >
               Take over terminal
             </Button>
           )}
