@@ -227,10 +227,13 @@ export function WorkspaceHeader() {
                     tabDragId === t.tab_id && "opacity-50",
                     // Reserve the close button's width so the label hit
                     // area can never overlap it (issue #94): always on the
-                    // active tab, hover-revealed on the others (issue #152).
+                    // active tab, hover/focus-revealed on the others
+                    // (issue #152). hover:/focus-within: — NOT group-hover:,
+                    // which only matches descendants of .group, never the
+                    // .group element itself (issue #165).
                     selected
                       ? "bg-accent pe-8 font-medium text-foreground"
-                      : "pe-1.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground group-hover:pe-8",
+                      : "pe-1.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground hover:pe-8 focus-within:pe-8",
                   )}
                 >
                   {renamingTab === t.tab_id ? (
@@ -268,9 +271,13 @@ export function WorkspaceHeader() {
                       #152). */}
                   <span
                     className={cn(
+                      // Invisible until revealed, but still hit-testable —
+                      // gate pointer events so it cannot swallow label
+                      // clicks in the unpadded state (issue #165).
                       "absolute right-0.5 top-1/2 -translate-y-1/2 transition-opacity",
-                      !selected &&
-                        "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+                      selected
+                        ? "pointer-events-auto"
+                        : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100",
                     )}
                   >
                     <Button
