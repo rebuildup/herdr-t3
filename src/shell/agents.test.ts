@@ -8,6 +8,7 @@ import type {
 import {
   agentAuxStateLabels,
   agentDisplayName,
+  agentOrganizeKey,
   agentRowSignature,
   agentSection,
   agentStateLabel,
@@ -17,6 +18,7 @@ import {
   partitionAgents,
   shortPaneId,
   type AgentListEntry,
+  type AgentOrganizeMap,
 } from "./agents";
 
 function agent(over: Partial<AgentInfo>): AgentInfo {
@@ -221,7 +223,7 @@ describe("collectAgentEntries", () => {
 
 describe("partitionAgents", () => {
   test("groups entries into shelves preserving priority order", () => {
-    const sections = partitionAgents([
+    const { sections } = partitionAgents([
       entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 5 })),
       entry(agent({ pane_id: "b1", agent_status: "blocked", state_change_seq: 1 })),
       entry(agent({ pane_id: "d1", agent_status: "done", state_change_seq: 8 })),
@@ -232,8 +234,107 @@ describe("partitionAgents", () => {
     expect(sections.working.map((e) => e.agent.pane_id)).toEqual(["w1"]);
     expect(sections.done.map((e) => e.agent.pane_id)).toEqual(["d1"]);
     expect(sections.idle.map((e) => e.agent.pane_id)).toEqual(["i1"]);
+    expect(sections.settled).toEqual([]);
   });
 });
+
+describe("partitionAgents organize overlay (issue #173)", () => {
+  const key = (paneId: string) => agentOrganizeKey("local", paneId);
+
+  test("settled moves a row to the Settled shelf regardless of herdr status", () => {
+    const working = entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 5 }));
+    const blocked = entry(agent({ pane_id: "b1", agent_status: "blocked", state_change_seq: 3 }));
+    const organize: AgentOrganizeMap = {
+      [key("w1")]: { kind: "settled", seq: 5 },
+      [key("b1")]: { kind: "settled", seq: 3 },
+    };
+    const { sections, organize: active } = partitionAgents([working, blocked], organize);
+    expect(sections.settled.map((e) => e.agent.pane_id)).toEqual(["b1", "w1"]);
+    expect(sections.working).toEqual([]);
+    expect(sections.attention).toEqual([]);
+    expect(active).toEqual(organize);
+  });
+
+  test("snoozed excludes the row from every shelf", () => {
+    const snoozed = entry(agent({ pane_id: "s1", agent_status: "working", state_change_seq: 5 }));
+    const visible = entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 4 }));
+    const { sections, organize: active } = partitionAgents([snoozed, visible], {
+      [key("s1")]: { kind: "snoozed", seq: 5 },
+    });
+    expect(visibleAgentPanes(sections)).toEqual(["w1"]);
+    expect(active[key("s1")]).toEqual({ kind: "snoozed", seq: 5 });
+  });
+
+  test("state_change_seq advance auto-returns the row and drops the record", () => {
+    const agentInfo = agent({ pane_id: "w1", agent_status: "working", state_change_seq: 6 });
+    const { sections, organize: active } = partitionAgents([entry(agentInfo)], {
+      [key("w1")]: { kind: "settled", seq: 5 },
+    });
+    expect(sections.working.map((e) => e.agent.pane_id)).toEqual(["w1"]);
+    expect(sections.settled).toEqual([]);
+    expect(active).toEqual({});
+  });
+
+  test("unchanged seq stays shelved; restore is simply an absent record", () => {
+    const agentInfo = agent({ pane_id: "w1", agent_status: "done", state_change_seq: 5 });
+    const shelved = partitionAgents([entry(agentInfo)], {
+      [key("w1")]: { kind: "settled", seq: 5 },
+    });
+    expect(shelved.sections.settled).toHaveLength(1);
+    const restored = partitionAgents([entry(agentInfo)], {});
+    expect(restored.sections.done.map((e) => e.agent.pane_id)).toEqual(["w1"]);
+  });
+
+  test("falls back to revision for the seq comparison like the sort does", () => {
+    const agentInfo = agent({ pane_id: "w1", agent_status: "idle", revision: 9 });
+    delete agentInfo.state_change_seq;
+    const { sections } = partitionAgents([entry(agentInfo)], {
+      [key("w1")]: { kind: "snoozed", seq: 9 },
+    });
+    expect(visibleAgentPanes(sections)).toEqual([]);
+    const advancedInfo = agent({ pane_id: "w1", agent_status: "idle", revision: 10 });
+    delete advancedInfo.state_change_seq;
+    const advanced = partitionAgents([entry(advancedInfo)], {
+      [key("w1")]: { kind: "snoozed", seq: 9 },
+    });
+    expect(advanced.sections.idle.map((e) => e.agent.pane_id)).toEqual(["w1"]);
+  });
+
+  test("organize keys are per machine — same pane_id on another machine is independent", () => {
+    const remote = {
+      ...entry(agent({ pane_id: "p1", agent_status: "working", state_change_seq: 2 })),
+      machine: { id: "remote", kind: "ssh" as const, label: "Remote", enabled: true, status: "online" as const },
+    };
+    const { sections } = partitionAgents([entry(agent({ pane_id: "p1", agent_status: "working", state_change_seq: 2 })), remote], {
+      [key("p1")]: { kind: "settled", seq: 2 },
+    });
+    expect(sections.settled.map((e) => e.machine.id)).toEqual(["local"]);
+    expect(sections.working.map((e) => e.machine.id)).toEqual(["remote"]);
+  });
+
+  test("records for vanished panes are pruned from the resolved map", () => {
+    const { organize: active } = partitionAgents(
+      [entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 5 }))],
+      {
+        [key("w1")]: { kind: "settled", seq: 5 },
+        [key("gone")]: { kind: "snoozed", seq: 3 },
+      },
+    );
+    expect(active).toEqual({ [key("w1")]: { kind: "settled", seq: 5 } });
+  });
+});
+
+function visibleAgentPanes(
+  sections: ReturnType<typeof partitionAgents>["sections"],
+): string[] {
+  return [
+    ...sections.attention,
+    ...sections.working,
+    ...sections.done,
+    ...sections.idle,
+    ...sections.settled,
+  ].map((e) => e.agent.pane_id);
+}
 
 describe("agentRowSignature / shortPaneId", () => {
   test("identical rendered rows share a signature; pane id alone does not split it", () => {
