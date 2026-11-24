@@ -18,7 +18,7 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
-import { CompositionTracker, focusReport, mouseReportCell, pointerDragKind, sendsHoverMotion, wheelButton } from "./inputPolicy.ts";
+import { CompositionTracker, bypassesKeyEncoder, focusReport, mouseReportCell, pointerDragKind, sendsHoverMotion, wheelButton } from "./inputPolicy.ts";
 import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
 import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
 import type { EngineModes, EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
@@ -683,7 +683,7 @@ export class GhosttySurface {
       // IME commit some platforms deliver without composition events) is still
       // typed text; the tracker dedupes the commit's insertText echo
       // (docs/design/terminal-io.md §3.1)
-      if (this.composition.active) return;
+      if (this.composition.active || (event as InputEvent).isComposing) return;
       const input = event as InputEvent;
       if (input.inputType === "insertText" && input.data) {
         event.preventDefault();
@@ -725,10 +725,21 @@ export class GhosttySurface {
     }
   }
 
+  /** Kitty keyboard flag 8 ("report all keys"): text keys need encoder events, not beforeinput text */
+  private reportsAllKeys(): boolean {
+    try {
+      return (this.session.modes().kittyFlags & 0b1000) !== 0;
+    } catch (error) {
+      this.fail(error);
+      return false;
+    }
+  }
+
   private keyDown(event: KeyboardEvent): void {
-    if (this.composition.active || event.isComposing) return;
+    if (this.composition.active) return;
     // the platform's own shortcuts (copy, paste, reload, devtools) are not the pane's
     if (event.metaKey && !event.ctrlKey && !event.altKey) return;
+    if (bypassesKeyEncoder(event, () => this.reportsAllKeys())) return;
     const action = event.repeat ? "repeat" : "press";
     const key = engineKeyFor(event, action);
     if (key && this.session.hasKey(key.key)) {
