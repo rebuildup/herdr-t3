@@ -37,7 +37,7 @@ export function AgentStatusBadge({ status, className }: { status: AgentStatus; c
             ? Circle
             : CircleDashed;
   return (
-    <span className={cn("inline-flex items-center gap-1 text-2xs", color, className)}>
+    <span className={cn("inline-flex items-center gap-1 text-2xs transition-colors", color, className)}>
       <Icon className={cn("size-3", status === "working" && "motion-safe:animate-spin")} />
       {agentStatusLabel(status)}
     </span>
