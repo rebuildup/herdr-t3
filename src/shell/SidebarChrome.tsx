@@ -33,6 +33,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
 }) {
   const route = useRoute();
   const bridge = useBridgeState();
+  const { isMobile } = useSidebar();
   const { machineInfo } = useRouteWorkspace();
   const machineCount = machineListOf(bridge).length;
   const showMachinePill =
@@ -45,13 +46,18 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
         isElectron && "drag-region",
       )}
     >
-      <div className="relative top-[calc(var(--workspace-controls-top)-env(safe-area-inset-top))] z-10 ml-[calc(var(--workspace-controls-left)+1px-env(safe-area-inset-left))] flex shrink-0 items-center md:hidden">
-        <SidebarTrigger
-          variant="ghost"
-          className="relative top-auto translate-y-0"
-          aria-label="Toggle main sidebar"
-        />
-      </div>
+      {/* On the mobile sheet the dedicated × close button is the single
+          dismiss affordance; a second collapse trigger duplicated it
+          (issue #130). */}
+      {!isMobile ? (
+        <div className="relative top-[calc(var(--workspace-controls-top)-env(safe-area-inset-top))] z-10 ml-[calc(var(--workspace-controls-left)+1px-env(safe-area-inset-left))] flex shrink-0 items-center md:hidden">
+          <SidebarTrigger
+            variant="ghost"
+            className="relative top-auto translate-y-0"
+            aria-label="Toggle main sidebar"
+          />
+        </div>
+      ) : null}
       <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
         <div className="flex shrink-0 items-center gap-1">
           <SidebarBrand />
@@ -119,7 +125,7 @@ function SidebarBrand() {
       onClick={() => navigate("#/")}
       className="relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
     >
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm tracking-tight">
+      <span className="inline-flex min-w-0 items-baseline gap-0.5 text-sm tracking-tight">
         <span className="font-semibold text-foreground">
           herdr
         </span>
