@@ -84,7 +84,7 @@ export function resolveWorkspaceBranch(
 }
 
 /** First usable cwd for a workspace: any pane's cwd, preferring foreground. */
-function workspaceCwd(
+export function workspaceCwd(
   snapshot: SessionSnapshot,
   ws: WorkspaceInfo,
 ): string | undefined {

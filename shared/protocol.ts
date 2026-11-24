@@ -149,6 +149,23 @@ export interface WorktreeListResult {
   worktrees: WorktreeListEntry[];
 }
 
+/**
+ * Shared payload of `worktree.create` / `worktree.open` /
+ * `worktree.remove` results (`WorktreeCreated` / `WorktreeOpened` /
+ * `WorktreeRemoved` in herdr's schema). The UI treats the pushed snapshot
+ * as truth; these fields are informational.
+ */
+export interface WorktreeMutationResult {
+  workspace?: WorkspaceInfo;
+  tab?: TabInfo;
+  root_pane?: PaneInfo;
+  worktree?: WorktreeListEntry;
+  already_open?: boolean;
+  workspace_id?: string;
+  path?: string;
+  forced?: boolean;
+}
+
 export interface WorkspaceInfo {
   active_tab_id: string;
   agent_status: AgentStatus;
@@ -328,6 +345,9 @@ export const RPC_METHODS = [
   "pane.link.resolve",
   "pane.link.activate",
   "worktree.list",
+  "worktree.create",
+  "worktree.open",
+  "worktree.remove",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
