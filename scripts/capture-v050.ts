@@ -51,10 +51,25 @@ const pending = new Map<
 >();
 let ws: WebSocket;
 
-function send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+function sendOnce(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
   const id = ++seq;
   ws.send(JSON.stringify({ id, method, params }));
   return new Promise((res, rej) => pending.set(id, { resolve: res, reject: rej }));
+}
+
+async function send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  // CDP occasionally drops the execution context mid-run (-32000 "Object
+  // reference chain is too long") — retry the call so one flake can't
+  // void the whole capture set.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await sendOnce(method, params);
+    } catch (e) {
+      if (attempt === 2 || !String(e).includes("Object reference chain")) throw e;
+      await sleep(400);
+    }
+  }
+  return undefined;
 }
 
 async function evaluate(expression: string): Promise<unknown> {
@@ -167,6 +182,13 @@ async function main() {
     // Force dark appearance for the desktop captures — the host may be in
     // light mode, and "system" would silently flip every shot.
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
+    // Shelf expansion persists in localStorage — reset it so 01 shows
+    // the documented collapsed-by-default state regardless of prior runs.
+    await evaluate(`(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (/^herdr-t3:sidebar:agents:(working|snoozed|settled)$/.test(key)) localStorage.removeItem(key);
+      }
+    })()`);
     await send("Page.navigate", { url: BASE });
     await sleep(6000);
 
@@ -216,11 +238,14 @@ async function main() {
     // 04 — expand the first bottom shelf (Working/Snoozed/Settled, all
     // collapsed by default per the T3 shelf model) to show shelved rows
     const expanded = await evaluate(`(() => {
-      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
-      const header = ul && [...ul.querySelectorAll('button[aria-expanded="false"]')]
+      // Shelf headers live in the pinned dock, outside the scroll list's
+      // border-t wrapper — search document-wide; machine folder headers
+      // never match the shelf names.
+      const header = [...document.querySelectorAll("button[aria-expanded]")]
         .find((b) => /working|snoozed|settled/i.test(b.textContent));
-      if (header) { header.click(); return header.textContent.trim(); }
-      return null;
+      if (!header) return null;
+      if (header.getAttribute("aria-expanded") === "false") header.click();
+      return header.textContent.trim();
     })()`);
     console.log(`shelf expand: ${expanded ?? "skipped"}`);
     // Clear pointer hover/focus so the shot shows only the expanded dock.
@@ -280,7 +305,7 @@ async function main() {
       let tipOpen = false;
       for (let i = 0; i < 12 && !tipOpen; i++) {
         await sleep(400);
-        tipOpen = !!(await evaluate(`document.querySelector('[role="tooltip"]')`));
+        tipOpen = !!(await evaluate(`!!document.querySelector('[data-slot="tooltip-popup"]')`));
       }
       console.log(`header tooltip open: ${tipOpen ? "OK" : "FAILED"}`);
       await shot("06b-header-tooltip");
