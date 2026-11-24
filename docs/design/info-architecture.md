@@ -110,7 +110,7 @@ herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
 | 1 | status icon + 状態テキスト (state_labels 解決値) + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) | 「どこで・どの状態か」 |
-| 2 | agent 種別/表示名 (display_agent > name > agent > title) + 作業対象 (`terminal_title_stripped` > `terminal_title`) + 補助 state label | 「何の作業か」— ツール名はここに留める |
+| 2 | agent 種別/表示名 (display_agent > name > agent > title) + 作業対象 (`terminal_title_stripped` > `terminal_title` > `title`) + 補助 state label | 「何の作業か」— ツール名はここに留める |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
 
@@ -125,28 +125,33 @@ herdr-t3 は **herdr `AgentStatus` を唯一の状態源**とし、独自の set
 
 | herdr `agent_status` | セクション | 根拠 |
 | --- | --- | --- |
-| `blocked` | **Attention** (最上位、常時展開) | T3 の「人間の応答待ち」= inbox の最優先。herdr の status_priority でも最上位 |
-| `working` | **Working** | T3 の working shelf 相当 |
-| `done` | **Done** (settled shelf 相当、既定で折りたたみ) | T3 の settled = 完了済みの棚。herdr `done` がそのまま対応 |
-| `idle` / `unknown` | **Idle** (既定で折りたたみまたは末尾) | 要対応でない残り |
+| `blocked` | **Attention** (最上位、常時展開・折りたたみ不可) | T3 の「人間の応答待ち」= inbox の最優先。herdr の status_priority でも最上位 |
+| `working` | **Working** (折りたたみ可、既定は展開) | T3 の working shelf 相当。herdr-t3 では live work list が主役のため既定展開 |
+| `done` | **Done** (折りたたみ可、既定は折りたたみ) | T3 の settled = 完了済みの棚。herdr `done` がそのまま対応 |
+| `idle` / `unknown` / 未知の status | **Idle** (折りたたみ可、既定は折りたたみ) | 要対応でない残り |
 
 - セクション内ソート: herdr `AgentPanelSortConfig::Priority` と同じ
-  `agent_status` 優先度 + `state_change_seq` 降順 (同順位は新しい状態変化が上)。
+  `agent_status` 優先度 + `state_change_seq` 降順 (同順位は新しい状態変化が上、
+  `state_change_seq` 欠落時は `revision` で代替、最後は `pane_id` で安定化)。
   T3 inbox の「return 順」は `state_change_seq` の新しい順で近似する —
   herdr に return timestamp はないため独自時刻状態を持たない。
-- `done` セクションは T3 settled shelf 同様に折りたたみ可能とし、
-  新しい `done` 遷移時に件数バッジで attention を示す。
-- `state_labels` (herdr が提供する状態別カスタム label) は行2の補助
-  テキストと tooltip に使う。表示 status は herdr の5値に限定する
-  (§4 と同じ規則)。
+- Working/Done/Idle の折りたたみ状態は T3 の shelf expansion と同様に
+  localStorage へ永続化する。空セクションは header ごと表示しない。
+- `state_labels` (herdr が提供する状態別カスタム label) は行1の状態
+  テキスト (現 status の label) と行2末尾の補助 label (status 以外の
+  key を持つ custom label) に使う。表示 status は herdr の5値に
+  限定する (§4 と同じ規則)。
 
 ### 6.3 操作
 
 - 行クリック: workspace 選択 + `pane.focus` (既存動作を維持)。
-- context menu: Open / Details (agent 情報・`agent.read` 要約) /
-  関連 pane 操作への導線。三点メニュー・直接操作との役割分担は
-  app-shell.md §4 に従う。
+- context menu: Focus / Details (既存 `PaneDetailsDialog` — `agent.read`
+  要約・process info・内部 ID) / Copy pane ID / Copy workspace ID。
+  三点メニュー・直接操作との役割分担は app-shell.md §4 に従う。
 - keyboard: sidebar の list navigation (arrow/Enter) と整合。
+- 一覧の追加・移動・消失・セクション折りたたみに FLIP モーション
+  (`src/lib/sidebarListMotion.ts` — T3 `Sidebar.motion.ts` 移植、
+  `--motion-*` token、reduced-motion では即時切替)。
 
 ## 7. Sidebar 行の複数行階層 (v0.5.0 正本, Issue #153)
 
