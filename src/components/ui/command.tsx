@@ -79,6 +79,10 @@ function CommandDialogPopup({
           ref={popupRef}
           className={cn(
             DIALOG_POPUP_CLASS,
+            // Dark-mode edge definition matching the context menus: the
+            // glass popup otherwise melts into the dimmed backdrop
+            // (issue #128).
+            "dark:ring-1 dark:ring-foreground/10",
             "pointer-events-auto max-h-105 max-w-xl text-foreground data-ending-style:pointer-events-none",
             className,
           )}

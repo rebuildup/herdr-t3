@@ -9,9 +9,13 @@ import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type R
 import {
   ChevronDownIcon,
   MonitorIcon,
+  MousePointerClickIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   SquarePenIcon,
+  UnplugIcon,
+  WifiIcon,
   WifiOffIcon,
   XIcon,
 } from "lucide-react";
@@ -129,7 +133,11 @@ function WorkspaceRow({
           : "px-[var(--sidebar-row-content-inset)]",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         isActive &&
-          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
+          // Tinted neutral fill, no ring: a white bordered card on the
+          // zinc-50 sidebar read as a floating box in light mode, and a
+          // bare accent tint was too faint — foreground/6% keeps figure-
+          // ground separation in both themes (issue #128).
+          "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
@@ -163,7 +171,7 @@ function WorkspaceRow({
         <ContextMenuItem
           onSelect={() => selectWorkspace(machine.id, workspace.workspace_id)}
         >
-          Focus
+          <MousePointerClickIcon /> Focus
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() =>
@@ -177,11 +185,15 @@ function WorkspaceRow({
             )
           }
         >
-          Rename…
+          <PencilIcon /> Rename…
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onNewWorkspace}>New workspace here</ContextMenuItem>
+        <ContextMenuItem onSelect={onNewWorkspace}>
+          <SquarePenIcon /> New workspace here
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onClose}>Close</ContextMenuItem>
+        <ContextMenuItem destructive onSelect={onClose}>
+          <XIcon /> Close
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -254,15 +266,15 @@ function MachineFolderHeader({
         <ContextMenuContent>
           {offline ? (
             <ContextMenuItem onSelect={() => machineConnect(machine.id)}>
-              Connect
+              <WifiIcon /> Connect
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onSelect={() => machineDisconnect(machine.id)}>
-              Disconnect
+              <UnplugIcon /> Disconnect
             </ContextMenuItem>
           )}
           <ContextMenuItem onSelect={onNewWorkspace}>
-            New workspace here
+            <SquarePenIcon /> New workspace here
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

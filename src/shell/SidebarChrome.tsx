@@ -47,7 +47,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
     >
       <div className="relative top-[calc(var(--workspace-controls-top)-env(safe-area-inset-top))] z-10 ml-[calc(var(--workspace-controls-left)+1px-env(safe-area-inset-left))] flex shrink-0 items-center md:hidden">
         <SidebarTrigger
-          variant="media-navigation"
+          variant="ghost"
           className="relative top-auto translate-y-0"
           aria-label="Toggle main sidebar"
         />
@@ -64,7 +64,10 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
         </div>
         {showMachinePill ? (
           <div className="ml-1 flex h-7 items-center">
-            <Badge data-environment-identification="pill" size="sm" variant="secondary">
+            {/* outline (white fill + border in light) keeps the pill visible
+                on the zinc-50 sidebar where secondary blends into the canvas
+                (issue #128). */}
+            <Badge data-environment-identification="pill" size="sm" variant="outline">
               {machineInfo?.label}
             </Badge>
           </div>
@@ -114,7 +117,7 @@ function SidebarBrand() {
       type="button"
       aria-label="herdr-t3 home"
       onClick={() => navigate("#/")}
-      className="relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex"
+      className="relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset"
     >
       <span className="inline-flex min-w-0 items-baseline gap-1 text-sm tracking-tight">
         <span className="font-semibold text-foreground">
