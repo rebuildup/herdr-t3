@@ -53,6 +53,7 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
+import { AgentProviderIcon } from "~/components/agentIcons";
 import {
   Dialog,
   DialogContent,
@@ -450,6 +451,7 @@ function AgentRow({
           {showWorkTarget ? ` · ${workTarget}` : null}
           {showPaneId ? ` · ${shortPaneId(agent.pane_id)}` : null}
         </span>
+        <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
         {auxLabels.length > 0 ? (
           <span className="max-w-32 shrink-0 truncate">{auxLabels.join(" · ")}</span>
         ) : null}
