@@ -18,9 +18,10 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
+import { CompositionTracker, focusReport } from "./inputPolicy.ts";
 import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
 import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
-import type { EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
+import type { EngineModes, EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
 
 export interface GhosttySurfaceOptions {
   session: GhosttySession;
@@ -70,7 +71,16 @@ export class GhosttySurface {
   private scrollOffset = 0;
   private selection: ScreenRange | null = null;
   private drag: { kind: "select" | "mouse"; anchor: ScreenPoint; moved: boolean; button?: EngineMouse["button"] } | null = null;
-  private composing = false;
+  private readonly composition = new CompositionTracker();
+  /** viewport cell the IME composition text and candidate window anchor to */
+  private imeAnchor: ScreenPoint | null = null;
+  /** last cursor position the engine reported visible, for hidden-cursor anchors */
+  private lastCursor: ScreenPoint | null = null;
+  /** the in-progress composition string drawn over the canvas at the anchor */
+  private readonly compositionView: HTMLDivElement;
+  /** latest hover cell waiting for the next frame's any-mode motion report */
+  private hoverPoint: { point: ScreenPoint; mods: EngineMouse["mods"] } | null = null;
+  private lastHoverSent: ScreenPoint | null = null;
   private pressed = new Set<string>();
   private lastClick = { at: 0, count: 0 };
   private renderFrame = 0;
@@ -107,6 +117,15 @@ export class GhosttySurface {
     this.input.setAttribute("autocorrect", "off");
     this.input.spellcheck = false;
     this.root.append(this.input);
+    // The IME composition string is drawn here, not inside the transparent
+    // textarea: the textarea stays click-through and opacity:0, so without
+    // this layer the user cannot see what they are converting
+    // (docs/design/terminal-io.md §3.2).
+    this.compositionView = document.createElement("div");
+    this.compositionView.className = "ghostty-composition";
+    this.compositionView.hidden = true;
+    this.compositionView.setAttribute("aria-hidden", "true");
+    this.root.append(this.compositionView);
     this.applyColors();
     this.bind();
   }
@@ -400,6 +419,8 @@ export class GhosttySurface {
       try {
         cursor = this.session.cursorState();
       } catch { /* the frame below reports a dead engine */ }
+      if (cursor?.visible) this.lastCursor = { x: cursor.x, y: cursor.y };
+      this.flushHoverMotion();
       const blinking = cursor?.visible === true && cursor.blinking;
       this.renderer.setCursorVisible(!blinking || this.cursorPhase);
       this.renderer.collect();
@@ -420,13 +441,143 @@ export class GhosttySurface {
     }
   }
 
+  // ---- focus reports, IME composition, hover motion (terminal-io.md) ---------
+
+  private reportFocus(focused: boolean): void {
+    let reports: EngineModes["focusReports"];
+    try {
+      reports = this.session.modes().focusReports;
+    } catch (error) {
+      this.fail(error);
+      return;
+    }
+    const bytes = focusReport(focused, reports);
+    if (bytes) this.emit(bytes);
+  }
+
+  /** the cell an IME composition anchors to: live cursor, last seen, or viewport bottom-left */
+  private anchorForComposition(): ScreenPoint | null {
+    try {
+      const cursor = this.session.cursorState();
+      if (cursor.visible) return { x: cursor.x, y: cursor.y };
+    } catch (error) {
+      this.fail(error);
+    }
+    if (this.lastCursor) return this.lastCursor;
+    const m = this.metrics;
+    return m ? { x: 0, y: m.rows - 1 } : null;
+  }
+
+  private compositionStart(): void {
+    this.composition.start();
+    this.imeAnchor = this.anchorForComposition();
+    this.positionImeAnchor();
+    this.positionCompositionView("");
+  }
+
+  /**
+   * While composing, shrink the hidden textarea onto the anchor cell so the
+   * OS candidate window opens next to the terminal cursor instead of the
+   * pane's top-left corner. The textarea keeps `pointer-events: none`, so
+   * this changes nothing for pointer input.
+   */
+  private positionImeAnchor(): void {
+    const m = this.metrics;
+    const a = this.imeAnchor;
+    if (!m || !a) return;
+    this.input.style.left = `${a.x * m.cellW}px`;
+    this.input.style.top = `${a.y * m.cellH}px`;
+    this.input.style.width = `${m.cellW * 16}px`;
+    this.input.style.height = `${m.cellH * 2}px`;
+  }
+
+  private resetImeAnchor(): void {
+    this.input.style.left = "";
+    this.input.style.top = "";
+    this.input.style.width = "";
+    this.input.style.height = "";
+  }
+
+  private positionCompositionView(text: string): void {
+    const m = this.metrics;
+    const a = this.imeAnchor;
+    if (!m || !a) {
+      this.compositionView.hidden = true;
+      return;
+    }
+    this.compositionView.textContent = text;
+    this.compositionView.style.left = `${a.x * m.cellW}px`;
+    this.compositionView.style.top = `${a.y * m.cellH}px`;
+    this.compositionView.style.font = `${this.options.fontSize}px ${this.options.fontFamily}`;
+    this.compositionView.style.color = this.options.colors.foreground;
+    this.compositionView.hidden = false;
+  }
+
+  private endCompositionView(): void {
+    this.compositionView.hidden = true;
+    this.compositionView.textContent = "";
+    this.resetImeAnchor();
+    this.imeAnchor = null;
+  }
+
+  private queueHoverMotion(event: PointerEvent): void {
+    const cell = this.cellAt(event);
+    if (!cell || this.options.readOnly) {
+      this.hoverPoint = null;
+      return;
+    }
+    const mods: EngineMouse["mods"] = {};
+    if (event.shiftKey) mods.shift = true;
+    if (event.ctrlKey) mods.ctrl = true;
+    if (event.altKey) mods.alt = true;
+    this.hoverPoint = { point: cell, mods };
+    this.schedule();
+  }
+
+  /** send the pending buttonless motion once per frame, only in "any" mouse mode */
+  private flushHoverMotion(): void {
+    const pending = this.hoverPoint;
+    this.hoverPoint = null;
+    if (!pending || !this.metrics) return;
+    if (
+      this.lastHoverSent &&
+      this.lastHoverSent.x === pending.point.x &&
+      this.lastHoverSent.y === pending.point.y
+    ) {
+      return;
+    }
+    let modes: EngineModes;
+    try {
+      modes = this.session.modes();
+    } catch (error) {
+      this.fail(error);
+      return;
+    }
+    if (modes.mouse !== "any") return;
+    const viewportY = pending.point.y - this.session.history().viewportTop;
+    if (viewportY < 0) return;
+    const mouse: EngineMouse = {
+      action: "motion",
+      col: Math.min(pending.point.x, this.metrics.cols - 1),
+      row: Math.min(viewportY, this.metrics.rows - 1),
+      mods: pending.mods,
+    };
+    try {
+      this.emit(this.session.encodeMouse(mouse));
+      this.lastHoverSent = pending.point;
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
   // ---- input -----------------------------------------------------------------
 
   private bind(): void {
     this.root.addEventListener("pointerdown", (event) => this.pointerDown(event));
     this.root.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.root.addEventListener("pointerup", (event) => this.pointerUp(event));
-    this.root.addEventListener("pointercancel", () => { this.drag = null; });
+    this.root.addEventListener("pointercancel", () => { this.drag = null; this.hoverPoint = null; });
+    this.root.addEventListener("pointerleave", () => { this.hoverPoint = null; });
     // The mousedown default action moves focus to the element under the
     // pointer — body here, since the textarea is click-through — which would
     // undo the pointerdown focus and leave every keystroke unreachable
@@ -437,20 +588,30 @@ export class GhosttySurface {
     this.root.addEventListener("contextmenu", (event) => event.preventDefault());
     this.input.addEventListener("keydown", (event) => this.keyDown(event));
     this.input.addEventListener("keyup", (event) => this.keyUp(event));
-    this.input.addEventListener("compositionstart", () => { this.composing = true; });
+    // DECSET 1004: a pane that asked for focus events hears the surface's
+    // focus transitions as CSI I / CSI O (docs/design/terminal-io.md §4).
+    this.input.addEventListener("focus", () => this.reportFocus(true));
+    this.input.addEventListener("blur", () => this.reportFocus(false));
+    this.input.addEventListener("compositionstart", () => this.compositionStart());
+    this.input.addEventListener("compositionupdate", (event) => {
+      this.compositionView.textContent = (event as CompositionEvent).data;
+    });
     this.input.addEventListener("compositionend", (event) => {
-      this.composing = false;
-      const text = (event as CompositionEvent).data;
+      const text = this.composition.end((event as CompositionEvent).data);
+      this.endCompositionView();
       if (text) this.emit(this.session.inputText(text));
     });
     this.input.addEventListener("beforeinput", (event) => {
-      // text that did not come through a key (autocorrect, a dropped word, an IME commit some
-      // platforms deliver without composition events) is still typed text
-      if (this.composing) return;
+      // text that did not come through a key (autocorrect, a dropped word, an
+      // IME commit some platforms deliver without composition events) is still
+      // typed text; the tracker dedupes the commit's insertText echo
+      // (docs/design/terminal-io.md §3.1)
+      if (this.composition.active) return;
       const input = event as InputEvent;
       if (input.inputType === "insertText" && input.data) {
         event.preventDefault();
-        this.emit(this.session.inputText(input.data));
+        const text = this.composition.beforeInputText(input.data);
+        if (text !== null) this.emit(this.session.inputText(text));
       }
     });
     this.root.addEventListener("paste", (event) => this.paste(event));
@@ -476,7 +637,7 @@ export class GhosttySurface {
   }
 
   private keyDown(event: KeyboardEvent): void {
-    if (this.composing || event.isComposing) return;
+    if (this.composition.active || event.isComposing) return;
     // the platform's own shortcuts (copy, paste, reload, devtools) are not the pane's
     if (event.metaKey && !event.ctrlKey && !event.altKey) return;
     const action = event.repeat ? "repeat" : "press";
@@ -542,6 +703,7 @@ export class GhosttySurface {
 
   private pointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+    this.hoverPoint = null;
     this.focus();
     const cell = this.cellAt(event);
     if (!cell) return;
@@ -560,7 +722,14 @@ export class GhosttySurface {
 
   private pointerMove(event: PointerEvent): void {
     const drag = this.drag;
-    if (!drag) return;
+    if (!drag) {
+      // A program in "any" mouse mode (1003) wants buttonless motion; it is
+      // flushed once per frame so a hover does not encode per event
+      // (docs/design/terminal-io.md §5.1).
+      this.queueHoverMotion(event);
+      return;
+    }
+    this.hoverPoint = null;
     const cell = this.cellAt(event);
     if (!cell) return;
     drag.moved = true;
