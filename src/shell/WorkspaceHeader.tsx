@@ -220,13 +220,16 @@ export function WorkspaceHeader() {
                     setTabDrop(null);
                   }}
                   className={cn(
-                    "group relative flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
+                    // shrink-0: the absolutely-positioned close button sits
+                    // outside flow, so a squeezed tab would let it overlap
+                    // the icon/label (issue #165). Overflow scrolls instead.
+                    "group relative flex min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm",
                     tabDragId === t.tab_id && "opacity-50",
                     // Reserve the close button's width so the label hit
                     // area can never overlap it (issue #94): always on the
                     // active tab, hover-revealed on the others (issue #152).
                     selected
-                      ? "shrink-0 bg-accent pe-8 font-medium text-foreground"
+                      ? "bg-accent pe-8 font-medium text-foreground"
                       : "pe-1.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground group-hover:pe-8",
                   )}
                 >

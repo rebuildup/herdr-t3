@@ -71,10 +71,12 @@ import {
   COLLAPSIBLE_AGENT_SECTIONS,
   agentAuxStateLabels,
   agentDisplayName,
+  agentRowSignature,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
+  shortPaneId,
   type AgentListEntry,
   type CollapsibleAgentSection,
 } from "./agents";
@@ -342,31 +344,51 @@ function MachineFolderHeader({
  * Static section label for the Attention shelf — always expanded
  * (info-architecture.md §6.2), so it is a label, not a disclosure.
  */
-function AgentSectionLabel({ label, count }: { label: string; count: number }) {
+function AgentSectionLabel({
+  label,
+  count,
+  attention = false,
+}: {
+  label: string;
+  count: number;
+  /** Attention is always expanded, so it has no chevron — reserve the
+      column anyway so counts align, and tint the label warning (issue #165). */
+  attention?: boolean;
+}) {
   return (
-    <div className="flex h-8 w-full items-center gap-2 px-2 text-xs font-medium text-sidebar-muted-foreground">
+    <div
+      className={cn(
+        "flex h-8 w-full items-center gap-2 px-2 text-xs font-medium",
+        attention ? "text-warning-foreground" : "text-sidebar-muted-foreground",
+      )}
+    >
       <span className="min-w-0 truncate">{label}</span>
       <span className="min-w-0 flex-1" />
       <span className="font-normal tabular-nums">{count}</span>
+      <span aria-hidden className="size-3 shrink-0" />
     </div>
   );
 }
 
 /**
  * One agent row in the Agents shelves. Two lines per herdr's agent token
- * rows (info-architecture.md §6.1): line 1 is where + state, line 2 is
- * what. Clicking jumps to the agent's workspace and focuses its pane
+ * rows (info-architecture.md §6.1): line 1 is where (status icon +
+ * workspace/tab/machine at primary weight), line 2 is state + what.
+ * Clicking jumps to the agent's workspace and focuses its pane
  * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
  * the TUI agent sidebar's click-to-focus.
  */
 function AgentRow({
   entry,
   multiMachine,
+  showPaneId,
   pane,
   onDetails,
 }: {
   entry: AgentListEntry;
   multiMachine: boolean;
+  /** Sibling rows render identically without it — append the pane token (issue #165). */
+  showPaneId: boolean;
   pane: PaneInfo | undefined;
   onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
 }) {
@@ -399,19 +421,18 @@ function AgentRow({
           {statusIcon(agent.agent_status)}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-          {stateLabel}
-          <span className="text-sidebar-muted-foreground">
-            {" · "}
-            {entry.workspaceTitle}
-            {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
-            {multiMachine ? ` · ${machine.label}` : null}
-          </span>
+          {entry.workspaceTitle}
+          {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
+          {multiMachine ? ` · ${machine.label}` : null}
         </span>
       </span>
       <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
         <span className="min-w-0 flex-1 truncate">
+          {stateLabel}
+          {" · "}
           {displayName}
           {showWorkTarget ? ` · ${workTarget}` : null}
+          {showPaneId ? ` · ${shortPaneId(agent.pane_id)}` : null}
         </span>
         {auxLabels.length > 0 ? (
           <span className="max-w-32 shrink-0 truncate">{auxLabels.join(" · ")}</span>
@@ -613,6 +634,17 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     [machines, bridge.snapshots, branchIndex],
   );
   const agentSections = useMemo(() => partitionAgents(agentEntries), [agentEntries]);
+
+  // Rows that would render identically get a pane-id disambiguator
+  // (issue #165): count agentRowSignature across all entries.
+  const agentSignatureCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of agentEntries) {
+      const key = agentRowSignature(entry);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [agentEntries]);
 
   // Shelf expansion persists per section like T3's shelf toggles:
   // Working defaults open (it is the live work list), Done/Idle default
@@ -901,6 +933,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                       <AgentSectionLabel
                         label={AGENT_SECTION_LABELS[section]}
                         count={list.length}
+                        attention
                       />
                     ) : (
                       <CollapsibleSectionHeader
@@ -927,6 +960,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                             <AgentRow
                               entry={entry}
                               multiMachine={machines.length > 1}
+                              showPaneId={
+                                (agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1
+                              }
                               pane={pane}
                               onDetails={(e, p) =>
                                 setAgentDetails({ machine: e.machine.id, pane: p })

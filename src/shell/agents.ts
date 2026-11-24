@@ -6,11 +6,12 @@
  * presentation mapping, not client-side state.
  *
  * Row model follows herdr's `AgentsSidebarConfig` token rows
- * (src/ui/sidebar/tokens.rs @ e8d7d97): line 1 carries where + state
- * (status icon, resolved state label, workspace identity, tab, machine),
- * line 2 carries what (agent label, work target, auxiliary labels).
- * Sort inside a section mirrors `AgentPanelSortConfig::Priority`:
- * status priority, then `state_change_seq` descending.
+ * (src/ui/sidebar/tokens.rs @ e8d7d97): line 1 carries where (status
+ * icon, workspace identity, tab, machine) at primary text weight, line 2
+ * carries state + what (resolved state label, agent label, work target,
+ * auxiliary labels, pane disambiguator). Sort inside a section mirrors
+ * `AgentPanelSortConfig::Priority`: status priority, then
+ * `state_change_seq` descending.
  */
 import type {
   AgentInfo,
@@ -143,6 +144,28 @@ export function agentWorkTarget(agent: AgentInfo): string | null {
   return (
     agent.terminal_title_stripped ?? agent.terminal_title ?? agent.title ?? null
   );
+}
+
+/**
+ * Identity signature for row disambiguation (issue #165): two agents that
+ * would render the same two lines — same machine, workspace, tab, agent
+ * label and work target — share a signature and need the pane id shown.
+ */
+export function agentRowSignature(entry: AgentListEntry): string {
+  const { machine, agent } = entry;
+  return [
+    machine.id,
+    entry.workspaceTitle,
+    entry.tabLabel ?? "",
+    agentDisplayName(agent),
+    agentWorkTarget(agent) ?? "",
+  ].join("\u001f");
+}
+
+/** Short pane token for disambiguation: `w1:p4` → `p4`, bare ids pass through. */
+export function shortPaneId(paneId: string): string {
+  const idx = paneId.lastIndexOf(":");
+  return idx >= 0 ? paneId.slice(idx + 1) : paneId;
 }
 
 export interface AgentListEntry {

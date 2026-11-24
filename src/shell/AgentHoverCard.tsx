@@ -60,6 +60,17 @@ export function AgentHoverCard({
     pane?.title ??
     pane?.label ??
     null;
+  // Agent identity dedupes against the title (issue #165): when the pane
+  // title already is the agent name, "pi · pi" adds nothing.
+  const agentParts = [displayName];
+  if (agent.agent && agent.agent !== displayName) agentParts.push(agent.agent);
+  const agentLabel = agentParts.join(" · ");
+  // The pane row always carries the pane id — the disambiguator the
+  // truncated row cannot show — plus the pane title when it adds info.
+  const paneParts = [
+    paneTitle && paneTitle !== title && paneTitle !== displayName ? paneTitle : null,
+    agent.pane_id,
+  ].filter((p): p is string => p !== null);
 
   return (
     <div className="flex min-w-0 max-w-80 flex-col gap-2 px-1 py-2">
@@ -71,14 +82,12 @@ export function AgentHoverCard({
           {stateLabel}
           {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
         </DetailRow>
-        {displayName !== title || agent.agent ? (
-          <DetailRow icon={<BotIcon />}>
-            {agent.agent ? `${displayName} · ${agent.agent}` : displayName}
-          </DetailRow>
+        {agentLabel !== title ? (
+          <DetailRow icon={<BotIcon />}>{agentLabel}</DetailRow>
         ) : null}
         {location ? <DetailRow icon={<FolderIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
-        {paneTitle ? <DetailRow icon={<SquareTerminalIcon />}>{paneTitle}</DetailRow> : null}
+        <DetailRow icon={<SquareTerminalIcon />}>{paneParts.join(" · ")}</DetailRow>
       </div>
     </div>
   );
