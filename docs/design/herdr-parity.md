@@ -104,7 +104,28 @@ herdr TUI (`src/client/shell/`) が提供する操作・情報と、herdr-t3 で
 - herdr config (`~/.config/herdr/config.toml`) の編集 UI: out-of-scope
   (read-only の theme sync は既存 `server/ghostty.ts` の範囲)。
 
-## 4. 正本としての運用
+## 4. v0.5.0 追補 (Issue #149)
+
+- **ターミナル入出力**: IME composition・focus report (1004)・mouse
+  reporting・選択ポリシーは JSON API の method ではなく terminal
+  emulation の契約。正本は `terminal-io.md`。herdr client-shell の
+  `input.rs`/`mouse.rs`/`composition.rs` が upstream の参照実装
+  (`e8d7d97`)。特定エージェント向け例外 (herdr の
+  `cjk_ime_agents` 相当) は GUI では設けない。
+- **Agents 一覧**: client-shell の agent sidebar は token 行モデル +
+  priority/spaces sort で提供される (§2 表の「エージェントサイドバー」
+  行を v0.5.0 の #151 で ✅ に更新する — sidebar Agents セクションが
+  token 行相当の2行構造と status セクションを実装する,
+  info-architecture.md §6)。
+  `agent.view.*` は引き続き ⏸ (専用 agent view は対象外)。
+- **Context menu**: tab strip の右クリック menu が v0.4.0 で欠落して
+ いたため v0.5.0 で復活 (#152)。workspace/pane の context menu は
+  維持。
+- **Sidebar 行**: workspace/agent 行は herdr `SpacesSidebarConfig` /
+  `AgentsSidebarConfig` の default token rows に準拠した複数行構造
+  (info-architecture.md §6-7)。
+
+## 5. 正本としての運用
 
 - 新しい herdr API が必要になった場合: この表に行を追加し、bridge whitelist
   (`RPC_METHODS`)・`isClientFrame`・UI の3点を同じ ticket で整合させる。
