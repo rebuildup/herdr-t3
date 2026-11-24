@@ -90,6 +90,41 @@ real TUI can prove.
 | 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant |
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
 
+### Human acceptance procedures
+
+Automated coverage already proves the deterministic halves: the IME
+composition lifecycle byte contract (commit exactly once, cancel zero,
+no mid-composition leak, independent consecutive commits) is covered by
+`src/lib/ghostty/inputPolicy.test.ts`, and the live attach-path checks
+(composition overlay visible, commit dedupe, non-echo `insertText`,
+cancel sends nothing) run in `scripts/verify-terminal-input.ts` items
+1–2. Focus-report and TUI-mouse rows above are likewise automated where
+the upstream protocol allows (`terminal-io.md` §5.4, §7); only the OS
+boundary remains manual.
+
+The only steps that genuinely require a human are the OS IME layer
+(marked text rendering, candidate-window anchoring, real conversion
+keys) — rows 1–2. Minimal procedure per OS (~5 minutes):
+
+1. Launch the release candidate against an isolated herdr session
+   (`HERDR_SOCKET=~/.config/herdr/sessions/<isolated>/herdr.sock`) and
+   open a pane running `cat -v`.
+2. Enable the OS Japanese IME (macOS: ひらがな input source; Windows:
+   Microsoft IME 日本語モード) and click into the terminal surface.
+3. Type `nihon` + 変換: the marked (変換中) text must render at the
+   terminal cursor position, and the candidate window must anchor
+   directly under the cursor — not at the window corner or invisible.
+4. 確定 (Enter or candidate click): the text reaches the pane exactly
+   once — `cat -v` echoes it a single time.
+5. 取消 (Esc while composing): nothing reaches the pane.
+6. 連続入力: two commits in a row produce two independent insertions
+   with no duplicated text.
+7. 変換中キー: while composing, arrow keys / Enter / Esc must not leak
+   raw bytes — `cat -v` shows no `^[` sequences or stray characters.
+
+A failure on any step blocks the release; record OS version, IME, app
+SHA and a screen recording in the ticket.
+
 ## Evidence
 
 `docs/design/evidence/` holds baseline captures. `baseline-*.png` is the
