@@ -164,10 +164,18 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   どの herdr 版でも正しく、mode OFF の pane に無駄な frame を
   送らない分だけ効率的。Shift+drag は capture 状態に関係なく常に
   ローカル選択 (xterm 準拠)。
-- focus report (CSI I/O) は attach 向けの client message が
-  プロトコルに存在しないため未対応。upstream #6177 は
-  `AttachFocus` 提案を Ideas discussion へ誘導して close 済み —
-  本実装の受け入れ待ち。
+- focus report (CSI I/O) は2系統の upstream 依存で未達 (issue #169、
+  実測済み):
+  - socket API の `pane.focus` / `tab.focus` は pane focus event を
+    発火しない upstream bug (herdrdev/herdr#4902)。GUI の pane クリックは
+    この経路のため、pane 間移動でも CSI I/O が届かない。
+    `pane.focus_direction` (キーボードナビ) のみ現状配送される。
+  - outer window focus (ブラウザ/OS の focus 喪得) を attach client が
+    server へ通知する client message が存在しない。`AttachFocus` 提案を
+    Ideas discussion (herdrdev/herdr#6178) へ投稿済み。
+  - client 側の送信経路 (`reportFocus` → `focusReport` → emit) は実装済み。
+    `pane.focus` が upstream で修正されれば追加実装不要。`AttachFocus`
+    採用時のみ attach link への薄い配線が必要。
 
 ## 6. Paste / clipboard
 
