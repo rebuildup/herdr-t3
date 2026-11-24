@@ -250,10 +250,13 @@ async function main() {
     });
     await sleep(1200);
     await shot("11-narrow");
-    await click('[data-slot="sidebar-trigger"]');
+    // On mobile the sidebar trigger lives in AppShell's SidebarControl
+    // (data-slot is tooltip-trigger, not sidebar-trigger), and the sheet
+    // stays mounted while closed — assert it is actually open.
+    await click('[data-sidebar-control] button[aria-label="Toggle main sidebar"]');
     await sleep(800);
     await assertDom(
-      `document.querySelector('[data-slot="sheet-viewport"] [data-mobile="true"]') !== null`,
+      `(() => { const s = document.querySelector('[data-mobile="true"]'); return !!s && !s.hasAttribute('data-closed') && !s.hidden; })()`,
       "mobile sheet open",
     );
     await shot("12-narrow-sheet");
