@@ -45,13 +45,16 @@ async function launchChrome() {
 }
 
 let seq = 0;
-const pending = new Map<number, (v: unknown) => void>();
+const pending = new Map<
+  number,
+  { resolve: (v: unknown) => void; reject: (e: unknown) => void }
+>();
 let ws: WebSocket;
 
 function send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
   const id = ++seq;
   ws.send(JSON.stringify({ id, method, params }));
-  return new Promise((resolve) => pending.set(id, resolve));
+  return new Promise((res, rej) => pending.set(id, { resolve: res, reject: rej }));
 }
 
 async function evaluate(expression: string): Promise<unknown> {
@@ -142,8 +145,12 @@ async function main() {
     ws.onmessage = (ev) => {
       const msg = JSON.parse(String(ev.data));
       if (msg.id && pending.has(msg.id)) {
-        pending.get(msg.id)!(msg.result ?? msg.error);
+        const p = pending.get(msg.id)!;
         pending.delete(msg.id);
+        // CDP errors must not resolve silently — a dropped input event
+        // would otherwise produce silently-wrong evidence screenshots.
+        if (msg.error) p.reject(new Error(`CDP ${msg.error.code}: ${msg.error.message}`));
+        else p.resolve(msg.result);
       }
     };
     await send("Page.enable");
