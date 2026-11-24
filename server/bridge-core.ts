@@ -297,6 +297,30 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       else slot.queue.push(resize);
       return;
     }
+    case "terminal_mouse": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const mouse = () =>
+        slot.link?.mouse({
+          action: frame.action,
+          button: frame.button ?? null,
+          column: frame.column,
+          row: frame.row,
+          modifiers: frame.modifiers ?? 0,
+        });
+      if (slot.link) mouse();
+      else slot.queue.push(mouse);
+      return;
+    }
+    case "terminal_scroll": {
+      const slot = state.terminals.get(frame.paneId);
+      if (!slot || slot.gone) return;
+      const scroll = () =>
+        slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
+      if (slot.link) scroll();
+      else slot.queue.push(scroll);
+      return;
+    }
     // Machine-management frames are routed by the machine manager before
     // they reach a session; a session never sees them.
     case "list_machines":
