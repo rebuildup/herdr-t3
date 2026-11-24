@@ -6,11 +6,13 @@
  */
 import {
   Columns2,
+  GitBranchIcon,
   Maximize2Icon,
   MonitorIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
+  SquareTerminalIcon,
   SunIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -32,6 +34,8 @@ import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
+import { GotoDialog } from "./GotoDialog";
+import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
 import {
@@ -69,6 +73,8 @@ export function CommandMenu({
   const { workspace, tabs, activeTab, focusedPane, layout } = view;
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
+  const [gotoOpen, setGotoOpen] = useState(false);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
 
   // Explicit Escape fallback: the footer advertises "Esc Close", so closing
   // must not depend solely on the dialog primitive's dismissal path (issue #94).
@@ -107,8 +113,24 @@ export function CommandMenu({
         keywords: "preferences",
         run: () => navigate(settingsHash(null)),
       },
+      {
+        id: "goto",
+        label: "Go to workspace, tab or pane…",
+        group: "Actions",
+        icon: <SquareTerminalIcon className="size-4" />,
+        keywords: "jump navigate finder search agent pane tab workspace goto",
+        run: () => setGotoOpen(true),
+      },
     ];
     if (workspace) {
+      list.push({
+        id: "worktrees",
+        label: "Worktrees…",
+        group: "Actions",
+        icon: <GitBranchIcon className="size-4" />,
+        keywords: "git worktree branch checkout repo",
+        run: () => setWorktreesOpen(true),
+      });
       list.push(
         {
           id: "new-tab",
@@ -313,6 +335,7 @@ export function CommandMenu({
   })).filter((g) => g.items.length > 0);
 
   return (
+    <>
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandDialogPopup aria-label="Command palette" data-command-palette="true">
         <Command mode="none" value={query} onValueChange={setQuery}>
@@ -374,5 +397,14 @@ export function CommandMenu({
         </Command>
       </CommandDialogPopup>
     </CommandDialog>
+    <GotoDialog open={gotoOpen} onOpenChange={setGotoOpen} />
+    {worktreesOpen && workspace ? (
+      <WorktreesDialog
+        machine={machine}
+        workspace={workspace}
+        onClose={() => setWorktreesOpen(false)}
+      />
+    ) : null}
+    </>
   );
 }

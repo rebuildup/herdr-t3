@@ -8,6 +8,7 @@
 import {
   Columns2,
   EllipsisIcon,
+  GitBranchIcon,
   InfoIcon,
   Maximize2,
   MessageSquareTextIcon,
@@ -48,6 +49,7 @@ import { callRpc } from "./bridge";
 import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -88,6 +90,7 @@ export function WorkspaceHeader() {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -398,6 +401,9 @@ export function WorkspaceHeader() {
                 <InfoIcon /> Details…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
+                <GitBranchIcon /> Worktrees…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
               </DropdownMenuItem>
@@ -420,6 +426,13 @@ export function WorkspaceHeader() {
         machine={machine}
         onClose={() => setDetailsPane(null)}
       />
+      {worktreesOpen ? (
+        <WorktreesDialog
+          machine={machine}
+          workspace={workspace}
+          onClose={() => setWorktreesOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

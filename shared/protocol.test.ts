@@ -10,6 +10,9 @@ describe("RPC_METHODS allow-list (issue #113)", () => {
       "pane.link.activate",
       "agent.read",
       "agent.explain",
+      "worktree.create",
+      "worktree.open",
+      "worktree.remove",
     ]) {
       expect(isRpcMethod(method)).toBe(true);
     }
