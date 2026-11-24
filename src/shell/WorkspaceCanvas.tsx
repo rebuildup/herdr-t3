@@ -17,7 +17,7 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { paneTitle } from "~/lib/workspace";
-import { focusPaneTerminal } from "./paneFocus";
+import { focusPaneTerminal } from "~/lib/paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
 import { callRpc, useBridgeState } from "./bridge";

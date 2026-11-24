@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { rpc } from "../lib/api";
+import { focusPaneTerminal } from "../lib/paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 
 /**
@@ -20,6 +21,10 @@ export function PaneMessageDialog({
   machine: string;
   onClose: () => void;
 }) {
+  const requestClose = () => {
+    onClose();
+    setTimeout(() => focusPaneTerminal(), 0);
+  };
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -42,14 +47,14 @@ export function PaneMessageDialog({
         await rpc("pane.send_text", { pane_id: pane.pane_id, text: value }, machine);
         await rpc("pane.send_keys", { pane_id: pane.pane_id, keys: ["enter"] }, machine);
       }
-      onClose();
+      requestClose();
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <Dialog open={pane !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={pane !== null} onOpenChange={(open) => !open && requestClose()}>
       <DialogContent>
         <DialogTitle>{isAgent ? "Prompt agent" : "Send text"}</DialogTitle>
         <DialogDescription>
@@ -63,14 +68,14 @@ export function PaneMessageDialog({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
-            if (e.key === "Escape") onClose();
+            if (e.key === "Escape") requestClose();
           }}
           rows={4}
           placeholder={isAgent ? "Prompt for the agent…" : "Text to type into the pane…"}
           className="mb-4 w-full resize-none"
         />
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>
+          <Button size="sm" variant="ghost" onClick={requestClose}>
             Cancel
           </Button>
           <Button size="sm" onClick={() => void submit()} disabled={sending || !text.trim()}>

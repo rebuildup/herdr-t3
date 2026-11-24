@@ -22,7 +22,7 @@ import {
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { focusPaneTerminal } from "./paneFocus";
+import { focusPaneTerminal } from "~/lib/paneFocus";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import {

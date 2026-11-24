@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { rpc } from "../lib/api";
+import { focusPaneTerminal } from "../lib/paneFocus";
 import { agentStatusLabel } from "./AgentStatusBadge";
 import type {
   PaneInfo,
@@ -57,6 +58,10 @@ export function PaneDetailsDialog({
   machine: string;
   onClose: () => void;
 }) {
+  const requestClose = () => {
+    onClose();
+    setTimeout(() => focusPaneTerminal(), 0);
+  };
   const [processInfo, setProcessInfo] = useState<PaneProcessInfo | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
   const [explain, setExplain] = useState<Record<string, unknown> | null>(null);
@@ -119,7 +124,7 @@ export function PaneDetailsDialog({
     : [];
 
   return (
-    <Dialog open={pane !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={pane !== null} onOpenChange={(open) => !open && requestClose()}>
       <DialogContent className="max-w-lg">
         <DialogTitle>{pane ? agentStatusLabel(pane.agent_status) : ""} pane details</DialogTitle>
         <DialogDescription>
@@ -193,7 +198,7 @@ export function PaneDetailsDialog({
           </div>
         ) : null}
         <div className="flex justify-end">
-          <Button size="sm" variant="ghost" onClick={onClose}>
+          <Button size="sm" variant="ghost" onClick={requestClose}>
             Close
           </Button>
         </div>

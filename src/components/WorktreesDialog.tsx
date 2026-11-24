@@ -24,6 +24,7 @@ import {
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { rpc } from "../lib/api";
+import { focusPaneTerminal } from "../lib/paneFocus";
 import type {
   RpcMethod,
   SessionSnapshot,
@@ -52,6 +53,10 @@ export function WorktreesDialog({
   workspace: WorkspaceInfo | null;
   onClose: () => void;
 }) {
+  const requestClose = () => {
+    onClose();
+    setTimeout(() => focusPaneTerminal(), 0);
+  };
   const bridge = useBridgeState();
   const snapshot = bridge.snapshots[machine] as SessionSnapshot | undefined;
 
@@ -155,7 +160,7 @@ export function WorktreesDialog({
   const repoName = result?.source.repo_name ?? workspace?.worktree?.repo_name;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && requestClose()}>
       <DialogContent className="max-w-xl">
         <DialogTitle>Worktrees{repoName ? ` — ${repoName}` : ""}</DialogTitle>
         <DialogDescription>
@@ -277,7 +282,7 @@ export function WorktreesDialog({
         </div>
 
         <div className="flex justify-end">
-          <Button size="sm" variant="ghost" onClick={onClose}>
+          <Button size="sm" variant="ghost" onClick={requestClose}>
             Close
           </Button>
         </div>
