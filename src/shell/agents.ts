@@ -290,6 +290,7 @@ export interface AgentPartition {
 export function partitionAgents(
   entries: AgentListEntry[],
   organize: AgentOrganizeMap = {},
+  unresolvedMachines: ReadonlySet<string> | null = new Set(),
 ): AgentPartition {
   const sections: AgentSections = {
     attention: [],
@@ -300,9 +301,11 @@ export function partitionAgents(
     settled: [],
   };
   const active: AgentOrganizeMap = {};
+  const seenKeys = new Set<string>();
   const sorted = [...entries].sort((a, b) => compareAgents(a.agent, b.agent));
   for (const entry of sorted) {
     const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
+    seenKeys.add(key);
     const record = organize[key];
     // State advanced since the user shelved it — auto-return to the
     // natural section and drop the record (T3 inbox return; herdr state
@@ -317,6 +320,19 @@ export function partitionAgents(
       continue;
     }
     sections[agentSection(entry.agent.agent_status)].push(entry);
+  }
+  // Records that could not be resolved this pass must survive: a machine
+  // without a usable snapshot (still connecting, or stale/offline) has no
+  // entries, and pruning on absent data would wipe settle/snooze on every
+  // app start before the first snapshot lands. `null` means the machine
+  // list itself has not loaded — nothing can be resolved, keep everything.
+  // Resolved machines still prune records for panes that genuinely vanished.
+  for (const [key, record] of Object.entries(organize)) {
+    if (active[key] !== undefined || seenKeys.has(key)) continue;
+    const machineId = key.slice(0, key.indexOf("\n"));
+    if (unresolvedMachines === null || unresolvedMachines.has(machineId)) {
+      active[key] = record;
+    }
   }
   return { sections, organize: active };
 }
