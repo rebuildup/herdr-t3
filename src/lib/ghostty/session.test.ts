@@ -146,6 +146,26 @@ describe("ghostty session: input encoding", () => {
     s.dispose();
   });
 
+  it("reports buttonless motion only in 'any' mouse mode", async () => {
+    const { session: s } = await session(80, 24);
+    s.resize(80, 24, 8, 16);
+    s.write("\x1b[?1006h\x1b[?1003h"); // SGR mouse, any-event tracking
+    expect(s.modes().mouse).toBe("any");
+    const hover = { action: "motion" as const, col: 5, row: 6 };
+    const reported = text(s.encodeMouse(hover));
+    // SGR coords are 1-based; no button encodes as motion flag 35
+    expect(reported).toMatch(/^\x1b\[<35;6;7M$/);
+    s.dispose();
+  });
+
+  it("exposes the focus-report mode the program set", async () => {
+    const { session: s } = await session();
+    expect(s.modes().focusReports).toBe(false);
+    s.write("\x1b[?1004h");
+    expect(s.modes().focusReports).toBe(true);
+    s.dispose();
+  });
+
   it("bracketed-pastes only when the program turned mode 2004 on", async () => {
     const { session: s } = await session();
     expect(text(s.encodePaste("a\nb"))).toBe("a\rb");

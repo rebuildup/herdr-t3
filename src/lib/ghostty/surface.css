@@ -32,6 +32,15 @@
   background: transparent;
 }
 
+/* the in-progress IME composition string, drawn at the cursor cell while the
+   hidden textarea owns the real input-method events (docs/design/terminal-io.md §3.2) */
+.ghostty-surface .ghostty-composition {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  white-space: pre;
+}
+
 .ghostty-surface.is-focused {
   cursor: text;
 }
