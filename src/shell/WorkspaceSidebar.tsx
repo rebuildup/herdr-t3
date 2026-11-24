@@ -8,6 +8,7 @@
 import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
+  CopyIcon,
   MonitorIcon,
   MousePointerClickIcon,
   PencilIcon,
@@ -134,7 +135,10 @@ function WorkspaceRow({
       data-sidebar-row={workspace.workspace_id}
       onClick={() => selectWorkspace(machine.id, workspace.workspace_id)}
       className={cn(
-        "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] py-0 text-left outline-none transition-colors",
+        // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
+        // rows): identity on line 1, branch/meta on line 2 — never squeezed
+        // into one truncating row (issue #153).
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] py-1.5 text-left outline-none transition-colors",
         inFolder
           ? "ps-7 pe-[var(--sidebar-row-content-inset)]"
           : "px-[var(--sidebar-row-content-inset)]",
@@ -147,26 +151,24 @@ function WorkspaceRow({
           "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {statusIcon(workspace.agent_status)}
+      <span className="flex w-full min-w-0 items-center gap-2.5">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {statusIcon(workspace.agent_status)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {title}
+        </span>
       </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-        {title}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
         {branch && title !== branch ? (
-          <span className="hidden max-w-28 truncate text-2xs text-sidebar-muted-foreground lg:inline">
-            {branch}
-          </span>
+          <span className="min-w-0 truncate">{branch}</span>
         ) : null}
-        {machineLabel ? (
-          <span className="hidden max-w-20 truncate text-2xs text-sidebar-muted-foreground lg:inline">
-            {machineLabel}
-          </span>
-        ) : null}
-        <span className="text-2xs tabular-nums text-sidebar-muted-foreground">
+        <span className="shrink-0 tabular-nums">
           {workspace.tab_count}t · {workspace.pane_count}p
         </span>
+        {machineLabel ? (
+          <span className="min-w-0 truncate">{machineLabel}</span>
+        ) : null}
       </span>
     </button>
   );
@@ -196,6 +198,13 @@ function WorkspaceRow({
         </ContextMenuItem>
         <ContextMenuItem onSelect={onNewWorkspace}>
           <SquarePenIcon /> New workspace here
+        </ContextMenuItem>
+        {/* Internal IDs stay out of the default UI (info-architecture.md
+            §5/§7); the context menu is where they can be inspected. */}
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(workspace.workspace_id)}
+        >
+          <CopyIcon /> Copy workspace ID
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem destructive onSelect={onClose}>
