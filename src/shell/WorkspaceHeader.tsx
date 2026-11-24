@@ -166,6 +166,10 @@ export function WorkspaceHeader() {
             The new-tab action sits outside the scroller so it never slides
             out of view on narrow widths. */}
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {/* Hairline separating the workspace breadcrumb from the tab
+              strip — at narrow widths the two read as one run without it
+              (issue #130). */}
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border/60" />
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
             {tabs.map((t, tabIndex) => {
               const selected = t.tab_id === activeTab.tab_id;

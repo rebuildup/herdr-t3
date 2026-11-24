@@ -237,13 +237,18 @@ function MachineFolderHeader({
                 {count}
               </span>
             ) : null}
-            <ChevronDownIcon
-              aria-hidden
-              className={cn(
-                "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
-                collapsed && "-rotate-90",
-              )}
-            />
+            {/* An expanded group with zero workspaces has nothing to
+                disclose — hide the chevron instead of implying content
+                (issue #130). */}
+            {collapsed || count > 0 ? (
+              <ChevronDownIcon
+                aria-hidden
+                className={cn(
+                  "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+                  collapsed && "-rotate-90",
+                )}
+              />
+            ) : null}
           </button>
           <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
             <Tooltip>
