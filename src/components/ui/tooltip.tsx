@@ -148,7 +148,10 @@ function TooltipPopup({
           className={cn(
             "relative flex origin-(--transform-origin) rounded-md text-popover-foreground text-xs transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
             variant === "glass"
-              ? "dropdown-glass shadow-xl shadow-black/25 before:hidden"
+              ? // Light theme gets a shallower, lower-alpha elevation — the
+                // dark shadow-xl reads as a heavy smudge on light surfaces
+                // (issue #204 review).
+                "dropdown-glass shadow-xl shadow-black/25 light:shadow-md light:shadow-black/10 before:hidden"
               : "border bg-popover not-dark:bg-clip-padding shadow-md/5",
             variant === "code"
               ? "max-w-120 wrap-anywhere text-left font-mono text-[11px] leading-relaxed"

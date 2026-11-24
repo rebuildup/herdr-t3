@@ -147,6 +147,24 @@ const contextMenuOn = async (expr: string) => {
   return true;
 };
 
+async function resetShelfPrefs() {
+  // Shelf expansion persists in localStorage — reset it so captures show
+  // the documented collapsed-by-default state regardless of prior runs.
+  await evaluate(`(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (/^herdr-t3:sidebar:agents:(working|snoozed|settled)$/.test(key)) localStorage.removeItem(key);
+    }
+  })()`);
+}
+
+/** Clear keyboard focus left behind by Escape-closed menus so later shots
+ *  don't capture a stale :focus-visible ring + focus-opened hover card
+ *  (issue #204 review — pointer users never see that state). */
+async function blurActiveElement() {
+  await evaluate(`document.activeElement?.blur?.()`);
+  await sleep(300);
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const chrome = await launchChrome();
@@ -182,13 +200,7 @@ async function main() {
     // Force dark appearance for the desktop captures — the host may be in
     // light mode, and "system" would silently flip every shot.
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
-    // Shelf expansion persists in localStorage — reset it so 01 shows
-    // the documented collapsed-by-default state regardless of prior runs.
-    await evaluate(`(() => {
-      for (const key of Object.keys(localStorage)) {
-        if (/^herdr-t3:sidebar:agents:(working|snoozed|settled)$/.test(key)) localStorage.removeItem(key);
-      }
-    })()`);
+    await resetShelfPrefs();
     await send("Page.navigate", { url: BASE });
     await sleep(6000);
 
@@ -232,7 +244,7 @@ async function main() {
       await shot("03-agent-context-menu");
       await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
       await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-      await sleep(400);
+      await blurActiveElement();
     }
 
     // 04 — expand the first bottom shelf (Working/Snoozed/Settled, all
@@ -270,7 +282,7 @@ async function main() {
     await shot("05-tab-context-menu");
     await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    await sleep(400);
+    await blurActiveElement();
 
     // 06 — hover an inactive tab to reveal its close button (padding is
     // constant now, so the strip must not shift — issue #204)
@@ -313,12 +325,36 @@ async function main() {
       await sleep(300);
     }
 
-    // 07 — light theme agents section + hover card (glass popup coverage)
+    // 07 — light theme agents section + hover card (glass popup coverage).
+    // Collapse the shelves first so every harness's brand mark is visible
+    // in the always-visible list for light-theme verification, and scroll
+    // the agents region to its tail so lower idle rows (codex, devin) are
+    // in frame (issue #204 review — evidence gaps).
+    await resetShelfPrefs();
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
     await sleep(5000);
+    await evaluate(`(() => {
+      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
+      const viewport = ul?.closest("[data-slot='scroll-area-viewport']");
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+      return !!viewport;
+    })()`);
+    await sleep(400);
     await shot("07-light-agents");
-    const lightHover = await agentRowCenter(0);
+    // Hover a titled row that is actually inside the viewport after the
+    // scroll — the dark-section index can point above the fold here.
+    const lightIdx = (await evaluate(`(() => {
+      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
+      const rows = ul ? [...ul.querySelectorAll("[data-sidebar-row]")] : [];
+      const i = rows.findIndex((r) => {
+        const b = r.getBoundingClientRect();
+        return b.bottom > 0 && b.top < innerHeight &&
+          /update onboarding|fix flaky|refactor auth|triage sentry|review PR|port legacy/.test(r.textContent ?? "");
+      });
+      return i >= 0 ? i : 0;
+    })()`)) as number;
+    const lightHover = await agentRowCenter(lightIdx);
     if (lightHover) {
       await mouse("mouseMoved", lightHover.x, lightHover.y);
       await sleep(1400);
@@ -343,6 +379,23 @@ async function main() {
     await shot("08-narrow");
     await evaluate(`document.querySelector('[data-sidebar-control] button[aria-label="Toggle main sidebar"]')?.click()`);
     await sleep(800);
+    // Below md the shelves render inline at the end of the agents scroll
+    // list — expand Working and scroll to the tail so shot 09 shows the
+    // mobile shelf rows, not just their collapsed headers (issue #204).
+    await evaluate(`(() => {
+      const h = [...document.querySelectorAll("button[aria-expanded]")]
+        .find((b) => /working/i.test(b.textContent ?? "") && b.offsetParent !== null);
+      if (h && h.getAttribute("aria-expanded") === "false") h.click();
+      return h?.textContent?.trim() ?? null;
+    })()`);
+    await sleep(400);
+    await evaluate(`(() => {
+      const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
+      const viewport = ul?.closest("[data-slot='scroll-area-viewport']");
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+      return !!viewport;
+    })()`);
+    await sleep(400);
     await shot("09-narrow-sheet-agents");
   } finally {
     chrome.kill();

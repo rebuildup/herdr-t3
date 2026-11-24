@@ -260,7 +260,10 @@ export function WorkspaceHeader() {
                     // the icon-xs close button (issue #204).
                     "pe-7",
                     selected
-                      ? "bg-accent font-medium text-foreground"
+                      ? // The inset ring keeps the active pill distinct from
+                        // an hovered inactive tab — both share bg-accent, so
+                        // fill alone cannot carry selection (issue #204).
+                        "bg-accent font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >

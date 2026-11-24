@@ -53,7 +53,7 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentProviderIcon } from "~/components/agentIcons";
+import { AgentProviderIcon, agentIconSpec } from "~/components/agentIcons";
 import {
   Dialog,
   DialogContent,
@@ -422,8 +422,17 @@ function AgentRow({
   // Line 2 leads with the work target; the agent name joins the meta
   // only when it adds information beyond the title.
   const rowTitle = workTarget ?? displayName;
+  // When the display name is just the harness id and a brand mark already
+  // renders at the row's trailing edge, repeating it as meta is noise —
+  // drop it and give the title back the width (issue #204 review).
+  const nameIsRedundantHarness =
+    !!agent.agent &&
+    displayName === agent.agent &&
+    agentIconSpec(agent.agent) !== null;
   const metaParts = [
-    workTarget !== null && workTarget !== displayName ? displayName : null,
+    workTarget !== null && workTarget !== displayName && !nameIsRedundantHarness
+      ? displayName
+      : null,
     showPaneId ? shortPaneId(agent.pane_id) : null,
   ].filter((part): part is string => part !== null);
   const focusAgent = () => {
@@ -469,7 +478,7 @@ function AgentRow({
         </span>
         {metaParts.length > 0 ? (
           <span className="max-w-40 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
-            {`· ${metaParts.join(" · ")}`}
+            {metaParts.join(" · ")}
           </span>
         ) : null}
         {auxLabels.length > 0 ? (
@@ -748,8 +757,17 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   const agentShelfHasEntries = COLLAPSIBLE_AGENT_SECTIONS.some(
     (section) => agentSections[section].length > 0,
   );
-  const renderAgentRow = (entry: AgentListEntry, shelf?: "settled" | "snoozed") => (
-    <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className="list-none">
+  // First populated shelf owns the separator above the shelf region —
+  // later shelves flow under it without their own hairline.
+  const firstShelfSection = COLLAPSIBLE_AGENT_SECTIONS.find(
+    (section) => agentSections[section].length > 0,
+  );
+  const renderAgentRow = (
+    entry: AgentListEntry,
+    shelf?: "settled" | "snoozed",
+    className?: string,
+  ) => (
+    <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
       <AgentRow
         entry={entry}
         multiMachine={machines.length > 1}
@@ -1083,16 +1101,54 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
-      {!searching && agentListHasEntries ? (
-        <div className="mt-1 border-t border-sidebar-border/60 pt-1">
+      {!searching && (agentListHasEntries || agentShelfHasEntries) ? (
+        <div
+          className={cn(
+            "mt-1 pt-1",
+            agentListHasEntries && "border-t border-sidebar-border/60",
+          )}
+        >
         <SidebarGroup>
           <ul ref={attachAgentsList} className="relative flex flex-col gap-px" role="list">
             {AGENT_SECTIONS.map((section) => {
-              // Collapsible shelves render in the pinned dock below the
-              // scroll area, not in this list (issue #204).
-              if (isCollapsibleAgentSection(section)) return null;
               const list = agentSections[section];
               if (list.length === 0) return null;
+              if (isCollapsibleAgentSection(section)) {
+                // Below md the pinned dock would starve the always-visible
+                // list on short sheets (issue #204 review): shelves render
+                // inline at the end of this scroll list instead, so the
+                // whole agents region scrolls as one.
+                const expanded = agentShelves[section];
+                const shelfKind =
+                  section === "settled" || section === "snoozed" ? section : undefined;
+                return (
+                  <Fragment key={section}>
+                    <li
+                      className={cn(
+                        "list-none md:hidden",
+                        section === firstShelfSection &&
+                          "mt-2 border-t border-sidebar-border pt-1",
+                      )}
+                    >
+                      <CollapsibleSectionHeader
+                        chevron="leading"
+                        expanded={expanded}
+                        onClick={() => toggleAgentShelf(section)}
+                        accessory={
+                          <span className="font-normal tabular-nums">{list.length}</span>
+                        }
+                      >
+                        {AGENT_SECTION_LABELS[section]}
+                      </CollapsibleSectionHeader>
+                    </li>
+                    {expanded
+                      ? list.map((entry) =>
+                          renderAgentRow(entry, shelfKind, "md:hidden"),
+                        )
+                      : null}
+                  </Fragment>
+                );
+              }
               return (
                 <Fragment key={section}>
                   <li className="list-none">
@@ -1159,7 +1215,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
           always-visible list grows; expanded rows scroll inside the
           dock's max-height. */}
       {!searching && agentShelfHasEntries ? (
-        <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-sidebar-border/60 px-[var(--sidebar-content-inset)] pb-[var(--sidebar-content-inset)] pt-1">
+        <div className="hidden max-h-[45%] shrink-0 overflow-y-auto border-t border-sidebar-border px-[var(--sidebar-content-inset)] pb-[var(--sidebar-content-inset)] pt-1 md:block">
           <ul className="flex flex-col gap-px" role="list">
             {AGENT_SECTIONS.map((section) => {
               if (!isCollapsibleAgentSection(section)) return null;
