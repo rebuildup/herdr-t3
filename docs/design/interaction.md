@@ -66,7 +66,26 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
 - terminal surface は `aria-label` で pane を識別し、キーボード
   フォーカス中であることを支援技術へ伝える。
 
-## 5. 性能
+## 5. v0.5.0 追補 (Issue #150/#152/#154)
+
+- **Context menu の復活**: sidebar 行・tab strip・agent 行の右クリック
+  menu を T3 の thread row と同じ位置づけで復活させる。直接操作
+  (click/hover affordance)・context menu・overflow menu は相互排他に
+  しない (info-architecture.md §8)。
+- **モーション適用対象** (Issue #154): sidebar/panel の開閉、一覧項目の
+  追加・移動・消失 (workspace/agent 行のセクション間移動を含む)、
+  menu/popover/tooltip の出現消失、hover による詳細表示。duration/
+  easing は `src/index.css` の `--motion-*` token を使い、T3 の
+  `--ease-drawer`/`--animate-*` 相当へ対応付ける。`prefers-reduced-motion`
+  では即時切替 (現行の collapse 方式を upstream の
+  `(prefers-reduced-motion: reduce), (forced-colors: active)` 条件と
+  照合して維持)。
+- **ターミナル入力の境界**: pane へのキー/マウス/IME/フォーカス
+  レポートの契約は `terminal-io.md` が正本。GUI の選択・検索・
+  scrollback は pane の mouse/keyboard モードを覗き見て分岐し、
+  pane が要求した入力を GUI 都合で握り潰さない。
+
+## 6. 性能
 
 - terminal renderer の rAF tick・再描画範囲・dpr を監査対象とする
   (#115)。

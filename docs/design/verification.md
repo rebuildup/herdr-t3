@@ -35,6 +35,21 @@ v0.4.0 additions (issues #107–#115): every new interactive surface added by
 the program must appear here before its ticket merges; drag states and
 status badges are required captures, not optional.
 
+v0.5.0 additions (issues #149–#155):
+
+| Surface | Additional required states |
+| --- | --- |
+| Terminal input | IME composition in progress (composition text visible at cursor, candidate window anchored), committed/cancelled composition, focus-report-enabled app focus transitions, mouse-capture app click/drag/scroll/hover, Shift+drag selection inside a mouse-capture app, scrollback wheel vs app wheel |
+| Agents section | each status section (Attention/Working/Done collapsed/Idle), two-line row content, section transitions on status change, context menu open |
+| Tab strip | hover close affordance on unselected tab, context menu open, selected/hover/focus-visible distinction, direct split/zoom icons |
+| Workspace rows | two-line hierarchy (title + branch/meta), narrow sheet width |
+| Global | motion enabled vs `prefers-reduced-motion` for list add/move/remove and menu/popover transitions |
+
+Contract-level coverage (issue #155) is separate from captures: IME
+composition lifecycle, focus in/out reports, mouse-mode event sequences
+and selection-vs-report branching are verified by deterministic tests
+defined in `terminal-io.md` §7 — a screenshot cannot prove them.
+
 Procedure:
 
 ```bash
