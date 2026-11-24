@@ -33,6 +33,12 @@ Reused material:
 - `lint-plugin/rules/no-native-title-tooltip.ts` and
   `lint-plugin/rules/require-suppression-reason.ts` — ported from
   `oxlint-plugin-t3code/rules/` (same MIT license).
+- `src/components/agentIconData.ts`, `src/components/agentIcons.tsx` —
+  provider/harness brand icon path data extracted verbatim from
+  `packages/provider-*/src/client.ts` (`ProviderIcon` artwork) and the
+  bundled `OpenAI`/`ClaudeAI` SVGs in `apps/web/src/components/Icons.tsx`,
+  rendered by a port of `ProviderPackageIcon.tsx` (issue #198). Brand marks
+  remain the property of their respective owners.
 
 herdr-t3 is not affiliated with or endorsed by T3 Tools Inc. The T3 Code name
 and product belong to their owners; this project is a separate personal tool.
