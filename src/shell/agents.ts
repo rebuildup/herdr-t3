@@ -1,0 +1,206 @@
+/*
+ * Agents work surface logic (issue #151, docs/design/info-architecture.md
+ * §6). Pure derivation over bridge snapshots — the snapshot stays the
+ * single source of truth and herdr `AgentStatus` the only status source;
+ * the Attention/Working/Done/Idle sections are a T3 settle/inbox-style
+ * presentation mapping, not client-side state.
+ *
+ * Row model follows herdr's `AgentsSidebarConfig` token rows
+ * (src/ui/sidebar/tokens.rs @ e8d7d97): line 1 carries where + state
+ * (status icon, resolved state label, workspace identity, tab, machine),
+ * line 2 carries what (agent label, work target, auxiliary labels).
+ * Sort inside a section mirrors `AgentPanelSortConfig::Priority`:
+ * status priority, then `state_change_seq` descending.
+ */
+import type {
+  AgentInfo,
+  AgentStatus,
+  MachineInfo,
+  SessionSnapshot,
+  WorkspaceInfo,
+} from "../../shared/protocol";
+import { workspaceTitle } from "../lib/workspace";
+
+export type AgentSection = "attention" | "working" | "done" | "idle";
+
+export const AGENT_SECTIONS: readonly AgentSection[] = [
+  "attention",
+  "working",
+  "done",
+  "idle",
+];
+
+export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
+  attention: "Attention",
+  working: "Working",
+  done: "Done",
+  idle: "Idle",
+};
+
+/** Sections that render as collapsible shelves (attention is always open). */
+export const COLLAPSIBLE_AGENT_SECTIONS = ["working", "done", "idle"] as const;
+export type CollapsibleAgentSection = (typeof COLLAPSIBLE_AGENT_SECTIONS)[number];
+
+export function agentSection(status: AgentStatus): AgentSection {
+  switch (status) {
+    case "blocked":
+      return "attention";
+    case "working":
+      return "working";
+    case "done":
+      return "done";
+    default:
+      // idle, unknown and any status herdr adds later are not actionable.
+      return "idle";
+  }
+}
+
+/** herdr `status_priority` (src/client/shell.rs): higher sorts first. */
+const AGENT_STATUS_PRIORITY: Record<string, number> = {
+  blocked: 4,
+  done: 3,
+  working: 2,
+  idle: 1,
+  unknown: 0,
+};
+
+function statusPriority(status: AgentStatus): number {
+  return AGENT_STATUS_PRIORITY[status] ?? 0;
+}
+
+function stateSeq(agent: AgentInfo): number {
+  return agent.state_change_seq ?? agent.revision;
+}
+
+/** herdr `AgentPanelSortConfig::Priority` order, pane_id as stable tiebreak. */
+export function compareAgents(a: AgentInfo, b: AgentInfo): number {
+  return (
+    statusPriority(b.agent_status) - statusPriority(a.agent_status) ||
+    stateSeq(b) - stateSeq(a) ||
+    a.pane_id.localeCompare(b.pane_id)
+  );
+}
+
+const KNOWN_STATUSES = new Set(["working", "blocked", "done", "idle", "unknown"]);
+
+/**
+ * State text for line 1: herdr's `state_labels[current status]` when it is
+ * a non-empty string, else herdr's `sidebar_status_text` fallback
+ * (unknown renders as "idle", matching the TUI).
+ */
+export function agentStateLabel(agent: AgentInfo): string {
+  const status = agent.agent_status;
+  const key = KNOWN_STATUSES.has(status) ? status : "unknown";
+  const custom = agent.state_labels?.[key];
+  if (typeof custom === "string" && custom.trim().length > 0) return custom;
+  switch (status) {
+    case "blocked":
+      return "blocked";
+    case "done":
+      return "done";
+    case "working":
+      return "working";
+    default:
+      return "idle";
+  }
+}
+
+/**
+ * Auxiliary labels for line 2: `state_labels` entries keyed by something
+ * other than a known status (custom annotations herdr reports), deduped.
+ * Labels for *other* statuses are not shown — they describe a state the
+ * agent is not in.
+ */
+export function agentAuxStateLabels(agent: AgentInfo): string[] {
+  const labels = agent.state_labels;
+  if (!labels) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [key, value] of Object.entries(labels)) {
+    if (KNOWN_STATUSES.has(key)) continue;
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+
+/** herdr `agent_label`: display_agent > name > agent > title. */
+export function agentDisplayName(agent: AgentInfo): string {
+  return (
+    agent.display_agent ??
+    agent.name ??
+    agent.agent ??
+    agent.title ??
+    "agent"
+  );
+}
+
+/** Work target for line 2: stripped terminal title, then raw, then agent title. */
+export function agentWorkTarget(agent: AgentInfo): string | null {
+  return (
+    agent.terminal_title_stripped ?? agent.terminal_title ?? agent.title ?? null
+  );
+}
+
+export interface AgentListEntry {
+  machine: MachineInfo;
+  agent: AgentInfo;
+  workspace: WorkspaceInfo | undefined;
+  workspaceTitle: string;
+  /** Tab label, shown only when the workspace has more than one tab (herdr `tab` token rule). */
+  tabLabel: string | null;
+}
+
+/**
+ * Every agent across live machines with its resolved display context.
+ * Machines whose snapshot is stale (`isStale`) contribute nothing — their
+ * held snapshot is last-known state, not current.
+ */
+export function collectAgentEntries(
+  machines: MachineInfo[],
+  snapshots: Record<string, SessionSnapshot>,
+  isStale: (machine: MachineInfo) => boolean,
+  branchIndex: ReadonlyMap<string, string>,
+): AgentListEntry[] {
+  const list: AgentListEntry[] = [];
+  for (const machine of machines) {
+    if (isStale(machine)) continue;
+    const snap = snapshots[machine.id];
+    if (!snap) continue;
+    const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
+    const tabById = new Map(snap.tabs.map((t) => [t.tab_id, t]));
+    for (const agent of snap.agents) {
+      const ws = wsById.get(agent.workspace_id);
+      const branch = ws ? branchIndex.get(`${machine.id}\n${ws.workspace_id}`) : undefined;
+      const tab = tabById.get(agent.tab_id);
+      list.push({
+        machine,
+        agent,
+        workspace: ws,
+        workspaceTitle: ws ? workspaceTitle(ws, branch) : agent.workspace_id,
+        tabLabel: ws && ws.tab_count > 1 ? (tab?.label ?? null) : null,
+      });
+    }
+  }
+  return list;
+}
+
+export interface AgentSections {
+  attention: AgentListEntry[];
+  working: AgentListEntry[];
+  done: AgentListEntry[];
+  idle: AgentListEntry[];
+}
+
+/** Partition into T3-style shelves; each shelf keeps herdr priority order. */
+export function partitionAgents(entries: AgentListEntry[]): AgentSections {
+  const sections: AgentSections = { attention: [], working: [], done: [], idle: [] };
+  const sorted = [...entries].sort((a, b) => compareAgents(a.agent, b.agent));
+  for (const entry of sorted) {
+    sections[agentSection(entry.agent.agent_status)].push(entry);
+  }
+  return sections;
+}

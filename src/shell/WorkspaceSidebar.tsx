@@ -5,10 +5,21 @@
  * configured, flat list otherwise (app-shell.md §2). Mutations go through
  * whitelisted herdr RPC; snapshots pushed by the bridge update the UI.
  */
-import { Fragment, useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   ChevronDownIcon,
   CopyIcon,
+  InfoIcon,
   MonitorIcon,
   MousePointerClickIcon,
   PencilIcon,
@@ -46,9 +57,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { CollapsibleSectionHeader } from "~/components/ui/collapsible-section-header";
 import { getGeneralSettings } from "~/lib/settings";
+import { getLocalStorageBoolean, setLocalStorageBoolean } from "~/lib/localStorage";
+import { createSidebarListMotion } from "~/lib/sidebarListMotion";
 import { machineConnect, machineDisconnect } from "~/lib/api";
-import type { AgentInfo, MachineInfo, WorkspaceInfo } from "../../shared/protocol";
+import type { MachineInfo, PaneInfo, WorkspaceInfo } from "../../shared/protocol";
+import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import {
+  AGENT_SECTIONS,
+  AGENT_SECTION_LABELS,
+  COLLAPSIBLE_AGENT_SECTIONS,
+  agentAuxStateLabels,
+  agentDisplayName,
+  agentStateLabel,
+  agentWorkTarget,
+  collectAgentEntries,
+  partitionAgents,
+  type AgentListEntry,
+  type CollapsibleAgentSection,
+} from "./agents";
 import { workspaceTitle } from "~/lib/workspace";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
@@ -308,75 +336,113 @@ function MachineFolderHeader({
   );
 }
 
-/** herdr agent_sidebar parity (issue #113): status-priority ordering. */
-const AGENT_STATUS_RANK: Record<string, number> = {
-  blocked: 0,
-  working: 1,
-  done: 2,
-  idle: 3,
-};
-
-function agentRank(status: string): number {
-  return AGENT_STATUS_RANK[status] ?? 4;
-}
-
-function agentLabel(agent: AgentInfo): string {
-  return agent.name ?? agent.display_agent ?? agent.agent ?? "agent";
-}
-
-interface AgentListEntry {
-  machine: MachineInfo;
-  agent: AgentInfo;
-  workspace: WorkspaceInfo | undefined;
-  workspaceTitle: string;
+/**
+ * Static section label for the Attention shelf — always expanded
+ * (info-architecture.md §6.2), so it is a label, not a disclosure.
+ */
+function AgentSectionLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex h-8 w-full items-center gap-2 px-2 text-xs font-medium text-sidebar-muted-foreground">
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="min-w-0 flex-1" />
+      <span className="font-normal tabular-nums">{count}</span>
+    </div>
+  );
 }
 
 /**
- * One agent row in the Agents section. Clicking jumps to the agent's
- * workspace and focuses its pane (`pane.focus` resolves across tabs and
- * workspaces in herdr), mirroring the TUI agent sidebar's click-to-focus.
+ * One agent row in the Agents shelves. Two lines per herdr's agent token
+ * rows (info-architecture.md §6.1): line 1 is where + state, line 2 is
+ * what. Clicking jumps to the agent's workspace and focuses its pane
+ * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
+ * the TUI agent sidebar's click-to-focus.
  */
-function AgentRow({ entry, multiMachine }: { entry: AgentListEntry; multiMachine: boolean }) {
+function AgentRow({
+  entry,
+  multiMachine,
+  pane,
+  onDetails,
+}: {
+  entry: AgentListEntry;
+  multiMachine: boolean;
+  pane: PaneInfo | undefined;
+  onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
+}) {
   const { machine, agent } = entry;
-  const label = agentLabel(agent);
-  const stateLabel = Object.values(agent.state_labels ?? {}).find(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
-  return (
+  const stateLabel = agentStateLabel(agent);
+  const displayName = agentDisplayName(agent);
+  const workTarget = agentWorkTarget(agent);
+  const auxLabels = agentAuxStateLabels(agent);
+  const showWorkTarget = workTarget !== null && workTarget !== displayName;
+  const focusAgent = () => {
+    selectWorkspace(machine.id, agent.workspace_id);
+    void ensureMachine(machine.id).then(() =>
+      callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
+    );
+  };
+  const rowButton = (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite list, same exception as workspace rows
     <button
       type="button"
       data-sidebar-row={agent.pane_id}
-      onClick={() => {
-        selectWorkspace(machine.id, agent.workspace_id);
-        void ensureMachine(machine.id).then(() =>
-          callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
-        );
-      }}
-      className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-0 text-left outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      onClick={focusAgent}
+      className={cn(
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-left outline-none transition-colors",
+        "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        agent.focused && "bg-foreground/[0.06] font-medium text-sidebar-foreground",
+      )}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {statusIcon(agent.agent_status)}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-        {label}
-        {stateLabel ? (
-          <span className="text-sidebar-muted-foreground"> · {stateLabel}</span>
-        ) : null}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        {/* Metadata stays visible in the ~288px mobile sheet too — the
-            lg:inline gate left six identical agent rows (issue #142). */}
-        <span className="max-w-28 truncate text-2xs text-sidebar-muted-foreground">
-          {entry.workspaceTitle}
+      <span className="flex w-full min-w-0 items-center gap-2">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {statusIcon(agent.agent_status)}
         </span>
-        {multiMachine ? (
-          <span className="max-w-20 truncate text-2xs text-sidebar-muted-foreground">
-            {machine.label}
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {stateLabel}
+          <span className="text-sidebar-muted-foreground">
+            {" · "}
+            {entry.workspaceTitle}
+            {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
+            {multiMachine ? ` · ${machine.label}` : null}
           </span>
+        </span>
+      </span>
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">
+          {displayName}
+          {showWorkTarget ? ` · ${workTarget}` : null}
+        </span>
+        {auxLabels.length > 0 ? (
+          <span className="max-w-32 shrink-0 truncate">{auxLabels.join(" · ")}</span>
         ) : null}
       </span>
     </button>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className="w-full">{rowButton}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={focusAgent}>
+          <MousePointerClickIcon /> Focus
+        </ContextMenuItem>
+        {pane ? (
+          <ContextMenuItem onSelect={() => onDetails(entry, pane)}>
+            <InfoIcon /> Details…
+          </ContextMenuItem>
+        ) : null}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(agent.pane_id)}
+        >
+          <CopyIcon /> Copy pane ID
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => void navigator.clipboard?.writeText(agent.workspace_id)}
+        >
+          <CopyIcon /> Copy workspace ID
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -519,32 +585,68 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     0,
   );
 
-  // Agents section (issue #113, herdr agent_sidebar parity): every agent
-  // across live machines, ordered by attention — blocked first, matching
-  // herdr's status-priority sort. Hidden while searching and on stale
+  // Agents shelves (issue #151, info-architecture.md §6): every agent
+  // across live machines partitioned into Attention/Working/Done/Idle —
+  // a T3 settle/inbox-style presentation over herdr AgentStatus, which
+  // stays the only status source. Hidden while searching and on stale
   // machines whose snapshot is last-known state.
-  const agents = useMemo<AgentListEntry[]>(() => {
-    const list: AgentListEntry[] = [];
-    for (const m of machines) {
-      if (machineStale(m)) continue;
-      const snap = bridge.snapshots[m.id];
-      if (!snap) continue;
-      const wsById = new Map(snap.workspaces.map((w) => [w.workspace_id, w]));
-      for (const a of snap.agents) {
-        const ws = wsById.get(a.workspace_id);
-        const branch = ws ? branchIndex.get(`${m.id}\n${ws.workspace_id}`) : undefined;
-        list.push({
-          machine: m,
-          agent: a,
-          workspace: ws,
-          workspaceTitle: ws ? workspaceTitle(ws, branch) : a.workspace_id,
-        });
-      }
+  const agentEntries = useMemo(
+    () => collectAgentEntries(machines, bridge.snapshots, machineStale, branchIndex),
+    [machines, bridge.snapshots, branchIndex],
+  );
+  const agentSections = useMemo(() => partitionAgents(agentEntries), [agentEntries]);
+
+  // Shelf expansion persists per section like T3's shelf toggles:
+  // Working defaults open (it is the live work list), Done/Idle default
+  // collapsed (settled-shelf equivalents).
+  const [agentShelves, setAgentShelves] = useState<
+    Record<CollapsibleAgentSection, boolean>
+  >(() => {
+    const initial = {} as Record<CollapsibleAgentSection, boolean>;
+    for (const section of COLLAPSIBLE_AGENT_SECTIONS) {
+      initial[section] =
+        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ??
+        section === "working";
     }
-    return list.sort(
-      (x, y) => agentRank(x.agent.agent_status) - agentRank(y.agent.agent_status),
-    );
-  }, [machines, bridge.snapshots, branchIndex]);
+    return initial;
+  });
+  const toggleAgentShelf = (section: CollapsibleAgentSection) => {
+    setAgentShelves((prev) => {
+      const next = { ...prev, [section]: !prev[section] };
+      setLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`, next[section]);
+      return next;
+    });
+  };
+  const [agentDetails, setAgentDetails] = useState<{
+    machine: string;
+    pane: PaneInfo;
+  } | null>(null);
+
+  // FLIP motion for agent rows (issue #151, Sidebar.motion.ts port):
+  // rows animate on add/move/remove and section collapse, keyed on the
+  // rendered membership+order so unrelated renders do not re-measure.
+  const agentsMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const attachAgentsList = useCallback((node: HTMLUListElement | null) => {
+    agentsMotionRef.current?.dispose();
+    agentsMotionRef.current = node ? createSidebarListMotion(node) : null;
+    agentsMotionRef.current?.update(false);
+  }, []);
+  const agentsLayoutKey = useMemo(() => {
+    if (agentEntries.length === 0) return "";
+    return AGENT_SECTIONS.map(
+      (section) =>
+        `${section}:${section === "attention" ? "-" : agentShelves[section]}:` +
+        agentSections[section]
+          .map(
+            (e) =>
+              `${e.machine.id}:${e.agent.pane_id}:${e.agent.agent_status}:${e.agent.state_change_seq ?? e.agent.revision}`,
+          )
+          .join(","),
+    ).join("|");
+  }, [agentEntries.length, agentSections, agentShelves]);
+  useLayoutEffect(() => {
+    agentsMotionRef.current?.update(true);
+  }, [agentsLayoutKey]);
 
   return (
     <SidebarContent
@@ -740,21 +842,60 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
-      {!searching && agents.length > 0 ? (
+      {!searching && agentEntries.length > 0 ? (
         <div className="mt-1 border-t border-sidebar-border/60 pt-1">
         <SidebarGroup>
-          <div className="px-2 pb-1 text-2xs font-medium text-sidebar-muted-foreground">
-            Agents
-          </div>
-          <ul className="relative flex flex-col gap-px" role="list">
-            {agents.map((entry) => (
-              <li
-                key={`${entry.machine.id}:${entry.agent.pane_id}`}
-                className="list-none"
-              >
-                <AgentRow entry={entry} multiMachine={machines.length > 1} />
-              </li>
-            ))}
+          <ul ref={attachAgentsList} className="relative flex flex-col gap-px" role="list">
+            {AGENT_SECTIONS.map((section) => {
+              const list = agentSections[section];
+              if (list.length === 0) return null;
+              const expanded =
+                section === "attention" || agentShelves[section];
+              return (
+                <Fragment key={section}>
+                  <li className="list-none">
+                    {section === "attention" ? (
+                      <AgentSectionLabel
+                        label={AGENT_SECTION_LABELS[section]}
+                        count={list.length}
+                      />
+                    ) : (
+                      <CollapsibleSectionHeader
+                        expanded={agentShelves[section]}
+                        onClick={() => toggleAgentShelf(section)}
+                        accessory={
+                          <span className="font-normal tabular-nums">{list.length}</span>
+                        }
+                      >
+                        {AGENT_SECTION_LABELS[section]}
+                      </CollapsibleSectionHeader>
+                    )}
+                  </li>
+                  {expanded
+                    ? list.map((entry) => {
+                        const pane = bridge.snapshots[entry.machine.id]?.panes.find(
+                          (p) => p.pane_id === entry.agent.pane_id,
+                        );
+                        return (
+                          <li
+                            key={`${entry.machine.id}:${entry.agent.pane_id}`}
+                            className="list-none"
+                          >
+                            <AgentRow
+                              entry={entry}
+                              multiMachine={machines.length > 1}
+                              pane={pane}
+                              onDetails={(e, p) =>
+                                setAgentDetails({ machine: e.machine.id, pane: p })
+                              }
+                            />
+                          </li>
+                        );
+                      })
+                    : null}
+                </Fragment>
+              );
+            })}
           </ul>
         </SidebarGroup>
         </div>
@@ -763,6 +904,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         target={rename?.target ?? null}
         machine={rename?.machine ?? LOCAL_MACHINE}
         onClose={() => setRename(null)}
+      />
+      <PaneDetailsDialog
+        pane={agentDetails?.pane ?? null}
+        machine={agentDetails?.machine ?? LOCAL_MACHINE}
+        onClose={() => setAgentDetails(null)}
       />
       <Dialog open={confirmClose !== null} onOpenChange={(open) => !open && setConfirmClose(null)}>
         <DialogContent>
