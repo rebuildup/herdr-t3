@@ -156,6 +156,11 @@ async function main() {
     });
 
     await send("Page.navigate", { url: BASE });
+    await sleep(3000);
+    // Force dark appearance for the desktop captures — the host may be in
+    // light mode, and "system" would silently flip every shot.
+    await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
+    await send("Page.navigate", { url: BASE });
     await sleep(6000);
 
     const agents = (await evaluate(`fetch("/api/session").then(r=>r.json()).then(d=>d.snapshot.agents.length)`)) as number;
@@ -243,7 +248,11 @@ async function main() {
     await send("Page.navigate", { url: BASE });
     await sleep(5000);
     await shot("07-light-agents");
-    await evaluate(`localStorage.setItem("herdr-t3:appearance", "system")`);
+
+    // 08/09 — back to dark for the narrow captures
+    await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
+    await send("Page.navigate", { url: BASE });
+    await sleep(5000);
 
     // 08 — narrow viewport + mobile sheet with agents
     await send("Emulation.setDeviceMetricsOverride", {
