@@ -105,12 +105,14 @@ herdr の `AgentsSidebarConfig` default rows:
 - **行2**: `agent` (エージェント種別/表示名)
 
 herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設定 UI は
-作らない — GUI は固定の情報階層を持つ)。各行の内容:
+作らない — GUI は固定の情報階層を持つ)。issue #200 で T3
+`SidebarThreadRow` の情報階層 (context+state → title+meta) に揃えた。
+各行の内容:
 
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
-| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) | 「どこで」— セクション名が状態を担うため attribution を primary weight に置く (issue #165) |
-| 2 | 状態テキスト (state_labels 解決値) + agent 種別/表示名 (display_agent > name > agent > title) + 作業対象 (`terminal_title_stripped` > `terminal_title` > `title`) + 補助 state label + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) | 「どの状態で・何の作業か」— ツール名はここに留める |
+| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) + 状態テキスト (state_labels 解決値、行末) | 「どこで・どの状態か」— T3 card variant の context 行 + status slot に相当し、secondary weight |
+| 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label + provider/harness アイコン | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
 

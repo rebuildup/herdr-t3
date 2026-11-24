@@ -383,9 +383,12 @@ function AgentSectionLabel({
 type AgentOrganizeAction = "settle" | "snooze" | "restore";
 
 /**
- * One agent row in the Agents shelves. Two lines per herdr's agent token
- * rows (info-architecture.md §6.1): line 1 is where (status icon +
- * workspace/tab/machine at primary weight), line 2 is state + what.
+ * One agent row in the Agents shelves. Two lines per T3
+ * `SidebarThreadRow`'s hierarchy (issue #200,
+ * info-architecture.md §6.1): line 1 is context + state at secondary
+ * weight (status icon, workspace/tab/machine, resolved state label),
+ * line 2 leads with the work target — the live pane's terminal title —
+ * with agent identity, pane disambiguator and auxiliary labels as meta.
  * Clicking jumps to the agent's workspace and focuses its pane
  * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
  * the TUI agent sidebar's click-to-focus.
@@ -412,9 +415,15 @@ function AgentRow({
   const { machine, agent } = entry;
   const stateLabel = agentStateLabel(agent);
   const displayName = agentDisplayName(agent);
-  const workTarget = agentWorkTarget(agent);
+  const workTarget = agentWorkTarget(agent, pane);
   const auxLabels = agentAuxStateLabels(agent);
-  const showWorkTarget = workTarget !== null && workTarget !== displayName;
+  // Line 2 leads with the work target; the agent name joins the meta
+  // only when it adds information beyond the title.
+  const rowTitle = workTarget ?? displayName;
+  const metaParts = [
+    workTarget !== null && workTarget !== displayName ? displayName : null,
+    showPaneId ? shortPaneId(agent.pane_id) : null,
+  ].filter((part): part is string => part !== null);
   const focusAgent = () => {
     selectWorkspace(machine.id, agent.workspace_id);
     void ensureMachine(machine.id).then(() =>
@@ -433,28 +442,33 @@ function AgentRow({
         agent.focused && "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
     >
-      <span className="flex w-full min-w-0 items-center gap-2">
+      <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
         <span className="flex size-4 shrink-0 items-center justify-center">
           {statusIcon(agent.agent_status)}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+        <span className="min-w-0 flex-1 truncate">
           {entry.workspaceTitle}
           {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
           {multiMachine ? ` · ${machine.label}` : null}
         </span>
+        <span className="shrink-0">{stateLabel}</span>
       </span>
-      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">
-          {stateLabel}
-          {" · "}
-          {displayName}
-          {showWorkTarget ? ` · ${workTarget}` : null}
-          {showPaneId ? ` · ${shortPaneId(agent.pane_id)}` : null}
+      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5">
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {rowTitle}
+          {metaParts.length > 0 ? (
+            <span className="text-2xs text-sidebar-muted-foreground">
+              {" · "}
+              {metaParts.join(" · ")}
+            </span>
+          ) : null}
         </span>
-        <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
         {auxLabels.length > 0 ? (
-          <span className="max-w-32 shrink-0 truncate">{auxLabels.join(" · ")}</span>
+          <span className="max-w-32 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
+            {auxLabels.join(" · ")}
+          </span>
         ) : null}
+        <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
       </span>
     </button>
   );
@@ -1068,9 +1082,6 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                   </li>
                   {expanded
                     ? list.map((entry) => {
-                        const pane = bridge.snapshots[entry.machine.id]?.panes.find(
-                          (p) => p.pane_id === entry.agent.pane_id,
-                        );
                         return (
                           <li
                             key={`${entry.machine.id}:${entry.agent.pane_id}`}
@@ -1082,7 +1093,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                               showPaneId={
                                 (agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1
                               }
-                              pane={pane}
+                              pane={entry.pane}
                               shelf={
                                 section === "settled" || section === "snoozed"
                                   ? section
