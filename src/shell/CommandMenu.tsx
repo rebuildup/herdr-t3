@@ -48,6 +48,7 @@ import { isMacPlatform } from "~/lib/shortcuts";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
 import { GotoDialog } from "./GotoDialog";
+import { focusPaneTerminal } from "./paneFocus";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
@@ -72,6 +73,10 @@ interface PaletteAction {
   shortcut?: string | undefined;
   /** Trailing drill-in chevron for items that open a nested surface. */
   drillIn?: boolean;
+  /** After running, return keyboard focus to the snapshot-focused pane's
+      terminal — the palette unmount would otherwise drop it to <body>
+      (issue #130). */
+  refocusPane?: boolean;
   run: () => void;
 }
 
@@ -173,6 +178,7 @@ export function CommandMenu({
           group: "Actions",
           icon: <SquarePlusIcon className="size-4" />,
           keywords: "pane tab",
+          refocusPane: true,
           run: () =>
             void callRpc(machine, "tab.create", {
               workspace_id: workspace.workspace_id,
@@ -185,6 +191,7 @@ export function CommandMenu({
           group: "Actions",
           icon: <Columns2 className="size-4" />,
           keywords: "pane split",
+          refocusPane: true,
           run: () =>
             focusedPane &&
             void callRpc(machine, "pane.split", {
@@ -199,6 +206,7 @@ export function CommandMenu({
           group: "Actions",
           icon: <Maximize2Icon className="size-4" />,
           keywords: "pane zoom fullscreen",
+          refocusPane: true,
           run: () =>
             focusedPane && void callRpc(machine, "pane.zoom", { pane_id: focusedPane.pane_id }),
         },
@@ -218,6 +226,7 @@ export function CommandMenu({
             group: "Actions",
             icon: <ChevronLeftIcon className="size-4" />,
             keywords: "tab reorder drag",
+            refocusPane: true,
             run: () =>
               activeTab &&
               void callRpc(machine, "tab.move", {
@@ -233,6 +242,7 @@ export function CommandMenu({
             group: "Actions",
             icon: <ChevronRightIcon className="size-4" />,
             keywords: "tab reorder drag",
+            refocusPane: true,
             run: () =>
               activeTab &&
               void callRpc(machine, "tab.move", {
@@ -281,6 +291,7 @@ export function CommandMenu({
             group: "Actions",
             icon: <SquareSplitHorizontalIcon className="size-4" />,
             keywords: "pane swap move drag",
+            refocusPane: true,
             run: () =>
               void callRpc(machine, "pane.swap", {
                 pane_id: focusedPane.pane_id,
@@ -303,6 +314,7 @@ export function CommandMenu({
             icon: <FocusArrow className="size-4" />,
             keywords: "pane focus navigate arrow keyboard",
             shortcut: paneFocusShortcut(direction),
+            refocusPane: true,
             run: () =>
               void callRpc(machine, "pane.focus_direction", {
                 pane_id: focusedPane.pane_id,
@@ -412,6 +424,11 @@ export function CommandMenu({
                       value={item.id}
                       onSelect={() => {
                         item.run();
+                        if (item.refocusPane) {
+                          // Deferred: the pushed snapshot must mark the new
+                          // focused pane before we can target its input.
+                          setTimeout(() => focusPaneTerminal(), 0);
+                        }
                         onOpenChange(false);
                       }}
                     >
