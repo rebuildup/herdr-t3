@@ -13,6 +13,10 @@ export function agentStatusLabel(status: AgentStatus): string {
   return LABELS[status] ?? "Unknown";
 }
 
+export function isKnownAgentStatus(status: AgentStatus): boolean {
+  return LABELS[status] !== undefined;
+}
+
 export function AgentStatusBadge({ status, className }: { status: AgentStatus; className?: string }) {
   const color =
     status === "working"

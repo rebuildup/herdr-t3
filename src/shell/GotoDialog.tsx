@@ -27,6 +27,7 @@ import {
   CommandPanel,
 } from "~/components/ui/command";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
+import { cn } from "~/lib/utils";
 import { statusIcon } from "~/components/statusIcons";
 import { buildGotoRows, filterGotoRows, type GotoRow } from "./goto";
 import {
@@ -168,9 +169,11 @@ export function GotoDialog({
                       }}
                     >
                       <span
-                        className={
-                          row.kind === "pane" ? "flex size-4 items-center justify-center" : undefined
-                        }
+                        className={cn(
+                          "flex items-center justify-center",
+                          row.kind === "pane" && "ms-8 size-4",
+                          row.kind === "tab" && "ms-4",
+                        )}
                       >
                         {rowIcon(row)}
                       </span>

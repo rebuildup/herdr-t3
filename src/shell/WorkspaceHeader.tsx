@@ -42,7 +42,7 @@ import {
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentStatusBadge, PaneStatusDetail } from "~/components/AgentStatusBadge";
+import { AgentStatusBadge, isKnownAgentStatus, PaneStatusDetail } from "~/components/AgentStatusBadge";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -307,7 +307,9 @@ export function WorkspaceHeader() {
                   {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
                 </span>
               </span>
-              {focusedPane ? <AgentStatusBadge status={focusedPane.agent_status} /> : null}
+              {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
+                <AgentStatusBadge status={focusedPane.agent_status} />
+              ) : null}
             </TooltipTrigger>
             {focusedPane ? (
               <TooltipPopup side="bottom" className="max-w-64">

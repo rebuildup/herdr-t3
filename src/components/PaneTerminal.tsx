@@ -388,12 +388,12 @@ export function PaneTerminal({
       )}
       {bell && <span className="pointer-events-none absolute left-2 top-2 z-10 h-2 w-2 rounded-full bg-primary" />}
       {(closedReason !== null || engineError !== null) && (
-        <div className="absolute inset-x-0 top-1 flex flex-col items-center gap-1">
-          <span className="rounded bg-error/90 px-2 py-0.5 text-2xs text-error-foreground">
+        <div className="absolute inset-x-3 top-2 flex flex-col items-center gap-1.5">
+          <span className="max-w-full truncate rounded-md border border-error/40 bg-popover/95 px-2.5 py-1 text-2xs text-error-foreground shadow-sm">
             {engineError !== null ? `terminal error: ${engineError}` : `terminal closed: ${closedReason}`}
           </span>
           {closedReason !== null && !takeover && closedReason.includes("attached client") && (
-            <Button size="sm" onClick={() => setTakeover(true)}>
+            <Button size="sm" variant="outline" onClick={() => setTakeover(true)}>
               Take over terminal
             </Button>
           )}

@@ -80,7 +80,7 @@ function PaneSurface({
             "absolute overflow-hidden border transition-colors",
             // Focus treatment follows interaction.md: neutral emphasis, never a
             // full blue frame (issue #112).
-            focused ? "border-foreground/25" : "border-border/50",
+            focused ? "border-foreground/25 dark:border-foreground/45" : "border-border/50",
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
           )}
           style={style}
