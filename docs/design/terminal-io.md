@@ -38,11 +38,19 @@ DOM event ──> GhosttySurface ──encode*──> onInput(bytes)
 - プラットフォーム予約 chord は pane に送らない: macOS の `Cmd+*`
   (コピー/ペースト/終了等)。Windows の `Ctrl+Alt` (AltGr) は engine の
   keyboard model に従う — AltGr が文字を生む場合は text commit 経路。
-- `event.isComposing` または surface の composition 中は key event を
-  一切符号化しない (§3)。
-- IME を介さない文字入力 (Unicode direct input、dead key 解決後の
-  `beforeinput insertText`) は `session.inputText` で UTF-8 バイトとして
-  送る。bracketed paste にはしない。
+- **プレーンな文字キー (修飾なし・`key.length === 1`) は keydown では
+  送らない。** その text は `beforeinput insertText` → `session.inputText`
+  が UTF-8 バイトとして送る。keydown で送ると IME composition の最初の
+  ローマ字キーが `compositionstart` より先に発火するため pane へ漏洩する
+  (issue: 変換中ローマ字混入)。Kitty keyboard flag 8 (report all keys)
+  を要求した pane のみ例外的に encoder 経路を維持する。
+- `event.isComposing`、`keyCode === 229`、`key === "Process"`、
+  `key === "Dead"`、または surface の composition 中のキーは encoder に
+  到達しない (`bypassesKeyEncoder`、inputPolicy.ts)。229/Process は
+  `isComposing` が信頼できない platform 向けの marker。
+- 上記以外の IME を介さない文字入力 (Unicode direct input、dead key
+  解決後の `beforeinput insertText`) も `session.inputText` で送る。
+  bracketed paste にはしない。
 
 ## 3. IME composition 契約
 
@@ -54,6 +62,10 @@ GUI では不要 — 契約は端末として一律)。
 
 - `compositionstart` → surface は composing 状態へ。以後の `keydown` は
   変換中キー (Enter 確定、矢印で候補移動、Esc 取消) として pane に送らない。
+  composition を開始した最初のキーストロークは `compositionstart` より
+  前に `keydown` が発火するため、§2 の通りプレーン文字キーは keydown を
+  通らず `beforeinput` 経由でのみ pane に届く — これにより変換中
+  ローマ字の漏洩を構造的に防ぐ。
 - `compositionupdate` → 変換中文字列を composition 表示へ反映する
   (pane へは送らない)。
 - `compositionend` → `data` を **ちょうど 1 回** `inputText` で pty へ送る。
@@ -205,7 +217,7 @@ adapter とする。
 | 契約行 | 検証場所 |
 | --- | --- |
 | composition lifecycle / cancel / 連続 / insertText dedupe | `inputPolicy.test.ts` `CompositionTracker` |
-| 変換中 keydown 抑制 | `surface.ts` `keyDown` の `composition.active \|\| event.isComposing` ガード — DOM 結合のため RC 実機 (§3.3) |
+| 変換中 keydown 抑制 + 文字キーの beforeinput 経路 | `inputPolicy.test.ts` `bypassesKeyEncoder` / `CompositionTracker`; surface 配線は RC 実機 (§3.3) |
 | focus 1004 on/off → CSI I/O | `inputPolicy.test.ts` `focusReport` + `session.test.ts` modes() |
 | mouse mode 別バイト列 (none/x10/normal/button/any、press/release/motion/wheel) | `session.test.ts` mouse-mode matrix + SGR/any-motion tests |
 | 選択 vs report 分岐 (plain/Shift+drag) | `inputPolicy.test.ts` `pointerDragKind` |

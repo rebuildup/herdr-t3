@@ -10,6 +10,42 @@ import type { EngineMouse, EngineModes, ScreenPoint } from "../../../shared/ghos
 
 const encoder = new TextEncoder();
 
+/**
+ * Whether a keydown must not reach the key encoder. True when the key is
+ * IME-processed — composition in flight, or the platform markers
+ * (keyCode 229, key "Process") set where `KeyboardEvent.isComposing` is
+ * unreliable — when it is a dead key awaiting resolution (its text arrives
+ * later via `beforeinput`), or when it is plain printable text whose bytes
+ * the `beforeinput insertText` → `inputText` path delivers.
+ *
+ * Routing plain text through keydown leaks the first romaji keystroke of a
+ * composition: its keydown fires *before* `compositionstart`, while every
+ * later key is already guarded. `kittyAllKeys` (Kitty "report all keys",
+ * flag 8) is the exception — such panes need encoder key events even for
+ * text keys, so the surface keeps the encodeKey path there.
+ */
+export function bypassesKeyEncoder(
+  event: {
+    key: string;
+    keyCode: number;
+    isComposing: boolean;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    altKey: boolean;
+  },
+  kittyAllKeys: () => boolean,
+): boolean {
+  if (event.isComposing || event.keyCode === 229 || event.key === "Process") return true;
+  if (event.key === "Dead") return true;
+  return (
+    event.key.length === 1 &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !kittyAllKeys()
+  );
+}
+
 /** DECSET 1004: the pane asked to hear focus transitions. */
 export function focusReport(focused: boolean, reportsEnabled: boolean): Uint8Array | null {
   if (!reportsEnabled) return null;

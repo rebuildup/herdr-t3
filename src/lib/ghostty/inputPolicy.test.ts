@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   CompositionTracker,
+  bypassesKeyEncoder,
   focusReport,
   mouseReportCell,
   pointerDragKind,
@@ -64,6 +65,53 @@ describe("CompositionTracker", () => {
     c.start();
     expect(c.end("二回目")).toBe("二回目");
     expect(c.beforeInputText("二回目")).toBeNull();
+  });
+});
+
+// terminal-io.md §2/§3: which keydowns may reach the key encoder. Plain
+// printable text travels beforeinput → inputText instead, so the first
+// romaji keystroke of a composition (keydown precedes compositionstart)
+// can never leak into the pane.
+describe("bypassesKeyEncoder", () => {
+  const key = (over: Partial<Parameters<typeof bypassesKeyEncoder>[0]> = {}) => ({
+    key: "k",
+    keyCode: 75,
+    isComposing: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    ...over,
+  });
+  const noKitty = () => false;
+  const kittyAll = () => true;
+
+  it("bypasses plain printable keys so beforeinput delivers their text", () => {
+    expect(bypassesKeyEncoder(key(), noKitty)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: "K" }), noKitty)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: " " }), noKitty)).toBe(true);
+  });
+
+  it("keeps non-text and modified keys on the encoder path", () => {
+    expect(bypassesKeyEncoder(key({ key: "Enter", keyCode: 13 }), noKitty)).toBe(false);
+    expect(bypassesKeyEncoder(key({ key: "ArrowLeft", keyCode: 37 }), noKitty)).toBe(false);
+    expect(bypassesKeyEncoder(key({ key: "k", ctrlKey: true }), noKitty)).toBe(false);
+    expect(bypassesKeyEncoder(key({ key: "k", altKey: true }), noKitty)).toBe(false);
+    expect(bypassesKeyEncoder(key({ key: "k", metaKey: true }), noKitty)).toBe(false);
+  });
+
+  it("bypasses IME-processed keys even when they look like plain text", () => {
+    expect(bypassesKeyEncoder(key({ isComposing: true }), noKitty)).toBe(true);
+    expect(bypassesKeyEncoder(key({ keyCode: 229 }), noKitty)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: "Process", keyCode: 229 }), noKitty)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: "Dead", keyCode: 50 }), noKitty)).toBe(true);
+  });
+
+  it("keeps text keys on the encoder when the pane reports all keys (kitty flag 8)", () => {
+    expect(bypassesKeyEncoder(key(), kittyAll)).toBe(false);
+    // IME-processed and dead keys bypass regardless of the keyboard mode
+    expect(bypassesKeyEncoder(key({ isComposing: true }), kittyAll)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: "Dead" }), kittyAll)).toBe(true);
+    expect(bypassesKeyEncoder(key({ key: "Enter", keyCode: 13 }), kittyAll)).toBe(false);
   });
 });
 
