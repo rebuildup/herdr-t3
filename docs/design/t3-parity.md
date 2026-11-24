@@ -66,16 +66,22 @@ and issue #188. Each feature is classified by where its data comes from:
 | Archived/threads/projects/devices/connections | mixed | only sections meaningful to herdr data ports; per-section triage in phase plan |
 | Providers/secrets/scheduled-tasks/voice/MCP | mostly [excluded]/[upstream] | provider execution and scheduling are orchestration; voice/MCP have no herdr analog |
 
-## Phasing (proposal for #188 children)
+## Phasing (canonical; issue ownership follows this)
 
-1. **v0.5.x polish (already in flight):** IME fix, shelf order, topbar
-   icon+overflow, provider icons, hover-card title.
-2. **v0.6.0 — surfaces:** right-panel host, agent details, files/diff
-   (git read-only), settings sections that map to existing data.
-3. **v0.6.x — integrations:** `gh`-backed issue/PR lists + detail panels;
-   branch/worktree pickers via git.
-4. **upstream-gated:** usage metering, issue/PR identity — blocked on
-   herdrdev/herdr proposals (track alongside #6178 focus-report thread).
+Release scope rule (maintainer directive): **existing-UI quality and UX
+parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
+
+1. **v0.5.0 — UI quality parity (existing surfaces only):** IME fix (#190),
+   shelf order (#192), topbar icon+overflow (#194), provider icons on agent
+   rows, hover-card terminal title + agent row, agent-row info hierarchy,
+   tooltips, motion/animation parity. No new panels or data sources.
+2. **v0.6.0 — new surfaces:** right-panel host, agent details panel,
+   files/diff surface (git read-only), `gh`-backed issue/PR lists +
+   detail panels, branch/worktree pickers, settings sections that map to
+   existing data.
+3. **upstream-gated (any release):** usage metering, issue/PR identity —
+   blocked on herdrdev/herdr proposals (track alongside #6178
+   focus-report thread).
 
 ## Explicit exclusions (ADR-0009)
 

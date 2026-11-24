@@ -113,6 +113,39 @@ describe("bypassesKeyEncoder", () => {
     expect(bypassesKeyEncoder(key({ key: "Dead" }), kittyAll)).toBe(true);
     expect(bypassesKeyEncoder(key({ key: "Enter", keyCode: 13 }), kittyAll)).toBe(false);
   });
+
+  // Regression for the romaji leak (#190): the keydown that *starts* an IME
+  // composition fires before compositionstart with isComposing=false, so
+  // every composition guard is still down. Plain text keys must bypass the
+  // encoder on that keydown — the surface then emits nothing — and the
+  // committed text must arrive exactly once through the composition/beforeinput
+  // path. This pins the event ORDER contract the OS IME produces; it does not
+  // (and cannot) prove the OS IME itself behaves this way — that remains the
+  // human-acceptance item in docs/design/verification.md.
+  it("composition-start keystroke: keydown precedes compositionstart and emits nothing", () => {
+    const noKitty = () => false;
+    // 1. keydown 'k' — isComposing still false, composition not yet started
+    const firstStroke = key();
+    expect(bypassesKeyEncoder(firstStroke, noKitty)).toBe(true);
+    // …the surface returns early: no encoder bytes, no preventDefault, so the
+    // browser proceeds to compositionstart → beforeinput insertCompositionText.
+    // 2. composition lifecycle — tracker sees start/end exactly once
+    const c = new CompositionTracker();
+    c.start();
+    expect(c.active).toBe(true);
+    expect(c.end("漢字")).toBe("漢字");
+    // 3. the commit's insertText echo is deduped — pane saw "漢字" once, never 'k'
+    expect(c.beforeInputText("漢字")).toBeNull();
+  });
+
+  it("plain typing round-trips through beforeinput exactly once", () => {
+    const c = new CompositionTracker();
+    // keydown 'k' bypasses the encoder; beforeinput insertText delivers it
+    expect(bypassesKeyEncoder(key(), () => false)).toBe(true);
+    expect(c.beforeInputText("k")).toBe("k");
+    // a second key is independent — no state leaks between plain keys
+    expect(c.beforeInputText("l")).toBe("l");
+  });
 });
 
 // terminal-io.md §7: the deterministic pointer/mouse contract rows that do
