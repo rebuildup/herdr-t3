@@ -139,20 +139,30 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   `state_change_seq` 欠落時は `revision` で代替、最後は `pane_id` で安定化)。
   T3 inbox の「return 順」は `state_change_seq` の新しい順で近似する —
   herdr に return timestamp はないため独自時刻状態を持たない。
-- Working/Done/Idle/Settled の折りたたみ状態は T3 の shelf expansion と同様に
+- Working/Done/Idle/Snoozed/Settled の折りたたみ状態は T3 の shelf expansion と同様に
   localStorage へ永続化する。空セクションは header ごと表示しない。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage
   (`herdr-t3:sidebar:agents:organize`) に保持する。settle/snooze
-  された行は対応する棚から隠れ (snooze は一覧から除外、settle は
-  折りたたみ可の **Settled** 棚 — 既定は折りたたみ — へ)、
-  `state_change_seq` が進んだ時点で自動的に棚へ戻る — T3 の
-  inbox return に相当し、herdr の実状態は一切変更しない。表示上の
-  状態バッジは付けず、行の所属棚のみが変わる (実行状態との区別を
-  UI 上も明確にする)。snooze された行は一覧に出ないため手動
-  Restore の経路はなく、状態変化による自動復帰のみ (settled 行は
-  Restore / Snooze に切替可能)。
+  された行は対応する棚へ移る (snooze は折りたたみ可・既定折りたたみの
+  **Snoozed** 棚、settle は同じく折りたたみ可・既定折りたたみの
+  **Settled** 棚 — いずれも棚の展開状態は localStorage に永続化)。
+  `state_change_seq` が進んだ時点で自動的に自然なセクションへ戻る —
+  T3 の inbox return に相当し、herdr の実状態は一切変更しない。
+  表示上の状態バッジは付けず、行の所属棚のみが変わる (実行状態との
+  区別を UI 上も明確にする)。snoozed/settled 行はどちらも context
+  menu から Restore (記録削除 = 自然セクションへ即復帰) と他方の棚
+  への移動が可能 — T3 が snoozed thread を手動 unsnooze 可能な
+  Snoozed shelf に保持するのと同じく、片道ドアにしない。
+- T3 との差異 (意図的): T3 の snooze は `snoozedUntil` の wall-clock
+  時刻指定 + 「承認待ち/新規質問/失敗」等の raised-hand で早期復帰
+  する。herdr-t3 は時刻指定を持たず、`state_change_seq` の進行
+  (= エージェントの状態遷移) のみで復帰する近似とする。T3 が完了
+  した run では snooze を解かないのに対し、こちらは任意の seq
+  進行で戻る — herdr には run 完了と状態遷移を区別する信号がない
+  ための既知の単純化。snoozed 棚内のソートも T3 の `snoozedUntil`
+  昇順ではなく、他棚と同じ status 優先度 + seq 降順。
 - `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
   テキスト (現 status の label) と行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に

@@ -255,13 +255,14 @@ describe("partitionAgents organize overlay (issue #173)", () => {
     expect(active).toEqual(organize);
   });
 
-  test("snoozed excludes the row from every shelf", () => {
+  test("snoozed moves the row to the Snoozed shelf, out of natural sections", () => {
     const snoozed = entry(agent({ pane_id: "s1", agent_status: "working", state_change_seq: 5 }));
     const visible = entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 4 }));
     const { sections, organize: active } = partitionAgents([snoozed, visible], {
       [key("s1")]: { kind: "snoozed", seq: 5 },
     });
-    expect(visibleAgentPanes(sections)).toEqual(["w1"]);
+    expect(sections.snoozed.map((e) => e.agent.pane_id)).toEqual(["s1"]);
+    expect(sections.working.map((e) => e.agent.pane_id)).toEqual(["w1"]);
     expect(active[key("s1")]).toEqual({ kind: "snoozed", seq: 5 });
   });
 
@@ -291,7 +292,8 @@ describe("partitionAgents organize overlay (issue #173)", () => {
     const { sections } = partitionAgents([entry(agentInfo)], {
       [key("w1")]: { kind: "snoozed", seq: 9 },
     });
-    expect(visibleAgentPanes(sections)).toEqual([]);
+    expect(sections.snoozed.map((e) => e.agent.pane_id)).toEqual(["w1"]);
+    expect(sections.idle).toEqual([]);
     const advancedInfo = agent({ pane_id: "w1", agent_status: "idle", revision: 10 });
     delete advancedInfo.state_change_seq;
     const advanced = partitionAgents([entry(advancedInfo)], {
@@ -332,6 +334,7 @@ function visibleAgentPanes(
     ...sections.working,
     ...sections.done,
     ...sections.idle,
+    ...sections.snoozed,
     ...sections.settled,
   ].map((e) => e.agent.pane_id);
 }

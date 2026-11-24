@@ -17,8 +17,8 @@
  * input: `AgentOrganizeMap` records which pane the user shelved and the
  * `state_change_seq` observed at that moment. It never alters herdr's
  * reported status — settled rows move to the Settled shelf, snoozed rows
- * leave the list, and a `state_change_seq` advance auto-returns the row
- * to its natural section (info-architecture.md §6.2).
+ * move to the Snoozed shelf, and a `state_change_seq` advance
+ * auto-returns the row to its natural section (info-architecture.md §6.2).
  */
 import type {
   AgentInfo,
@@ -29,13 +29,20 @@ import type {
 } from "../../shared/protocol";
 import { workspaceTitle } from "../lib/workspace";
 
-export type AgentSection = "attention" | "working" | "done" | "idle" | "settled";
+export type AgentSection =
+  | "attention"
+  | "working"
+  | "done"
+  | "idle"
+  | "snoozed"
+  | "settled";
 
 export const AGENT_SECTIONS: readonly AgentSection[] = [
   "attention",
   "working",
   "done",
   "idle",
+  "snoozed",
   "settled",
 ];
 
@@ -44,6 +51,7 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
   working: "Working",
   done: "Done",
   idle: "Idle",
+  snoozed: "Snoozed",
   settled: "Settled",
 };
 
@@ -52,6 +60,7 @@ export const COLLAPSIBLE_AGENT_SECTIONS = [
   "working",
   "done",
   "idle",
+  "snoozed",
   "settled",
 ] as const;
 export type CollapsibleAgentSection = (typeof COLLAPSIBLE_AGENT_SECTIONS)[number];
@@ -230,6 +239,8 @@ export interface AgentSections {
   working: AgentListEntry[];
   done: AgentListEntry[];
   idle: AgentListEntry[];
+  /** User-snoozed rows (issue #173) — hidden behind a collapsed shelf, manually restorable. */
+  snoozed: AgentListEntry[];
   /** User-settled rows (issue #173) — herdr status is unchanged, only shelf membership. */
   settled: AgentListEntry[];
 }
@@ -271,9 +282,10 @@ export interface AgentPartition {
 /**
  * Partition into T3-style shelves; each shelf keeps herdr priority order.
  * `organize` is the user-side settle/snooze overlay: settled rows go to
- * the Settled shelf, snoozed rows are excluded from the list entirely,
- * and either returns to its natural section once `state_change_seq`
- * advances past the recorded value.
+ * the Settled shelf, snoozed rows go to the Snoozed shelf (T3 keeps
+ * snoozed threads reachable for manual unsnooze — a fully hidden snooze
+ * is a one-way door), and either returns to its natural section once
+ * `state_change_seq` advances past the recorded value.
  */
 export function partitionAgents(
   entries: AgentListEntry[],
@@ -284,6 +296,7 @@ export function partitionAgents(
     working: [],
     done: [],
     idle: [],
+    snoozed: [],
     settled: [],
   };
   const active: AgentOrganizeMap = {};
@@ -300,7 +313,7 @@ export function partitionAgents(
         : undefined;
     if (shelved !== undefined) {
       active[key] = shelved;
-      if (shelved.kind === "settled") sections.settled.push(entry);
+      sections[shelved.kind].push(entry);
       continue;
     }
     sections[agentSection(entry.agent.agent_status)].push(entry);

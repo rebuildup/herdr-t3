@@ -393,7 +393,7 @@ function AgentRow({
   multiMachine,
   showPaneId,
   pane,
-  settled,
+  shelf,
   onDetails,
   onOrganize,
 }: {
@@ -402,8 +402,8 @@ function AgentRow({
   /** Sibling rows render identically without it — append the pane token (issue #165). */
   showPaneId: boolean;
   pane: PaneInfo | undefined;
-  /** Row currently sits in the user-settled shelf (issue #173). */
-  settled: boolean;
+  /** User-organize shelf the row currently sits in, if any (issue #173). */
+  shelf: "settled" | "snoozed" | undefined;
   onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
   onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction) => void;
 }) {
@@ -485,16 +485,27 @@ function AgentRow({
           </ContextMenuItem>
         ) : null}
         {/* User-side shelf organization (issue #173): UI-layer only,
-            herdr state is untouched. Settled rows can be restored or
-            moved to snoozed; other rows offer Settle/Snooze. */}
+            herdr state is untouched. Shelved rows can be restored or
+            moved to the other shelf; natural-section rows offer
+            Settle/Snooze. T3 keeps snoozed threads reachable for manual
+            unsnooze — the Snoozed shelf mirrors that. */}
         <ContextMenuSeparator />
-        {settled ? (
+        {shelf === "settled" ? (
           <>
             <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
               <RotateCcwIcon /> Restore
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
               <MoonIcon /> Snooze
+            </ContextMenuItem>
+          </>
+        ) : shelf === "snoozed" ? (
+          <>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+              <RotateCcwIcon /> Restore
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+              <CheckCheckIcon /> Settle
             </ContextMenuItem>
           </>
         ) : (
@@ -715,7 +726,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
 
   // Rows that would render identically get a pane-id disambiguator
   // (issue #165): count agentRowSignature across rendered entries only —
-  // snoozed rows are not rendered and must not force disambiguation.
+  // shelves render their rows when expanded, so shelved rows count too.
   const visibleAgentEntries = useMemo(
     () => AGENT_SECTIONS.flatMap((section) => agentSections[section]),
     [agentSections],
@@ -1047,7 +1058,11 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
                                 (agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1
                               }
                               pane={pane}
-                              settled={section === "settled"}
+                              shelf={
+                                section === "settled" || section === "snoozed"
+                                  ? section
+                                  : undefined
+                              }
                               onDetails={(e, p) =>
                                 setAgentDetails({ machine: e.machine.id, pane: p })
                               }
