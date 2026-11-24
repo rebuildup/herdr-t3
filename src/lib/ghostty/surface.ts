@@ -18,7 +18,7 @@ import type { GhosttySession } from "./session.ts";
 import { GhosttyRenderer } from "./renderer.ts";
 import { engineColors, type GhosttyThemeColors } from "./colors.ts";
 import { engineKeyFor } from "./keys.ts";
-import { CompositionTracker, focusReport } from "./inputPolicy.ts";
+import { CompositionTracker, focusReport, mouseReportCell, pointerDragKind, sendsHoverMotion, wheelButton } from "./inputPolicy.ts";
 import type { GhosttyBackgroundImageSpec } from "./renderer.ts";
 import type { GhosttyBackgroundImageFit, GhosttyBackgroundImagePosition } from "../theme.ts";
 import type { EngineModes, EngineMouse, ScreenPoint, ScreenRange } from "../../../shared/ghostty/engine.ts";
@@ -553,13 +553,18 @@ export class GhosttySurface {
       this.fail(error);
       return;
     }
-    if (modes.mouse !== "any") return;
-    const viewportY = pending.point.y - this.session.history().viewportTop;
-    if (viewportY < 0) return;
+    if (!sendsHoverMotion(modes.mouse) || !this.metrics) return;
+    const cell = mouseReportCell(
+      pending.point,
+      this.session.history().viewportTop,
+      this.metrics.cols,
+      this.metrics.rows,
+    );
+    if (!cell) return;
     const mouse: EngineMouse = {
       action: "motion",
-      col: Math.min(pending.point.x, this.metrics.cols - 1),
-      row: Math.min(viewportY, this.metrics.rows - 1),
+      col: cell.col,
+      row: cell.row,
       mods: pending.mods,
     };
     try {
@@ -709,7 +714,7 @@ export class GhosttySurface {
     if (!cell) return;
     const button = event.button === 0 ? "left" : event.button === 1 ? "middle" : "right";
     // shift+drag always selects, as xterm's does; otherwise a program that asked for the mouse gets it
-    if (!event.shiftKey && this.mouseReporting()) {
+    if (pointerDragKind(event.shiftKey, this.mouseReporting()) === "mouse") {
       this.drag = { kind: "mouse", anchor: cell, moved: false, button };
       this.sendMouse("press", button, cell, event);
     } else {
@@ -782,9 +787,15 @@ export class GhosttySurface {
   }
 
   private sendMouse(action: EngineMouse["action"], button: EngineMouse["button"], cell: ScreenPoint, event: PointerEvent | WheelEvent): void {
+    if (!this.metrics) return;
     // the encoder works in viewport cells: the point's screen y maps back through the viewport top
-    const viewportY = cell.y - this.session.history().viewportTop;
-    if (viewportY < 0 || !this.metrics) return;
+    const target = mouseReportCell(
+      cell,
+      this.session.history().viewportTop,
+      this.metrics.cols,
+      this.metrics.rows,
+    );
+    if (!target) return;
     const mods: EngineMouse["mods"] = {};
     if (event.shiftKey) mods.shift = true;
     if (event.ctrlKey) mods.ctrl = true;
@@ -792,8 +803,8 @@ export class GhosttySurface {
     const mouse: EngineMouse = {
       action,
       button,
-      col: Math.min(cell.x, this.metrics.cols - 1),
-      row: Math.min(viewportY, this.metrics.rows - 1),
+      col: target.col,
+      row: target.row,
       mods,
     };
     try {
@@ -816,11 +827,8 @@ export class GhosttySurface {
     if (modes.mouse !== "none") {
       // a program that took the mouse gets the wheel as button 4/5 (and 6/7 sideways) reports
       const cell = this.cellAt(event);
-      if (cell) {
-        const vertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
-        const button = vertical
-          ? (event.deltaY < 0 ? "wheelUp" : "wheelDown")
-          : (event.deltaX < 0 ? "wheelLeft" : "wheelRight");
+      const button = wheelButton(event.deltaX, event.deltaY);
+      if (cell && button) {
         this.sendMouse("press", button, cell, event);
         this.sendMouse("release", button, cell, event);
       }

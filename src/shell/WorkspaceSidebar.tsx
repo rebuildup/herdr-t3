@@ -79,6 +79,7 @@ import {
   type CollapsibleAgentSection,
 } from "./agents";
 import { workspaceTitle } from "~/lib/workspace";
+import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
@@ -557,14 +558,14 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       if (!drag || drag.machine !== machineId || drag.id === wsId) return;
       const from = orderedIds.indexOf(drag.id);
       if (from < 0) return;
-      const to = index + (side === "after" ? 1 : 0);
       // herdr `insert_index` is a pre-removal insertion point (the item
       // lands before the element currently at that index; `length`
       // appends). Adjacent drops are no-ops. Verified on herdr 0.9.5.
-      if (to === from || to === from + 1) return;
+      const insertIndex = moveInsertIndex(from, index, side);
+      if (insertIndex === null) return;
       void callRpc(machineId, "workspace.move", {
         workspace_id: drag.id,
-        insert_index: to,
+        insert_index: insertIndex,
       });
     },
     onDragEnd: () => {

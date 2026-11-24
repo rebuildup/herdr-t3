@@ -154,3 +154,23 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
 - mouse: mode 別に press/motion/release/wheel/any-motion のバイト列
 - 選択: mouse mode ON/OFF × plain drag / Shift+drag の分岐
 - 座標: viewportTop オフセット (scrollback 中) の cell 変換
+
+### 7.1 カバレッジ対応表 (issue #155)
+
+`bun test` に DOM がないため、契約は「DOM 非依存の policy 層
+(`src/lib/ghostty/inputPolicy.ts`) + engine 層 (`session.ts`)」で検証し、
+`GhosttySurface` は DOM event を policy 呼び出しへ写像するだけの薄い
+adapter とする。
+
+| 契約行 | 検証場所 |
+| --- | --- |
+| composition lifecycle / cancel / 連続 / insertText dedupe | `inputPolicy.test.ts` `CompositionTracker` |
+| 変換中 keydown 抑制 | `surface.ts` `keyDown` の `composition.active \|\| event.isComposing` ガード — DOM 結合のため RC 実機 (§3.3) |
+| focus 1004 on/off → CSI I/O | `inputPolicy.test.ts` `focusReport` + `session.test.ts` modes() |
+| mouse mode 別バイト列 (none/x10/normal/button/any、press/release/motion/wheel) | `session.test.ts` mouse-mode matrix + SGR/any-motion tests |
+| 選択 vs report 分岐 (plain/Shift+drag) | `inputPolicy.test.ts` `pointerDragKind` |
+| wheel → wheelUp/Down/Left/Right・scrollback 分岐 | `inputPolicy.test.ts` `wheelButton` (mode 分岐は `surface.wheel`、mouse mode ON/OFF は session matrix で担保) |
+| 座標 viewportTop 変換・scrollback 領域の拒否 | `inputPolicy.test.ts` `mouseReportCell` |
+
+残余 (DOM/実機でしか検証できないもの) は RC チェックリスト
+(`docs/design/verification.md`) に列挙し、未検証を成功扱いしない。
