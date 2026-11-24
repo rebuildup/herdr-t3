@@ -194,7 +194,7 @@ export function WorkspaceHeader() {
             className={cn(
               "flex min-w-0 items-center gap-1 overflow-x-auto [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
               tabsOverflow &&
-                "[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]",
+                "[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]",
             )}
           >
             {tabs.map((t, tabIndex) => {

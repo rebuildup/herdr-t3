@@ -157,12 +157,16 @@ async function resetShelfPrefs() {
   })()`);
 }
 
-/** Clear keyboard focus left behind by Escape-closed menus so later shots
- *  don't capture a stale :focus-visible ring + focus-opened hover card
- *  (issue #204 review — pointer users never see that state). */
-async function blurActiveElement() {
+/** Dismiss an open menu the way a pointer user does: click on neutral
+ *  canvas. Escape is a keyboard close — floating-ui then restores focus
+ *  with focusVisible:true, leaving a :focus-visible ring + focus-opened
+ *  hover card that pointer users never see (issue #204 review). */
+async function dismissMenuByClick() {
+  await mouse("mousePressed", 700, 450, { button: "left", buttons: 1, clickCount: 1 });
+  await mouse("mouseReleased", 700, 450, { button: "left", buttons: 0, clickCount: 1 });
+  await sleep(400);
   await evaluate(`document.activeElement?.blur?.()`);
-  await sleep(300);
+  await sleep(200);
 }
 
 async function main() {
@@ -227,7 +231,9 @@ async function main() {
     const hover = await agentRowCenter(titledRowIndex);
     if (hover) {
       await mouse("mouseMoved", hover.x, hover.y);
-      await sleep(1400);
+      // Tooltip open delay + glass transition — shoot only after settle
+      // so the evidence never catches the card mid-fade (issue #204).
+      await sleep(2200);
       await shot("02-agent-hover-card");
       await mouse("mouseMoved", 700, 450);
       await sleep(300);
@@ -242,9 +248,7 @@ async function main() {
       await sleep(600);
       await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "agent context menu open");
       await shot("03-agent-context-menu");
-      await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-      await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-      await blurActiveElement();
+      await dismissMenuByClick();
     }
 
     // 04 — expand the first bottom shelf (Working/Snoozed/Settled, all
@@ -280,9 +284,7 @@ async function main() {
     await sleep(600);
     await assertDom(`document.querySelectorAll('[role="menu"]').length > 0`, "tab context menu open");
     await shot("05-tab-context-menu");
-    await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-    await blurActiveElement();
+    await dismissMenuByClick();
 
     // 06 — hover an inactive tab to reveal its close button (padding is
     // constant now, so the strip must not shift — issue #204)
@@ -327,18 +329,27 @@ async function main() {
 
     // 07 — light theme agents section + hover card (glass popup coverage).
     // Collapse the shelves first so every harness's brand mark is visible
-    // in the always-visible list for light-theme verification, and scroll
-    // the agents region to its tail so lower idle rows (codex, devin) are
-    // in frame (issue #204 review — evidence gaps).
+    // in the always-visible list for light-theme verification, then align
+    // the agents section under the search hairline so the whole list —
+    // including the lower idle rows (codex, devin) — is in frame
+    // (issue #204 review — evidence gaps).
     await resetShelfPrefs();
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
     await sleep(5000);
+    // Align the agents section just under the search hairline: the tail of
+    // the workspace list stays visible for light-theme row checks while
+    // the always-visible agent list (all harness icons) fits below it.
+    // Cutting at a section boundary avoids the orphaned mid-row fragment
+    // a bottom-scroll produced (issue #204 review).
     await evaluate(`(() => {
       const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
       const viewport = ul?.closest("[data-slot='scroll-area-viewport']");
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
-      return !!viewport;
+      const wrap = ul?.closest("div.border-t");
+      if (!viewport || !wrap) return false;
+      viewport.scrollTop = Math.max(0,
+        viewport.scrollTop + wrap.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 140);
+      return true;
     })()`);
     await sleep(400);
     await shot("07-light-agents");
@@ -379,21 +390,19 @@ async function main() {
     await shot("08-narrow");
     await evaluate(`document.querySelector('[data-sidebar-control] button[aria-label="Toggle main sidebar"]')?.click()`);
     await sleep(800);
-    // Below md the shelves render inline at the end of the agents scroll
-    // list — expand Working and scroll to the tail so shot 09 shows the
-    // mobile shelf rows, not just their collapsed headers (issue #204).
-    await evaluate(`(() => {
-      const h = [...document.querySelectorAll("button[aria-expanded]")]
-        .find((b) => /working/i.test(b.textContent ?? "") && b.offsetParent !== null);
-      if (h && h.getAttribute("aria-expanded") === "false") h.click();
-      return h?.textContent?.trim() ?? null;
-    })()`);
-    await sleep(400);
+    // Shelves stay collapsed here: expanded Working rows would push the
+    // inline shelf region below the fold on a 480px sheet, and the shot
+    // prioritizes Attention + the always-visible list (issue #204 review).
+    // Align the agents section just under the search hairline so shot 09
+    // shows Attention + shelf headers rather than a mid-list cut.
     await evaluate(`(() => {
       const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
       const viewport = ul?.closest("[data-slot='scroll-area-viewport']");
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
-      return !!viewport;
+      const wrap = ul?.closest("div.border-t");
+      if (!viewport || !wrap) return false;
+      viewport.scrollTop = Math.max(0,
+        viewport.scrollTop + wrap.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 40);
+      return true;
     })()`);
     await sleep(400);
     await shot("09-narrow-sheet-agents");

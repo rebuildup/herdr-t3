@@ -4,67 +4,67 @@
       "file": "01-sidebar-agents.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 57098
+      "bytes": 61854
     },
     {
       "file": "02-agent-hover-card.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 63040
+      "bytes": 65862
     },
     {
       "file": "03-agent-context-menu.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 61240
+      "bytes": 64296
     },
     {
       "file": "04-agent-shelf-expanded.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 52604
+      "bytes": 63220
     },
     {
       "file": "05-tab-context-menu.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 57608
+      "bytes": 68078
     },
     {
       "file": "06-tab-hover-close.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 57194
+      "bytes": 69812
     },
     {
       "file": "06b-header-tooltip.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 53580
+      "bytes": 64228
     },
     {
       "file": "07-light-agents.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 52018
+      "bytes": 66122
     },
     {
       "file": "07b-light-hover-card.webp",
       "width": 2880,
       "height": 1800,
-      "bytes": 56948
+      "bytes": 72300
     },
     {
       "file": "08-narrow.webp",
       "width": 960,
       "height": 1600,
-      "bytes": 8282
+      "bytes": 8404
     },
     {
       "file": "09-narrow-sheet-agents.webp",
       "width": 960,
       "height": 1600,
-      "bytes": 29882
+      "bytes": 50890
     }
   ]
 }

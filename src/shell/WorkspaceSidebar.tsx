@@ -910,6 +910,10 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     <>
     <SidebarContent
       fixedHeader={
+        // The hairline separates the sticky search row from scrolled
+        // content — without it a mid-scroll cut leaves rows looking
+        // orphaned directly under the search field (issue #204 review).
+        <>
         <SidebarGroup className="z-[1]">
           <div className="flex items-center gap-1">
             <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
@@ -953,6 +957,8 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             </div>
           </div>
         </SidebarGroup>
+        <div aria-hidden className="h-px w-full bg-sidebar-border/60" />
+        </>
       }
     >
       <SidebarGroup className="flex-1" role="presentation">
