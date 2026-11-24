@@ -1,0 +1,41 @@
+{
+  "ticket": "146",
+  "milestone": "v0.4.0 release candidate — packaged distribution verification",
+  "herdr-t3": "release-0-4-0 @ c7073a6f87be2bdecc644050d92e67323d3b5b78 (version 0.4.0, includes v0.3.1 input fix via release-0-3-1 ancestry)",
+  "distribution_path": "rebuildup/pc-setup components/herdr-t3 (install.sh / install.ps1) — clone at ref, mise --locked, bun install --frozen-lockfile, electron-builder --publish never",
+  "verifications": [
+    {
+      "platform": "macOS (arm64)",
+      "device": "this Mac",
+      "command": "install.sh c7073a6f87be2bdecc644050d92e67323d3b5b78",
+      "artifact": "~/Applications/herdr-t3.app (v0.4.0, com.github.rebuildup.herdr-t3)",
+      "results": [
+        "install: clone+build+stage OK; previous release kept for rollback",
+        "verify.sh --live: installed commit matches, Launch Services/Spotlight resolves bundle id, app process running, herdr socket present, bridge-status.json ok '8 panes, 5 workspaces' via ~/.config/herdr/herdr.sock",
+        "launch: app.ready + window.loaded in herdr-t3.log; sidebar renders 10 rows incl. Agents section and machine groups",
+        "terminal I/O: CDP Input.insertText + Enter reached the pty; 'echo HT3RC_0440' executed and output rendered (pane readback confirmed)",
+        "note: a stale v0.3.0 dev-build artifact at release/mac-arm64/herdr-t3.app (gitignored build output) shadowed Launch Services resolution; moved aside to /tmp, mdfind then resolved the installed app"
+      ]
+    },
+    {
+      "platform": "Windows 11",
+      "device": "device-windows (Tailscale uuu 100.118.123.62:22222, Windows build 10.0.29712.1013)",
+      "command": "install.ps1 -Ref c7073a6f87be2bdecc644050d92e67323d3b5b78",
+      "artifact": "%LOCALAPPDATA%\\herdr-t3\\releases\\c7073a6...\\release\\win-unpacked\\herdr-t3.exe + Start Menu shortcut",
+      "results": [
+        "install: clone+build+win-unpacked OK; current -> c7073a6",
+        "verify.ps1: installed commit matches, Start Menu shortcut registered",
+        "launch.ps1 + verify.ps1 -Live: app processes running and Responding, MainWindowTitle 'herdr-t3'",
+        "bridge-status.json ok:true '2 panes, 2 workspaces' via named-pipe endpoint C:\\Users\\rebui\\AppData\\Roaming\\herdr\\herdr.sock — named-pipe connectivity works in v0.4.0",
+        "log: app.ready/window.loaded v0.4.0 commit c7073a6; one benign ResizeObserver loop warning",
+        "note: windows-wirt alias is stale; current device path is ~/.ssh/devices.conf device-windows/rex-windows (dotfiles devices, Infisical /devices)"
+      ]
+    }
+  ],
+  "artifact_integrity": "both artifacts record commit c7073a6 (= frozen release SHA); bundle id / executable / shortcut verified by pc-setup verify scripts",
+  "known_limitations": [
+    "Windows terminal I/O was not driven through the GUI over SSH; input path is the shared renderer verified on macOS, herdr-side pty is platform-owned",
+    "Windows IME candidate window, Nerd Font glyphs, login-start registry, real-mouse window drag remain carried-over known-unverified items from v0.3.0",
+    "GUI-driven Windows acceptance (clicks/keystrokes) still outstanding — tracked under #6/#22"
+  ]
+}
