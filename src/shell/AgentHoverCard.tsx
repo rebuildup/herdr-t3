@@ -1,13 +1,12 @@
 /*
  * Agent row hover details (issue #154, T3 `ThreadHoverCard`): a glass
- * tooltip card whose title is the work target and whose rows are the
- * herdr-sourced facts the row itself truncates — status, agent identity,
- * workspace/tab/machine location, working directory and pane title.
- * Nothing here is derived state: every field comes from AgentInfo /
- * PaneInfo as herdr reported it.
+ * tooltip card whose title is the pane's terminal title and whose rows
+ * are the herdr-sourced facts the row itself truncates — status, agent
+ * identity with provider artwork, workspace/tab/machine location,
+ * working directory and pane id. Nothing here is derived state: every
+ * field comes from AgentInfo / PaneInfo as herdr reported it.
  */
 import {
-  BotIcon,
   FolderOpenIcon,
   MapPinIcon,
   SquareTerminalIcon,
@@ -15,7 +14,9 @@ import {
 import type { ReactNode } from "react";
 
 import type { PaneInfo } from "../../shared/protocol";
+import { AgentProviderIcon } from "~/components/agentIcons";
 import { statusIcon } from "~/components/statusIcons";
+import { paneTitle } from "~/lib/workspace";
 import {
   agentAuxStateLabels,
   agentDisplayName,
@@ -45,7 +46,11 @@ export function AgentHoverCard({
   pane: PaneInfo | undefined;
 }) {
   const { machine, agent } = entry;
-  const title = agentWorkTarget(agent) ?? agentDisplayName(agent);
+  // Title is the live pane title when the pane record is available
+  // (issue #199); agent records can lag the OSC title herdr last saw.
+  const title = pane
+    ? paneTitle(pane)
+    : (agentWorkTarget(agent) ?? agentDisplayName(agent));
   const displayName = agentDisplayName(agent);
   const stateLabel = agentStateLabel(agent);
   const auxLabels = agentAuxStateLabels(agent);
@@ -54,23 +59,11 @@ export function AgentHoverCard({
     .join(" · ");
   const directory =
     agent.foreground_cwd ?? agent.cwd ?? pane?.foreground_cwd ?? pane?.cwd ?? null;
-  const paneTitle =
-    pane?.terminal_title_stripped ??
-    pane?.terminal_title ??
-    pane?.title ??
-    pane?.label ??
-    null;
   // Agent identity dedupes against the title (issue #165): when the pane
   // title already is the agent name, "pi · pi" adds nothing.
   const agentParts = [displayName];
   if (agent.agent && agent.agent !== displayName) agentParts.push(agent.agent);
   const agentLabel = agentParts.join(" · ");
-  // The pane row always carries the pane id — the disambiguator the
-  // truncated row cannot show — plus the pane title when it adds info.
-  const paneParts = [
-    paneTitle && paneTitle !== title && paneTitle !== displayName ? paneTitle : null,
-    agent.pane_id,
-  ].filter((p): p is string => p !== null);
 
   return (
     <div className="flex min-w-0 max-w-80 flex-col gap-2 px-1 py-2">
@@ -83,11 +76,17 @@ export function AgentHoverCard({
           {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
         </DetailRow>
         {agentLabel !== title ? (
-          <DetailRow icon={<BotIcon />}>{agentLabel}</DetailRow>
+          <DetailRow
+            icon={
+              <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
+            }
+          >
+            {agentLabel}
+          </DetailRow>
         ) : null}
         {location ? <DetailRow icon={<MapPinIcon />}>{location}</DetailRow> : null}
         {directory ? <DetailRow icon={<FolderOpenIcon />}>{directory}</DetailRow> : null}
-        <DetailRow icon={<SquareTerminalIcon />}>{paneParts.join(" · ")}</DetailRow>
+        <DetailRow icon={<SquareTerminalIcon />}>{agent.pane_id}</DetailRow>
       </div>
     </div>
   );
