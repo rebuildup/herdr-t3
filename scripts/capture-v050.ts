@@ -319,7 +319,10 @@ async function main() {
       let tipOpen = false;
       for (let i = 0; i < 12 && !tipOpen; i++) {
         await sleep(400);
-        tipOpen = !!(await evaluate(`!!document.querySelector('[data-slot="tooltip-popup"]')`));
+        // Scope to THIS button's tooltip text — an unscoped
+        // [data-slot=tooltip-popup] query also matches lingering agent
+        // hover-card popups and reports a false positive.
+        tipOpen = !!(await evaluate(`[...document.querySelectorAll('[data-slot="tooltip-popup"]')].some((p) => (p.textContent ?? "").includes("Split right"))`));
       }
       console.log(`header tooltip open: ${tipOpen ? "OK" : "FAILED"}`);
       await shot("06b-header-tooltip");
@@ -337,18 +340,20 @@ async function main() {
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
     await sleep(5000);
-    // Align the agents section just under the search hairline: the tail of
-    // the workspace list stays visible for light-theme row checks while
-    // the always-visible agent list (all harness icons) fits below it.
-    // Cutting at a section boundary avoids the orphaned mid-row fragment
-    // a bottom-scroll produced (issue #204 review).
+    // Align the LAST workspace row to the top of the scroll viewport:
+    // ws-b stays fully visible for light-theme row checks, the cut
+    // lands on a row boundary (no orphaned mid-row fragment), and the
+    // always-visible agent list — all harness icons — fits below it.
     await evaluate(`(() => {
       const ul = [...document.querySelectorAll("ul")].find((u) => u.closest("div.border-t"));
       const viewport = ul?.closest("[data-slot='scroll-area-viewport']");
       const wrap = ul?.closest("div.border-t");
       if (!viewport || !wrap) return false;
-      viewport.scrollTop = Math.max(0,
-        viewport.scrollTop + wrap.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 140);
+      const wsRows = [...viewport.querySelectorAll("[data-sidebar-row]")]
+        .filter((r) => !wrap.contains(r));
+      const last = wsRows.at(-1);
+      if (!last) return false;
+      viewport.scrollTop += last.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
       return true;
     })()`);
     await sleep(400);
