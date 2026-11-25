@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PluginService, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
+import { localPluginHost, PluginService, PLUGIN_ENV_SCRUB, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
 import { HerdrError } from "./herdr.ts";
 
 /** Scripted host: each exec pops the next outcome for its argv match. */
@@ -165,7 +165,7 @@ describe("PluginService.call", () => {
     ).rejects.toMatchObject({ code: "plugin_bad_output" });
   });
 
-  test("contract calls scrub herdr pane env vars via envRemove (issue #228)", async () => {
+  test("every exec kind scrubs ambient herdr targeting env (issues #228/#270)", async () => {
     const host = inboxHost([
       {
         match: (a) => a[3] === "settle",
@@ -177,17 +177,55 @@ describe("PluginService.call", () => {
       command: "settle",
       args: ["w1:p1"],
     });
-    const index = host.calls.findIndex((c) => c[3] === "settle");
-    expect(index).toBeGreaterThanOrEqual(0);
-    // Plugin CLIs resolve the pane from HERDR_PANE_ID /
-    // HERDR_PLUGIN_CONTEXT_JSON when env is present — and for
-    // branch/upstream env beats the positional — so every contract call
-    // must strip them or a server running inside a herdr pane would
-    // silently target the wrong pane.
-    expect(host.options[index]?.envRemove).toEqual([
-      "HERDR_PANE_ID",
-      "HERDR_PLUGIN_CONTEXT_JSON",
-    ]);
+    // Plugin CLIs resolve the socket as HERDR_SOCKET_PATH >
+    // --session/HERDR_SESSION > default (upstream resolveSocketPath), so
+    // an ambient HERDR_SOCKET_PATH would override even the explicit
+    // --session appended for named sessions — and HERDR_PANE_ID /
+    // HERDR_PLUGIN_CONTEXT_JSON would hijack pane selection. Discovery
+    // (`herdr plugin list` resolves a socket too), capability probes and
+    // contract calls must all carry the same scrub list.
+    expect(host.calls).toHaveLength(3);
+    for (const options of host.options) {
+      expect(options.envRemove).toEqual(PLUGIN_ENV_SCRUB);
+    }
+    expect(host.options[0]?.envRemove).toContain("HERDR_SOCKET_PATH");
+    expect(host.options[0]?.envRemove).toContain("HERDR_SESSION");
+    expect(host.options[0]?.envRemove).toContain("HERDR_PANE_ID");
+    expect(host.options[0]?.envRemove).toContain("HERDR_PLUGIN_CONTEXT_JSON");
+  });
+
+  test("localPluginHost removes scrubbed vars from the child environment", async () => {
+    const keys = ["HERDR_SOCKET_PATH", "HERDR_SESSION", "HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
+    const saved = new Map<string, string | undefined>();
+    for (const key of keys) {
+      saved.set(key, process.env[key]);
+      process.env[key] = "ambient-value";
+    }
+    process.env["HERDR_T3_KEEP_ME"] = "1";
+    try {
+      const outcome = await localPluginHost().exec(
+        [
+          process.execPath,
+          "-e",
+          "console.log(JSON.stringify({socket:process.env.HERDR_SOCKET_PATH??null,session:process.env.HERDR_SESSION??null,pane:process.env.HERDR_PANE_ID??null,ctx:process.env.HERDR_PLUGIN_CONTEXT_JSON??null,keep:process.env.HERDR_T3_KEEP_ME??null}))",
+        ],
+        { timeoutMs: 15_000, envRemove: PLUGIN_ENV_SCRUB },
+      );
+      expect(outcome.code).toBe(0);
+      expect(JSON.parse(outcome.stdout)).toEqual({
+        socket: null,
+        session: null,
+        pane: null,
+        ctx: null,
+        keep: "1",
+      });
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      delete process.env["HERDR_T3_KEEP_ME"];
+    }
   });
 
   test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {
