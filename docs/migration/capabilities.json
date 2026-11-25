@@ -73,7 +73,8 @@
       "title": "Settings and persistence",
       "spec": "docs/migration/contracts/settings-persistence.md",
       "oracle": "conformance",
-      "summary": "Single-owner settings keys, drafts, userData profile, legacy overlay migration."
+      "summary": "Single-owner settings keys, drafts, userData profile, legacy overlay migration.",
+      "evidence": ["docs/migration/persistence-compatibility.md", "src/lib/persistence-compat.test.ts", "src/lib/settings.test.ts", "docs/design/evidence/90/manifest.json"]
     },
     {
       "id": "ui-shell",
