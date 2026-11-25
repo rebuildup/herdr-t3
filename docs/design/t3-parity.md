@@ -49,7 +49,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 | Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @c8460283 (ADR-0014): registry UI connected (#252, capability-gated per host) |
-| Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI → #253; auto triggers upstream-gated (herdr-plugins#60) |
+| Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253); auto triggers upstream-gated (herdr-plugins#60) |
 | Checkpoints | [plugin]/blocked | no published contract at @c8460283 (herdr-plugins#4); #221 remainder |
 
 ## Issues / pull requests
