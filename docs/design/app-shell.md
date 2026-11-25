@@ -35,10 +35,11 @@ persisted width, `SidebarRail` double-click resets width
   otherwise. Rows carry status icon, title, trailing meta; hover reveals
   actions; right-click opens a context menu; keyboard navigation
   (arrow keys / type-ahead) exists.
-- **Agents section (v0.5.0)** — a sectioned work list below the workspace
-  list, not a fixed enumeration: Attention / Working / Done (collapsed
-  shelf) / Idle sections over herdr `AgentInfo`, two-line rows per
-  `info-architecture.md` §6. It replaces the flat status-sorted list
+- **Agents section (v0.5.0, bottom-dock since #211)** — every agent
+  section is a collapsible shelf docked at the sidebar bottom
+  (Attention / Done / Working / Idle / Snoozed / Settled, top-to-bottom;
+  Attention expanded by default) over herdr `AgentInfo`, two-line rows
+  per `info-architecture.md` §6. It replaces the flat status-sorted list
   shipped in v0.4.0.
 - **Footer** — utility icon row: Settings plus domain utilities (T3:
   Pull requests, Issues, Usage). Transient notices (undo, updates) sit

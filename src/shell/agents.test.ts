@@ -7,6 +7,8 @@ import type {
   WorkspaceInfo,
 } from "../../shared/protocol";
 import {
+  AGENT_SECTIONS,
+  COLLAPSIBLE_AGENT_SECTIONS,
   agentAuxStateLabels,
   agentDisplayName,
   agentOrganizeKey,
@@ -45,6 +47,22 @@ function entry(agentInfo: AgentInfo): AgentListEntry {
     tabLabel: null,
   };
 }
+
+describe("agent shelves (issue #211)", () => {
+  test("every section is a collapsible shelf, ordered Attention -> Settled", () => {
+    // Top->bottom; counted from the bottom it reads Idle, Working, Done,
+    // Attention — the reverse of herdr's status_priority.
+    expect(AGENT_SECTIONS).toEqual([
+      "attention",
+      "done",
+      "working",
+      "idle",
+      "snoozed",
+      "settled",
+    ]);
+    expect(COLLAPSIBLE_AGENT_SECTIONS).toEqual(AGENT_SECTIONS);
+  });
+});
 
 describe("agentSection", () => {
   test("maps herdr statuses onto T3-style shelves", () => {
