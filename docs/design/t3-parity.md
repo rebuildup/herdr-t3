@@ -50,7 +50,7 @@ source of truth. Each feature is classified by where its data comes from:
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 | Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @3b28349 (ADR-0014/0015/0019): registry UI connected (#252, capability-gated per host) |
 | Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh); auto triggers upstream-gated (herdr-plugins#60) |
-| Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @4aab1a7 (ADR-0016): list/show/diff/create/delete surface connected (#260, capability-gated per host); restore/auto-capture/GC upstream-gated (herdr-plugins#73–#75) |
+| Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @c8dc3b3 (ADR-0016/0017): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); auto-capture/GC upstream-gated (herdr-plugins#74–#75) |
 
 ## Issues / pull requests
 
@@ -90,7 +90,7 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    #227 reads / #228 mutations / #229 forge PRs landed on the pinned
    contract), projects registry + scripts via `herdr-plugins.projects`
    (#252/#253 on the @3b28349 pin), checkpoints via
-   `herdr-plugins.checkpoints` (#260 on the @4aab1a7 pin), settings sections
+   `herdr-plugins.checkpoints` (#260/#264 on the @c8dc3b3 pin), settings sections
    that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178

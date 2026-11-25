@@ -1,26 +1,34 @@
 /*
- * Plugin-backed checkpoints store (ADR-0011, ADR-0016; issue #260).
+ * Plugin-backed checkpoints store (ADR-0011, ADR-0016/ADR-0017; issues
+ * #260/#264).
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
- * pinned at rebuildup/herdr-plugins@4aab1a7 (release-0-4-0). The
- * contract doc is docs/migration/contracts/plugin-checkpoints.md.
+ * pinned at rebuildup/herdr-plugins@c8dc3b3 (release-0-4-0, re-pin per
+ * ADR-0017). The contract doc is docs/migration/contracts/plugin-checkpoints.md.
  *
- * Commands are flat words (`create`, `list`, `show`, `diff`, `delete`)
- * carried as the `plugin_call` command; `capability.commands`
- * advertises the same words and `mutation_commands` carries `create`
- * and `delete`. `create` resolves its repo either from an explicit
- * `--repo PATH` or from a pane id positional (the focused pane the
- * dialog was opened from); `list --repo` filters by canonical repo
- * root.
+ * Commands are flat words (`create`, `list`, `show`, `diff`, `plan`,
+ * `restore`, `delete`) carried as the `plugin_call` command;
+ * `capability.commands` advertises the same words and
+ * `mutation_commands` carries `create`, `delete` and `restore`.
+ * `create` resolves its repo either from an explicit `--repo PATH` or
+ * from a pane id positional (the focused pane the dialog was opened
+ * from); `list --repo` filters by canonical repo root. `plan` is a
+ * read-only restore preview; `restore` defaults to the checkpoint's
+ * recorded `repo_root` (`--repo` may select another worktree of the
+ * SAME repository only), refuses shared worktrees and unreachable
+ * sessions unless `--force`, and always captures a mandatory
+ * `pre-restore:<id>` checkpoint before mutating.
  *
- * Honest-state rules (ADR-0016): `show` reports `ref.exists:false`
- * while still returning the state entry — the ref may have been
- * deleted out-of-band and the client must render that, never drop the
- * row. `delete` is idempotent: `ref_existed:false` plus `warnings`
- * when the hidden ref was already gone or the repo unreachable.
- * v1 has no restore/auto-capture/GC — those stay upstream (herdr-plugins
- * #73–#75) and are not offered here.
+ * Honest-state rules (ADR-0016/ADR-0017): `show` reports
+ * `ref.exists:false` while still returning the state entry — the ref
+ * may have been deleted out-of-band and the client must render that,
+ * never drop the row. `delete` is idempotent: `ref_existed:false`
+ * plus `warnings` when the hidden ref was already gone or the repo
+ * unreachable. Restore failures in the mutation phase carry
+ * `pre_restore_*` error fields (the recovery checkpoint) — surfaced
+ * verbatim, never swallowed. v1 still has no auto-capture/GC — those
+ * stay upstream (herdr-plugins #74–#75) and are not offered here.
  */
 import { pluginCall } from "../lib/api";
 
@@ -44,7 +52,18 @@ export type CheckpointsUnavailableReason =
  */
 export type CheckpointsError =
   | { kind: "unavailable"; reason: CheckpointsUnavailableReason; detail: string }
-  | { kind: "plugin"; code: string; detail: string };
+  | {
+      kind: "plugin";
+      code: string;
+      detail: string;
+      /**
+       * Bounded contract error extras forwarded by the bridge (issue
+       * #257): `shared_worktree` carries `panes`, restore mutation
+       * failures carry `pre_restore_checkpoint_id`/`pre_restore_ref`/
+       * `pre_restore_commit`. Absent for older plugins/servers.
+       */
+      fields?: Record<string, unknown>;
+    };
 
 /** Plugin `error.kind` values from the checkpoints-v1 contract. */
 const CHECKPOINTS_ERROR_KINDS = new Set([
@@ -59,6 +78,16 @@ const CHECKPOINTS_ERROR_KINDS = new Set([
   // Pane resolution (create via pane id).
   "pane_not_found",
   "no_pane_cwd",
+  // plan/restore target resolution and safety gates (contract v1 rev 2).
+  "repo_mismatch",
+  "checkpoint_ref_missing",
+  "shared_worktree",
+  "session_unreachable",
+  // Restore mutation/verify failures (carry pre_restore_* fields).
+  "restore_failed",
+  "clean_failed",
+  "clean_incomplete",
+  "restore_verify_failed",
   // Shared git-core spawn failures.
   "git_missing",
   "timeout",
@@ -89,11 +118,25 @@ export function classifyCheckpointsError(error: unknown): CheckpointsError {
     case "connect_failed":
     case "unreachable":
       return { kind: "unavailable", reason: "unreachable", detail };
-    default:
+    default: {
+      // Contract extras (panes, pre_restore_*) arrive as ApiError.fields;
+      // pass them through so the UI can render pane ids and the
+      // recovery checkpoint without re-parsing the message.
+      const fields = (error as { fields?: unknown })?.fields;
+      const extras =
+        typeof fields === "object" && fields !== null && !Array.isArray(fields)
+          ? (fields as Record<string, unknown>)
+          : undefined;
       if (CHECKPOINTS_ERROR_KINDS.has(code)) {
-        return { kind: "plugin", code, detail };
+        return { kind: "plugin", code, detail, ...(extras ? { fields: extras } : {}) };
       }
-      return { kind: "plugin", code: "plugin_error", detail };
+      return {
+        kind: "plugin",
+        code: "plugin_error",
+        detail,
+        ...(extras ? { fields: extras } : {}),
+      };
+    }
   }
 }
 
@@ -453,6 +496,130 @@ export function checkpointDeleteFromDoc(
   };
 }
 
+/**
+ * `plan` document: read-only preview of what `restore` would do.
+ * `untracked_to_delete` counts files `git clean -fd` passes would
+ * PERMANENTLY delete — the UI must label that explicitly. `commit` is
+ * the live ref target when the ref exists, else the recorded commit
+ * (with a `warnings` entry); `ref.exists:false` stays honest.
+ */
+export interface CheckpointPlanResult {
+  checkpoint: CheckpointEntry;
+  repo_root: string | null;
+  commit: string | null;
+  ref: CheckpointRefStatus | null;
+  files_to_change: number;
+  untracked_to_delete: number;
+  already_matches: boolean;
+  warnings: string[];
+  generated_at: string | null;
+}
+
+export function checkpointPlanFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointPlanResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "plan") return null;
+  const checkpoint = checkpointEntryFromDoc(doc["checkpoint"]);
+  if (checkpoint === null) return null;
+  const rawPlan = doc["plan"];
+  if (!isRecord(rawPlan)) return null;
+  const filesToChange = num(rawPlan["files_to_change"]);
+  const untrackedToDelete = num(rawPlan["untracked_to_delete"]);
+  if (filesToChange === null || untrackedToDelete === null) return null;
+  let ref: CheckpointRefStatus | null = null;
+  const rawRef = doc["ref"];
+  if (isRecord(rawRef)) {
+    const name = str(rawRef["name"]);
+    if (name !== null) {
+      ref = { name, exists: rawRef["exists"] === true, oid: str(rawRef["oid"]) };
+    }
+  }
+  return {
+    checkpoint,
+    repo_root: str(doc["repo_root"]),
+    commit: str(doc["commit"]),
+    ref,
+    files_to_change: filesToChange,
+    untracked_to_delete: untrackedToDelete,
+    already_matches: rawPlan["already_matches"] === true,
+    warnings: strArray(doc["warnings"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/** `restore` isolation modes reported by the plugin. */
+export type CheckpointRestoreIsolation =
+  | "isolated"
+  | "single_pane"
+  | "no_panes"
+  | "forced";
+
+const RESTORE_ISOLATIONS = new Set<CheckpointRestoreIsolation>([
+  "isolated",
+  "single_pane",
+  "no_panes",
+  "forced",
+]);
+
+/**
+ * `restore` document. `pre_restore` is the mandatory backup checkpoint
+ * captured before any mutation — the recovery path for every later
+ * failure; `isolation` reports how the shared-worktree check resolved
+ * (`forced` only via explicit `--force`).
+ */
+export interface CheckpointRestoreResult {
+  checkpoint: CheckpointEntry;
+  repo_root: string | null;
+  restored_commit: string | null;
+  pre_restore: {
+    id: string;
+    ref: string;
+    commit: string;
+    label: string | null;
+  } | null;
+  isolation: CheckpointRestoreIsolation | null;
+  sharing_panes: string[];
+  clean_passes: number | null;
+  warnings: string[];
+  generated_at: string | null;
+}
+
+export function checkpointRestoreFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointRestoreResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "restore" || doc["ok"] !== true) return null;
+  const checkpoint = checkpointEntryFromDoc(doc["checkpoint"]);
+  if (checkpoint === null) return null;
+  let preRestore: CheckpointRestoreResult["pre_restore"] = null;
+  const rawPre = doc["pre_restore"];
+  if (isRecord(rawPre)) {
+    const id = str(rawPre["id"]);
+    const ref = str(rawPre["ref"]);
+    const commit = str(rawPre["commit"]);
+    if (id !== null && ref !== null && commit !== null) {
+      preRestore = { id, ref, commit, label: str(rawPre["label"]) };
+    }
+  }
+  const isolationRaw = str(doc["isolation"]);
+  const isolation =
+    isolationRaw !== null && RESTORE_ISOLATIONS.has(isolationRaw as CheckpointRestoreIsolation)
+      ? (isolationRaw as CheckpointRestoreIsolation)
+      : null;
+  return {
+    checkpoint,
+    repo_root: str(doc["repo_root"]),
+    restored_commit: str(doc["restored_commit"]),
+    pre_restore: preRestore,
+    isolation,
+    sharing_panes: strArray(doc["sharing_panes"]),
+    clean_passes: num(doc["clean_passes"]),
+    warnings: strArray(doc["warnings"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
 /* ------------------------- argv builders (pure) ------------------------ */
 
 /**
@@ -515,6 +682,36 @@ export function checkpointCreateArgs(
 
 export function checkpointDeleteArgs(id: string): string[] {
   return [id];
+}
+
+/**
+ * `plan <id> [--repo PATH]` — read-only; `--repo` may select another
+ * worktree of the SAME repository (plugin enforces `repo_mismatch`).
+ */
+export function checkpointPlanArgs(
+  id: string,
+  options: { repo?: string | undefined } = {},
+): string[] {
+  const args = [id];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  return args;
+}
+
+/**
+ * `restore <id> [--repo PATH] [--force]` — mutation; `--force` is only
+ * ever appended after an explicit secondary user action (the UI offers
+ * it solely in response to `shared_worktree`/`session_unreachable`).
+ */
+export function checkpointRestoreArgs(
+  id: string,
+  options: { repo?: string | undefined; force?: boolean | undefined } = {},
+): string[] {
+  const args = [id];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  if (options.force === true) args.push("--force");
+  return args;
 }
 
 /* ------------------------------ fetchers -------------------------------- */
@@ -616,5 +813,45 @@ export async function deleteCheckpoint(
   });
   const result = checkpointDeleteFromDoc(doc);
   if (result === null) throw badOutput("delete");
+  return result;
+}
+
+/**
+ * `plan <id> [--repo PATH]` — read-only preview of what `restore`
+ * would change; never mutates and never touches the herdr session.
+ */
+export async function fetchCheckpointPlan(
+  machine: string,
+  id: string,
+  options: { repo?: string | undefined } = {},
+): Promise<CheckpointPlanResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "plan",
+    args: checkpointPlanArgs(id, options),
+  });
+  const result = checkpointPlanFromDoc(doc);
+  if (result === null) throw badOutput("plan");
+  return result;
+}
+
+/**
+ * `restore <id> [--repo PATH] [--force]` — mutation; restores the
+ * checkpoint tree into the target worktree after the plugin's
+ * isolation check and mandatory pre-restore checkpoint. `force` must
+ * only be set from an explicit user action; never implicit.
+ */
+export async function restoreCheckpoint(
+  machine: string,
+  id: string,
+  options: { repo?: string | undefined; force?: boolean | undefined } = {},
+): Promise<CheckpointRestoreResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "restore",
+    args: checkpointRestoreArgs(id, options),
+  });
+  const result = checkpointRestoreFromDoc(doc);
+  if (result === null) throw badOutput("restore");
   return result;
 }
