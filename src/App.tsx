@@ -40,7 +40,11 @@ export default function App() {
     // for agent blocked/done transitions. The first snapshot per machine
     // is a baseline and never notifies.
     const previous = new Map<string, SessionSnapshot>();
-    const offAttention = onSnapshot((snapshot, machine) => {
+    const offAttention = onSnapshot((snapshot, machine, probe) => {
+      // Probe pushes (issue #212) are list data, not a live session: they
+      // neither notify nor advance the baseline. The first live snapshot
+      // still establishes the baseline.
+      if (probe) return;
       observeSnapshotAttention(machine, previous.get(machine) ?? null, snapshot, {
         focusAgent: (m, workspaceId, paneId) => {
           selectWorkspace(m, workspaceId);

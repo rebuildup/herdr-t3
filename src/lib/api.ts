@@ -54,8 +54,8 @@ function waitForPushedSnapshot(machine: string): Promise<SessionSnapshot> {
       off();
       reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
     }, 30_000);
-    const off = onSnapshot((snapshot, m) => {
-      if (m !== machine) return;
+    const off = onSnapshot((snapshot, m, probe) => {
+      if (m !== machine || probe) return;
       clearTimeout(timer);
       off();
       resolve(snapshot);
@@ -94,7 +94,7 @@ export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<Ses
   return waitForPushedSnapshot(machine);
 }
 
-export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => void;
+export type SnapshotListener = (snapshot: SessionSnapshot, machine: string, probe?: boolean) => void;
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
 export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
@@ -127,7 +127,11 @@ function handleFrame(frame: ServerFrame): void {
       const machine = frame.machine ?? LOCAL_MACHINE;
       // A pushed local snapshot proves the local bridge reached herdr again.
       if (desktopBridge() && machine === LOCAL_MACHINE) notifyStatus("open");
-      for (const listener of wsListeners) listener(frame.snapshot, machine);
+      // Probe snapshots (issue #212) are display data for machines without a
+      // live session; fetchSession callers waiting for a real session must
+      // not resolve on them.
+      const probe = frame.type === "snapshot" && frame.probe === true;
+      for (const listener of wsListeners) listener(frame.snapshot, machine, probe || undefined);
       return;
     }
     case "rpc_result": {

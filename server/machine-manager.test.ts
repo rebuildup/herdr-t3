@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ClientFrame, ServerFrame } from "../shared/protocol.ts";
+import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isClientFrame } from "../shared/protocol.ts";
 import { MachineManager } from "./machine-manager.ts";
 import type { SavedMachine } from "./machines.ts";
@@ -36,7 +36,11 @@ interface Harness {
   waitResult(id: string): Promise<Extract<ServerFrame, { type: "rpc_result" }>>;
 }
 
-function harness(saved: SavedMachine[], herdrOutput = ""): Harness {
+function harness(
+  saved: SavedMachine[],
+  herdrOutput = "",
+  probeFetch?: (machine: string) => Promise<SessionSnapshot>,
+): Harness {
   isolateHerdr();
   const frames: ServerFrame[] = [];
   const herdrCalls: string[][] = [];
@@ -51,6 +55,7 @@ function harness(saved: SavedMachine[], herdrOutput = ""): Harness {
       herdrCalls.push(args);
       return Promise.resolve(herdrOutput);
     },
+    ...(probeFetch ? { probeFetch } : {}),
   });
   return {
     manager,
@@ -117,6 +122,78 @@ describe("machine_remove", () => {
     const result = await h.waitResult("r2");
     expect(result.ok).toBe(false);
     expect(h.herdrCalls).toHaveLength(0);
+    h.manager.close();
+  });
+});
+
+describe("probe snapshot distribution (issue #212)", () => {
+  function probeSnapshot(label: string): SessionSnapshot {
+    return {
+      agents: [],
+      layouts: [],
+      panes: [],
+      protocol: 22,
+      tabs: [],
+      version: "test",
+      workspaces: [
+        {
+          active_tab_id: "",
+          agent_status: "idle",
+          focused: false,
+          label,
+          number: 1,
+          pane_count: 0,
+          tab_count: 0,
+          workspace_id: "w1",
+        },
+      ],
+    };
+  }
+
+  async function waitForFrame(frames: ServerFrame[], predicate: (f: ServerFrame) => boolean): Promise<ServerFrame> {
+    for (let i = 0; i < 200; i++) {
+      const found = frames.find(predicate);
+      if (found) return found;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("timed out waiting for frame");
+  }
+
+  const probeFrames = (frames: ServerFrame[]) =>
+    frames.filter((f): f is Extract<ServerFrame, { type: "snapshot" }> => f.type === "snapshot" && f.probe === true);
+
+  test("refresh probes a sessionless ssh machine and pushes a tagged snapshot", async () => {
+    const h = harness([...SAVED], "", async () => probeSnapshot("remote-ws"));
+    await h.manager.refresh();
+    const frame = await waitForFrame(h.frames, (f) => f.type === "snapshot" && f.machine === "m1");
+    expect(frame.type === "snapshot" && frame.probe).toBe(true);
+    expect(frame.type === "snapshot" && frame.snapshot.workspaces[0]?.label).toBe("remote-ws");
+    h.manager.close();
+  });
+
+  test("an unchanged probe result is not re-pushed; a changed one is", async () => {
+    let label = "a";
+    const h = harness([...SAVED], "", async () => probeSnapshot(label));
+    await h.manager.refresh();
+    await waitForFrame(h.frames, (f) => f.type === "snapshot" && f.machine === "m1");
+    await h.manager.refresh();
+    // Give the second probe time to finish; dedupe must keep it silent.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(probeFrames(h.frames)).toHaveLength(1);
+    label = "b";
+    await h.manager.refresh();
+    await waitForFrame(h.frames, (f) => f.type === "snapshot" && f.machine === "m1" && f.snapshot.workspaces[0]?.label === "b");
+    expect(probeFrames(h.frames)).toHaveLength(2);
+    h.manager.close();
+  });
+
+  test("a failed probe reports status without pushing a snapshot", async () => {
+    const h = harness([...SAVED], "", async () => {
+      throw new Error("Connection timed out");
+    });
+    await h.manager.refresh();
+    await waitForFrame(h.frames, (f) => f.type === "machine_status" && f.machine.id === "m1" && f.machine.status === "unreachable");
+    expect(probeFrames(h.frames)).toHaveLength(0);
     h.manager.close();
   });
 });
