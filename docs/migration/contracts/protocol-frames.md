@@ -41,6 +41,21 @@ Version: 1. Scope: the wire contract between bridge and UI —
   `docs/upstream.md`). Frame decode must reject truncated input and skip
   unknown variants without mis-framing the stream.
 
+## Malformed input (adapter boundary)
+
+- Both adapters reject non-object frames/snapshots and server frames
+  whose envelope fails the contract shape check; the accept/reject
+  decision is identical, error text differs.
+- The Rust typed codec is intentionally stricter on *wrong-typed
+  declared fields* inside otherwise-valid payloads (e.g. a
+  `machine_status.machine.id` that is not a string, or snapshot
+  `workspaces` entries with a non-string `workspace_id`): serde decode
+  fails where the TS bare cast tolerates and echoes the value. This is
+  a documented strengthening (#275), not a behavioral regression —
+  real payloads come from herdr's typed encoder. Differential scenarios
+  therefore cover malformed envelopes and well-formed payloads, and
+  exclude wrong-typed declared fields (covered by Rust unit tests).
+
 ## Errors
 
 - `rpc_result.ok=false` carries `{code,message}`; codes are stable
