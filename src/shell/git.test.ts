@@ -137,7 +137,7 @@ describe("classifyGitError", () => {
   });
 });
 
-describe("gitDiffFromDoc (herdr-plugins.git/v1 @62309b9c)", () => {
+describe("gitDiffFromDoc (herdr-plugins.git/v1 @d057830)", () => {
   test("reads the 0.2.x output fields", () => {
     const diff = gitDiffFromDoc({
       contract: "herdr-plugins.git/v1",
@@ -445,7 +445,7 @@ describe("gitMutationFromDoc (issue #228)", () => {
   });
 });
 
-describe("mutation argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
+describe("mutation argv builders (herdr-plugins.git/v1 @d057830)", () => {
   test("stage/unstage: pane first, --all or repeated --path", () => {
     expect(gitStageArgs("w1:p1", { all: true })).toEqual(["w1:p1", "--all"]);
     expect(gitStageArgs("w1:p1", { paths: ["a.ts", "b.ts"] })).toEqual([
@@ -528,6 +528,25 @@ describe("mutation argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
     // No plain --force exists in the contract.
     expect(gitPushArgs("w1:p1", { remote: "origin" })).toEqual(["push", "w1:p1", "origin"]);
   });
+
+  test("push: a refspec without a remote is a client-side usage error", () => {
+    // `[remote] [refspec]` are positional — emitting the refspec alone
+    // would bind it as the remote plugin-side.
+    expect(() => gitPushArgs("w1:p1", { refspec: "HEAD:main" })).toThrow(
+      /refspec requires a remote/,
+    );
+    try {
+      gitPushArgs("w1:p1", { refspec: "HEAD:main" });
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe("usage");
+    }
+    expect(gitPushArgs("w1:p1", { remote: "origin", refspec: "HEAD:main" })).toEqual([
+      "push",
+      "w1:p1",
+      "origin",
+      "HEAD:main",
+    ]);
+  });
 });
 
 /* ------------------------------ forge (pr) ---------------------------- */
@@ -571,7 +590,7 @@ const PR_VIEW = {
   reviews: [{ author: "hubot", state: "APPROVED", submittedAt: "2026-11-21T00:00:00.000Z" }],
 };
 
-describe("pr argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
+describe("pr argv builders (herdr-plugins.git/v1 @d057830)", () => {
   test("list argv: action first, pane second, flags separate", () => {
     expect(gitPrListArgs("w1:p1")).toEqual(["list", "w1:p1"]);
     expect(
@@ -626,10 +645,33 @@ describe("pr argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
       "--repo",
       "owner/repo",
     ]);
-    // bodyFile wins over body (mutually exclusive contract-side).
+    // bodyFile wins over body (mutually exclusive contract-side); "-"
+    // is a dash-leading value so it travels in `--name=value` form.
     expect(
       gitPrCreateArgs("w1:p1", { title: "T", body: "b", bodyFile: "-" }),
-    ).toEqual(["create", "w1:p1", "--title", "T", "--body-file", "-"]);
+    ).toEqual(["create", "w1:p1", "--title", "T", "--body-file=-"]);
+  });
+
+  test("dash-leading values use the --name=value form (strict parsing)", () => {
+    // git-v1 @d057830: a separate `-`-prefixed token is an option, never a
+    // value — and a bare `--session`/`--timeout` would be eaten by the
+    // plugin's global-flag pre-scan.
+    expect(gitCommitArgs("w1:p1", { messages: ["--fix bug", "normal"] })).toEqual([
+      "w1:p1",
+      "-m=--fix bug",
+      "-m",
+      "normal",
+    ]);
+    expect(
+      gitPrCreateArgs("w1:p1", { title: "T", body: "-- notes" }),
+    ).toEqual(["create", "w1:p1", "--title", "T", "--body=-- notes"]);
+    expect(gitPrListArgs("w1:p1", { repo: "o/r", head: "-x" })).toEqual([
+      "list",
+      "w1:p1",
+      "--head=-x",
+      "--repo",
+      "o/r",
+    ]);
   });
 });
 

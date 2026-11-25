@@ -2,7 +2,8 @@
 
 Version: 2 (run-record schema v2). Scope: consuming
 `herdr-plugins.projects/v1` through `plugin_call` (ADR-0011 boundary,
-ADR-0014 pin amended by ADR-0015 at `rebuildup/herdr-plugins@b0c8c60`).
+ADR-0014 pin amended by ADR-0015/ADR-0018 at
+`rebuildup/herdr-plugins@3b28349`).
 The plugin owns the registry and script run records; herdr-t3 renders
 them and forwards explicit user operations only.
 
@@ -30,7 +31,12 @@ Scripts:
   outcomes include `stale_pane`/`stop_unconfirmed`. `scripts results
   [project]` → run records with lazy ownership-checked reconcile;
   `scripts logs <run-id>` → bounded log tail, read only after
-  ownership validation.
+  ownership validation. Since @`3b28349` (upstream #68, ADR-0018) both
+  lazily re-scan the OWNED pane's scrollback for the durable
+  `__HERDR_DONE_<run-id>__=<code>` receipt and finalize a timed-out
+  `running` record to `success`/`failed` (+ `exit_code`,
+  `finished_at`, bounded log tail) — a `running` record may
+  legitimately become terminal on the next refresh.
 - Run records are schema v2: `host`, `session_key`, and
   `stop_requested_at` join the v1 fields (v1 records load them
   `null`). `result` gains `stopping`/`stop_unconfirmed`; the active
@@ -51,7 +57,9 @@ Scripts:
   transport failure as unavailable, not empty.
 - `scripts results` may legitimately report `running`/`stopping`/
   `stop_unconfirmed` for a dead or unconfirmed pane — the plugin
-  reconciles lazily after ownership re-validation; the client displays
+  reconciles lazily after ownership re-validation, then re-scans owned
+  pane scrollback for the completion receipt (ADR-0018) and may return
+  the record already finalized; the client displays
   the record as returned, shows stopping states as in-flight
   confirmation (never success/failure), and never upgrades it to
   `success`. `stale_pane` outcomes/record errors are classified
@@ -88,7 +96,8 @@ Scripts:
 
 ## Evidence today
 
-`docs/adr/ADR-0014.md` + `docs/adr/ADR-0015.md` (pin + scope + schema
-v2 re-pin). Implementation evidence lands with
+`docs/adr/ADR-0014.md` + `docs/adr/ADR-0015.md` + `docs/adr/ADR-0018.md`
+(pin + scope + schema v2 re-pin + completion receipt). Implementation
+evidence lands with
 #252/#253 (`src/shell/projects*.ts`, dialog tests). Live plugin hosts
 are RC verification.

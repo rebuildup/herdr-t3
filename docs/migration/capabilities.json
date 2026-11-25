@@ -474,7 +474,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins contracts (inbox v0.1.0, git/v1 @62309b9c)"
+          "herdr-plugins contracts (inbox v0.1.0, git/v1 @d057830)"
         ],
         "excluded": false
       }
@@ -988,7 +988,8 @@
       "evidence": [
         "src/shell/git.ts",
         "src/components/GitDialog.tsx",
-        "docs/adr/ADR-0012.md"
+        "docs/adr/ADR-0012.md",
+        "docs/adr/ADR-0017.md"
       ],
       "stage": "current-verified",
       "status": {
@@ -996,7 +997,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.git/v1 @62309b9c",
+          "herdr-plugins.git/v1 @d057830",
           "host gh CLI for forge"
         ],
         "excluded": false
@@ -1049,7 +1050,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @b0c8c60"
+          "herdr-plugins.projects/v1 @3b28349"
         ],
         "excluded": false
       },
@@ -1095,7 +1096,8 @@
         "src/components/ProjectScriptsDialog.tsx",
         "src/shell/WorkspaceHeader.tsx",
         "docs/migration/contracts/plugin-projects.md",
-        "docs/adr/ADR-0014.md"
+        "docs/adr/ADR-0014.md",
+        "docs/adr/ADR-0018.md"
       ],
       "stage": "current-verified",
       "status": {
@@ -1105,7 +1107,7 @@
         ],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @b0c8c60",
+          "herdr-plugins.projects/v1 @3b28349",
           "herdr pane execution API",
           "auto triggers: herdr-plugins#60 (upstream gap)"
         ],

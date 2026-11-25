@@ -3,7 +3,8 @@
  *
  * `rebuildup.git` on the pane's host owns repository reads through the
  * `herdr-plugins.git/v1` contract, pinned at
- * rebuildup/herdr-plugins@62309b9c (release-0-2-0): `status`, `files`,
+ * rebuildup/herdr-plugins@d057830 (release-0-2-0, strict option parsing —
+ * ADR-0017): `status`, `files`,
  * `diff`, `log`, `compare`, `capability`. Hosts may still run the older
  * Stage-1 build (`status`/`diff`/`project` only, drifted `diff`/`stat`
  * field names), so every parser tolerates additive fields and the drifted
@@ -594,8 +595,8 @@ export async function fetchGitDiff(
   if (format === "stat") args.push("--stat");
   else if (format === "name-status") args.push("--name-status");
   else if (format === "numstat") args.push("--numstat");
-  for (const path of options.paths ?? []) args.push("--path", path);
-  if (options.maxBytes !== undefined) args.push("--max-bytes", String(options.maxBytes));
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
+  if (options.maxBytes !== undefined) pushOption(args, "--max-bytes", String(options.maxBytes));
   if (options.revs) args.push(...options.revs.slice(0, 2));
   const doc = await pluginCall(machine, {
     plugin: GIT_PLUGIN_ID,
@@ -618,7 +619,7 @@ export async function fetchGitFiles(
   options: { paths?: string[] | undefined } = {},
 ): Promise<GitFilesResult> {
   const args = [paneId];
-  for (const path of options.paths ?? []) args.push("--path", path);
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
   const doc = await pluginCall(machine, {
     plugin: GIT_PLUGIN_ID,
     command: "files",
@@ -652,15 +653,15 @@ export async function fetchGitLog(
   options: GitLogOptions = {},
 ): Promise<GitLogResult> {
   const args = [paneId];
-  if (options.limit !== undefined) args.push("--limit", String(options.limit));
-  if (options.skip !== undefined && options.skip > 0) args.push("--skip", String(options.skip));
+  if (options.limit !== undefined) pushOption(args, "--limit", String(options.limit));
+  if (options.skip !== undefined && options.skip > 0) pushOption(args, "--skip", String(options.skip));
   if (options.all) args.push("--all");
   if (options.firstParent) args.push("--first-parent");
-  if (options.author) args.push("--author", options.author);
-  if (options.grep) args.push("--grep", options.grep);
-  if (options.since) args.push("--since", options.since);
-  if (options.until) args.push("--until", options.until);
-  for (const path of options.paths ?? []) args.push("--path", path);
+  if (options.author) pushOption(args, "--author", options.author);
+  if (options.grep) pushOption(args, "--grep", options.grep);
+  if (options.since) pushOption(args, "--since", options.since);
+  if (options.until) pushOption(args, "--until", options.until);
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
   const doc = await pluginCall(machine, {
     plugin: GIT_PLUGIN_ID,
     command: "log",
@@ -696,7 +697,7 @@ export async function fetchGitCompare(
   if (base !== "" && head !== "") args.push(base, head);
   else if (base !== "") args.push(base);
   else if (head !== "") args.push("HEAD", head);
-  if (options.maxBytes !== undefined) args.push("--max-bytes", String(options.maxBytes));
+  if (options.maxBytes !== undefined) pushOption(args, "--max-bytes", String(options.maxBytes));
   const doc = await pluginCall(machine, {
     plugin: GIT_PLUGIN_ID,
     command: "compare",
@@ -714,7 +715,7 @@ export async function fetchGitCompare(
 /* ---------------------------- mutations ------------------------------- */
 
 /**
- * Mutation documents (git-v1 @62309b9c, issue #228) share
+ * Mutation documents (git-v1 @d057830, issue #228) share
  * `{contract, command, pane_id, repo_root, ok:true, ...}`. The pane is
  * always the first positional; `PluginService.call` scrubs the
  * HERDR_PANE_ID/HERDR_PLUGIN_CONTEXT_JSON env fallback server-side so the
@@ -832,6 +833,20 @@ const GIT_REMOTE_TIMEOUT_MS = 120_000;
 /* ------------------------- argv builders (pure) ------------------------ */
 
 /**
+ * Push a `--name value` pair. Under strict option parsing (git-v1
+ * @d057830, upstream #64) a `-`-prefixed token is always an option, so a
+ * value that itself starts with `-` must use the `--name=value` form —
+ * the separate form would be rejected as "requires a value" (exit 2),
+ * and a bare `--session`/`--timeout`/`--socket` token would additionally
+ * be eaten by the plugin's global-flag pre-scan. Both forms are
+ * documented; `flagValue`/`flagValues` read either.
+ */
+function pushOption(args: string[], name: string, value: string): void {
+  if (value.startsWith("-")) args.push(`${name}=${value}`);
+  else args.push(name, value);
+}
+
+/**
  * Pure argv builders for the mutation commands — exported so tests can
  * pin the exact contract shape (pane first, flags as separate elements,
  * repeated `-m`/`--path` pairs) without a plugin host.
@@ -843,7 +858,7 @@ export function gitStageArgs(
   const args = [paneId];
   if (options.all === true) args.push("--all");
   for (const path of options.paths ?? []) {
-    if (path.length > 0) args.push("--path", path);
+    if (path.length > 0) pushOption(args, "--path", path);
   }
   return args;
 }
@@ -862,7 +877,7 @@ export function gitCommitArgs(
 ): string[] {
   const args = [paneId];
   for (const message of options.messages) {
-    if (message.trim() !== "") args.push("-m", message);
+    if (message.trim() !== "") pushOption(args, "-m", message);
   }
   if (options.allowEmpty === true) args.push("--allow-empty");
   return args;
@@ -906,8 +921,19 @@ export function gitPushArgs(
   const args = ["push", paneId];
   const remote = options.remote?.trim() ?? "";
   const refspec = options.refspec?.trim() ?? "";
+  // `[remote] [refspec]` are positional: a refspec without a remote would
+  // be bound as the remote plugin-side, so the pair is only emitted
+  // together (strict parsing makes the mis-binding a usage/git error
+  // rather than the intended push).
   if (remote !== "") args.push(remote);
-  if (refspec !== "") args.push(refspec);
+  if (refspec !== "") {
+    if (remote === "") {
+      const error = new Error("push refspec requires a remote");
+      (error as { code?: string }).code = "usage";
+      throw error;
+    }
+    args.push(refspec);
+  }
   if (options.setUpstream === true) args.push("--set-upstream");
   if (options.forceWithLease === true) args.push("--force-with-lease");
   return args;
@@ -1096,7 +1122,7 @@ export async function gitRemote(
 
 /*
  * Forge surface (issue #229): `pr list|status|view|create` backed by the
- * host's `gh` CLI (git-v1 @62309b9c). `pr` is one command with the action
+ * host's `gh` CLI (git-v1 @d057830). `pr` is one command with the action
  * as the first positional and the pane second (`pr <action> <pane> …`);
  * `--repo owner/name` overrides forge-repo detection for every action.
  * `gh_missing`/`gh_error`/`timeout` arrive as plugin error kinds and are
@@ -1340,12 +1366,12 @@ export interface GitPrListOptions {
 /** `pr list <pane> [--state] [--limit] [--head] [--repo]`. */
 export function gitPrListArgs(paneId: string, options: GitPrListOptions = {}): string[] {
   const args = ["list", paneId];
-  if (options.state !== undefined) args.push("--state", options.state);
-  if (options.limit !== undefined) args.push("--limit", String(options.limit));
+  if (options.state !== undefined) pushOption(args, "--state", options.state);
+  if (options.limit !== undefined) pushOption(args, "--limit", String(options.limit));
   const head = options.head?.trim() ?? "";
-  if (head !== "") args.push("--head", head);
+  if (head !== "") pushOption(args, "--head", head);
   const repo = options.repo?.trim() ?? "";
-  if (repo !== "") args.push("--repo", repo);
+  if (repo !== "") pushOption(args, "--repo", repo);
   return args;
 }
 
@@ -1365,18 +1391,19 @@ export interface GitPrCreateOptions {
  * own push/prompt flow is not driven (GH_PROMPT_DISABLED plugin-side).
  */
 export function gitPrCreateArgs(paneId: string, options: GitPrCreateOptions): string[] {
-  const args = ["create", paneId, "--title", options.title];
+  const args = ["create", paneId];
+  pushOption(args, "--title", options.title);
   if (options.body !== undefined && options.bodyFile === undefined) {
-    args.push("--body", options.body);
+    pushOption(args, "--body", options.body);
   }
-  if (options.bodyFile !== undefined) args.push("--body-file", options.bodyFile);
+  if (options.bodyFile !== undefined) pushOption(args, "--body-file", options.bodyFile);
   if (options.draft === true) args.push("--draft");
   const base = options.base?.trim() ?? "";
-  if (base !== "") args.push("--base", base);
+  if (base !== "") pushOption(args, "--base", base);
   const head = options.head?.trim() ?? "";
-  if (head !== "") args.push("--head", head);
+  if (head !== "") pushOption(args, "--head", head);
   const repo = options.repo?.trim() ?? "";
-  if (repo !== "") args.push("--repo", repo);
+  if (repo !== "") pushOption(args, "--repo", repo);
   return args;
 }
 
@@ -1418,7 +1445,7 @@ export async function fetchGitPrStatus(
 ): Promise<GitPrStatusResult> {
   const args = ["status", paneId];
   const repo = options.repo?.trim() ?? "";
-  if (repo !== "") args.push("--repo", repo);
+  if (repo !== "") pushOption(args, "--repo", repo);
   const doc = await callGitPr(machine, args);
   const result = gitPrStatusFromDoc(doc);
   if (result === null) throw prBadOutput("status");
@@ -1434,7 +1461,7 @@ export async function fetchGitPrView(
 ): Promise<GitPrViewResult> {
   const args = ["view", paneId, String(number)];
   const repo = options.repo?.trim() ?? "";
-  if (repo !== "") args.push("--repo", repo);
+  if (repo !== "") pushOption(args, "--repo", repo);
   const doc = await callGitPr(machine, args);
   const result = gitPrViewFromResultDoc(doc);
   if (result === null) throw prBadOutput("view");
