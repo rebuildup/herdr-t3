@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { classifyGitError, gitStatusFromDoc } from "./git";
+import {
+  classifyGitError,
+  gitCapabilityFromDoc,
+  gitCompareFromDoc,
+  gitDiffFromDoc,
+  gitFilesFromDoc,
+  gitLogFromDoc,
+  gitStatusFromDoc,
+} from "./git";
 
 const STATUS_DOC = {
   contract: "herdr-plugins.git/v1",
@@ -79,7 +87,14 @@ describe("classifyGitError", () => {
   });
 
   test("plugin repo kinds stay distinct repo errors", () => {
-    for (const code of ["not_a_repo", "bare_repo", "git_missing", "pane_not_found", "timeout"]) {
+    for (const code of [
+      "not_a_repo",
+      "bare_repo",
+      "git_missing",
+      "pane_not_found",
+      "timeout",
+      "usage",
+    ]) {
       expect(classifyGitError(err(code))).toMatchObject({ kind: "repo_error", code });
     }
   });
@@ -90,5 +105,280 @@ describe("classifyGitError", () => {
       code: "git_error",
     });
     expect(classifyGitError("boom")).toMatchObject({ kind: "repo_error", code: "git_error" });
+  });
+});
+
+describe("gitDiffFromDoc (herdr-plugins.git/v1 @62309b9c)", () => {
+  test("reads the 0.2.x output fields", () => {
+    const diff = gitDiffFromDoc({
+      contract: "herdr-plugins.git/v1",
+      command: "diff",
+      pane_id: "w1:p1",
+      format: "patch",
+      output: "diff --git a/x b/x\n",
+      stat_output: null,
+      name_status_output: null,
+      numstat_output: null,
+      paths: ["x"],
+      truncated: true,
+      bytes: 42,
+      staged: false,
+      revisions: [],
+    });
+    expect(diff).not.toBeNull();
+    expect(diff?.format).toBe("patch");
+    expect(diff?.field).toBe("output");
+    expect(diff?.text).toContain("diff --git");
+    expect(diff?.truncated).toBe(true);
+    expect(diff?.bytes).toBe(42);
+  });
+
+  test("selects the format-matched output field", () => {
+    const stat = gitDiffFromDoc(
+      {
+        contract: "herdr-plugins.git/v1",
+        pane_id: "w1:p1",
+        format: "stat",
+        output: null,
+        stat_output: " x | 2 +-\n",
+        name_status_output: null,
+        numstat_output: null,
+      },
+      "stat",
+    );
+    expect(stat?.field).toBe("stat_output");
+    expect(stat?.text).toContain("x |");
+    const numstat = gitDiffFromDoc(
+      {
+        contract: "herdr-plugins.git/v1",
+        pane_id: "w1:p1",
+        format: "numstat",
+        output: null,
+        stat_output: null,
+        name_status_output: null,
+        numstat_output: "1\t2\tx\n",
+      },
+      "numstat",
+    );
+    expect(numstat?.field).toBe("numstat_output");
+  });
+
+  test("falls back to the drifted Stage-1 diff/stat field names", () => {
+    const patch = gitDiffFromDoc({
+      contract: "herdr-plugins.git/v1",
+      pane_id: "w1:p1",
+      diff: "old patch text",
+      stat: "old stat text",
+    });
+    expect(patch?.field).toBe("diff");
+    expect(patch?.text).toBe("old patch text");
+    const stat = gitDiffFromDoc(
+      { contract: "herdr-plugins.git/v1", pane_id: "w1:p1", diff: "p", stat: "s" },
+      "stat",
+    );
+    expect(stat?.field).toBe("stat");
+    expect(stat?.text).toBe("s");
+  });
+
+  test("treats an all-null output doc as an empty diff, not a failure", () => {
+    const diff = gitDiffFromDoc({
+      contract: "herdr-plugins.git/v1",
+      pane_id: "w1:p1",
+      format: "patch",
+      output: null,
+      stat_output: null,
+      name_status_output: null,
+      numstat_output: null,
+    });
+    expect(diff?.text).toBe("");
+    expect(diff?.truncated).toBe(false);
+  });
+
+  test("rejects foreign contracts", () => {
+    expect(
+      gitDiffFromDoc({ contract: "herdr-plugins.inbox/v1", pane_id: "w1:p1", output: "x" }),
+    ).toBeNull();
+  });
+});
+
+describe("gitFilesFromDoc", () => {
+  const FILES_DOC = {
+    contract: "herdr-plugins.git/v1",
+    command: "files",
+    pane_id: "w1:p1",
+    repo_root: "/repo",
+    pathspec: ["src"],
+    files: [
+      {
+        path: "src/a.ts",
+        index: "M",
+        worktree: " ",
+        kind: "modified",
+        staged: true,
+        unstaged: false,
+        binary: false,
+      },
+      {
+        path: "src/b.ts",
+        old_path: "src/old.ts",
+        index: "R",
+        worktree: " ",
+        kind: "renamed",
+        staged: true,
+        unstaged: false,
+        binary: false,
+      },
+      {
+        path: "new.txt",
+        index: "?",
+        worktree: "?",
+        kind: "untracked",
+        staged: false,
+        unstaged: true,
+        binary: null,
+      },
+      { malformed: true },
+    ],
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("projects the files document", () => {
+    const result = gitFilesFromDoc(FILES_DOC);
+    expect(result).not.toBeNull();
+    expect(result?.files).toHaveLength(3);
+    expect(result?.files[0]).toMatchObject({
+      path: "src/a.ts",
+      kind: "modified",
+      staged: true,
+      binary: false,
+    });
+    expect(result?.files[1]?.old_path).toBe("src/old.ts");
+    expect(result?.files[2]?.binary).toBeNull();
+    expect(result?.pathspec).toEqual(["src"]);
+    expect(result?.repo_root).toBe("/repo");
+  });
+
+  test("rejects malformed and foreign docs", () => {
+    expect(gitFilesFromDoc({ contract: "herdr-plugins.git/v1" })).toBeNull();
+    expect(gitFilesFromDoc({ contract: "herdr-plugins.git/v1", pane_id: "w1:p1" })).toBeNull();
+    expect(
+      gitFilesFromDoc({ contract: "other/v9", pane_id: "w1:p1", files: [] }),
+    ).toBeNull();
+    expect(gitFilesFromDoc({ pane_id: "w1:p1", files: "nope" })).toBeNull();
+  });
+});
+
+describe("gitLogFromDoc", () => {
+  test("projects commits and pagination", () => {
+    const result = gitLogFromDoc({
+      contract: "herdr-plugins.git/v1",
+      command: "log",
+      pane_id: "w1:p1",
+      commits: [
+        {
+          sha: "abcdef1234567890",
+          parents: ["1111111"],
+          author: { name: "A U Thor", email: "a@example.com", date: "2026-11-24T10:00:00Z" },
+          committer: { name: "A U Thor", email: "a@example.com", date: "2026-11-24T10:00:00Z" },
+          subject: "add feature",
+        },
+      ],
+      has_more: true,
+      limit: 1,
+      skip: 0,
+      repo_root: "/repo",
+      generated_at: "2026-11-25T00:00:00.000Z",
+    });
+    expect(result?.commits).toHaveLength(1);
+    expect(result?.commits[0]?.sha).toBe("abcdef1234567890");
+    expect(result?.commits[0]?.author.name).toBe("A U Thor");
+    expect(result?.commits[0]?.parents).toEqual(["1111111"]);
+    expect(result?.has_more).toBe(true);
+    expect(result?.limit).toBe(1);
+  });
+
+  test("rejects malformed and foreign docs", () => {
+    expect(gitLogFromDoc({ contract: "herdr-plugins.git/v1", pane_id: "w1:p1" })).toBeNull();
+    expect(
+      gitLogFromDoc({ contract: "x/v1", pane_id: "w1:p1", commits: [] }),
+    ).toBeNull();
+    expect(gitLogFromDoc({ pane_id: "w1:p1", commits: [{ no_sha: true }] })).not.toBeNull();
+    expect(gitLogFromDoc({ pane_id: "w1:p1", commits: [{ no_sha: true }] })?.commits).toHaveLength(0);
+  });
+});
+
+describe("gitCompareFromDoc", () => {
+  test("projects the compare document", () => {
+    const result = gitCompareFromDoc({
+      contract: "herdr-plugins.git/v1",
+      command: "compare",
+      pane_id: "w1:p1",
+      base: "origin/main",
+      head: "HEAD",
+      merge_base: "deadbeefcafe",
+      ahead: 3,
+      behind: 1,
+      files: [
+        { status: "M", path: "src/a.ts", old_path: null },
+        { status: "R100", path: "src/new.ts", old_path: "src/old.ts" },
+      ],
+      stat: " src/a.ts | 2 +-\n",
+      patch: "diff --git a/src/a.ts b/src/a.ts\n",
+      patch_truncated: false,
+      patch_bytes: 128,
+      repo_root: "/repo",
+      generated_at: "2026-11-25T00:00:00.000Z",
+    });
+    expect(result?.ahead).toBe(3);
+    expect(result?.behind).toBe(1);
+    expect(result?.merge_base).toBe("deadbeefcafe");
+    expect(result?.files).toHaveLength(2);
+    expect(result?.files[1]?.old_path).toBe("src/old.ts");
+    expect(result?.patch_truncated).toBe(false);
+  });
+
+  test("rejects malformed and foreign docs", () => {
+    expect(gitCompareFromDoc({ contract: "herdr-plugins.git/v1", pane_id: "w1:p1" })).toBeNull();
+    expect(
+      gitCompareFromDoc({ contract: "other/v1", pane_id: "w1:p1", files: [] }),
+    ).toBeNull();
+    expect(gitCompareFromDoc({ pane_id: "w1:p1", files: [] })).not.toBeNull();
+  });
+});
+
+describe("gitCapabilityFromDoc", () => {
+  test("normalizes commands and mutation_commands", () => {
+    const cap = gitCapabilityFromDoc({
+      contract: "herdr-plugins.git/v1",
+      version: "0.2.0",
+      read_only: false,
+      commands: ["capability", "status", "files", "diff", "log", "compare"],
+      mutation_commands: ["stage", "commit"],
+    });
+    expect(cap?.contractOk).toBe(true);
+    expect(cap?.commands.has("files")).toBe(true);
+    expect(cap?.commands.has("log")).toBe(true);
+    expect(cap?.commands.has("compare")).toBe(true);
+    expect(cap?.mutationCommands.has("commit")).toBe(true);
+    expect(cap?.readOnly).toBe(false);
+  });
+
+  test("an older Stage-1 plugin lacks the new commands (gated, not broken)", () => {
+    const cap = gitCapabilityFromDoc({
+      contract: "herdr-plugins.git/v1",
+      read_only: true,
+      commands: ["capability", "status", "diff", "project"],
+      mutation_commands: [],
+    });
+    expect(cap?.commands.has("status")).toBe(true);
+    expect(cap?.commands.has("files")).toBe(false);
+    expect(cap?.commands.has("log")).toBe(false);
+    expect(cap?.commands.has("compare")).toBe(false);
+  });
+
+  test("rejects foreign or missing contracts", () => {
+    expect(gitCapabilityFromDoc({ contract: "herdr-plugins.inbox/v1", commands: [] })).toBeNull();
+    expect(gitCapabilityFromDoc({ commands: ["status"] })).toBeNull();
+    expect(gitCapabilityFromDoc({ contract: "herdr-plugins.git/v1" })?.commands.size).toBe(0);
   });
 });

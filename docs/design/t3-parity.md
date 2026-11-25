@@ -41,7 +41,7 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [plugin] | `herdr-plugins.git/v1` Stage 1 status/diff connected (#220, contract pinned @414e87d); file list → #227, mutations → #228, forge → #229 (upstream-gated) |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227, capability-gated per host); mutations → #228, forge → #229 (upstream-gated) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 
