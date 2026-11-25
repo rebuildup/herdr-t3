@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Input, Label, Textarea } from "./ui/input";
+import { Switch } from "./ui/switch";
 import {
   Select,
   SelectContent,
@@ -27,7 +28,16 @@ import {
   fetchGitDiff,
   fetchGitFiles,
   fetchGitLog,
+  gitBranchCreate,
+  gitBranchSwitch,
   gitCapability,
+  gitCommit,
+  gitFetch,
+  gitPush,
+  gitRemote,
+  gitStage,
+  gitUnstage,
+  gitUpstream,
   useGitStatus,
   type GitCapability,
   type GitCompareResult,
@@ -35,6 +45,7 @@ import {
   type GitFileEntry,
   type GitFilesResult,
   type GitLogCommit,
+  type GitRemoteResult,
   type GitStatusState,
 } from "../shell/git";
 import type { PaneInfo } from "../../shared/protocol";
@@ -82,7 +93,58 @@ function supports(cap: GitCapability | null | undefined, command: string): boole
   return cap.commands.has(command);
 }
 
+/** Same probe against `mutation_commands` (stage/commit/branch/…). */
+function supportsMutation(
+  cap: GitCapability | null | undefined,
+  command: string,
+): boolean | null {
+  if (cap === undefined) return null;
+  if (cap === null) return false;
+  return cap.mutationCommands.has(command);
+}
+
 const UNSUPPORTED_TEXT = "not supported by this plugin version";
+
+/**
+ * Shared busy/error/notice state for one mutation control. `run` awaits
+ * the plugin call, stores a one-line success notice (or the classified
+ * failure — `git_error` messages like "nothing to commit" surface as
+ * errors, never as success), and fires `onChanged` so status/files
+ * refetch after a successful mutation.
+ */
+function useGitMutation(onChanged: () => void) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const run = useCallback(
+    async (action: () => Promise<string | void>) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const note = await action();
+        setNotice(note ?? "done");
+        onChanged();
+      } catch (err: unknown) {
+        setError(gitErrorText(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onChanged],
+  );
+  return { busy, error, notice, run };
+}
+
+function MutationFeedback({ error, notice }: { error: string | null; notice: string | null }) {
+  if (error !== null) {
+    return <div className="text-2xs text-destructive">{error}</div>;
+  }
+  if (notice !== null) {
+    return <div className="text-2xs text-muted-foreground">{notice}</div>;
+  }
+  return null;
+}
 
 function SectionMessage({ children }: { children: React.ReactNode }) {
   return <div className="text-xs text-muted-foreground">{children}</div>;
@@ -297,13 +359,18 @@ function ChangesSection({
   paneId,
   refreshKey,
   cap,
+  onChanged,
 }: {
   machine: string;
   paneId: string;
   refreshKey: number;
   cap: GitCapability | null | undefined;
+  onChanged: () => void;
 }) {
   const supported = supports(cap, "files");
+  const canStage = supportsMutation(cap, "stage");
+  const canUnstage = supportsMutation(cap, "unstage");
+  const mutations = useGitMutation(onChanged);
   const [result, setResult] = useState<GitFilesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -340,50 +407,146 @@ function ChangesSection({
 
   const diffPaths = selected === null ? undefined : [selected.path];
 
+  const stagePaths = (paths: string[]) =>
+    mutations.run(async () => {
+      const r = await gitStage(machine, paneId, { paths });
+      return `staged ${r.paths.length} path${r.paths.length === 1 ? "" : "s"}`;
+    });
+  const unstagePaths = (paths: string[]) =>
+    mutations.run(async () => {
+      const r = await gitUnstage(machine, paneId, { paths });
+      return `unstaged ${r.paths.length} path${r.paths.length === 1 ? "" : "s"}`;
+    });
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-2">
+        {canStage === true || canUnstage === true ? (
+          <div className="flex flex-wrap items-center gap-1">
+            {canStage === true ? (
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={mutations.busy}
+                onClick={() =>
+                  void mutations.run(async () => {
+                    await gitStage(machine, paneId, { all: true });
+                    return "staged all changes";
+                  })
+                }
+              >
+                Stage all
+              </Button>
+            ) : null}
+            {canUnstage === true ? (
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={mutations.busy}
+                onClick={() =>
+                  void mutations.run(async () => {
+                    await gitUnstage(machine, paneId, { all: true });
+                    return "unstaged all changes";
+                  })
+                }
+              >
+                Unstage all
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        <MutationFeedback error={mutations.error} notice={mutations.notice} />
         <div className="flex max-h-80 flex-col gap-2 overflow-auto pr-1">
           {GROUP_ORDER.map((group) => {
             const entries = groups?.get(group) ?? [];
             if (entries.length === 0) return null;
+            const groupPaths = entries.map((e) => e.path);
+            const groupStage =
+              group !== "conflicted" && group !== "staged" && canStage === true;
+            const groupUnstage = group === "staged" && canUnstage === true;
             return (
               <div key={group} className="flex flex-col gap-0.5">
-                <div className="px-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-                  {GROUP_LABELS[group]} · {entries.length}
+                <div className="flex items-center justify-between gap-1 px-1">
+                  <span className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                    {GROUP_LABELS[group]} · {entries.length}
+                  </span>
+                  {groupStage ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={mutations.busy}
+                      onClick={() => void stagePaths(groupPaths)}
+                    >
+                      Stage all
+                    </Button>
+                  ) : null}
+                  {groupUnstage ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={mutations.busy}
+                      onClick={() => void unstagePaths(groupPaths)}
+                    >
+                      Unstage all
+                    </Button>
+                  ) : null}
                 </div>
                 {entries.map((entry) => {
                   const isSelected = selected?.path === entry.path;
+                  const fileCanStage =
+                    entry.kind !== "conflicted" && (!entry.staged || entry.unstaged);
+                  const fileCanUnstage = entry.staged && entry.kind !== "conflicted";
                   return (
-                    // oxlint-disable-next-line herdr-t3/no-raw-control -- file row is a composite selection control with custom chrome, same pattern as T3 file-tree rows
-                    <button
-                      key={`${entry.old_path ?? ""}${entry.path}`}
-                      type="button"
-                      onClick={() => {
-                        setSelected((prev) =>
-                          prev !== null && prev.path === entry.path ? null : { path: entry.path },
-                        );
-                        // Default the diff side to the group the file was
-                        // picked from; the toggle can still flip it.
-                        if (group === "staged") setStaged(true);
-                        else if (group === "unstaged") setStaged(false);
-                      }}
-                      className={`flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
-                        isSelected ? "bg-accent" : ""
-                      }`}
-                    >
-                      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-                        {statusLetters(entry)}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-mono">
-                        {fileLabel(entry)}
-                      </span>
-                      {entry.binary === true ? (
-                        <Badge size="sm" variant="outline">
-                          binary
-                        </Badge>
+                    <div key={`${entry.old_path ?? ""}${entry.path}`} className="flex items-center gap-1">
+                      {/* oxlint-disable-next-line herdr-t3/no-raw-control -- file row is a composite selection control with custom chrome, same pattern as T3 file-tree rows */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected((prev) =>
+                            prev !== null && prev.path === entry.path ? null : { path: entry.path },
+                          );
+                          // Default the diff side to the group the file was
+                          // picked from; the toggle can still flip it.
+                          if (group === "staged") setStaged(true);
+                          else if (group === "unstaged") setStaged(false);
+                        }}
+                        className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
+                          isSelected ? "bg-accent" : ""
+                        }`}
+                      >
+                        <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+                          {statusLetters(entry)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-mono">
+                          {fileLabel(entry)}
+                        </span>
+                        {entry.binary === true ? (
+                          <Badge size="sm" variant="outline">
+                            binary
+                          </Badge>
+                        ) : null}
+                      </button>
+                      {fileCanStage && canStage === true ? (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={mutations.busy}
+                          onClick={() => void stagePaths([entry.path])}
+                        >
+                          Stage
+                        </Button>
                       ) : null}
-                    </button>
+                      {fileCanUnstage && canUnstage === true ? (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={mutations.busy}
+                          onClick={() => void unstagePaths([entry.path])}
+                        >
+                          Unstage
+                        </Button>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -428,6 +591,78 @@ function ChangesSection({
           }
         />
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------- Commit ------------------------------- */
+
+/**
+ * Commit form (issue #228): one `-m` message (required unless
+ * `--allow-empty` is explicitly checked) via the `commit` mutation
+ * command. `git_error` failures such as "nothing to commit" or a failed
+ * hook surface as errors, never as a success notice.
+ */
+function CommitSection({
+  machine,
+  paneId,
+  cap,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  cap: GitCapability | null | undefined;
+  onChanged: () => void;
+}) {
+  const supported = supportsMutation(cap, "commit");
+  const [message, setMessage] = useState("");
+  const [allowEmpty, setAllowEmpty] = useState(false);
+  const mutations = useGitMutation(onChanged);
+
+  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
+  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
+  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+
+  // `-m` is required by the contract; `--allow-empty` only permits a
+  // commit with no staged changes — it never substitutes for a message.
+  const canSubmit = !mutations.busy && message.trim() !== "";
+
+  return (
+    <div className="flex max-w-xl flex-col gap-2">
+      <Textarea
+        value={message}
+        onChange={(e) => setMessage(e.currentTarget.value)}
+        placeholder="Commit message"
+        aria-label="Commit message"
+        className="min-h-16"
+      />
+      <div className="flex items-center gap-2">
+        <Switch
+          size="sm"
+          checked={allowEmpty}
+          onCheckedChange={(checked) => setAllowEmpty(checked === true)}
+          aria-label="Allow empty commit"
+        />
+        <Label className="cursor-pointer">Allow empty commit</Label>
+        <Button
+          size="sm"
+          className="ml-auto"
+          disabled={!canSubmit}
+          onClick={() =>
+            void mutations.run(async () => {
+              const r = await gitCommit(machine, paneId, {
+                messages: [message],
+                allowEmpty,
+              });
+              const sha = r.sha.slice(0, 7);
+              return r.summary !== "" ? `${sha} ${r.summary}` : `committed ${sha}`;
+            })
+          }
+        >
+          {mutations.busy ? "Committing…" : "Commit"}
+        </Button>
+      </div>
+      <MutationFeedback error={mutations.error} notice={mutations.notice} />
     </div>
   );
 }
@@ -701,23 +936,463 @@ function CompareSection({
   );
 }
 
+/* --------------------------------- Sync -------------------------------- */
+
+/** Branch create/switch + upstream + remote/fetch/push (issue #228). */
+
+function BranchBlock({
+  machine,
+  paneId,
+  currentBranch,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  currentBranch: string | null;
+  onChanged: () => void;
+}) {
+  const [createName, setCreateName] = useState("");
+  const [switchName, setSwitchName] = useState("");
+  const [switchAfter, setSwitchAfter] = useState(false);
+  const createMut = useGitMutation(onChanged);
+  const switchMut = useGitMutation(onChanged);
+  const busy = createMut.busy || switchMut.busy;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+        Branch{currentBranch !== null ? ` · ${currentBranch}` : ""}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          value={createName}
+          onChange={(e) => setCreateName(e.currentTarget.value)}
+          placeholder="new branch name"
+          size="compact"
+          font="mono"
+          className="w-44"
+          aria-label="New branch name"
+        />
+        <div className="flex items-center gap-1.5">
+          <Switch
+            size="sm"
+            checked={switchAfter}
+            onCheckedChange={(checked) => setSwitchAfter(checked === true)}
+            aria-label="Switch to new branch"
+          />
+          <Label className="cursor-pointer">switch after create</Label>
+        </div>
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={busy || createName.trim() === ""}
+          onClick={() =>
+            void createMut.run(async () => {
+              const r = await gitBranchCreate(machine, paneId, createName.trim(), {
+                switchTo: switchAfter,
+              });
+              setCreateName("");
+              return `created ${r.name}${r.action === "create" && switchAfter ? " (switched)" : ""}`;
+            })
+          }
+        >
+          Create
+        </Button>
+      </div>
+      <MutationFeedback error={createMut.error} notice={createMut.notice} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          value={switchName}
+          onChange={(e) => setSwitchName(e.currentTarget.value)}
+          placeholder="branch to switch to"
+          size="compact"
+          font="mono"
+          className="w-44"
+          aria-label="Branch to switch to"
+        />
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={busy || switchName.trim() === ""}
+          onClick={() =>
+            void switchMut.run(async () => {
+              const r = await gitBranchSwitch(machine, paneId, switchName.trim());
+              setSwitchName("");
+              return `switched to ${r.name}`;
+            })
+          }
+        >
+          Switch
+        </Button>
+      </div>
+      <MutationFeedback error={switchMut.error} notice={switchMut.notice} />
+    </div>
+  );
+}
+
+function UpstreamBlock({
+  machine,
+  paneId,
+  currentUpstream,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  currentUpstream: string | null;
+  onChanged: () => void;
+}) {
+  const [ref, setRef] = useState("");
+  const mutations = useGitMutation(onChanged);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+        Upstream{currentUpstream !== null ? ` · ${currentUpstream}` : ""}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          value={ref}
+          onChange={(e) => setRef(e.currentTarget.value)}
+          placeholder="e.g. origin/main"
+          size="compact"
+          font="mono"
+          className="w-56"
+          aria-label="Upstream ref"
+        />
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={mutations.busy || ref.trim() === ""}
+          onClick={() =>
+            void mutations.run(async () => {
+              const r = await gitUpstream(machine, paneId, ref.trim());
+              setRef("");
+              return `upstream set to ${r.upstream}`;
+            })
+          }
+        >
+          Set upstream
+        </Button>
+      </div>
+      <MutationFeedback error={mutations.error} notice={mutations.notice} />
+    </div>
+  );
+}
+
+function RemoteSyncBlock({
+  machine,
+  paneId,
+  canList,
+  canFetch,
+  canPush,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  canList: boolean;
+  canFetch: boolean;
+  canPush: boolean;
+  onChanged: () => void;
+}) {
+  const [remotes, setRemotes] = useState<GitRemoteResult | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [fetchRemote, setFetchRemote] = useState("");
+  const [prune, setPrune] = useState(false);
+  const [pushRemote, setPushRemote] = useState("");
+  const [refspec, setRefspec] = useState("");
+  const [setUpstream, setSetUpstream] = useState(false);
+  const [forceWithLease, setForceWithLease] = useState(false);
+
+  const loadRemotes = useCallback(() => {
+    if (!canList) return;
+    // `loaded` doubles as "auto-load attempted" so a failing list does not
+    // retry-loop; the Reload button still calls this directly.
+    setLoaded(true);
+    setListLoading(true);
+    setListError(null);
+    gitRemote(machine, paneId)
+      .then((r) => {
+        setRemotes(r);
+      })
+      .catch((err: unknown) => {
+        setRemotes(null);
+        setListError(gitErrorText(err));
+      })
+      .finally(() => setListLoading(false));
+  }, [canList, machine, paneId]);
+
+  // Lazy-load the remote list once the read command is known supported.
+  useEffect(() => {
+    if (canList && !loaded) loadRemotes();
+  }, [canList, loaded, loadRemotes]);
+
+  // Refresh remotes after a successful fetch/push too.
+  const afterRemoteOp = useCallback(() => {
+    onChanged();
+    if (canList) loadRemotes();
+  }, [onChanged, canList, loadRemotes]);
+
+  const fetchMut = useGitMutation(afterRemoteOp);
+  const pushMut = useGitMutation(afterRemoteOp);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-1">
+        <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+          Remotes
+        </div>
+        {canList ? (
+          <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadRemotes}>
+            {listLoading ? "loading…" : "Reload"}
+          </Button>
+        ) : null}
+      </div>
+      {canList ? (
+        listLoading && remotes === null ? (
+          <SectionMessage>loading remotes…</SectionMessage>
+        ) : listError !== null ? (
+          <SectionMessage>remotes unavailable: {listError}</SectionMessage>
+        ) : remotes !== null ? (
+          remotes.remotes.length === 0 ? (
+            <SectionMessage>no remotes configured</SectionMessage>
+          ) : (
+            <div className="flex max-h-32 flex-col gap-0.5 overflow-auto">
+              {remotes.remotes.map((remote) => (
+                <div
+                  key={remote.name}
+                  className="flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 text-xs"
+                >
+                  <span className="shrink-0 font-mono font-medium">{remote.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+                    {remote.url}
+                  </span>
+                  {remote.push_url !== remote.url ? (
+                    <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
+                      push: {remote.push_url}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )
+        ) : null
+      ) : null}
+
+      {canFetch ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={fetchRemote}
+              onChange={(e) => setFetchRemote(e.currentTarget.value)}
+              placeholder="remote (default)"
+              size="compact"
+              font="mono"
+              className="w-40"
+              aria-label="Fetch remote"
+            />
+            <div className="flex items-center gap-1.5">
+              <Switch
+                size="sm"
+                checked={prune}
+                onCheckedChange={(checked) => setPrune(checked === true)}
+                aria-label="Prune deleted remote branches"
+              />
+              <Label className="cursor-pointer">prune</Label>
+            </div>
+            <Button
+              size="xs"
+              variant="secondary"
+              disabled={fetchMut.busy}
+              onClick={() =>
+                void fetchMut.run(async () => {
+                  await gitFetch(machine, paneId, {
+                    remote: fetchRemote.trim() === "" ? undefined : fetchRemote.trim(),
+                    prune,
+                  });
+                  return "fetch completed";
+                })
+              }
+            >
+              {fetchMut.busy ? "Fetching…" : "Fetch"}
+            </Button>
+          </div>
+          <MutationFeedback error={fetchMut.error} notice={fetchMut.notice} />
+        </div>
+      ) : null}
+
+      {canPush ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={pushRemote}
+              onChange={(e) => setPushRemote(e.currentTarget.value)}
+              placeholder="remote (default)"
+              size="compact"
+              font="mono"
+              className="w-32"
+              aria-label="Push remote"
+            />
+            <Input
+              value={refspec}
+              onChange={(e) => setRefspec(e.currentTarget.value)}
+              placeholder="refspec (optional)"
+              size="compact"
+              font="mono"
+              className="w-44"
+              aria-label="Push refspec"
+            />
+            <Button
+              size="xs"
+              variant="secondary"
+              disabled={pushMut.busy}
+              onClick={() =>
+                void pushMut.run(async () => {
+                  await gitPush(machine, paneId, {
+                    remote: pushRemote.trim() === "" ? undefined : pushRemote.trim(),
+                    refspec: refspec.trim() === "" ? undefined : refspec.trim(),
+                    setUpstream,
+                    forceWithLease,
+                  });
+                  return "push completed";
+                })
+              }
+            >
+              {pushMut.busy ? "Pushing…" : "Push"}
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="flex items-center gap-1.5">
+              <Switch
+                size="sm"
+                checked={setUpstream}
+                onCheckedChange={(checked) => setSetUpstream(checked === true)}
+                aria-label="Set upstream on push"
+              />
+              <Label className="cursor-pointer">set upstream</Label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Switch
+                size="sm"
+                checked={forceWithLease}
+                onCheckedChange={(checked) => setForceWithLease(checked === true)}
+                aria-label="Force push with lease"
+              />
+              <Label className="cursor-pointer">force with lease</Label>
+            </div>
+          </div>
+          <MutationFeedback error={pushMut.error} notice={pushMut.notice} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SyncSection({
+  machine,
+  paneId,
+  state,
+  cap,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  state: GitStatusState;
+  cap: GitCapability | null | undefined;
+  onChanged: () => void;
+}) {
+  const branchSupported = supportsMutation(cap, "branch");
+  const upstreamSupported = supportsMutation(cap, "upstream");
+  const remoteSupported = supports(cap, "remote");
+  const fetchSupported = supportsMutation(cap, "fetch");
+  const pushSupported = supportsMutation(cap, "push");
+  const currentBranch = state.kind === "ready" ? state.status.branch.name : null;
+  const currentUpstream = state.kind === "ready" ? state.status.branch.upstream : null;
+
+  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
+
+  const blocks: { key: string; supported: boolean | null; node: React.ReactNode }[] = [
+    {
+      key: "branch",
+      supported: branchSupported,
+      node: (
+        <BranchBlock
+          machine={machine}
+          paneId={paneId}
+          currentBranch={currentBranch}
+          onChanged={onChanged}
+        />
+      ),
+    },
+    {
+      key: "upstream",
+      supported: upstreamSupported,
+      node: (
+        <UpstreamBlock
+          machine={machine}
+          paneId={paneId}
+          currentUpstream={currentUpstream}
+          onChanged={onChanged}
+        />
+      ),
+    },
+    {
+      key: "remotes",
+      supported:
+        remoteSupported === true || fetchSupported === true || pushSupported === true
+          ? true
+          : remoteSupported === null || fetchSupported === null || pushSupported === null
+            ? null
+            : false,
+      node: (
+        <RemoteSyncBlock
+          machine={machine}
+          paneId={paneId}
+          canList={remoteSupported === true}
+          canFetch={fetchSupported === true}
+          canPush={pushSupported === true}
+          onChanged={onChanged}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-4">
+      {blocks.map((block) =>
+        block.supported === null ? (
+          <SectionMessage key={block.key}>checking plugin capabilities…</SectionMessage>
+        ) : block.supported === false ? (
+          <SectionMessage key={block.key}>{UNSUPPORTED_TEXT}</SectionMessage>
+        ) : (
+          <div key={block.key}>{block.node}</div>
+        ),
+      )}
+    </div>
+  );
+}
+
 /* -------------------------------- dialog ------------------------------- */
 
-type Section = "changes" | "history" | "compare";
+type Section = "changes" | "commit" | "history" | "compare" | "sync";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "changes", label: "Changes" },
+  { id: "commit", label: "Commit" },
   { id: "history", label: "History" },
   { id: "compare", label: "Compare" },
+  { id: "sync", label: "Sync" },
 ];
 
 /**
- * Source Control surface (issues #220/#227, ADR-0011/ADR-0012): read-only
- * git status, files/diff, log and compare for the focused pane, served by
- * the host's `rebuildup.git` plugin (`herdr-plugins.git/v1` pinned at
- * 62309b9c). Each section lazy-loads and gates on the host's advertised
- * `capability.commands`; mutations and forge features are separate tickets
- * (#228/#229) — nothing here pretends they exist.
+ * Source Control surface (issues #220/#227/#228, ADR-0011/ADR-0012):
+ * git status, files/diff, log and compare reads plus explicit-only
+ * mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote`
+ * list) for the focused pane, served by the host's `rebuildup.git`
+ * plugin (`herdr-plugins.git/v1` pinned at 62309b9c). Each section
+ * lazy-loads and gates on the host's advertised `capability.commands` /
+ * `mutation_commands`; Stage-1 plugins simply hide the mutation
+ * controls — nothing here pretends they exist.
  */
 export function GitDialog({
   pane,
@@ -785,13 +1460,36 @@ export function GitDialog({
             </section>
             <section>
               {section === "changes" ? (
-                <ChangesSection machine={machine} paneId={paneId} refreshKey={refreshKey} cap={cap} />
+                <ChangesSection
+                  machine={machine}
+                  paneId={paneId}
+                  refreshKey={refreshKey}
+                  cap={cap}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
+              ) : null}
+              {section === "commit" ? (
+                <CommitSection
+                  machine={machine}
+                  paneId={paneId}
+                  cap={cap}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
               ) : null}
               {section === "history" ? (
                 <HistorySection machine={machine} paneId={paneId} refreshKey={refreshKey} cap={cap} />
               ) : null}
               {section === "compare" ? (
                 <CompareSection machine={machine} paneId={paneId} refreshKey={refreshKey} cap={cap} />
+              ) : null}
+              {section === "sync" ? (
+                <SyncSection
+                  machine={machine}
+                  paneId={paneId}
+                  state={status}
+                  cap={cap}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
               ) : null}
             </section>
           </DialogPanel>

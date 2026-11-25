@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointsPath, loadMachineMetadata, loadSavedMachines } from "./machines.ts";
 import { isClientFrame } from "../shared/protocol.ts";
-import { classifySshFailure, remoteBridgeCommand, sshArgs } from "./ssh.ts";
+import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, sshArgs } from "./ssh.ts";
 
 const dirs: string[] = [];
 function fakeHome(): Record<string, string | undefined> {
@@ -150,5 +150,34 @@ describe("isClientFrame takeover", () => {
   test("accepts optional takeover boolean only", () => {
     expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", takeover: true })).toBe(true);
     expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", takeover: "yes" })).toBe(false);
+  });
+});
+
+describe("remoteArgvCommand env scrubbing (issue #228)", () => {
+  const posix = { id: "p", target: "h", session: "s1", remoteHerdr: "/usr/bin/herdr" };
+  const win = { id: "w", target: "h", session: "s1", remoteHerdr: "C:\\herdr.exe", os: "windows" };
+  const scrub = ["HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
+
+  test("posix endpoint prepends env -u for each removed variable", () => {
+    const cmd = remoteArgvCommand(posix, ["bun", "run", "src/cli.ts", "stage", "w1:p1"], "/plugins/git", scrub);
+    expect(cmd).toBe(
+      "cd '/plugins/git' && env -u 'HERDR_PANE_ID' -u 'HERDR_PLUGIN_CONTEXT_JSON' 'bun' 'run' 'src/cli.ts' 'stage' 'w1:p1'",
+    );
+  });
+
+  test("posix endpoint without envRemove is unchanged", () => {
+    const cmd = remoteArgvCommand(posix, ["bun", "run", "x"], "/p");
+    expect(cmd).toBe("cd '/p' && 'bun' 'run' 'x'");
+  });
+
+  test("windows endpoint clears the variables inside the PowerShell script", () => {
+    const cmd = remoteArgvCommand(win, ["bun", "run", "src/cli.ts", "push", "w1:p1"], "C:\\plugins\\git", scrub);
+    const encoded = cmd.split("-EncodedCommand ")[1]!;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("$env:HERDR_PANE_ID=$null;");
+    expect(script).toContain("$env:HERDR_PLUGIN_CONTEXT_JSON=$null;");
+    expect(script).toContain("Set-Location -LiteralPath 'C:\\plugins\\git'");
+    // The scrub must run before the command invocation.
+    expect(script.indexOf("$env:HERDR_PANE_ID=$null;")).toBeLessThan(script.indexOf("& bun"));
   });
 });

@@ -3,12 +3,15 @@ import { PluginService, type PluginExecOptions, type PluginExecOutcome, type Plu
 import { HerdrError } from "./herdr.ts";
 
 /** Scripted host: each exec pops the next outcome for its argv match. */
-function fakeHost(handlers: Array<{ match: (argv: string[]) => boolean; outcome: PluginExecOutcome }>): PluginHost & { calls: string[][] } {
+function fakeHost(handlers: Array<{ match: (argv: string[]) => boolean; outcome: PluginExecOutcome }>): PluginHost & { calls: string[][]; options: PluginExecOptions[] } {
   const calls: string[][] = [];
+  const options: PluginExecOptions[] = [];
   return {
     calls,
-    async exec(argv: string[], _options: PluginExecOptions): Promise<PluginExecOutcome> {
+    options,
+    async exec(argv: string[], execOptions: PluginExecOptions): Promise<PluginExecOutcome> {
       calls.push([...argv]);
+      options.push(execOptions);
       const hit = handlers.find((h) => h.match(argv));
       if (!hit) return { code: 127, stdout: "", stderr: "no handler", timedOut: false };
       return hit.outcome;
@@ -160,6 +163,31 @@ describe("PluginService.call", () => {
     await expect(
       serviceFor(host2).call("local", { plugin: "rebuildup.inbox", command: "restore", args: ["w1:p1"] }),
     ).rejects.toMatchObject({ code: "plugin_bad_output" });
+  });
+
+  test("contract calls scrub herdr pane env vars via envRemove (issue #228)", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: ok({ contract: "herdr-plugins.inbox/v1", command: "settle", ok: true }),
+      },
+    ]);
+    await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "settle",
+      args: ["w1:p1"],
+    });
+    const index = host.calls.findIndex((c) => c[3] === "settle");
+    expect(index).toBeGreaterThanOrEqual(0);
+    // Plugin CLIs resolve the pane from HERDR_PANE_ID /
+    // HERDR_PLUGIN_CONTEXT_JSON when env is present — and for
+    // branch/upstream env beats the positional — so every contract call
+    // must strip them or a server running inside a herdr pane would
+    // silently target the wrong pane.
+    expect(host.options[index]?.envRemove).toEqual([
+      "HERDR_PANE_ID",
+      "HERDR_PLUGIN_CONTEXT_JSON",
+    ]);
   });
 
   test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {

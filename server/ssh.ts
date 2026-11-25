@@ -474,15 +474,27 @@ function sshExec(
  * element; Windows endpoints go through the same PowerShell encoded-script
  * path as the bridges. `cwd` is a host-local path.
  */
-export function remoteArgvCommand(endpoint: SshEndpoint, argv: string[], cwd?: string): string {
+export function remoteArgvCommand(
+  endpoint: SshEndpoint,
+  argv: string[],
+  cwd?: string,
+  envRemove: string[] = [],
+): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
-    return cwd ? `cd ${shellQuote(cwd)} && ${parts}` : parts;
+    const command =
+      envRemove.length > 0
+        ? `env ${envRemove.map((name) => `-u ${shellQuote(name)}`).join(" ")} ${parts}`
+        : parts;
+    return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
   }
+  // PowerShell has no `env -u`; clear the variables in the session before
+  // invoking the command (issue #228 — plugin CLIs resolve pane from env).
+  const scrub = envRemove.map((name) => `$env:${name}=$null; `).join("");
   const invoke = argv.map(quotePowerShellArg).join(" ");
-  const script = cwd
+  const script = scrub + (cwd
     ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
-    : `& ${invoke}; exit $LASTEXITCODE`;
+    : `& ${invoke}; exit $LASTEXITCODE`);
   return windowsPowerShellScriptCommand(script);
 }
 
@@ -504,7 +516,7 @@ export function sshPluginHost(
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, argv, options.cwd),
+        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? []),
         options.timeoutMs,
       ).then((r) => ({
         code: r.code,
