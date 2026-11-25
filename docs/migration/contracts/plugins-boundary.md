@@ -19,9 +19,14 @@ CLI implementations.
 
 ## Ordering and semantics
 
-- Contract versions are pinned per integration (git-v1 @ `62309b9c`,
-  inbox v0.1.0); a host running an older plugin build yields
-  capability-gated UI, not errors.
+- Contract versions are pinned per integration (git-v1 @ `d057830`,
+  projects/v1 @ `3b28349`, inbox v0.1.0, checkpoints/v1 @ `4aab1a7`); a
+  host running an older plugin build yields capability-gated UI, not
+  errors.
+- git-v1 strict parsing (ADR-0018): only documented flags per command,
+  `--name=value` for `-`-leading values, exit `2`/`error.code=="usage"`
+  for argument errors vs exit `1`/`error.kind` for runtime failures —
+  the boundary preserves `code`/`kind` distinctly.
 - Additive contract fields are tolerated; consumers must not depend on
   undocumented field order or presence.
 - Organize state (settle/snooze) is plugin-owned; the #173 localStorage

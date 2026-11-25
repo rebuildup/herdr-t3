@@ -74,7 +74,9 @@ const REPO_ERROR_LABELS: Record<string, string> = {
   pane_not_found: "pane no longer exists",
   no_pane_cwd: "pane has no working directory",
   timeout: "git command timed out",
-  usage: "invalid git arguments",
+  // Exit-2 contract usage error: our argv or a plugin/contract mismatch —
+  // never a repository state, so it must not read like a git failure.
+  usage: "plugin usage error",
   git_error: "git error",
   gh_missing: "gh CLI not found on the host",
   gh_error: "gh error — check `gh auth status` on the host",
@@ -1914,7 +1916,7 @@ const SECTIONS: { id: Section; label: string }[] = [
  * mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote`
  * list) and the forge `pr` surface (status/list/view/create via the
  * host's `gh`) for the focused pane, served by the host's `rebuildup.git`
- * plugin (`herdr-plugins.git/v1` pinned at 62309b9c). Each section
+ * plugin (`herdr-plugins.git/v1` pinned at d057830). Each section
  * lazy-loads and gates on the host's advertised `capability.commands` /
  * `mutation_commands`; Stage-1 plugins simply hide the mutation
  * controls — nothing here pretends they exist.
