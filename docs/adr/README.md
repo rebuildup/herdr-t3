@@ -17,3 +17,4 @@
 | [ADR-0013](./ADR-0013.md) | Accepted | GPUI staged migration: contract-first foundation and Electron removal gates |
 | [ADR-0014](./ADR-0014.md) | Accepted | Projects/Scripts surface: projects-v1 contract pin @c8460283 and scope (auto triggers upstream-gated) |
 | [ADR-0015](./ADR-0015.md) | Accepted | Projects/Scripts: projects-v1 schema v2 re-pin @b0c8c60 (run ownership + stop confirmation) |
+| [ADR-0016](./ADR-0016.md) | Accepted | Checkpoints surface: checkpoints-v1 contract pin @4aab1a7 and scope (restore/auto-capture/GC upstream-gated) |
