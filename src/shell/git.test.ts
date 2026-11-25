@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  classifyForgeError,
   classifyGitError,
   gitBranchArgs,
   gitCapabilityFromDoc,
@@ -10,6 +11,12 @@ import {
   gitFilesFromDoc,
   gitLogFromDoc,
   gitMutationFromDoc,
+  gitPrCreateArgs,
+  gitPrCreateFromDoc,
+  gitPrListArgs,
+  gitPrListFromDoc,
+  gitPrStatusFromDoc,
+  gitPrViewFromResultDoc,
   gitPushArgs,
   gitStageArgs,
   gitStatusFromDoc,
@@ -506,5 +513,184 @@ describe("mutation argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
     ]);
     // No plain --force exists in the contract.
     expect(gitPushArgs("w1:p1", { remote: "origin" })).toEqual(["push", "w1:p1", "origin"]);
+  });
+});
+
+/* ------------------------------ forge (pr) ---------------------------- */
+
+const PR_BASE = {
+  contract: "herdr-plugins.git/v1",
+  command: "pr",
+  pane_id: "w1:p1",
+  repo_root: "/repo/worktree",
+  repo: "owner/repo",
+  generated_at: "2026-11-25T00:00:00.000Z",
+};
+
+const PR_SUMMARY = {
+  number: 42,
+  title: "Add forge surface",
+  state: "OPEN",
+  isDraft: false,
+  author: { login: "octocat" },
+  headRefName: "feature/x",
+  baseRefName: "main",
+  updatedAt: "2026-11-24T12:00:00.000Z",
+  url: "https://github.com/owner/repo/pull/42",
+};
+
+const PR_VIEW = {
+  ...PR_SUMMARY,
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  reviewDecision: "APPROVED",
+  body: "body text",
+  body_truncated: false,
+  additions: 10,
+  deletions: 2,
+  changedFiles: 3,
+  createdAt: "2026-11-20T00:00:00.000Z",
+  statusCheckRollup: [
+    { name: "ci", status: "COMPLETED", conclusion: "SUCCESS", workflow: "ci.yml" },
+  ],
+  checks_truncated: false,
+  reviews: [{ author: "hubot", state: "APPROVED", submittedAt: "2026-11-21T00:00:00.000Z" }],
+};
+
+describe("pr argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
+  test("list argv: action first, pane second, flags separate", () => {
+    expect(gitPrListArgs("w1:p1")).toEqual(["list", "w1:p1"]);
+    expect(
+      gitPrListArgs("w1:p1", {
+        state: "all",
+        limit: 50,
+        head: "feature/x",
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "list",
+      "w1:p1",
+      "--state",
+      "all",
+      "--limit",
+      "50",
+      "--head",
+      "feature/x",
+      "--repo",
+      "owner/repo",
+    ]);
+  });
+
+  test("create argv: --title required, body xor body-file, optional flags", () => {
+    expect(gitPrCreateArgs("w1:p1", { title: "T" })).toEqual([
+      "create",
+      "w1:p1",
+      "--title",
+      "T",
+    ]);
+    expect(
+      gitPrCreateArgs("w1:p1", {
+        title: "T",
+        body: "long body",
+        draft: true,
+        base: "main",
+        head: "feature/x",
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "create",
+      "w1:p1",
+      "--title",
+      "T",
+      "--body",
+      "long body",
+      "--draft",
+      "--base",
+      "main",
+      "--head",
+      "feature/x",
+      "--repo",
+      "owner/repo",
+    ]);
+    // bodyFile wins over body (mutually exclusive contract-side).
+    expect(
+      gitPrCreateArgs("w1:p1", { title: "T", body: "b", bodyFile: "-" }),
+    ).toEqual(["create", "w1:p1", "--title", "T", "--body-file", "-"]);
+  });
+});
+
+describe("pr document parsers", () => {
+  test("list projects prs and rejects foreign/mismatched docs", () => {
+    const doc = { ...PR_BASE, action: "list", prs: [PR_SUMMARY] };
+    const result = gitPrListFromDoc(doc);
+    expect(result).not.toBeNull();
+    expect(result!.prs).toHaveLength(1);
+    expect(result!.prs[0]!.number).toBe(42);
+    expect(result!.repo).toBe("owner/repo");
+    expect(gitPrListFromDoc({ ...doc, contract: "other/v9" })).toBeNull();
+    expect(gitPrListFromDoc({ ...doc, action: "view" })).toBeNull();
+    expect(gitPrListFromDoc({ ...doc, prs: "nope" })).toBeNull();
+  });
+
+  test("status: pr:null is a normal state; pr object parses bounded view", () => {
+    const none = gitPrStatusFromDoc({
+      ...PR_BASE,
+      action: "status",
+      branch: "feature/x",
+      detached: false,
+      pr: null,
+    });
+    expect(none).not.toBeNull();
+    expect(none!.pr).toBeNull();
+    expect(none!.branch).toBe("feature/x");
+
+    const withPr = gitPrStatusFromDoc({
+      ...PR_BASE,
+      action: "status",
+      branch: "HEAD",
+      detached: true,
+      pr: PR_VIEW,
+    });
+    expect(withPr!.detached).toBe(true);
+    expect(withPr!.pr!.number).toBe(42);
+    expect(withPr!.pr!.checks).toHaveLength(1);
+    expect(withPr!.pr!.reviews[0]!.author).toBe("hubot");
+  });
+
+  test("view requires the nested pr object", () => {
+    const ok = gitPrViewFromResultDoc({ ...PR_BASE, action: "view", pr: PR_VIEW });
+    expect(ok!.pr.title).toBe("Add forge surface");
+    expect(ok!.pr.bodyTruncated).toBe(false);
+    expect(gitPrViewFromResultDoc({ ...PR_BASE, action: "view", pr: null })).toBeNull();
+  });
+
+  test("create requires ok:true and a url", () => {
+    const doc = {
+      ...PR_BASE,
+      action: "create",
+      ok: true,
+      url: "https://github.com/owner/repo/pull/43",
+      number: 43,
+    };
+    const result = gitPrCreateFromDoc(doc);
+    expect(result!.url).toContain("/pull/43");
+    expect(result!.number).toBe(43);
+    expect(gitPrCreateFromDoc({ ...doc, ok: false })).toBeNull();
+    expect(gitPrCreateFromDoc({ ...doc, url: null })).toBeNull();
+  });
+});
+
+describe("classifyForgeError", () => {
+  test("gh kinds keep their code; other errors delegate", () => {
+    const missing = Object.assign(new Error("gh not found"), { code: "gh_missing" });
+    const classified = classifyForgeError(missing);
+    expect(classified.kind).toBe("repo_error");
+    expect((classified as { code?: string }).code).toBe("gh_missing");
+
+    const notInstalled = Object.assign(new Error("no plugin"), {
+      code: "plugin_not_installed",
+    });
+    expect(classifyForgeError(notInstalled).kind).toBe("unavailable");
+    expect(classifyGitError(notInstalled).kind).toBe("unavailable");
   });
 });

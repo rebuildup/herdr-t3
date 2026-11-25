@@ -45,7 +45,7 @@ source of truth. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge → #229 (upstream-gated) |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge `pr status|list|view|create` connected (#229, gh-gated: `gh_missing`/`gh_error` shown as reasons) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 
@@ -83,8 +83,9 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    rows, hover-card terminal title + agent row, agent-row info hierarchy,
    tooltips, motion/animation parity. No new panels or data sources.
 2. **v0.6.0 — new surfaces:** right-panel host, agent details panel,
-   files/diff surface via `herdr-plugins.git` (#220 read-only now;
-   #227/#228/#229 track contract-gated extensions), settings sections
+   files/diff surface via `herdr-plugins.git` (#220 read-only;
+   #227 reads / #228 mutations / #229 forge PRs landed on the pinned
+   contract), settings sections
    that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
