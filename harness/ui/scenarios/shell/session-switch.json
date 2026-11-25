@@ -1,0 +1,18 @@
+{
+  "format": "herdr-t3/ui-scenario",
+  "version": 1,
+  "id": "shell.session-switch-preserves-state",
+  "capability": "ui.shell",
+  "contract": "ui-shell@1",
+  "fixture": "two-workspaces-two-panes",
+  "os": ["macos", "windows-11"],
+  "steps": [
+    { "action": "select", "target": "workspace.item", "params": { "id": "w1" } },
+    { "action": "terminal.scroll", "target": "terminal.pane", "params": { "id": "p1", "rows": -10 } },
+    { "action": "select", "target": "workspace.item", "params": { "id": "w2" } },
+    { "assert": "state.selected_workspace", "equals": "w2" },
+    { "action": "select", "target": "workspace.item", "params": { "id": "w1" } },
+    { "assert": "state.selected_workspace", "equals": "w1" },
+    { "assert": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "p1" }, "equals": -10 }
+  ]
+}

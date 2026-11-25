@@ -1,0 +1,17 @@
+{
+  "format": "herdr-t3/ui-scenario",
+  "version": 1,
+  "id": "theme.mode-switch-applies",
+  "capability": "ui.theme",
+  "contract": "settings-persistence@1",
+  "fixture": "default-settings",
+  "os": ["macos", "windows-11"],
+  "steps": [
+    { "assert": "state.appearance_mode", "equals": "system" },
+    { "action": "select", "target": "theme.mode-tiles", "params": { "mode": "dark" } },
+    { "assert": "state.appearance_mode", "equals": "dark" },
+    { "assert": "state.theme_resolved", "equals": "dark" },
+    { "action": "select", "target": "theme.mode-tiles", "params": { "mode": "light" } },
+    { "assert": "state.theme_resolved", "equals": "light" }
+  ]
+}
