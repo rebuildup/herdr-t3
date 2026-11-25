@@ -4,7 +4,7 @@
  * `rebuildup.projects` on the host owns the project registry and script
  * run records through the `herdr-plugins.projects/v1` contract, pinned
  * at rebuildup/herdr-plugins@3b28349 (release-0-3-0, schema v2 run
- * records — ADR-0015, durable completion receipt — ADR-0018). The
+ * records — ADR-0015, durable completion receipt — ADR-0019). The
  * contract doc is docs/migration/contracts/plugin-projects.md.
  *
  * `plugin_call` carries only the TOP-LEVEL command word (`list`,
@@ -15,12 +15,12 @@
  * maps pairs, never bare words.
  *
  * `scripts results`/`logs` lazily re-scan owned pane scrollback for the
- * `__HERDR_DONE_<run-id>__=<code>` receipt (upstream #68, ADR-0018) and
+ * `__HERDR_DONE_<run-id>__=<code>` receipt (upstream #68, ADR-0019) and
  * may finalize a `running` record to `success`/`failed` on refresh —
  * the client renders whatever the plugin returns and never upgrades a
  * record itself.
  *
- * Honest-state rules (ADR-0014/0015/0018): `running` does NOT mean the
+ * Honest-state rules (ADR-0014/0015/0019): `running` does NOT mean the
  * process is alive — records are displayed exactly as the plugin
  * returns them and are never upgraded to `success`. `stopping` and
  * `stop_unconfirmed` are in-flight stop confirmation states, never

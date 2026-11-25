@@ -45,11 +45,11 @@ source of truth. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @d057830 (ADR-0012/0017): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge `pr status|list|view|create` connected (#229, gh-gated: `gh_missing`/`gh_error` shown as reasons); strict argv parsing with `usage` exit-2 errors classified distinctly (#265) |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @d057830 (ADR-0012/0018): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge `pr status|list|view|create` connected (#229, gh-gated: `gh_missing`/`gh_error` shown as reasons); strict argv parsing with `usage` exit-2 errors classified distinctly (#265) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
-| Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @3b28349 (ADR-0014/0015/0018): registry UI connected (#252, capability-gated per host) |
-| Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0018 — `running` may finalize on refresh); auto triggers upstream-gated (herdr-plugins#60) |
+| Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @3b28349 (ADR-0014/0015/0019): registry UI connected (#252, capability-gated per host) |
+| Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh); auto triggers upstream-gated (herdr-plugins#60) |
 | Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @4aab1a7 (ADR-0016): list/show/diff/create/delete surface connected (#260, capability-gated per host); restore/auto-capture/GC upstream-gated (herdr-plugins#73–#75) |
 
 ## Issues / pull requests

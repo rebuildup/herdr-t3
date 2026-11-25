@@ -989,7 +989,7 @@
         "src/shell/git.ts",
         "src/components/GitDialog.tsx",
         "docs/adr/ADR-0012.md",
-        "docs/adr/ADR-0017.md"
+        "docs/adr/ADR-0018.md"
       ],
       "stage": "current-verified",
       "status": {
@@ -1097,7 +1097,7 @@
         "src/shell/WorkspaceHeader.tsx",
         "docs/migration/contracts/plugin-projects.md",
         "docs/adr/ADR-0014.md",
-        "docs/adr/ADR-0018.md"
+        "docs/adr/ADR-0019.md"
       ],
       "stage": "current-verified",
       "status": {

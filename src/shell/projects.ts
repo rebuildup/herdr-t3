@@ -5,7 +5,7 @@
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
  * rebuildup/herdr-plugins@3b28349 (release-0-3-0, schema v2 run
- * records — ADR-0015/0018): `list`, `show`,
+ * records — ADR-0015/0019): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The
  * `scripts *` commands belong to issue #253 and are not consumed here.
