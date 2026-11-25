@@ -87,7 +87,7 @@
       "title": "UI shell semantics",
       "spec": "docs/migration/contracts/ui-shell.md",
       "oracle": "conformance",
-      "summary": "T3 shell semantics: actions, focus, motion, theme roles, window chrome — implementation-independent.",
+      "summary": "T3 shell semantics: actions, focus, motion, theme roles, window chrome \u2014 implementation-independent.",
       "evidence": [
         "docs/migration/ui-conformance.md",
         "harness/ui/targets.json",
@@ -152,9 +152,12 @@
       ],
       "evidence": [
         "shared/protocol.ts",
-        "server/client-link.ts"
+        "server/client-link.ts",
+        "crates/protocol-codec/src/lib.rs",
+        "crates/protocol-codec/tests/codec.rs",
+        "harness/scenarios/codec/json-frames.json"
       ],
-      "stage": "current-verified",
+      "stage": "rust-implemented",
       "status": {
         "implemented": true,
         "known_issues": [],
@@ -227,7 +230,7 @@
         "reject bad Host/Origin"
       ],
       "errors": [
-        "socket refused → machine offline",
+        "socket refused \u2192 machine offline",
         "forbidden Host/Origin rejected pre-upgrade"
       ],
       "side_effects": [
@@ -270,7 +273,7 @@
         "emit snapshot/event frames"
       ],
       "errors": [
-        "subscribe loss → resubscribe full set",
+        "subscribe loss \u2192 resubscribe full set",
         "herdr close-after-answer honored (one RPC per call)"
       ],
       "side_effects": [
@@ -354,7 +357,7 @@
       ],
       "errors": [
         "machine_update_failed",
-        "transport failure → status frame"
+        "transport failure \u2192 status frame"
       ],
       "side_effects": [
         "herdr machine CLI calls",
@@ -397,7 +400,7 @@
         "named-pipe connect on Windows"
       ],
       "errors": [
-        "ssh auth/host failure → unreachable status",
+        "ssh auth/host failure \u2192 unreachable status",
         "named-pipe marker file resolution"
       ],
       "side_effects": [
@@ -547,7 +550,7 @@
         "select/close/rename/drag-reorder/overflow in strip"
       ],
       "errors": [
-        "rpc failure → notice",
+        "rpc failure \u2192 notice",
         "insert_index semantics match herdr"
       ],
       "side_effects": [
@@ -678,7 +681,7 @@
         "pane.link.activate"
       ],
       "errors": [
-        "unresolvable link → no-op/error surfaced"
+        "unresolvable link \u2192 no-op/error surfaced"
       ],
       "side_effects": [
         "may open files/URLs via OS"
@@ -712,7 +715,7 @@
         "windows-11"
       ],
       "operations": [
-        "pane.process_info(pane_id) → pid/name/argv/cwd"
+        "pane.process_info(pane_id) \u2192 pid/name/argv/cwd"
       ],
       "errors": [
         "pane_id required; target silently answers focused pane (forbidden)"
@@ -756,7 +759,7 @@
       ],
       "errors": [
         "rpc failure surfaced",
-        "no-match → undefined branch (not fabricated)"
+        "no-match \u2192 undefined branch (not fabricated)"
       ],
       "side_effects": [
         "filesystem worktree mutations via herdr"
@@ -842,7 +845,7 @@
         "agentRowSignature"
       ],
       "errors": [
-        "unknown status → unknown shelf",
+        "unknown status \u2192 unknown shelf",
         "stale machine excluded but records preserved"
       ],
       "side_effects": [
@@ -928,13 +931,13 @@
         "windows-11"
       ],
       "operations": [
-        "snapshot diff → blocked/done notices",
+        "snapshot diff \u2192 blocked/done notices",
         "Open action navigation",
         "dedupe on state signature"
       ],
       "errors": [
         "baseline snapshot never notifies",
-        "missing workspace → workspace_id fallback"
+        "missing workspace \u2192 workspace_id fallback"
       ],
       "side_effects": [
         "toast UI only"
@@ -1110,7 +1113,7 @@
       "status": {
         "implemented": true,
         "known_issues": [
-          "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert — no upstream execution mapping (herdr-plugins#60)"
+          "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert \u2014 no upstream execution mapping (herdr-plugins#60)"
         ],
         "os_gaps": [],
         "upstream_deps": [
@@ -1212,8 +1215,8 @@
         "takeover"
       ],
       "errors": [
-        "closed → explicit state",
-        "attach target gone → mirror fallback or unavailable"
+        "closed \u2192 explicit state",
+        "attach target gone \u2192 mirror fallback or unavailable"
       ],
       "side_effects": [
         "herdr attach session per pane",
@@ -1449,7 +1452,7 @@
         "windows-11"
       ],
       "operations": [
-        "focusin/focusout → CSI I/O only when mode 1004 set",
+        "focusin/focusout \u2192 CSI I/O only when mode 1004 set",
         "chrome focus transitions reported"
       ],
       "errors": [
@@ -1496,9 +1499,9 @@
         "windows-11"
       ],
       "operations": [
-        "OSC 52 → clipboard write",
-        "selection text extraction → copy",
-        "paste → encodePaste (mode 2004 bracket)"
+        "OSC 52 \u2192 clipboard write",
+        "selection text extraction \u2192 copy",
+        "paste \u2192 encodePaste (mode 2004 bracket)"
       ],
       "errors": [
         "clipboard write only on OSC 52 effect",
@@ -1799,7 +1802,7 @@
     },
     {
       "id": "ui.command-palette",
-      "title": "Command palette (⌘K) and goto dialog",
+      "title": "Command palette (\u2318K) and goto dialog",
       "area": "ui",
       "owner": "app",
       "boundary": "B6",
@@ -1816,7 +1819,7 @@
         "status-token filter (e.g. blocked:)"
       ],
       "errors": [
-        "no-match → empty result, not error"
+        "no-match \u2192 empty result, not error"
       ],
       "side_effects": [
         "navigation/actions"
@@ -1903,8 +1906,8 @@
         "system follow"
       ],
       "errors": [
-        "unknown stored value → default",
-        "storage unavailable → in-memory"
+        "unknown stored value \u2192 default",
+        "storage unavailable \u2192 in-memory"
       ],
       "side_effects": [
         "index.css custom properties",
@@ -2035,7 +2038,7 @@
         "drag-region header"
       ],
       "errors": [
-        "OS capability absent → explicit fallback, not silent difference"
+        "OS capability absent \u2192 explicit fallback, not silent difference"
       ],
       "side_effects": [
         "native window controls"
@@ -2062,7 +2065,7 @@
     },
     {
       "id": "os.native-theme",
-      "title": "Native theme watcher → ghostty palette resolution",
+      "title": "Native theme watcher \u2192 ghostty palette resolution",
       "area": "os",
       "owner": "app",
       "boundary": "B7",
@@ -2074,12 +2077,12 @@
         "windows-11"
       ],
       "operations": [
-        "nativeTheme changes → palette re-resolve",
+        "nativeTheme changes \u2192 palette re-resolve",
         "user ghostty config overrides",
         "background image config"
       ],
       "errors": [
-        "missing/invalid config → null fallback",
+        "missing/invalid config \u2192 null fallback",
         "unsupported image formats rejected"
       ],
       "side_effects": [
@@ -2169,7 +2172,7 @@
       ],
       "side_effects": [
         "userData dirs",
-        "Dock/⌘Tab identity"
+        "Dock/\u2318Tab identity"
       ],
       "scenarios": [
         "docs/development.md"
@@ -2205,8 +2208,8 @@
         "live apply where supported"
       ],
       "errors": [
-        "corrupt JSON → defaults",
-        "storage unavailable → in-memory"
+        "corrupt JSON \u2192 defaults",
+        "storage unavailable \u2192 in-memory"
       ],
       "side_effects": [
         "localStorage write"
@@ -2246,8 +2249,8 @@
         "live apply to panes"
       ],
       "errors": [
-        "out-of-range → clamped",
-        "unknown fields → defaults"
+        "out-of-range \u2192 clamped",
+        "unknown fields \u2192 defaults"
       ],
       "side_effects": [
         "localStorage write",
@@ -2287,7 +2290,7 @@
         "set/unset via desktop IPC"
       ],
       "errors": [
-        "OS denial → surfaced error",
+        "OS denial \u2192 surfaced error",
         "never duplicated in renderer storage"
       ],
       "side_effects": [
@@ -2328,7 +2331,7 @@
         "icons/asar/resources"
       ],
       "errors": [
-        "build failure → no artifact",
+        "build failure \u2192 no artifact",
         "dirty tree must not claim release SHA"
       ],
       "side_effects": [
@@ -2412,10 +2415,10 @@
       ],
       "operations": [
         "gh issue/pr list per repo from pane cwd",
-        "issue/PR ↔ pane linking"
+        "issue/PR \u2194 pane linking"
       ],
       "errors": [
-        "unlinked identity → heuristic only, never fabricated"
+        "unlinked identity \u2192 heuristic only, never fabricated"
       ],
       "side_effects": [
         "gh CLI calls"
@@ -2451,7 +2454,7 @@
         "price overrides"
       ],
       "errors": [
-        "no herdr token/cost data → cannot implement without upstream"
+        "no herdr token/cost data \u2192 cannot implement without upstream"
       ],
       "side_effects": [],
       "scenarios": [],

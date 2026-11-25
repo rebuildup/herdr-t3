@@ -4014,6 +4014,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "protocol-codec"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "psm"
 version = "0.1.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"

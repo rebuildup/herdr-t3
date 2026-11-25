@@ -22,6 +22,10 @@ harness/
   fixtures/               shared JSON inputs referenced via {"$ref": ...}
   scenarios/<area>/*.json versioned scenarios
 crates/diff-adapter/      minimal Rust reference adapter (non-product)
+crates/protocol-codec/    product-intended protocol.codec crate (issue
+                          #275); its protocol-codec-adapter bin serves the
+                          json_* ops — the "rust" adapter name routes ops
+                          to whichever binary implements them
 ```
 
 ## Scenario format v1
@@ -74,7 +78,9 @@ bun test harness/                                  # all scenarios, TS adapter
 bun harness/run.ts                                 # replay everything runnable
 bun harness/run.ts harness/scenarios/codec --adapters rust   # Rust differential
 bun harness/run.ts --adapters ts --record          # re-record expects (TS)
-DIFF_ADAPTER_BIN=/path/to/diff-adapter bun harness/run.ts --adapters rust
+DIFF_ADAPTER_BIN=/path/to/diff-adapter \
+PROTOCOL_CODEC_BIN=/path/to/protocol-codec-adapter \
+  bun harness/run.ts --adapters rust
 ```
 
 `--record` rewrites `expect` from fresh TS-adapter observations and updates
@@ -82,8 +88,9 @@ DIFF_ADAPTER_BIN=/path/to/diff-adapter bun harness/run.ts --adapters rust
 git SHA, timestamp). Review the diff before committing — recorded output is
 the current implementation's behavior.
 
-CI (`scripts/ci.sh`) runs `cargo build -p diff-adapter` and replays every
-scenario that lists the `rust` adapter. `bun test` covers the TS side.
+CI (`scripts/ci.sh`) runs `cargo build -p diff-adapter -p protocol-codec`
+and replays every scenario that lists the `rust` adapter. `bun test`
+covers the TS side; `cargo test -p protocol-codec` covers the Rust codec.
 
 ## Normalization
 

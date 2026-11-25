@@ -11,7 +11,7 @@ printf 'Running tests...\n'
 bun run test
 
 printf 'Running differential harness (rust adapter)...\n'
-cargo build -p diff-adapter
+cargo build -p diff-adapter -p protocol-codec
 bun harness/run.ts harness/scenarios --adapters rust
 
 printf 'UI lint...\n'
