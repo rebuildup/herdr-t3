@@ -2,6 +2,8 @@ import type {
   ClientFrame,
   HealthResponse,
   MachineInfo,
+  PluginCallResult,
+  PluginListResult,
   RpcMethod,
   ServerFrame,
   SessionResponse,
@@ -373,6 +375,29 @@ export function machineUpdate(
   update: { label?: string; enabled?: boolean },
 ): Promise<unknown> {
   return machineCommand({ type: "machine_update", id: "", machine, ...update });
+}
+
+/* ------------------------- plugin contract calls ---------------------- */
+
+/** Installed-plugin discovery on one host (ADR-0011). */
+export function pluginList(machine: string): Promise<PluginListResult> {
+  return machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>;
+}
+
+/** One plugin contract command on one host; result is the plugin's JSON document. */
+export function pluginCall(
+  machine: string,
+  request: { plugin: string; command: string; args?: string[]; timeout_ms?: number },
+): Promise<PluginCallResult> {
+  return machineCommand({
+    type: "plugin_call",
+    id: "",
+    machine,
+    plugin: request.plugin,
+    command: request.command,
+    ...(request.args !== undefined ? { args: request.args } : {}),
+    ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
+  }) as Promise<PluginCallResult>;
 }
 
 /** Launch-at-login state; only the desktop preload exposes these. */

@@ -8,7 +8,6 @@
 import {
   Fragment,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -50,6 +49,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubPopup,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
@@ -79,16 +81,19 @@ import {
   agentOrganizeKey,
   agentRowSignature,
   agentStateLabel,
-  agentStateSeq,
   agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
   shortPaneId,
   type AgentListEntry,
-  type AgentOrganizeMap,
   type AgentSection,
 } from "./agents";
-import { readAgentOrganize, writeAgentOrganize } from "./agentOrganizeStore";
+import {
+  inboxOrganize,
+  useInboxOrganize,
+  useInboxStates,
+  type InboxUnavailableReason,
+} from "./inbox";
 import { workspaceTitle } from "~/lib/workspace";
 import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
@@ -351,6 +356,33 @@ function MachineFolderHeader({
 
 type AgentOrganizeAction = "settle" | "snooze" | "restore";
 
+/** Why organize actions are unavailable on a machine (ADR-0011 §10). */
+const INBOX_UNAVAILABLE_LABELS: Record<InboxUnavailableReason, string> = {
+  not_installed: "inbox plugin not installed",
+  disabled: "inbox plugin disabled",
+  incompatible: "inbox contract incompatible",
+  unreachable: "inbox host unreachable",
+  error: "inbox unavailable",
+};
+
+/** Snooze presets offered by the plugin contract (`--until` specs). */
+const SNOOZE_PRESETS = [
+  { label: "1 hour", spec: "+1h" },
+  { label: "1 day", spec: "+1d" },
+  { label: "1 week", spec: "+7d" },
+] as const;
+
+function formatSnoozeUntil(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /**
  * One agent row in the Agents shelves. Two lines per T3
  * `SidebarThreadRow`'s hierarchy (issue #200,
@@ -368,6 +400,9 @@ function AgentRow({
   showPaneId,
   pane,
   shelf,
+  inboxReady,
+  inboxReason,
+  snoozedUntil,
   onDetails,
   onOrganize,
 }: {
@@ -376,10 +411,15 @@ function AgentRow({
   /** Sibling rows render identically without it — append the pane token (issue #165). */
   showPaneId: boolean;
   pane: PaneInfo | undefined;
-  /** User-organize shelf the row currently sits in, if any (issue #173). */
+  /** User-organize shelf the row currently sits in, if any (#173/#219). */
   shelf: "settled" | "snoozed" | undefined;
+  /** Whether the host's inbox plugin can accept organize mutations. */
+  inboxReady: boolean;
+  inboxReason?: InboxUnavailableReason | undefined;
+  /** Plugin-reported snooze deadline (snoozed rows only). */
+  snoozedUntil?: string | undefined;
   onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
-  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction) => void;
+  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction, snoozeSpec?: string) => void;
 }) {
   const { machine, agent } = entry;
   const stateLabel = agentStateLabel(agent);
@@ -401,6 +441,12 @@ function AgentRow({
       ? displayName
       : null,
     showPaneId ? shortPaneId(agent.pane_id) : null,
+    shelf === "snoozed" && snoozedUntil
+      ? (() => {
+          const until = formatSnoozeUntil(snoozedUntil);
+          return until ? `until ${until}` : null;
+        })()
+      : null,
   ].filter((part): part is string => part !== null);
   const focusAgent = () => {
     selectWorkspace(machine.id, agent.workspace_id);
@@ -486,38 +532,47 @@ function AgentRow({
             <InfoIcon /> Details…
           </ContextMenuItem>
         ) : null}
-        {/* User-side shelf organization (issue #173): UI-layer only,
-            herdr state is untouched. Shelved rows can be restored or
-            moved to the other shelf; natural-section rows offer
-            Settle/Snooze. T3 keeps snoozed threads reachable for manual
-            unsnooze — the Snoozed shelf mirrors that. */}
+        {/* User-side shelf organization (#173, plugin-backed per ADR-0011):
+            herdr state is untouched; the host's rebuildup.inbox plugin owns
+            organize state. Shelved rows can be restored or moved to the
+            other shelf; natural-section rows offer Settle/Snooze. T3 keeps
+            snoozed threads reachable for manual unsnooze — the Snoozed
+            shelf mirrors that. When the host has no usable inbox plugin the
+            actions are disabled with the reason, never silently local. */}
         <ContextMenuSeparator />
-        {shelf === "settled" ? (
-          <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
-              <RotateCcwIcon /> Restore
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
-              <MoonIcon /> Snooze
-            </ContextMenuItem>
-          </>
-        ) : shelf === "snoozed" ? (
-          <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
-              <RotateCcwIcon /> Restore
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
-              <CheckCheckIcon /> Settle
-            </ContextMenuItem>
-          </>
+        {!inboxReady ? (
+          <ContextMenuItem disabled>
+            {INBOX_UNAVAILABLE_LABELS[inboxReason ?? "error"]}
+          </ContextMenuItem>
         ) : (
           <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
-              <CheckCheckIcon /> Settle
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
-              <MoonIcon /> Snooze
-            </ContextMenuItem>
+            {shelf === "settled" || shelf === "snoozed" ? (
+              <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+                <RotateCcwIcon /> Restore
+              </ContextMenuItem>
+            ) : null}
+            {shelf !== "snoozed" ? (
+              <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+                <CheckCheckIcon /> Settle
+              </ContextMenuItem>
+            ) : null}
+            {shelf !== "settled" ? (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <MoonIcon /> Snooze
+                </ContextMenuSubTrigger>
+                <ContextMenuSubPopup>
+                  {SNOOZE_PRESETS.map((preset) => (
+                    <ContextMenuItem
+                      key={preset.spec}
+                      onSelect={() => onOrganize(entry, "snooze", preset.spec)}
+                    >
+                      {preset.label}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubPopup>
+              </ContextMenuSub>
+            ) : null}
           </>
         )}
         <ContextMenuSeparator />
@@ -685,13 +740,13 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     [machines, bridge.snapshots, branchIndex],
   );
 
-  // User-side settle/snooze overlay (issue #173): localStorage-persisted,
-  // keyed by machine+pane with the state_change_seq at action time.
-  // partitionAgents resolves it against live snapshots — seq advance
-  // auto-returns the row, vanished panes drop their record.
-  const [agentOrganize, setAgentOrganize] = useState<AgentOrganizeMap>(() =>
-    readAgentOrganize(),
-  );
+  // User-side settle/snooze overlay (#173 → ADR-0011): the host's
+  // rebuildup.inbox plugin owns organize state; this store only projects
+  // it into the AgentOrganizeMap partitionAgents consumes. Plugin-sourced
+  // records carry seq=MAX so the plugin's own generation/expiry
+  // resolution is authoritative — the client never re-derives it.
+  const inboxOrganizeMap = useInboxOrganize();
+  const inboxStates = useInboxStates();
   // Machines without a usable snapshot cannot resolve organize records —
   // partitionAgents carries their records through instead of pruning them
   // on absent data (app start before the first snapshot would otherwise
@@ -708,10 +763,10 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     () =>
       partitionAgents(
         agentEntries,
-        agentOrganize,
+        inboxOrganizeMap,
         machines.length === 0 ? null : unresolvedAgentMachines,
       ),
-    [agentEntries, agentOrganize, machines.length, unresolvedAgentMachines],
+    [agentEntries, inboxOrganizeMap, machines.length, unresolvedAgentMachines],
   );
   const agentSections = agentPartition.sections;
   // Every section is a collapsible shelf (issue #211): the whole Agents
@@ -724,52 +779,41 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     entry: AgentListEntry,
     shelf?: "settled" | "snoozed",
     className?: string,
-  ) => (
-    <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
-      <AgentRow
-        entry={entry}
-        multiMachine={machines.length > 1}
-        showPaneId={(agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1}
-        pane={entry.pane}
-        shelf={shelf}
-        onDetails={(e, p) => setAgentDetails({ machine: e.machine.id, pane: p })}
-        onOrganize={organizeAgent}
-      />
-    </li>
-  );
-
-  // Keep storage and state in sync with the resolved map: auto-restored
-  // rows and records for closed panes are pruned on write-back. This
-  // effect is the single writer — organizeAgent only updates state, so a
-  // user action can never be overwritten by a stale resolved map.
-  const agentOrganizeJson = JSON.stringify(agentPartition.organize);
-  const lastAgentOrganizeJson = useRef<string | null>(null);
-  useEffect(() => {
-    if (lastAgentOrganizeJson.current === agentOrganizeJson) return;
-    lastAgentOrganizeJson.current = agentOrganizeJson;
-    writeAgentOrganize(agentPartition.organize);
-    // Adopt the resolved map only while state still is the input this
-    // partition was computed from — an organize action landing between
-    // render and effect must not be clobbered by a stale resolved map.
-    setAgentOrganize((current) =>
-      current === agentOrganize ? agentPartition.organize : current,
+  ) => {
+    const inboxState = inboxStates.get(entry.machine.id);
+    const organizeRecord =
+      shelf !== undefined
+        ? inboxOrganizeMap[agentOrganizeKey(entry.machine.id, entry.agent.pane_id)]
+        : undefined;
+    return (
+      <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
+        <AgentRow
+          entry={entry}
+          multiMachine={machines.length > 1}
+          showPaneId={(agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1}
+          pane={entry.pane}
+          shelf={shelf}
+          inboxReady={inboxState?.status.kind === "ready"}
+          inboxReason={
+            inboxState?.status.kind === "unavailable" ? inboxState.status.reason : undefined
+          }
+          snoozedUntil={organizeRecord?.until}
+          onDetails={(e, p) => setAgentDetails({ machine: e.machine.id, pane: p })}
+          onOrganize={organizeAgent}
+        />
+      </li>
     );
-  }, [agentOrganizeJson, agentPartition.organize, agentOrganize]);
+  };
 
-  const organizeAgent = (entry: AgentListEntry, action: AgentOrganizeAction) => {
-    const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
-    setAgentOrganize((prev) => {
-      const next = { ...prev };
-      if (action === "restore") {
-        delete next[key];
-      } else {
-        next[key] = {
-          kind: action === "settle" ? "settled" : "snoozed",
-          seq: agentStateSeq(entry.agent),
-        };
-      }
-      return next;
-    });
+  // Organize mutations go to the host's inbox plugin (ADR-0011); the
+  // projection refreshes from the plugin's own `list` — the client never
+  // writes organize state itself.
+  const organizeAgent = (
+    entry: AgentListEntry,
+    action: AgentOrganizeAction,
+    snoozeSpec?: string,
+  ) => {
+    void inboxOrganize(entry.machine.id, entry.agent.pane_id, action, snoozeSpec);
   };
 
   // Rows that would render identically get a pane-id disambiguator

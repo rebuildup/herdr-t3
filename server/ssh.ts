@@ -424,35 +424,97 @@ export async function resolveRemoteHerdr(
 
 /* ------------------------- windows remote discovery --------------------- */
 
-/** Run one ssh remote command to completion; resolves {code, stdout, stderr}. */
-function sshExec(
-  target: string,
+/** Run one ssh remote command to completion; resolves {code, stdout, stderr, timedOut}. */
+function sshExecEndpoint(
+  endpoint: SshEndpoint,
   command: string,
   timeoutMs: number,
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
+): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(
-      "ssh",
-      [...sshArgs({ id: `probe-${target}`, target, session: "default", remoteHerdr: "true" }), command],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    const child = spawn("ssh", [...sshArgs(endpoint), command], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill();
-      resolve({ code: null, stdout, stderr: `${stderr}\n[timed out]` });
+      resolve({ code: null, stdout, stderr: `${stderr}\n[timed out]`, timedOut });
     }, timeoutMs);
     child.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
     child.stderr?.on("data", (c: Buffer) => (stderr = (stderr + c.toString("utf8")).slice(-STDERR_TAIL)));
     child.on("error", (err) => {
       clearTimeout(timer);
-      resolve({ code: null, stdout, stderr: `${stderr}${err.message}` });
+      resolve({ code: null, stdout, stderr: `${stderr}${err.message}`, timedOut });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      resolve({ code, stdout, stderr, timedOut });
     });
   });
+}
+
+function sshExec(
+  target: string,
+  command: string,
+  timeoutMs: number,
+): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  return sshExecEndpoint(
+    { id: `probe-${target}`, target, session: "default", remoteHerdr: "true" },
+    command,
+    timeoutMs,
+  );
+}
+
+/* --------------------- plugin host argv execution --------------------- */
+
+/**
+ * Remote command for one argv vector (ADR-0011): POSIX shells quote every
+ * element; Windows endpoints go through the same PowerShell encoded-script
+ * path as the bridges. `cwd` is a host-local path.
+ */
+export function remoteArgvCommand(endpoint: SshEndpoint, argv: string[], cwd?: string): string {
+  if (!isWindowsEndpoint(endpoint)) {
+    const parts = argv.map(shellQuote).join(" ");
+    return cwd ? `cd ${shellQuote(cwd)} && ${parts}` : parts;
+  }
+  const invoke = argv.map(quotePowerShellArg).join(" ");
+  const script = cwd
+    ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
+    : `& ${invoke}; exit $LASTEXITCODE`;
+  return windowsPowerShellScriptCommand(script);
+}
+
+/**
+ * PluginHost for a saved SSH machine (ADR-0011): argv runs on the remote
+ * host through the same ssh transport as the bridges. `session` is the
+ * herdr session name; "default" maps to no flag (the plugin CLI's
+ * `--session default` would resolve a named-session socket that does not
+ * exist).
+ */
+export function sshPluginHost(
+  endpoint: SshEndpoint,
+  session: string,
+): import("./plugins.ts").PluginHost {
+  const pluginSession = session === "default" ? undefined : session;
+  return {
+    ...(pluginSession !== undefined ? { pluginSession } : {}),
+    herdrArgv: [endpoint.remoteHerdr],
+    exec(argv, options) {
+      return sshExecEndpoint(
+        endpoint,
+        remoteArgvCommand(endpoint, argv, options.cwd),
+        options.timeoutMs,
+      ).then((r) => ({
+        code: r.code,
+        stdout: r.stdout,
+        stderr: r.stderr,
+        timedOut: r.timedOut,
+        ...(r.code === null && !r.timedOut ? { error: r.stderr.trim() } : {}),
+      }));
+    },
+  };
 }
 
 /** herdr `remote_api_bridge_command --check` equivalent for one Windows path. */

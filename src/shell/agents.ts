@@ -278,6 +278,8 @@ export type AgentOrganizeKind = "settled" | "snoozed";
 export interface AgentOrganizeRecord {
   kind: AgentOrganizeKind;
   seq: number;
+  /** Snooze deadline (ISO) projected from the plugin contract, when known. */
+  until?: string;
 }
 
 /**
@@ -329,11 +331,15 @@ export function partitionAgents(
     const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
     seenKeys.add(key);
     const record = organize[key];
+    // Attention is never hidden (ADR-0011 §9, plugin `attention` semantics):
+    // a blocked row stays in Attention even if a stale organize record
+    // exists — the plugin itself reports such items as in_inbox.
+    const attention = entry.agent.agent_status === "blocked";
     // State advanced since the user shelved it — auto-return to the
     // natural section and drop the record (T3 inbox return; herdr state
     // itself never changed).
     const shelved =
-      record !== undefined && agentStateSeq(entry.agent) <= record.seq
+      record !== undefined && !attention && agentStateSeq(entry.agent) <= record.seq
         ? record
         : undefined;
     if (shelved !== undefined) {

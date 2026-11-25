@@ -10,6 +10,9 @@ and issue #188. Each feature is classified by where its data comes from:
   an upstream proposal, not fabricated.
 - **[excluded]** — would make herdr-t3 own orchestration state; conflicts
   with the herdr boundary (ADR-0009).
+- **[plugin]** — owned by a published `herdr-plugins` contract consumed
+  through the ADR-0011 boundary (`plugin_list`/`plugin_call`); supersedes
+  `[cli]` where a plugin owns the capability (#219/#220).
 
 ## Sidebar / agent rows
 
@@ -17,7 +20,7 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Provider/harness icon on agent rows | [herdr] | `agent` name → icon map; T3 shows provider artwork |
 | Thread status indicators (working/blocked/done) | [herdr] | `agent_status` + `state_change_seq` already mapped |
-| Settle / Snooze / settled shelf | [herdr] | implemented (#173, T3 semantics in §6.2) |
+| Settle / Snooze / settled shelf | [plugin] | `rebuildup.inbox` v1 owns organize state (#219, ADR-0011); #173 localStorage migrated |
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
@@ -38,7 +41,7 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [cli] | `git` in pane cwd; read-only browsing feasible |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` read-only commands (#220); direct `git` only where the contract lacks coverage |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 
