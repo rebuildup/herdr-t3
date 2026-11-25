@@ -1,0 +1,284 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.basic-screen",
+  "capability": "terminal.render",
+  "contract": "terminal-session@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts"
+  ],
+  "steps": [
+    {
+      "op": "session_new",
+      "input": {
+        "cols": 12,
+        "rows": 3,
+        "scrollback": 50
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "s1"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "hello\r\nworld"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "h",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "w",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": "r",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "cursor",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "visible": true,
+          "x": 5,
+          "y": 1,
+          "style": "block",
+          "blinking": false,
+          "wideTail": false
+        }
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "dispose",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

@@ -10,6 +10,10 @@ bun run typecheck
 printf 'Running tests...\n'
 bun run test
 
+printf 'Running differential harness (rust adapter)...\n'
+cargo build -p diff-adapter
+bun harness/run.ts harness/scenarios --adapters rust
+
 printf 'UI lint...\n'
 bun run lint:ui
 

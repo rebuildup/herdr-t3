@@ -1,0 +1,166 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "codec.server-messages",
+  "capability": "protocol.attach-codec",
+  "contract": "protocol-frames@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "00160100"
+      },
+      "note": "Welcome v22 TerminalAnsi, no error",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "welcome",
+          "version": 22,
+          "terminalAnsi": true,
+          "error": null
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "00160000"
+      },
+      "note": "Welcome v22 SemanticFrame encoding",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "welcome",
+          "version": 22,
+          "terminalAnsi": false,
+          "error": null
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "00160101046e6f7065"
+      },
+      "note": "Welcome with error string",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "welcome",
+          "version": 22,
+          "terminalAnsi": true,
+          "error": "nope"
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "01fb2c0150180103414243"
+      },
+      "note": "Terminal frame seq=300 80x24 full, bytes ABC",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "terminal",
+          "seq": 300,
+          "width": 80,
+          "height": 24,
+          "full": true,
+          "bytes_hex": "414243"
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "0300"
+      },
+      "note": "ServerShutdown no reason",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "shutdown",
+          "reason": null
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "030103626965"
+      },
+      "note": "ServerShutdown reason=bye",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "shutdown",
+          "reason": "bie"
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "080101"
+      },
+      "note": "MouseCapture enabled + sgrPixels",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "mouse_capture",
+          "enabled": true,
+          "sgrPixels": true
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "080000"
+      },
+      "note": "MouseCapture disabled",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "mouse_capture",
+          "enabled": false,
+          "sgrPixels": false
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "63"
+      },
+      "note": "unknown variant 99 -> other",
+      "expect": {
+        "ok": true,
+        "value": {
+          "type": "other",
+          "variant": 99
+        }
+      }
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": "01"
+      },
+      "expect_error": "bad server frame"
+    },
+    {
+      "op": "decode_server_message",
+      "input": {
+        "hex": ""
+      },
+      "expect_error": "truncated"
+    }
+  ]
+}

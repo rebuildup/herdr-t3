@@ -1,0 +1,718 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "projection.derive-workspace",
+  "capability": "workspace.ops",
+  "contract": "workspace-pane-ops@1",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "steps": [
+    {
+      "op": "derive_workspace",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "w1:t1",
+          "focused_pane_id": "w1:p1",
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2,
+              "tab_count": 2,
+              "active_tab_id": "w1:t1",
+              "worktree": {
+                "checkout_path": "/repo/app",
+                "is_linked_worktree": false,
+                "repo_key": "repo/app",
+                "repo_name": "app",
+                "repo_root": "/repo/app"
+              }
+            },
+            {
+              "workspace_id": "w2",
+              "label": "docs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1,
+              "tab_count": 1,
+              "active_tab_id": "w2:t1",
+              "worktree": null
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2
+            },
+            {
+              "tab_id": "w1:t2",
+              "workspace_id": "w1",
+              "label": "logs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 0
+            },
+            {
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "label": "",
+              "number": 1,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "terminal_title": "bun test",
+              "terminal_title_stripped": "bun test",
+              "title": "shell"
+            },
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "terminal_title_stripped": "vim",
+              "title": "editor"
+            },
+            {
+              "pane_id": "w2:p1",
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "terminal_id": "term-3",
+              "agent_status": "idle",
+              "focused": false,
+              "revision": 1,
+              "terminal_title_stripped": "ssh host",
+              "title": "remote"
+            }
+          ],
+          "agents": [
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent": "claude",
+              "display_agent": "Claude",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "state_change_seq": 11,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "vim"
+            },
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent": "codex",
+              "display_agent": "Codex",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "state_change_seq": 20,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "bun test"
+            }
+          ],
+          "layouts": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "focused_pane_id": "w1:p1",
+              "zoomed": false,
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 200,
+                "height": 50
+              },
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "focused": true,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "focused": false,
+                  "rect": {
+                    "x": 100,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                }
+              ],
+              "splits": [
+                {
+                  "id": "s1",
+                  "direction": "right",
+                  "ratio": 0.5,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 200,
+                    "height": 50
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_id": "w1",
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "label": ""
+            },
+            {
+              "tab_id": "w1:t2",
+              "label": "logs"
+            }
+          ],
+          "active_tab_id": "w1:t1",
+          "pane_ids": [
+            "w1:p1",
+            "w1:p2"
+          ],
+          "focused_pane_id": "w1:p1",
+          "layout": {
+            "tab_id": "w1:t1",
+            "workspace_id": "w1",
+            "focused_pane_id": "w1:p1",
+            "zoomed": false,
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "focused": true,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 100,
+                  "height": 50
+                }
+              },
+              {
+                "pane_id": "w1:p2",
+                "focused": false,
+                "rect": {
+                  "x": 100,
+                  "y": 0,
+                  "width": 100,
+                  "height": 50
+                }
+              }
+            ],
+            "splits": [
+              {
+                "id": "s1",
+                "direction": "right",
+                "ratio": 0.5,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "op": "derive_workspace",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "w1:t1",
+          "focused_pane_id": "w1:p1",
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2,
+              "tab_count": 2,
+              "active_tab_id": "w1:t1",
+              "worktree": {
+                "checkout_path": "/repo/app",
+                "is_linked_worktree": false,
+                "repo_key": "repo/app",
+                "repo_name": "app",
+                "repo_root": "/repo/app"
+              }
+            },
+            {
+              "workspace_id": "w2",
+              "label": "docs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1,
+              "tab_count": 1,
+              "active_tab_id": "w2:t1",
+              "worktree": null
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2
+            },
+            {
+              "tab_id": "w1:t2",
+              "workspace_id": "w1",
+              "label": "logs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 0
+            },
+            {
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "label": "",
+              "number": 1,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "terminal_title": "bun test",
+              "terminal_title_stripped": "bun test",
+              "title": "shell"
+            },
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "terminal_title_stripped": "vim",
+              "title": "editor"
+            },
+            {
+              "pane_id": "w2:p1",
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "terminal_id": "term-3",
+              "agent_status": "idle",
+              "focused": false,
+              "revision": 1,
+              "terminal_title_stripped": "ssh host",
+              "title": "remote"
+            }
+          ],
+          "agents": [
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent": "claude",
+              "display_agent": "Claude",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "state_change_seq": 11,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "vim"
+            },
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent": "codex",
+              "display_agent": "Codex",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "state_change_seq": 20,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "bun test"
+            }
+          ],
+          "layouts": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "focused_pane_id": "w1:p1",
+              "zoomed": false,
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 200,
+                "height": 50
+              },
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "focused": true,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "focused": false,
+                  "rect": {
+                    "x": 100,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                }
+              ],
+              "splits": [
+                {
+                  "id": "s1",
+                  "direction": "right",
+                  "ratio": 0.5,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 200,
+                    "height": 50
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "workspace_id": "w2"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_id": "w2",
+          "tabs": [
+            {
+              "tab_id": "w2:t1",
+              "label": ""
+            }
+          ],
+          "active_tab_id": "w2:t1",
+          "pane_ids": [
+            "w2:p1"
+          ],
+          "focused_pane_id": "w2:p1",
+          "layout": null
+        }
+      }
+    },
+    {
+      "op": "derive_workspace",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "w1:t1",
+          "focused_pane_id": "w1:p1",
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2,
+              "tab_count": 2,
+              "active_tab_id": "w1:t1",
+              "worktree": {
+                "checkout_path": "/repo/app",
+                "is_linked_worktree": false,
+                "repo_key": "repo/app",
+                "repo_name": "app",
+                "repo_root": "/repo/app"
+              }
+            },
+            {
+              "workspace_id": "w2",
+              "label": "docs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1,
+              "tab_count": 1,
+              "active_tab_id": "w2:t1",
+              "worktree": null
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "label": "",
+              "number": 1,
+              "agent_status": "working",
+              "focused": true,
+              "pane_count": 2
+            },
+            {
+              "tab_id": "w1:t2",
+              "workspace_id": "w1",
+              "label": "logs",
+              "number": 2,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 0
+            },
+            {
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "label": "",
+              "number": 1,
+              "agent_status": "idle",
+              "focused": false,
+              "pane_count": 1
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "terminal_title": "bun test",
+              "terminal_title_stripped": "bun test",
+              "title": "shell"
+            },
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "terminal_title_stripped": "vim",
+              "title": "editor"
+            },
+            {
+              "pane_id": "w2:p1",
+              "tab_id": "w2:t1",
+              "workspace_id": "w2",
+              "terminal_id": "term-3",
+              "agent_status": "idle",
+              "focused": false,
+              "revision": 1,
+              "terminal_title_stripped": "ssh host",
+              "title": "remote"
+            }
+          ],
+          "agents": [
+            {
+              "pane_id": "w1:p2",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-2",
+              "agent": "claude",
+              "display_agent": "Claude",
+              "agent_status": "blocked",
+              "focused": false,
+              "revision": 3,
+              "state_change_seq": 11,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "vim"
+            },
+            {
+              "pane_id": "w1:p1",
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "terminal_id": "term-1",
+              "agent": "codex",
+              "display_agent": "Codex",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 7,
+              "state_change_seq": 20,
+              "cwd": "/repo/app",
+              "terminal_title_stripped": "bun test"
+            }
+          ],
+          "layouts": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "focused_pane_id": "w1:p1",
+              "zoomed": false,
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 200,
+                "height": 50
+              },
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "focused": true,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "focused": false,
+                  "rect": {
+                    "x": 100,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50
+                  }
+                }
+              ],
+              "splits": [
+                {
+                  "id": "s1",
+                  "direction": "right",
+                  "ratio": 0.5,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 200,
+                    "height": 50
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "workspace_id": "missing"
+      },
+      "note": "unknown id falls back to focused workspace",
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_id": "w1",
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "label": ""
+            },
+            {
+              "tab_id": "w1:t2",
+              "label": "logs"
+            }
+          ],
+          "active_tab_id": "w1:t1",
+          "pane_ids": [
+            "w1:p1",
+            "w1:p2"
+          ],
+          "focused_pane_id": "w1:p1",
+          "layout": {
+            "tab_id": "w1:t1",
+            "workspace_id": "w1",
+            "focused_pane_id": "w1:p1",
+            "zoomed": false,
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "focused": true,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 100,
+                  "height": 50
+                }
+              },
+              {
+                "pane_id": "w1:p2",
+                "focused": false,
+                "rect": {
+                  "x": 100,
+                  "y": 0,
+                  "width": 100,
+                  "height": 50
+                }
+              }
+            ],
+            "splits": [
+              {
+                "id": "s1",
+                "direction": "right",
+                "ratio": 0.5,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

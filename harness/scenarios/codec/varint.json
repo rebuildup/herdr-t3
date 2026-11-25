@@ -1,0 +1,259 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "codec.varint-roundtrip",
+  "capability": "protocol.attach-codec",
+  "contract": "protocol-frames@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 0
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "00"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 1
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "01"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 250
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fa"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 251
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fbfb00"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 256
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fb0001"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 65535
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fbffff"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 65536
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fc00000100"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 4294967295
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fcffffffff"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 4294967296
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fd0000000001000000"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": 1099511627776
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fd0000000000010000"
+        }
+      }
+    },
+    {
+      "op": "varint_encode",
+      "input": {
+        "value": "18446744073709551615"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "fdffffffffffffffff"
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "00"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "0",
+          "next": 1
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fa"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "250",
+          "next": 1
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fbffff"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "65535",
+          "next": 3
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fcffffffff"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "4294967295",
+          "next": 5
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fdffffffffffffffffff"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "18446744073709551615",
+          "next": 9
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fe00000000000000000000000000000000"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "0",
+          "next": 17
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "00fbffff",
+        "offset": 1
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "value": "65535",
+          "next": 4
+        }
+      }
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": ""
+      },
+      "expect_error": "truncated"
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "ff"
+      },
+      "expect_error": "unknown varint tag"
+    },
+    {
+      "op": "varint_decode",
+      "input": {
+        "hex": "fb01"
+      },
+      "expect_error": "truncated"
+    }
+  ]
+}

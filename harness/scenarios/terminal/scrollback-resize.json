@@ -1,0 +1,722 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.scrollback-resize-alt",
+  "capability": "terminal.render",
+  "contract": "terminal-session@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts"
+  ],
+  "steps": [
+    {
+      "op": "session_new",
+      "input": {
+        "cols": 10,
+        "rows": 3,
+        "scrollback": 100
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "s1"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "one\ntwo\nthree\nfour\nfive\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "\u001b[?1049h"
+      },
+      "note": "enter alternate screen",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": true,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "ALT"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "A",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "L",
+                      "wide": false
+                    },
+                    {
+                      "text": "T",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "\u001b[?1049l"
+      },
+      "note": "leave alternate screen",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "resize",
+      "input": {
+        "handle": "s1",
+        "cols": 20,
+        "rows": 4,
+        "cellW": 8,
+        "cellH": 16
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "t",
+                      "wide": false
+                    },
+                    {
+                      "text": "h",
+                      "wide": false
+                    },
+                    {
+                      "text": "r",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": "u",
+                      "wide": false
+                    },
+                    {
+                      "text": "r",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "v",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "dispose",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}
