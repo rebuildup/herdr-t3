@@ -10,6 +10,7 @@ import {
   ChevronRightIcon,
   Columns2,
   EllipsisIcon,
+  FolderGit2Icon,
   GitBranchIcon,
   InfoIcon,
   Maximize2,
@@ -63,6 +64,7 @@ import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
+import { GitDialog } from "~/components/GitDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -104,6 +106,7 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
+  const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -600,6 +603,12 @@ export function WorkspaceHeader() {
                 <InfoIcon /> Details…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => focusedPane && setGitPane(focusedPane)}
+                disabled={!focusedPane}
+              >
+                <FolderGit2Icon /> Source Control…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
                 <GitBranchIcon /> Worktrees…
               </DropdownMenuItem>
@@ -624,6 +633,11 @@ export function WorkspaceHeader() {
         pane={detailsPane}
         machine={machine}
         onClose={() => setDetailsPane(null)}
+      />
+      <GitDialog
+        pane={gitPane}
+        machine={machine}
+        onClose={() => setGitPane(null)}
       />
       {worktreesOpen ? (
         <WorktreesDialog

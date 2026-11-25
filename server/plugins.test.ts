@@ -162,6 +162,49 @@ describe("PluginService.call", () => {
     ).rejects.toMatchObject({ code: "plugin_bad_output" });
   });
 
+  test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {
+    const gitHost = fakeHost([
+      {
+        match: (a) => a[0] === "herdr" && a.includes("plugin"),
+        outcome: ok({
+          id: "x",
+          result: {
+            plugins: [
+              {
+                plugin_id: "rebuildup.git",
+                enabled: true,
+                plugin_root: "/plugins/git",
+              },
+            ],
+          },
+        }),
+      },
+      {
+        match: (a) => a[3] === "capability",
+        outcome: ok({
+          contract: "herdr-plugins.git/v1",
+          commands: ["capability", "status", "diff", "project"],
+        }),
+      },
+      {
+        match: (a) => a[3] === "status",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.git/v1",
+            ok: false,
+            error: { code: "error", kind: "not_a_repo", message: "no git work tree" },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    await expect(
+      serviceFor(gitHost).call("local", { plugin: "rebuildup.git", command: "status", args: ["w1:p1"] }),
+    ).rejects.toMatchObject({ code: "not_a_repo", message: "no git work tree" });
+  });
+
   test("capability documents without a contract are incompatible", async () => {
     const host = fakeHost([
       { match: (a) => a[0] === "herdr" && a.includes("plugin"), outcome: ok(PLUGIN_LIST) },
