@@ -12,10 +12,17 @@ import type {
 
 export class ApiError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  /**
+   * Bounded structured extras from a plugin contract error (issue #257):
+   * the plugin's own non-secret `error.*` siblings, already capped
+   * server-side. Undefined for non-plugin or older-server failures.
+   */
+  readonly fields?: Record<string, unknown>;
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.code = code;
+    if (fields !== undefined) this.fields = fields;
   }
 }
 
@@ -141,7 +148,14 @@ function handleFrame(frame: ServerFrame): void {
       if (!waiter) return;
       rpcWaiters.delete(frame.id);
       if (frame.ok) waiter.resolve(frame.result);
-      else waiter.reject(new ApiError(frame.error?.code ?? "rpc", frame.error?.message ?? "rpc failed"));
+      else
+        waiter.reject(
+          new ApiError(
+            frame.error?.code ?? "rpc",
+            frame.error?.message ?? "rpc failed",
+            frame.error?.fields,
+          ),
+        );
       return;
     }
     case "terminal_data":

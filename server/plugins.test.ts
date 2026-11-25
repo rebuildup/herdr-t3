@@ -233,6 +233,115 @@ describe("PluginService.call", () => {
     ).rejects.toMatchObject({ code: "not_a_repo", message: "no git work tree" });
   });
 
+  test("contract error extras are forwarded as bounded fields (issue #257)", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "snooze",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.inbox/v1",
+            ok: false,
+            error: {
+              code: "error",
+              kind: "repo_ambiguous",
+              message: "pick a repo",
+              project_id: "my-app",
+              repos: ["/abs/repo", "/abs/repo2"],
+              // Non-allowlisted / reserved keys must not cross the bridge.
+              env: { SECRET: "x" },
+              token: "abc",
+              nested: { deep: { deeper: { deepest: "no" } } },
+            },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    await expect(
+      serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "snooze", args: ["w1:p1"] }),
+    ).rejects.toMatchObject({
+      code: "repo_ambiguous",
+      fields: { project_id: "my-app", repos: ["/abs/repo", "/abs/repo2"] },
+    });
+  });
+
+  test("error fields are capped: field count, string length, value size", async () => {
+    const long = "x".repeat(5000);
+    const error: Record<string, unknown> = {
+      code: "error",
+      kind: "script_run_error",
+      message: "boom",
+      name: long, // truncated to the string cap
+      // Serialized value exceeds the per-field cap → dropped entirely.
+      reason: Array.from({ length: 64 }, () => "y".repeat(3000)),
+    };
+    // Non-allowlisted keys are dropped regardless of count.
+    for (let i = 0; i < 40; i += 1) error[`target_${i}`] = `v${i}`;
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({ contract: "herdr-plugins.inbox/v1", ok: false, error }),
+          timedOut: false,
+        },
+      },
+    ]);
+    const failure = await serviceFor(host)
+      .call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] })
+      .then(() => null)
+      .catch((e: unknown) => e as HerdrError);
+    expect(failure?.code).toBe("script_run_error");
+    const fields = failure?.fields ?? {};
+    expect(Object.keys(fields).length).toBeLessThanOrEqual(24);
+    expect((fields["name"] as string).length).toBeLessThanOrEqual(2048);
+    expect(fields["reason"]).toBeUndefined();
+    // `target_N` keys are not in the allowlist — none may appear.
+    expect(Object.keys(fields).every((k) => !k.startsWith("target_"))).toBe(true);
+  });
+
+  test("legacy contract errors without extras carry no fields", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "restore",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.inbox/v1",
+            ok: false,
+            error: { code: "error", kind: "usage", message: "bad args" },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    const failure = await serviceFor(host)
+      .call("local", { plugin: "rebuildup.inbox", command: "restore", args: ["w1:p1"] })
+      .then(() => null)
+      .catch((e: unknown) => e as HerdrError);
+    expect(failure?.code).toBe("usage");
+    expect(failure?.fields).toBeUndefined();
+  });
+
+  test("non-JSON stderr failures never produce fields", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "list",
+        outcome: { code: 1, stdout: "", stderr: "segfault-ish text", timedOut: false },
+      },
+    ]);
+    const failure = await serviceFor(host)
+      .call("local", { plugin: "rebuildup.inbox", command: "list" })
+      .then(() => null)
+      .catch((e: unknown) => e as HerdrError);
+    expect(failure?.code).toBe("plugin_error");
+    expect(failure?.fields).toBeUndefined();
+  });
+
   test("capability documents without a contract are incompatible", async () => {
     const host = fakeHost([
       { match: (a) => a[0] === "herdr" && a.includes("plugin"), outcome: ok(PLUGIN_LIST) },

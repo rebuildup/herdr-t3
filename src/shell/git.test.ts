@@ -121,6 +121,20 @@ describe("classifyGitError", () => {
     });
     expect(classifyGitError("boom")).toMatchObject({ kind: "repo_error", code: "git_error" });
   });
+
+  test("bounded contract error fields pass through (issue #257)", () => {
+    const withFields = Object.assign(new Error("m"), {
+      code: "git_error",
+      fields: { path: "/abs/repo" },
+    });
+    expect(classifyGitError(withFields)).toMatchObject({
+      kind: "repo_error",
+      code: "git_error",
+      fields: { path: "/abs/repo" },
+    });
+    const badFields = Object.assign(new Error("m"), { code: "git_error", fields: 42 });
+    expect(classifyGitError(badFields)).not.toHaveProperty("fields");
+  });
 });
 
 describe("gitDiffFromDoc (herdr-plugins.git/v1 @62309b9c)", () => {

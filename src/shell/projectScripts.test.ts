@@ -10,6 +10,7 @@ import {
   projectsCapabilityFromDoc,
   projectsListArgs,
   projectsListFromDoc,
+  repoAmbiguousRepoRoots,
   scriptLogsFromDoc,
   scriptResultsFromDoc,
   scriptRunFromDoc,
@@ -407,6 +408,45 @@ describe("classifyProjectScriptsError", () => {
       kind: "plugin",
       code: "plugin_error",
     });
+  });
+
+  test("bounded contract error fields pass through to the classified error", () => {
+    const withFields = Object.assign(new Error("pick a repo"), {
+      code: "repo_ambiguous",
+      fields: { project_id: "my-app", repos: ["/abs/a", "/abs/b"] },
+    });
+    expect(classifyProjectScriptsError(withFields)).toMatchObject({
+      kind: "plugin",
+      code: "repo_ambiguous",
+      fields: { project_id: "my-app", repos: ["/abs/a", "/abs/b"] },
+    });
+    // Non-record fields are ignored; unavailable reasons never carry them.
+    const badFields = Object.assign(new Error("m"), { code: "repo_ambiguous", fields: "nope" });
+    expect(classifyProjectScriptsError(badFields)).not.toHaveProperty("fields");
+    const boundary = Object.assign(new Error("m"), {
+      code: "plugin_disabled",
+      fields: { key: "x" },
+    });
+    expect(classifyProjectScriptsError(boundary)).not.toHaveProperty("fields");
+  });
+});
+
+describe("repoAmbiguousRepoRoots (issue #257)", () => {
+  test("reads repos from error fields; null without usable fields", () => {
+    const err = Object.assign(new Error("m"), {
+      code: "repo_ambiguous",
+      fields: { repos: ["/abs/a", "/abs/b", 3, ""] },
+    });
+    expect(repoAmbiguousRepoRoots(err)).toEqual(["/abs/a", "/abs/b"]);
+    // Older plugin revisions: no fields at all → caller falls back to list.
+    expect(repoAmbiguousRepoRoots(new Error("m"))).toBeNull();
+    expect(repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: {} }))).toBeNull();
+    expect(
+      repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: { repos: "nope" } })),
+    ).toBeNull();
+    expect(
+      repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: { repos: [] } })),
+    ).toBeNull();
   });
 });
 

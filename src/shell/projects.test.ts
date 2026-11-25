@@ -433,4 +433,21 @@ describe("classifyProjectsError", () => {
       code: "plugin_error",
     });
   });
+
+  test("bounded contract error fields pass through (issue #257)", () => {
+    const withFields = Object.assign(new Error("m"), {
+      code: "settings_key_not_allowed",
+      fields: { key: "display.title" },
+    });
+    expect(classifyProjectsError(withFields)).toMatchObject({
+      kind: "projects_error",
+      code: "settings_key_not_allowed",
+      fields: { key: "display.title" },
+    });
+    const badFields = Object.assign(new Error("m"), {
+      code: "settings_key_not_allowed",
+      fields: ["not", "a", "record"],
+    });
+    expect(classifyProjectsError(badFields)).not.toHaveProperty("fields");
+  });
 });

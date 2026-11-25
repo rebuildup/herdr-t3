@@ -41,7 +41,7 @@ export type ProjectsUnavailableReason =
  */
 export type ProjectsCallError =
   | { kind: "unavailable"; reason: ProjectsUnavailableReason; detail: string }
-  | { kind: "projects_error"; code: string; detail: string };
+  | { kind: "projects_error"; code: string; detail: string; fields?: Record<string, unknown> };
 
 /* ------------------------------ model -------------------------------- */
 
@@ -412,6 +412,12 @@ const PROJECTS_ERROR_KINDS = new Set([
 export function classifyProjectsError(error: unknown): ProjectsCallError {
   const code = (error as { code?: string })?.code ?? "";
   const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257).
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields =
+    typeof rawFields === "object" && rawFields !== null && !Array.isArray(rawFields)
+      ? (rawFields as Record<string, unknown>)
+      : undefined;
   switch (code) {
     case "plugin_not_installed":
       return { kind: "unavailable", reason: "not_installed", detail };
@@ -428,9 +434,13 @@ export function classifyProjectsError(error: unknown): ProjectsCallError {
       return { kind: "unavailable", reason: "unreachable", detail };
     default:
       if (PROJECTS_ERROR_KINDS.has(code)) {
-        return { kind: "projects_error", code, detail };
+        return fields === undefined
+          ? { kind: "projects_error", code, detail }
+          : { kind: "projects_error", code, detail, fields };
       }
-      return { kind: "projects_error", code: "plugin_error", detail };
+      return fields === undefined
+        ? { kind: "projects_error", code: "plugin_error", detail }
+        : { kind: "projects_error", code: "plugin_error", detail, fields };
   }
 }
 

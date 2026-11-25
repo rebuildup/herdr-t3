@@ -587,7 +587,11 @@ export class MachineManager {
         type: "rpc_result",
         id: frame.id,
         ok: false,
-        error: { code: err.code, message: err.message },
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.fields !== undefined ? { fields: err.fields } : {}),
+        },
         machine,
       });
     }
