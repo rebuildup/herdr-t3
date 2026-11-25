@@ -91,6 +91,11 @@ published `herdr-plugins` contracts through the ADR-0011 boundary
 (`plugin_list`/`plugin_call`) is in scope; direct CLI implementations must
 not duplicate plugin-owned capabilities.
 
+GPUI staged-migration program (issue #233, ADR-0013): contract,
+verification, CI and readiness groundwork is in scope; product porting to
+Rust/GPUI requires the readiness gate in `docs/design/migration-policy.md`
+and starts only via a dedicated ticket after it passes.
+
 ## 6. Delivery workflow
 
 Follow `organization/profiles/release-driven-solo.md`:
