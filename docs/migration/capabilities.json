@@ -853,14 +853,22 @@
       ],
       "scenarios": [
         "src/shell/agents.test.ts",
-        "src/shell/view.test.ts"
+        "src/lib/workspace.test.ts",
+        "src/shell/view.test.ts",
+        "harness/scenarios/projection/"
       ],
       "evidence": [
         "src/shell/agents.ts",
         "src/shell/view.ts",
-        "src/components/agentIcons.tsx"
+        "src/components/agentIcons.tsx",
+        "src/lib/workspace.ts",
+        "crates/state-projections/src/lib.rs",
+        "crates/state-projections/tests/projections.rs",
+        "harness/scenarios/projection/workspace.json",
+        "harness/scenarios/projection/agents.json",
+        "harness/scenarios/projection/agents-organize.json"
       ],
-      "stage": "current-verified",
+      "stage": "rust-implemented",
       "status": {
         "implemented": true,
         "known_issues": [],
