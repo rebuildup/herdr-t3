@@ -5457,6 +5457,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal-core"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"

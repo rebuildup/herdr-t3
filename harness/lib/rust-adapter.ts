@@ -14,6 +14,9 @@ import type { Adapter, Observation } from "./types.ts";
  *   product-intended protocol.codec implementation (issue #275).
  * - `crates/state-projections` (`state-projections-adapter` bin) — the
  *   product-intended state projections (issue #281).
+ * - `crates/terminal-core` (`terminal-core-adapter` bin) — the
+ *   product-intended terminal engine/session (issue #286), native
+ *   libghostty-vt via FFI.
  *
  * Both read a batch of steps as JSON and emit observations in the same
  * shape as the TS adapters, so the same fixtures and the same comparator
@@ -21,8 +24,8 @@ import type { Adapter, Observation } from "./types.ts";
  * index, so scenarios may mix op families freely.
  *
  * Binary resolution: $DIFF_ADAPTER_BIN / $PROTOCOL_CODEC_BIN /
- * $STATE_PROJECTIONS_BIN, else target/debug/<name>, built on demand via
- * cargo when available.
+ * $STATE_PROJECTIONS_BIN / $TERMINAL_CORE_BIN, else target/debug/<name>,
+ * built on demand via cargo when available.
  */
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -69,6 +72,23 @@ const PROJECTION_OPS = new Set([
   "agent_partition",
 ]);
 
+/** terminal ops served by the product crate (issue #286). */
+const TERMINAL_OPS = new Set([
+  "session_new",
+  "write",
+  "resize",
+  "screen",
+  "cursor",
+  "modes",
+  "encode_key",
+  "encode_mouse",
+  "encode_paste",
+  "scroll",
+  "drain_replies",
+  "drain_effects",
+  "dispose",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -93,6 +113,14 @@ const BINS: RustBin[] = [
     envVar: "STATE_PROJECTIONS_BIN",
     fileName: "state-projections-adapter",
     label: "state-projections-adapter",
+  },
+  {
+    ops: TERMINAL_OPS,
+    path: null,
+    package: "terminal-core",
+    envVar: "TERMINAL_CORE_BIN",
+    fileName: "terminal-core-adapter",
+    label: "terminal-core-adapter",
   },
 ];
 

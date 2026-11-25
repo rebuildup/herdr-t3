@@ -1,0 +1,1544 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.wide-chars",
+  "capability": "terminal.render",
+  "contract": "terminal-session@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "session_new",
+      "input": {
+        "cols": 20,
+        "rows": 8,
+        "scrollback": 100
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "s1"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "emoji 👨‍💻🚀 end\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "日本語テスト\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "é combining café\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "0123456789abcdef漢字\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "m",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": "j",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "👨‍",
+                      "wide": true
+                    },
+                    {
+                      "text": "💻",
+                      "wide": true
+                    },
+                    {
+                      "text": "🚀",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "日",
+                      "wide": true
+                    },
+                    {
+                      "text": "本",
+                      "wide": true
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "語",
+                      "wide": true
+                    },
+                    {
+                      "text": "テ",
+                      "wide": true
+                    },
+                    {
+                      "text": "ス",
+                      "wide": true
+                    },
+                    {
+                      "text": "ト",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "é",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": "m",
+                      "wide": false
+                    },
+                    {
+                      "text": "b",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "g",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 4,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    },
+                    {
+                      "text": "é",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 5,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "0",
+                      "wide": false
+                    },
+                    {
+                      "text": "1",
+                      "wide": false
+                    },
+                    {
+                      "text": "2",
+                      "wide": false
+                    },
+                    {
+                      "text": "3",
+                      "wide": false
+                    },
+                    {
+                      "text": "4",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": "7",
+                      "wide": false
+                    },
+                    {
+                      "text": "8",
+                      "wide": false
+                    },
+                    {
+                      "text": "9",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "b",
+                      "wide": false
+                    },
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 6,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "漢",
+                      "wide": true
+                    },
+                    {
+                      "text": "字",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 7,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "wrap 日本語 at edge 1234567890\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "語",
+                      "wide": true
+                    },
+                    {
+                      "text": "テ",
+                      "wide": true
+                    },
+                    {
+                      "text": "ス",
+                      "wide": true
+                    },
+                    {
+                      "text": "ト",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "é",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "o",
+                      "wide": false
+                    },
+                    {
+                      "text": "m",
+                      "wide": false
+                    },
+                    {
+                      "text": "b",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "g",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    },
+                    {
+                      "text": "é",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "0",
+                      "wide": false
+                    },
+                    {
+                      "text": "1",
+                      "wide": false
+                    },
+                    {
+                      "text": "2",
+                      "wide": false
+                    },
+                    {
+                      "text": "3",
+                      "wide": false
+                    },
+                    {
+                      "text": "4",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": "7",
+                      "wide": false
+                    },
+                    {
+                      "text": "8",
+                      "wide": false
+                    },
+                    {
+                      "text": "9",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "b",
+                      "wide": false
+                    },
+                    {
+                      "text": "c",
+                      "wide": false
+                    },
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "f",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 4,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "漢",
+                      "wide": true
+                    },
+                    {
+                      "text": "字",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 5,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "w",
+                      "wide": false
+                    },
+                    {
+                      "text": "r",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "p",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "日",
+                      "wide": true
+                    },
+                    {
+                      "text": "本",
+                      "wide": true
+                    },
+                    {
+                      "text": "語",
+                      "wide": true
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "a",
+                      "wide": false
+                    },
+                    {
+                      "text": "t",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 6,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": "g",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "1",
+                      "wide": false
+                    },
+                    {
+                      "text": "2",
+                      "wide": false
+                    },
+                    {
+                      "text": "3",
+                      "wide": false
+                    },
+                    {
+                      "text": "4",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": "7",
+                      "wide": false
+                    },
+                    {
+                      "text": "8",
+                      "wide": false
+                    },
+                    {
+                      "text": "9",
+                      "wide": false
+                    },
+                    {
+                      "text": "0",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 7,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "cursor",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "visible": true,
+          "x": 14,
+          "y": 7,
+          "style": "block",
+          "blinking": false,
+          "wideTail": false
+        }
+      }
+    },
+    {
+      "op": "dispose",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

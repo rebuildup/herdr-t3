@@ -11,8 +11,9 @@ printf 'Running tests...\n'
 bun run test
 
 printf 'Running differential harness (rust adapter)...\n'
-cargo build -p diff-adapter -p protocol-codec -p state-projections
-cargo test -p protocol-codec -p state-projections
+./scripts/ghostty-vt/ensure-native.sh
+cargo build -p diff-adapter -p protocol-codec -p state-projections -p terminal-core
+cargo test -p protocol-codec -p state-projections -p terminal-core
 bun harness/run.ts harness/scenarios --adapters rust
 
 printf 'UI lint...\n'

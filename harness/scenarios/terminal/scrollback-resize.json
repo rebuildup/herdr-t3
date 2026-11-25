@@ -6,7 +6,8 @@
   "contract": "terminal-session@1",
   "oracle": "differential",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "steps": [
     {
