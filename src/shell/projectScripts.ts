@@ -3,8 +3,8 @@
  *
  * `rebuildup.projects` on the host owns the project registry and script
  * run records through the `herdr-plugins.projects/v1` contract, pinned
- * at rebuildup/herdr-plugins@3b28349 (release-0-3-0, schema v2 run
- * records — ADR-0015, durable completion receipt — ADR-0019). The
+ * at rebuildup/herdr-plugins@2dcb2abf (release-0-3-0, schema v2 run
+ * records + shell-family fields — ADR-0015/0019/0020). The
  * contract doc is docs/migration/contracts/plugin-projects.md.
  *
  * `plugin_call` carries only the TOP-LEVEL command word (`list`,
@@ -76,6 +76,13 @@ const PROJECTS_ERROR_KINDS = new Set([
   "run_not_found",
   "no_running_runs",
   "script_run_error",
+  // Shell-family resolution (#67, ADR-0020): `shell_unknown` /
+  // `not_a_shell` abort `scripts run` BEFORE injection (pane closed, NO
+  // run record persisted); `invalid_shell` is a `--shell` value error.
+  // All three are plugin errors, never run failures.
+  "shell_unknown",
+  "not_a_shell",
+  "invalid_shell",
   // Git passthrough kinds.
   "not_a_repo",
   "bare_repo",
@@ -430,6 +437,23 @@ export interface ScriptRunRepoRef {
 }
 
 /**
+ * `shell_family` values on run records (#67): `sh | cmd | powershell`.
+ * `null` on pre-#67 records; unknown future values pass through as
+ * strings rather than being fabricated away (same tolerance as
+ * `ScriptRunResult`).
+ */
+export type ScriptShellFamily = "sh" | "cmd" | "powershell" | (string & {});
+
+/**
+ * `shell_source` values (#67): `flag` (explicit `--shell`),
+ * `process_info` (detected from the pane's foreground shell),
+ * `host_default` (conservative host-OS fallback when detection was
+ * inconclusive — a detected default, never a user choice). `null` on
+ * pre-#67 records.
+ */
+export type ScriptShellSource = "flag" | "process_info" | "host_default" | (string & {});
+
+/**
  * Persisted `ScriptRun` record. Displayed exactly as returned —
  * `running` does not assert liveness and `unknown` is an honest
  * "pane vanished", never upgraded to `success`.
@@ -458,6 +482,15 @@ export interface ScriptRun {
   host: string | null;
   session_key: string | null;
   stop_requested_at: string | null;
+  /**
+   * Shell family used for the run's marker line (#67). `null` on
+   * pre-#67 records; the two-line `command_line` (command + marker
+   * echo) and per-family `script_path` (`.sh`/`.cmd`/`.ps1`) arrive on
+   * the same revision.
+   */
+  shell_family: ScriptShellFamily | null;
+  /** How `shell_family` was resolved; `null` on pre-#67 records. */
+  shell_source: ScriptShellSource | null;
   log_path: string | null;
   error: string | null;
 }
@@ -501,6 +534,8 @@ export function scriptRunFromDoc(raw: unknown): ScriptRun | null {
     host: str(raw["host"]),
     session_key: str(raw["session_key"]),
     stop_requested_at: str(raw["stop_requested_at"]),
+    shell_family: str(raw["shell_family"]),
+    shell_source: str(raw["shell_source"]),
     log_path: str(raw["log_path"]),
     error: str(raw["error"]),
   };
@@ -618,14 +653,33 @@ export function projectScriptsListArgs(
   return args;
 }
 
+/**
+ * `--shell` values accepted by `scripts run` (#67). `auto` is the
+ * contract default — the plugin resolves flag → `pane.process_info`
+ * foreground → host-OS default and records `shell_source` on the run.
+ */
+export type ProjectScriptShell = "auto" | "sh" | "cmd" | "powershell";
+
 export function projectScriptsRunArgs(
   projectId: string,
   name: string,
-  options: { repo?: string | undefined } = {},
+  options: {
+    repo?: string | undefined;
+    shell?: ProjectScriptShell | undefined;
+  } = {},
 ): string[] {
   const args = ["run", projectId, name];
   const repo = options.repo?.trim() ?? "";
   if (repo !== "") args.push("--repo", repo);
+  // `--shell` is emitted only for an explicit family: `auto` (or an
+  // absent option) is the contract default, so it is omitted rather
+  // than sent as a no-op flag. Upstream strict parsing accepts both
+  // `--shell value` and `--shell=value`; the family values never start
+  // with `-`, so the separate pair is always safe (no `pushOption`
+  // `--name=value` fallback needed, unlike git-v1 free-form values).
+  if (options.shell !== undefined && options.shell !== "auto") {
+    args.push("--shell", options.shell);
+  }
   return args;
 }
 
@@ -661,16 +715,24 @@ export async function fetchProjectScriptsList(
 }
 
 /**
- * `scripts run <project> <name> [--repo PATH]` — mutation; creates a
- * dedicated herdr workspace/pane plugin-side. Multi-repo projects
- * without `--repo` fail `repo_ambiguous`; the caller must never
- * auto-pick a repo.
+ * `scripts run <project> <name> [--repo PATH] [--shell FAMILY]` —
+ * mutation; creates a dedicated herdr workspace/pane plugin-side.
+ * Multi-repo projects without `--repo` fail `repo_ambiguous`; the
+ * caller must never auto-pick a repo. `shell` maps to `--shell` only
+ * for an explicit `sh|cmd|powershell` — `auto`/absent omits the flag
+ * so the plugin's detection chain (and `shell_source` recording)
+ * applies. `shell_unknown`/`not_a_shell`/`invalid_shell` are plugin
+ * errors classified distinctly — they abort BEFORE injection and
+ * persist no run record, so they are never run failures.
  */
 export async function runProjectScript(
   machine: string,
   projectId: string,
   name: string,
-  options: { repo?: string | undefined } = {},
+  options: {
+    repo?: string | undefined;
+    shell?: ProjectScriptShell | undefined;
+  } = {},
 ): Promise<ScriptRunDoc> {
   const doc = await pluginCall(machine, {
     plugin: PROJECTS_PLUGIN_ID,

@@ -167,6 +167,33 @@ describe("script argv builders (subcommands are args, not command words)", () =>
     ]);
   });
 
+  test("scripts run --shell: explicit family only; auto/absent omits the flag", () => {
+    // #67: `auto` is the contract default — the plugin resolves
+    // flag → process_info → host_default itself, so it is never sent.
+    expect(projectScriptsRunArgs("my-app", "dev", { shell: "auto" })).toEqual([
+      "run",
+      "my-app",
+      "dev",
+    ]);
+    expect(projectScriptsRunArgs("my-app", "dev", { shell: "sh" })).toEqual([
+      "run",
+      "my-app",
+      "dev",
+      "--shell",
+      "sh",
+    ]);
+    expect(
+      projectScriptsRunArgs("my-app", "dev", { repo: "/abs/repo", shell: "powershell" }),
+    ).toEqual(["run", "my-app", "dev", "--repo", "/abs/repo", "--shell", "powershell"]);
+    expect(projectScriptsRunArgs("my-app", "dev", { shell: "cmd" })).toEqual([
+      "run",
+      "my-app",
+      "dev",
+      "--shell",
+      "cmd",
+    ]);
+  });
+
   test("scripts stop/results/logs argv shapes", () => {
     expect(projectScriptsStopArgs("run-abc123")).toEqual(["stop", "run-abc123"]);
     expect(projectScriptsStopArgs("my-app")).toEqual(["stop", "my-app"]);
@@ -215,6 +242,40 @@ describe("scriptRunFromDoc", () => {
     expect(run?.host).toBeNull();
     expect(run?.session_key).toBeNull();
     expect(run?.stop_requested_at).toBeNull();
+  });
+
+  test("#67 shell fields parse; pre-#67 records read them as null", () => {
+    // RUN_DOC omits shell_family/shell_source — pre-#67 tolerance.
+    const legacy = scriptRunFromDoc(RUN_DOC);
+    expect(legacy?.shell_family).toBeNull();
+    expect(legacy?.shell_source).toBeNull();
+
+    const flagged = scriptRunFromDoc({
+      ...RUN_DOC,
+      shell_family: "powershell",
+      shell_source: "flag",
+      command_line: "bun run dev\necho \"__HERDR_DONE_run-x__=$(...)\"",
+      script_path: "runs/run-x.ps1",
+    });
+    expect(flagged?.shell_family).toBe("powershell");
+    expect(flagged?.shell_source).toBe("flag");
+
+    for (const [family, source] of [
+      ["sh", "process_info"],
+      ["cmd", "host_default"],
+    ] as const) {
+      const run = scriptRunFromDoc({ run_id: `run-${source}`, shell_family: family, shell_source: source });
+      expect(run?.shell_family).toBe(family);
+      expect(run?.shell_source).toBe(source);
+    }
+    // Unknown future values pass through verbatim, never fabricated.
+    const future = scriptRunFromDoc({
+      run_id: "run-future",
+      shell_family: "nu",
+      shell_source: "telemetry",
+    });
+    expect(future?.shell_family).toBe("nu");
+    expect(future?.shell_source).toBe("telemetry");
   });
 
   test("schema v2 records carry host, session_key, stop_requested_at", () => {
@@ -447,6 +508,11 @@ describe("classifyProjectScriptsError", () => {
       "run_not_found",
       "no_running_runs",
       "script_run_error",
+      // #67 shell-resolution kinds: pre-injection aborts + --shell
+      // value error — plugin errors, never run failures.
+      "shell_unknown",
+      "not_a_shell",
+      "invalid_shell",
       "t3json_invalid",
       "invalid_script_list",
       "not_a_repo",

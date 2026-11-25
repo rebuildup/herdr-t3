@@ -39,7 +39,7 @@ const PROJECT = {
   updated_at: "2026-11-21T00:00:00.000Z",
 };
 
-describe("projects argv builders (herdr-plugins.projects/v1 @3b28349)", () => {
+describe("projects argv builders (herdr-plugins.projects/v1 @2dcb2abf)", () => {
   test("list/show/discover argv", () => {
     expect(projectsListArgs()).toEqual([]);
     expect(projectsListArgs({ all: true })).toEqual(["--all"]);
@@ -208,15 +208,30 @@ describe("projects document parsers", () => {
         },
         // Unreachable checkout keeps stored fields, live fields null.
         { root: "/abs/gone", remote: null, added_at: null, branch: null, dirty: null, has_submodules: null },
+        // #69 tri-state: a probed repo with no submodules is `false`,
+        // distinct from the `null` (unknown) above.
+        {
+          root: "/abs/clean",
+          remote: "github.com/Org/MixedCase",
+          added_at: null,
+          branch: "main",
+          dirty: false,
+          has_submodules: false,
+        },
       ],
       skipped: [{ root: "/abs/gone", reason: "git_error" }],
       generated_at: "2026-11-25T00:00:00.000Z",
     });
     expect(result?.project_id).toBe("my-app");
-    expect(result?.repos).toHaveLength(2);
+    expect(result?.repos).toHaveLength(3);
     expect(result?.repos[0]?.branch).toBe("main");
     expect(result?.repos[0]?.has_submodules).toBe(true);
     expect(result?.repos[1]?.dirty).toBeNull();
+    // #69: probe failure/unreachable → null (unknown), never false.
+    expect(result?.repos[1]?.has_submodules).toBeNull();
+    expect(result?.repos[2]?.has_submodules).toBe(false);
+    // #69: remote identity path case is preserved verbatim.
+    expect(result?.repos[2]?.remote).toBe("github.com/Org/MixedCase");
     expect(result?.skipped).toEqual([{ root: "/abs/gone", reason: "git_error" }]);
     expect(
       projectReposFromDoc({ contract: CONTRACT, command: "repos add", project_id: "x" }),
@@ -415,6 +430,11 @@ describe("classifyProjectsError", () => {
       "repo_ambiguous",
       "run_not_found",
       "script_run_error",
+      // #67 shell-resolution kinds (pre-injection aborts + --shell
+      // value error) — plugin errors, never run failures.
+      "shell_unknown",
+      "not_a_shell",
+      "invalid_shell",
     ]) {
       expect(classifyProjectsError(err(code))).toMatchObject({
         kind: "projects_error",

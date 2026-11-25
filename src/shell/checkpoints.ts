@@ -1,11 +1,11 @@
 /*
- * Plugin-backed checkpoints store (ADR-0011, ADR-0016/0017/0020; issues
+ * Plugin-backed checkpoints store (ADR-0011, ADR-0016/0017/0021; issues
  * #260/#264/#268).
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
  * pinned at rebuildup/herdr-plugins@55df8d0a (release-0-4-0, re-pin per
- * ADR-0017/ADR-0020). The contract doc is
+ * ADR-0017/ADR-0021). The contract doc is
  * docs/migration/contracts/plugin-checkpoints.md.
  *
  * Commands are flat words (`create`, `list`, `show`, `diff`, `plan`,

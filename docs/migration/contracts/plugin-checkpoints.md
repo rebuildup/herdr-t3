@@ -2,7 +2,7 @@
 
 Version: 3. Scope: consuming `herdr-plugins.checkpoints/v1` through
 `plugin_call` (ADR-0011 boundary, ADR-0016 pin re-pinned by ADR-0017 at
-`rebuildup/herdr-plugins@c8dc3b3`, re-pinned again by ADR-0020 at
+`rebuildup/herdr-plugins@c8dc3b3`, re-pinned again by ADR-0021 at
 `rebuildup/herdr-plugins@55df8d0a`). The plugin owns capture, hidden git
 refs (`refs/herdr-plugins/checkpoints/<repo-key>/<id>`), the state
 index, and restore execution; herdr-t3 renders them and forwards
@@ -135,7 +135,7 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 ## Evidence today
 
 `docs/adr/ADR-0016.md` (initial pin) + `docs/adr/ADR-0017.md` (re-pin +
-plan/restore scope) + `docs/adr/ADR-0020.md` (re-pin @55df8d0a +
+plan/restore scope) + `docs/adr/ADR-0021.md` (re-pin @55df8d0a +
 work-unit auto-capture). Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
 `src/components/CheckpointsDialog.tsx`, menu wiring in

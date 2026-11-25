@@ -1,9 +1,11 @@
 # Contract: projects registry and project scripts (B3)
 
-Version: 2 (run-record schema v2). Scope: consuming
+Version: 3 (additive revision: `scripts run --shell`, run-record
+`shell_family`/`shell_source`, new error kinds, #69 audit semantics;
+run records remain schema v2). Scope: consuming
 `herdr-plugins.projects/v1` through `plugin_call` (ADR-0011 boundary,
-ADR-0014 pin amended by ADR-0015/ADR-0019 at
-`rebuildup/herdr-plugins@3b28349`).
+ADR-0014 pin amended by ADR-0015/ADR-0019/ADR-0020 at
+`rebuildup/herdr-plugins@2dcb2abf`).
 The plugin owns the registry and script run records; herdr-t3 renders
 them and forwards explicit user operations only.
 
@@ -23,9 +25,13 @@ Scripts:
 
 - `scripts list <project|repo> [--repo PATH]` → resolved definitions
   with `source` layer and `runOn*` flags.
-- `scripts run <project> <name> [--repo PATH]` → dedicated herdr
-  workspace/pane execution; `--repo` required for multi-repo projects
-  (`repo_ambiguous` otherwise — never auto-picked).
+- `scripts run <project> <name> [--repo PATH] [--shell
+  auto|sh|cmd|powershell]` → dedicated herdr workspace/pane execution;
+  `--repo` required for multi-repo projects (`repo_ambiguous`
+  otherwise — never auto-picked). `--shell` overrides the detected
+  shell family (`auto` = detect; invalid values fail
+  `invalid_shell`); the resolved family and its source are recorded
+  on the run record.
 - `scripts stop <run-id|project>` → ownership re-validation, then
   ctrl+c + close + bounded exit confirmation on recorded panes only;
   outcomes include `stale_pane`/`stop_unconfirmed`. `scripts results
@@ -39,12 +45,24 @@ Scripts:
   legitimately become terminal on the next refresh.
 - Run records are schema v2: `host`, `session_key`, and
   `stop_requested_at` join the v1 fields (v1 records load them
-  `null`). `result` gains `stopping`/`stop_unconfirmed`; the active
+  `null`). Since @`2dcb2abf` (upstream #67, ADR-0020) records also
+  carry `shell_family` ∈ `sh|cmd|powershell` and `shell_source` ∈
+  `flag|process_info|host_default` (both `null` on pre-#67 records);
+  `command_line` is the two injected lines (command + per-family
+  marker echo) and `script_path` may be a per-family
+  `runs/<id>.sh|.cmd|.ps1` file. `result` gains
+  `stopping`/`stop_unconfirmed`; the active
   set is `running | stopping | stop_unconfirmed`. Before any
   input/close/read the plugin re-validates the ownership tuple
   (host + session_key + pane/workspace/tab + started_at) via
   `pane.get`; foreign or mismatched panes yield `stale_pane` with zero
   pane side effects.
+- Shell-family resolution (#67): flag → `pane.process_info` foreground
+  → conservative host-OS default recorded as
+  `shell_source:"host_default"` (never silent). A positively
+  identified unsupported shell fails `shell_unknown`; a non-shell
+  foreground fails `not_a_shell` — both abort BEFORE injection, close
+  the just-created pane, and persist NO run record.
 
 ## Ordering and semantics
 
@@ -67,6 +85,17 @@ Scripts:
 - `runOnWorktreeCreate`/`runOnSettle`/`stopOnSettle` are listed but have
   no upstream execution mapping (herdr-plugins#60): the UI marks them
   inert and provides no trigger affordance.
+- Remote identity (#69, @`2dcb2abf`): `repos[].remote` keeps the path
+  case verbatim (case-sensitive forges exist); host is lowercased and
+  a non-default port is kept. Consumers compare the identity exactly —
+  never re-normalize case.
+- `has_submodules` in `repos list` live inspection is tri-state
+  (#69): probed `true`/`false`, `null` = unknown on probe failure or
+  unreachable checkout — `null` is never reported as `false` and the
+  UI renders it distinctly.
+- Settings (#69): a corrupt settings file reads as empty
+  (overrides are non-authoritative); the next `settings set`/`unset`
+  rewrites it wholesale — no `settings_corrupt` error exists.
 
 ## Errors
 
@@ -78,7 +107,10 @@ Scripts:
   `invalid_project_id`, `settings_key_not_allowed`, `t3json_invalid`,
   `invalid_script_list`, `unknown_script`, `ambiguous_script`,
   `no_repos`, `repo_ambiguous`, `ambiguous_run`, `run_not_found`,
-  `no_running_runs`, `script_run_error`, plus git kinds
+  `no_running_runs`, `script_run_error`, `shell_unknown`, `not_a_shell`,
+  `invalid_shell` (the last three are `scripts run` pre-injection
+  aborts / `--shell` value errors — plugin errors, never run-record
+  failures), plus git kinds
   (`not_a_repo`, `bare_repo`, `git_missing`, `timeout`). Contract
   extras (`repos`, `key`, `run_id`, `project_id`, …) reach the client
   as bounded `rpc_result.error.fields` (issue #257).
@@ -97,7 +129,9 @@ Scripts:
 ## Evidence today
 
 `docs/adr/ADR-0014.md` + `docs/adr/ADR-0015.md` + `docs/adr/ADR-0019.md`
-(pin + scope + schema v2 re-pin + completion receipt). Implementation
++ `docs/adr/ADR-0020.md`
+(pin + scope + schema v2 re-pin + completion receipt + shell families /
+audit convergence). Implementation
 evidence lands with
 #252/#253 (`src/shell/projects*.ts`, dialog tests). Live plugin hosts
 are RC verification.
