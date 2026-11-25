@@ -141,6 +141,13 @@ export class GhosttySurface {
   /** latest hover cell waiting for the next frame's any-mode motion report */
   private hoverPoint: { point: ScreenPoint; mods: EngineMouse["mods"] } | null = null;
   private lastHoverSent: ScreenPoint | null = null;
+  /** latest drag-motion report waiting for the next frame (issue #213) */
+  private pendingDragMotion: {
+    button: "left" | "middle" | "right";
+    point: ScreenPoint;
+    mods: number;
+    event: PointerEvent;
+  } | null = null;
   /** pane mouse-report state pushed by the host (herdr MouseCapture); null = unknown */
   private paneMouseCapture: PaneMouseCapture = null;
   private pressed = new Set<string>();
@@ -483,6 +490,7 @@ export class GhosttySurface {
       } catch { /* the frame below reports a dead engine */ }
       if (cursor?.visible) this.lastCursor = { x: cursor.x, y: cursor.y };
       this.flushHoverMotion();
+      this.flushDragMotion();
       const blinking = cursor?.visible === true && cursor.blinking;
       this.renderer.setCursorVisible(!blinking || this.cursorPhase);
       this.renderer.collect();
@@ -647,13 +655,30 @@ export class GhosttySurface {
     }
   }
 
+  /**
+   * Drag-motion reports coalesce to the latest cell per frame (issue #213):
+   * pointermove can outrun the display during a fast drag, and only the
+   * final position matters to a mouse-reporting pane. Press/release stay
+   * immediate — ordering is preserved because pointerUp flushes first.
+   */
+  private flushDragMotion(): void {
+    const pending = this.pendingDragMotion;
+    this.pendingDragMotion = null;
+    if (!pending || !this.metrics) return;
+    if (this.options.onMouse) {
+      this.sendStructuredMouse("motion", pending.button, pending.point, pending.mods);
+    } else {
+      this.sendMouse("motion", pending.button, pending.point, pending.event);
+    }
+  }
+
   // ---- input -----------------------------------------------------------------
 
   private bind(): void {
     this.root.addEventListener("pointerdown", (event) => this.pointerDown(event));
     this.root.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.root.addEventListener("pointerup", (event) => this.pointerUp(event));
-    this.root.addEventListener("pointercancel", () => { this.drag = null; this.hoverPoint = null; });
+    this.root.addEventListener("pointercancel", () => { this.drag = null; this.hoverPoint = null; this.pendingDragMotion = null; });
     this.root.addEventListener("pointerleave", () => { this.hoverPoint = null; });
     // The mousedown default action moves focus to the element under the
     // pointer — body here, since the textarea is click-through — which would
@@ -804,6 +829,7 @@ export class GhosttySurface {
   private pointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     this.hoverPoint = null;
+    this.pendingDragMotion = null;
     this.focus();
     const cell = this.cellAt(event);
     if (!cell) return;
@@ -856,17 +882,27 @@ export class GhosttySurface {
     drag.moved = true;
     if (drag.kind === "mouse") {
       if (drag.button) {
-        if (this.options.onMouse) {
-          this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
-        } else {
-          this.sendMouse("motion", drag.button, cell, event);
-        }
+        // Coalesce to the latest cell per frame (issue #213); the flush in
+        // tick() keeps press -> motion* -> release ordering intact.
+        this.pendingDragMotion = {
+          button: drag.button,
+          point: cell,
+          mods: GhosttySurface.modsOf(event),
+          event,
+        };
+        this.schedule();
       }
       return;
     }
     // selection drag that also reports structured motion to the pane
     if (this.options.onMouse && drag.reported && drag.button) {
-      this.sendStructuredMouse("motion", drag.button, cell, GhosttySurface.modsOf(event));
+      this.pendingDragMotion = {
+        button: drag.button,
+        point: cell,
+        mods: GhosttySurface.modsOf(event),
+        event,
+      };
+      this.schedule();
     }
     const range = ordered(this.selection?.start ?? drag.anchor, cell);
     this.selection = range;
@@ -879,6 +915,10 @@ export class GhosttySurface {
     const drag = this.drag;
     if (!drag) return;
     this.drag = null;
+    // A queued motion must reach the pane before the release that ends the
+    // drag — flush synchronously so the report order is press -> motion ->
+    // release even when the frame tick has not run yet (issue #213).
+    this.flushDragMotion();
     const cell = this.cellAt(event) ?? drag.anchor;
     if (drag.kind === "mouse") {
       if (drag.button) {
