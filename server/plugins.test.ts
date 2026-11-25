@@ -194,8 +194,78 @@ describe("PluginService.call", () => {
     expect(host.options[0]?.envRemove).toContain("HERDR_PLUGIN_CONTEXT_JSON");
   });
 
+  test("every exec kind scrubs ambient GIT_* repo/config/transport targeting env (issue #280)", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: ok({ contract: "herdr-plugins.inbox/v1", command: "settle", ok: true }),
+      },
+    ]);
+    await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "settle",
+      args: ["w1:p1"],
+    });
+    // Upstream git-core spreads process.env into every `git` spawn, so
+    // ambient GIT_DIR/GIT_CONFIG_*/GIT_SSH* would redirect plugin git
+    // operations (checkpoints capture/restore, git status/diff/stage)
+    // to a foreign repository, object store, config or transport —
+    // upstream herdr-plugins#96. Discovery, capability probes and
+    // contract calls must all carry the extended scrub list.
+    expect(host.calls).toHaveLength(3);
+    for (const options of host.options) {
+      expect(options.envRemove).toEqual(PLUGIN_ENV_SCRUB);
+    }
+    const scrub = host.options[0]?.envRemove ?? [];
+    for (const name of [
+      // Repo / index / object-store targeting.
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_COMMON_DIR",
+      "GIT_NAMESPACE",
+      "GIT_PREFIX",
+      "GIT_CEILING_DIRECTORIES",
+      "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+      // Config targeting / env-config injection. GIT_CONFIG_COUNT
+      // neutralizes the GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>
+      // indexed family (inert without it); GIT_CONFIG_PARAMETERS is
+      // git's internal `-c` passthrough.
+      "GIT_CONFIG",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_CONFIG_SYSTEM",
+      "GIT_CONFIG_NOSYSTEM",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_COUNT",
+      // Transport / subprocess lookup.
+      "GIT_SSH",
+      "GIT_SSH_COMMAND",
+      "GIT_ASKPASS",
+      "GIT_PROXY_COMMAND",
+      "GIT_EXEC_PATH",
+    ]) {
+      expect(scrub).toContain(name);
+    }
+    // Editor/pager and identity vars are intentionally not scrubbed.
+    expect(scrub).not.toContain("GIT_PAGER");
+    expect(scrub).not.toContain("GIT_EDITOR");
+  });
+
   test("localPluginHost removes scrubbed vars from the child environment", async () => {
-    const keys = ["HERDR_SOCKET_PATH", "HERDR_SESSION", "HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
+    const keys = [
+      "HERDR_SOCKET_PATH",
+      "HERDR_SESSION",
+      "HERDR_PANE_ID",
+      "HERDR_PLUGIN_CONTEXT_JSON",
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_INDEX_FILE",
+      "GIT_CONFIG_COUNT",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_SSH_COMMAND",
+    ];
     const saved = new Map<string, string | undefined>();
     for (const key of keys) {
       saved.set(key, process.env[key]);
@@ -207,7 +277,7 @@ describe("PluginService.call", () => {
         [
           process.execPath,
           "-e",
-          "console.log(JSON.stringify({socket:process.env.HERDR_SOCKET_PATH??null,session:process.env.HERDR_SESSION??null,pane:process.env.HERDR_PANE_ID??null,ctx:process.env.HERDR_PLUGIN_CONTEXT_JSON??null,keep:process.env.HERDR_T3_KEEP_ME??null}))",
+          "console.log(JSON.stringify({socket:process.env.HERDR_SOCKET_PATH??null,session:process.env.HERDR_SESSION??null,pane:process.env.HERDR_PANE_ID??null,ctx:process.env.HERDR_PLUGIN_CONTEXT_JSON??null,gitdir:process.env.GIT_DIR??null,gitworktree:process.env.GIT_WORK_TREE??null,gitindex:process.env.GIT_INDEX_FILE??null,gitcfgcount:process.env.GIT_CONFIG_COUNT??null,gitcfgparams:process.env.GIT_CONFIG_PARAMETERS??null,gitssh:process.env.GIT_SSH_COMMAND??null,keep:process.env.HERDR_T3_KEEP_ME??null}))",
         ],
         { timeoutMs: 15_000, envRemove: PLUGIN_ENV_SCRUB },
       );
@@ -217,6 +287,12 @@ describe("PluginService.call", () => {
         session: null,
         pane: null,
         ctx: null,
+        gitdir: null,
+        gitworktree: null,
+        gitindex: null,
+        gitcfgcount: null,
+        gitcfgparams: null,
+        gitssh: null,
         keep: "1",
       });
     } finally {

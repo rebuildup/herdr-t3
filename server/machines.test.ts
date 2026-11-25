@@ -186,6 +186,15 @@ describe("remoteArgvCommand env scrubbing (issues #228/#270)", () => {
       "HERDR_TAB_ID",
       "HERDR_PLUGIN_CONTEXT_JSON",
       "HERDR_PLUGIN_STATE_DIR",
+      // GIT_* repo/config/transport targeting (issue #280, ADR-0023).
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_COUNT",
+      "GIT_SSH_COMMAND",
+      "GIT_EXEC_PATH",
     ]) {
       expect(cmd).toContain(name);
     }
