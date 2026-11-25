@@ -1022,11 +1022,17 @@
         "registry state writes on herdr host",
         "git repo resolution per call"
       ],
-      "scenarios": [],
-      "evidence": [],
-      "stage": "contract-defined",
+      "scenarios": [
+        "src/shell/projects.test.ts"
+      ],
+      "evidence": [
+        "src/shell/projects.ts",
+        "src/components/ProjectsDialog.tsx",
+        "docs/migration/contracts/plugin-projects.md"
+      ],
+      "stage": "current-verified",
       "status": {
-        "implemented": false,
+        "implemented": true,
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
