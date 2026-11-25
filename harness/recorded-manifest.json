@@ -1,0 +1,49 @@
+{
+  "format": "herdr-t3/recorded-manifest",
+  "version": 1,
+  "recorded_at": "2026-11-25T02:15:03.448Z",
+  "bun": "1.4.4",
+  "git": "c410ff1f40cf64850f4f19683d5498afcb16f3d3",
+  "scenarios": [
+    {
+      "id": "codec.client-messages",
+      "path": "scenarios/codec/client-messages.json",
+      "input_sha256": "991549dd1c4c8a4b8a88598437457292a5a3dc41bbce121e87c0cdc5faecd441"
+    },
+    {
+      "id": "codec.server-messages",
+      "path": "scenarios/codec/server-messages.json",
+      "input_sha256": "bd16887f4272b858f8a061b50d32e3c2f3f543c15d932e86afe6803e624cec1b"
+    },
+    {
+      "id": "codec.varint-roundtrip",
+      "path": "scenarios/codec/varint.json",
+      "input_sha256": "b9660426f01666428ebbe9174fa7b4092c45756bfde748981a8e7686c01e24d4"
+    },
+    {
+      "id": "projection.agent-entries-partition",
+      "path": "scenarios/projection/agents.json",
+      "input_sha256": "f35fb79ed9a93e00dd02d54a227f72f4b86b54d8d1a5debcbc20300eced33ab8"
+    },
+    {
+      "id": "projection.derive-workspace",
+      "path": "scenarios/projection/workspace.json",
+      "input_sha256": "dc3c3d7640af373223a81ea53c4e1c75d00484113e1bb36fa063417fb5166979"
+    },
+    {
+      "id": "terminal.basic-screen",
+      "path": "scenarios/terminal/basic-screen.json",
+      "input_sha256": "f3376e5919f15806f7b49340c03f4b16cc32be6b323c1a03cc582920949c8b73"
+    },
+    {
+      "id": "terminal.modes-and-input-encoding",
+      "path": "scenarios/terminal/modes-and-input.json",
+      "input_sha256": "a13b9d9e8d6098d948857f546149e82cdb692587b8b71e1eee0556788013f0cf"
+    },
+    {
+      "id": "terminal.scrollback-resize-alt",
+      "path": "scenarios/terminal/scrollback-resize.json",
+      "input_sha256": "6e8724311f2ae17acf2954c2bfe635660775a7bd247952accb1e0cc0204138a2"
+    }
+  ]
+}

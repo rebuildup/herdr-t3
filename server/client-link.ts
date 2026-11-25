@@ -48,7 +48,7 @@ function u64le(v: bigint): number[] {
   return out;
 }
 
-function decodeVarint(buf: Uint8Array, offset: number): [bigint, number] {
+export function decodeVarint(buf: Uint8Array, offset: number): [bigint, number] {
   const tag = buf[offset];
   if (tag === undefined) throw new Error("truncated varint");
   if (tag <= 250) return [BigInt(tag), offset + 1];
@@ -71,7 +71,7 @@ const vu8 = (b: boolean) => [b ? 1 : 0];
 // 5 AttachTerminal, 6 AttachScroll, 7 ObserveTerminal, 8 ControlTerminal, ...
 // 20 EndpointControl
 
-function terminalHello(cols: number, rows: number): number[] {
+export function terminalHello(cols: number, rows: number): number[] {
   return [
     ...vi(0), ...vi(CLIENT_PROTOCOL_VERSION), ...vi(cols), ...vi(rows),
     ...vi(0), ...vi(0), // cell size px: unknown to a browser; 0 disables pixel mouse
@@ -79,27 +79,27 @@ function terminalHello(cols: number, rows: number): number[] {
   ];
 }
 
-function clientInput(data: Uint8Array): number[] {
+export function clientInput(data: Uint8Array): number[] {
   return [...vi(1), ...vb(data)];
 }
 
-function clientResize(cols: number, rows: number): number[] {
+export function clientResize(cols: number, rows: number): number[] {
   return [
     ...vi(3), ...vi(cols), ...vi(rows),
     ...vi(0), ...vi(0), ...vu8(false),
   ];
 }
 
-function clientDetach(): number[] {
+export function clientDetach(): number[] {
   return [...vi(4)];
 }
 
-function msgAttachTerminal(terminalId: string, takeover: boolean): number[] {
+export function msgAttachTerminal(terminalId: string, takeover: boolean): number[] {
   return [...vi(5), ...vs(terminalId), ...vu8(takeover)];
 }
 
 /** AttachScrollSource::Wheel = 0, AttachScrollDirection::Up = 0 / Down = 1. */
-function attachScroll(
+export function attachScroll(
   direction: "up" | "down",
   lines: number,
   column?: number,

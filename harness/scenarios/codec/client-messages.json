@@ -1,0 +1,213 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "codec.client-messages",
+  "capability": "protocol.attach-codec",
+  "contract": "protocol-frames@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "encode_terminal_hello",
+      "input": {
+        "cols": 80,
+        "rows": 24
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "00165018000000"
+        }
+      }
+    },
+    {
+      "op": "encode_terminal_hello",
+      "input": {
+        "cols": 1,
+        "rows": 1
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "00160101000000"
+        }
+      }
+    },
+    {
+      "op": "encode_client_input",
+      "input": {
+        "hex": "68656c6c6f"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "010568656c6c6f"
+        }
+      }
+    },
+    {
+      "op": "encode_client_input",
+      "input": {
+        "hex": ""
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "0100"
+        }
+      }
+    },
+    {
+      "op": "encode_client_resize",
+      "input": {
+        "cols": 120,
+        "rows": 40
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "037828000000"
+        }
+      }
+    },
+    {
+      "op": "encode_client_detach",
+      "input": {},
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "04"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_terminal",
+      "input": {
+        "terminal_id": "term-1",
+        "takeover": false
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "05067465726d2d3100"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_terminal",
+      "input": {
+        "terminal_id": "w1:p2",
+        "takeover": true
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "050577313a703201"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_scroll",
+      "input": {
+        "direction": "up",
+        "lines": 3
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "06000003000000"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_scroll",
+      "input": {
+        "direction": "down",
+        "lines": 5,
+        "column": 10,
+        "row": 20,
+        "modifiers": 1
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "06000105010a011401"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_mouse",
+      "input": {
+        "action": "press",
+        "button": "left",
+        "column": 5,
+        "row": 6,
+        "modifiers": 0
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "100000000506000001"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_mouse",
+      "input": {
+        "action": "release",
+        "button": "right",
+        "column": 5,
+        "row": 6,
+        "modifiers": 5
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "100101000506000501"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_mouse",
+      "input": {
+        "action": "motion",
+        "button": "middle",
+        "column": 7,
+        "row": 8,
+        "modifiers": 2
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "100202000708000201"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_mouse",
+      "input": {
+        "action": "moved",
+        "column": 9,
+        "row": 10,
+        "modifiers": 0
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "100300090a000001"
+        }
+      }
+    },
+    {
+      "op": "encode_attach_scroll",
+      "input": {
+        "direction": "sideways",
+        "lines": 1
+      },
+      "expect_error": "direction"
+    }
+  ]
+}
