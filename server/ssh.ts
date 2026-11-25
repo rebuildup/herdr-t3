@@ -479,6 +479,7 @@ export function remoteArgvCommand(
   argv: string[],
   cwd?: string,
   envRemove: string[] = [],
+  envSet: Record<string, string> = {},
 ): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
@@ -490,8 +491,14 @@ export function remoteArgvCommand(
     // interpolation; they come from PLUGIN_ENV_SCRUB.
     const names = envRemove.filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
     const scrub = names.length > 0 ? `unset ${names.join(" ")}; ` : "";
-    const command = `${scrub}${parts}`;
-    return cwd ? `${scrub}cd ${shellQuote(cwd)} && ${parts}` : command;
+    // envSet re-pins bridge-resolved targeting vars after the scrub
+    // (e.g. HERDR_SOCKET_PATH for `herdr plugin list`, issue #289).
+    const set = Object.entries(envSet)
+      .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      .map(([name, value]) => `export ${name}=${shellQuote(value)}; `)
+      .join("");
+    const command = `${scrub}${set}${parts}`;
+    return cwd ? `${scrub}${set}cd ${shellQuote(cwd)} && ${parts}` : command;
   }
   // PowerShell has no env-assignment removal; `$env:X=$null` deletes the
   // variable from the process environment (not an empty-string set),
@@ -501,8 +508,12 @@ export function remoteArgvCommand(
     .filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
     .map((name) => `$env:${name}=$null; `)
     .join("");
+  const set = Object.entries(envSet)
+    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .map(([name, value]) => `$env:${name}=${quotePowerShellArg(value)}; `)
+    .join("");
   const invoke = argv.map(quotePowerShellArg).join(" ");
-  const script = scrub + (cwd
+  const script = scrub + set + (cwd
     ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
     : `& ${invoke}; exit $LASTEXITCODE`);
   return windowsPowerShellScriptCommand(script);
@@ -513,7 +524,10 @@ export function remoteArgvCommand(
  * host through the same ssh transport as the bridges. `session` is the
  * herdr session name; "default" maps to no flag (the plugin CLI's
  * `--session default` would resolve a named-session socket that does not
- * exist).
+ * exist). A non-default session is passed both to plugin CLIs
+ * (`--session`) and to `herdr plugin list` discovery (`--session` in
+ * `herdrArgv`) so discovery cannot silently read the remote default
+ * session (issue #289).
  */
 export function sshPluginHost(
   endpoint: SshEndpoint,
@@ -522,11 +536,12 @@ export function sshPluginHost(
   const pluginSession = session === "default" ? undefined : session;
   return {
     ...(pluginSession !== undefined ? { pluginSession } : {}),
-    herdrArgv: [endpoint.remoteHerdr],
+    herdrArgv:
+      pluginSession !== undefined ? [endpoint.remoteHerdr, "--session", pluginSession] : [endpoint.remoteHerdr],
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? []),
+        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? [], options.envSet ?? {}),
         options.timeoutMs,
       ).then((r) => ({
         code: r.code,

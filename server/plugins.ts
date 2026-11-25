@@ -12,7 +12,7 @@
  */
 import { spawn, type SpawnOptions } from "node:child_process";
 import type { PluginCallResult, PluginListEntry, PluginListResult } from "../shared/protocol.ts";
-import { HerdrError } from "./herdr.ts";
+import { HerdrError, herdrSocketPath } from "./herdr.ts";
 
 /* ------------------------------------------------------------------ */
 /* Host execution                                                       */
@@ -45,6 +45,13 @@ export interface PluginExecOptions {
    * HERDR_SOCKET_PATH as an explicit override.
    */
   envRemove?: string[];
+  /**
+   * Environment variables set on the child *after* `envRemove` runs.
+   * Used to hand `herdr plugin list` the bridge's resolved socket as
+   * HERDR_SOCKET_PATH — the `herdr` CLI has no `--socket` flag, so env
+   * is its only explicit socket override (issue #289).
+   */
+  envSet?: Record<string, string>;
 }
 
 /** Executes argv on the host owning the herdr session. */
@@ -56,6 +63,16 @@ export interface PluginHost {
    * socket that does not exist — ADR-0011 §5).
    */
   pluginSession?: string;
+  /**
+   * Absolute path of the herdr API socket this host's session lives on
+   * (the same socket the bridge connects to). Passed to plugin CLIs as
+   * `--socket PATH` — upstream `socketFor` gives an explicit socketPath
+   * precedence over `HERDR_SOCKET_PATH`/`--session`/default resolution —
+   * and to `herdr plugin list` as `HERDR_SOCKET_PATH` (the herdr CLI has
+   * no `--socket` flag). Wins over `pluginSession` when both are set
+   * (issue #289).
+   */
+  pluginSocket?: string;
   /**
    * argv prefix for herdr CLI calls (`plugin list` discovery). Local
    * hosts leave this unset → plain `herdr`; SSH hosts pass the resolved
@@ -101,18 +118,31 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<Pl
   });
 }
 
-/** Local host: argv runs directly; PATH resolution is the OS default. */
-export function localPluginHost(): PluginHost {
+/**
+ * Local host: argv runs directly; PATH resolution is the OS default.
+ * `socketPath` is the herdr API socket the bridge itself uses
+ * (`herdrSocketPath()` — `HERDR_SOCKET` env or the default socket); it
+ * is forwarded to every plugin exec so contract calls, capability
+ * probes and `herdr plugin list` discovery all target the same
+ * Host/Session instead of silently falling back to the default session
+ * (issue #289).
+ */
+export function localPluginHost(socketPath: string = herdrSocketPath()): PluginHost {
   return {
+    pluginSocket: socketPath,
     exec(argv, options) {
       if (argv.length === 0) {
         return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: "empty argv" });
       }
       const envRemove = options.envRemove ?? [];
+      const envSet = options.envSet ?? {};
       let env: NodeJS.ProcessEnv | undefined;
-      if (envRemove.length > 0) {
+      if (envRemove.length > 0 || Object.keys(envSet).length > 0) {
         env = { ...process.env };
         for (const key of envRemove) delete env[key];
+        // envSet wins over envRemove: the scrub deletes ambient targeting
+        // vars, then the bridge re-pins the ones it resolved itself.
+        for (const [key, value] of Object.entries(envSet)) env[key] = value;
       }
       const spawnOptions: SpawnOptions = {
         cwd: options.cwd,
@@ -485,6 +515,13 @@ export class PluginService {
       // `herdr plugin list` itself resolves its socket through the same
       // env precedence — scrub or discovery could read a foreign session.
       envRemove: PLUGIN_ENV_SCRUB,
+      // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
+      // explicit socket override and beats `--session`/default. Set it
+      // *after* the scrub so it carries the bridge's own socket, not an
+      // ambient one (issue #289).
+      ...(host.pluginSocket !== undefined
+        ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
+        : {}),
     });
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
@@ -553,7 +590,7 @@ export class PluginService {
 
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
-    if (host.pluginSession) argv.push("--session", host.pluginSession);
+    argv.push(...pluginTargetArgs(host));
     const outcome = await host.exec(argv, {
       cwd: entry.plugin_root,
       timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
@@ -573,11 +610,14 @@ export class PluginService {
     const cached = this.capabilities.get(key);
     if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) return cached;
     const host = await this.requireHost(machine);
-    const outcome = await host.exec(["bun", "run", "src/cli.ts", "capability"], {
-      cwd: pluginRoot,
-      timeoutMs: DEFAULT_TIMEOUT_MS,
-      envRemove: PLUGIN_ENV_SCRUB,
-    });
+    const outcome = await host.exec(
+      ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
+      {
+        cwd: pluginRoot,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+        envRemove: PLUGIN_ENV_SCRUB,
+      },
+    );
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
     const entry: CapabilityCacheEntry =
       "error" in parsed
@@ -595,4 +635,16 @@ export class PluginService {
     }
     return host;
   }
+}
+
+/**
+ * Session/socket targeting argv for plugin CLIs (issue #289). An explicit
+ * `--socket` (the bridge's own resolved socket) beats `--session` and
+ * every env/default fallback upstream; `--session` remains the SSH
+ * mechanism where only the session name is known.
+ */
+function pluginTargetArgs(host: PluginHost): string[] {
+  if (host.pluginSocket !== undefined) return ["--socket", host.pluginSocket];
+  if (host.pluginSession !== undefined) return ["--session", host.pluginSession];
+  return [];
 }

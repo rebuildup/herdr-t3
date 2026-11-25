@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointsPath, loadMachineMetadata, loadSavedMachines } from "./machines.ts";
 import { isClientFrame } from "../shared/protocol.ts";
-import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, sshArgs } from "./ssh.ts";
+import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, sshArgs, sshPluginHost } from "./ssh.ts";
 import { PLUGIN_ENV_SCRUB } from "./plugins.ts";
 
 const dirs: string[] = [];
@@ -236,5 +236,54 @@ describe("remoteArgvCommand env scrubbing (issues #228/#270)", () => {
     const firstScrub = script.indexOf("$env:HERDR_SOCKET_PATH=$null;");
     expect(firstScrub).toBeGreaterThanOrEqual(0);
     expect(firstScrub).toBeLessThan(script.indexOf("& bun"));
+  });
+
+  test("posix envSet re-pins a variable after the scrub (issue #289)", () => {
+    const cmd = remoteArgvCommand(
+      posix,
+      ["herdr", "plugin", "list", "--json"],
+      undefined,
+      PLUGIN_ENV_SCRUB,
+      { HERDR_SOCKET_PATH: "/remote/sessions/work/herdr.sock" },
+    );
+    expect(cmd).toContain("unset HERDR_SOCKET_PATH");
+    expect(cmd).toContain("export HERDR_SOCKET_PATH='/remote/sessions/work/herdr.sock';");
+    // envSet runs after unset and before the command.
+    expect(cmd.indexOf("export HERDR_SOCKET_PATH")).toBeGreaterThan(cmd.indexOf("unset "));
+    expect(cmd.indexOf("export HERDR_SOCKET_PATH")).toBeLessThan(cmd.indexOf("'herdr'"));
+  });
+
+  test("windows envSet assigns inside the PowerShell script", () => {
+    const cmd = remoteArgvCommand(
+      win,
+      ["herdr", "plugin", "list", "--json"],
+      undefined,
+      PLUGIN_ENV_SCRUB,
+      { HERDR_SOCKET_PATH: "C:\\herdr\\herdr.sock" },
+    );
+    const encoded = cmd.split("-EncodedCommand ")[1]!;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("$env:HERDR_SOCKET_PATH=$null;");
+    expect(script).toContain("$env:HERDR_SOCKET_PATH='C:\\herdr\\herdr.sock';");
+    expect(script.indexOf("$env:HERDR_SOCKET_PATH='C:")).toBeLessThan(script.indexOf("& herdr"));
+  });
+});
+
+describe("sshPluginHost session targeting (issue #289)", () => {
+  const endpoint = { id: "m", target: "h", session: "work", remoteHerdr: "/usr/bin/herdr" };
+
+  test("named session reaches plugin CLIs and herdr discovery argv", () => {
+    const host = sshPluginHost(endpoint, "work");
+    expect(host.pluginSession).toBe("work");
+    expect(host.pluginSocket).toBeUndefined();
+    // Discovery (`herdr plugin list`) must target the same named session —
+    // without --session it would read the remote default session.
+    expect(host.herdrArgv).toEqual(["/usr/bin/herdr", "--session", "work"]);
+  });
+
+  test("default session adds no targeting flags", () => {
+    const host = sshPluginHost({ ...endpoint, session: "default" }, "default");
+    expect(host.pluginSession).toBeUndefined();
+    expect(host.herdrArgv).toEqual(["/usr/bin/herdr"]);
   });
 });
