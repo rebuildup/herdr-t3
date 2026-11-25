@@ -4,81 +4,43 @@ import { join } from "node:path";
 
 /*
  * Persistence compatibility contract tests (issue #239,
- * docs/migration/persistence-compatibility.md). Isolated MemoryStorage
- * only — never a real profile. The load() path runs in a fresh bun
- * process via persistence-compat.boot.ts because bun test shares the
- * module registry across files in one process.
+ * docs/migration/persistence-compatibility.md). Every assertion runs in
+ * a fresh bun process via persistence-compat.boot.ts: bun test shares
+ * one module registry per process, so exercising the real load()/save()
+ * paths in-process would leak state into other test files.
  */
-class MemoryStorage implements Storage {
-  private map = new Map<string, string>();
-  get length() {
-    return this.map.size;
-  }
-  clear() {
-    this.map.clear();
-  }
-  getItem(key: string) {
-    return this.map.get(key) ?? null;
-  }
-  key(index: number) {
-    return [...this.map.keys()][index] ?? null;
-  }
-  removeItem(key: string) {
-    this.map.delete(key);
-  }
-  setItem(key: string, value: string) {
-    this.map.set(key, String(value));
-  }
-}
-
-const storage = new MemoryStorage();
 const BOOT = join(import.meta.dir, "persistence-compat.boot.ts");
 
-function boot(caseName: string): { terminal: unknown; general: unknown } {
+function boot(caseName: string): Record<string, unknown> {
   const out = execFileSync(process.execPath, [BOOT], {
     env: { ...process.env, CASE: caseName },
     encoding: "utf8",
   });
-  return JSON.parse(out) as { terminal: unknown; general: unknown };
+  return JSON.parse(out) as Record<string, unknown>;
 }
 
 const settings = await import("./settings.ts");
 
-// bun test shares one process/module registry across files, so
-// window.localStorage may belong to another file's fixture. Swap it
-// explicitly for tests that exercise the write path and restore after.
-function installStorage(next: Storage | null): () => void {
-  const g = globalThis as { window?: { localStorage?: Storage } };
-  const w = (g.window ??= {});
-  const prev = w.localStorage ?? null;
-  if (next === null) delete w.localStorage;
-  else w.localStorage = next;
-  return () => {
-    if (prev === null) delete w.localStorage;
-    else w.localStorage = prev;
-  };
-}
-
 describe("fresh-start load against seeded storage", () => {
   test("empty storage → defaults", () => {
     const loaded = boot("empty");
-    expect(loaded.terminal).toEqual(settings.TERMINAL_DEFAULTS);
-    expect(loaded.general).toEqual(settings.GENERAL_DEFAULTS);
+    expect(loaded["terminal"]).toEqual(settings.TERMINAL_DEFAULTS);
+    expect(loaded["general"]).toEqual(settings.GENERAL_DEFAULTS);
   });
 
   test("truncated JSON → terminal defaults", () => {
     const loaded = boot("corrupt-terminal");
-    expect(loaded.terminal).toEqual(settings.TERMINAL_DEFAULTS);
+    expect(loaded["terminal"]).toEqual(settings.TERMINAL_DEFAULTS);
   });
 
   test("wrong-type JSON → general defaults", () => {
     const loaded = boot("wrong-type-general");
-    expect(loaded.general).toEqual(settings.GENERAL_DEFAULTS);
+    expect(loaded["general"]).toEqual(settings.GENERAL_DEFAULTS);
   });
 
   test("legacy payload: known fields kept, unknown field dropped on load", () => {
     const loaded = boot("legacy-fields");
-    expect(loaded.terminal).toEqual({
+    expect(loaded["terminal"]).toEqual({
       fontFamily: settings.TERMINAL_DEFAULTS.fontFamily,
       fontSize: 14,
       lineHeight: null,
@@ -89,17 +51,13 @@ describe("fresh-start load against seeded storage", () => {
 
 describe("round-trip and old→new→old semantics", () => {
   test("write → stored JSON → parse → identical settings", () => {
-    const restore = installStorage(storage);
-    try {
-      settings.setTerminalSettings({ fontSize: 15, scrollbackLines: 5000 });
-      const raw = storage.getItem("herdr-t3:settings:terminal");
-      expect(raw).not.toBeNull();
-      expect(settings.parseTerminalSettings(JSON.parse(raw!))).toEqual(
-        settings.getTerminalSettings(),
-      );
-    } finally {
-      restore();
-    }
+    const loaded = boot("roundtrip");
+    const raw = loaded["raw_terminal"];
+    expect(typeof raw).toBe("string");
+    const parsed = settings.parseTerminalSettings(JSON.parse(raw as string));
+    expect(loaded["terminal"]).toEqual(parsed);
+    expect(parsed.fontSize).toBe(15);
+    expect(parsed.scrollbackLines).toBe(5000);
   });
 
   test("payload with only older-known fields round-trips unchanged", () => {
@@ -159,28 +117,7 @@ describe("fault injection on values", () => {
 
 describe("storage failure", () => {
   test("setItem throwing → settings still update in memory, no throw", () => {
-    const throwing = {
-      get length() {
-        return 0;
-      },
-      clear() {},
-      getItem() {
-        return null;
-      },
-      key() {
-        return null;
-      },
-      removeItem() {},
-      setItem() {
-        throw new Error("QuotaExceededError");
-      },
-    } as Storage;
-    const restore = installStorage(throwing);
-    try {
-      expect(() => settings.setGeneralSettings({ confirmCloseWorkspace: true })).not.toThrow();
-      expect(settings.getGeneralSettings().confirmCloseWorkspace).toBe(true);
-    } finally {
-      restore();
-    }
+    const loaded = boot("storage-throw");
+    expect((loaded["general"] as Record<string, unknown>)["confirmCloseWorkspace"]).toBe(true);
   });
 });

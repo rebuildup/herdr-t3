@@ -47,19 +47,55 @@ switch (CASE) {
       JSON.stringify({ fontSize: 14, scrollbackLines: 2000, futureField: { x: 1 } }),
     );
     break;
+  case "roundtrip":
+    break;
+  case "storage-throw":
+    // Installed after the switch below via THROWING flag.
+    break;
   case "empty":
     break;
   default:
     throw new Error(`unknown CASE ${CASE}`);
 }
 
-(globalThis as { window?: unknown }).window = { localStorage: storage };
+if (CASE === "storage-throw") {
+  (globalThis as { window?: unknown }).window = {
+    localStorage: {
+      get length() {
+        return 0;
+      },
+      clear() {},
+      getItem() {
+        return null;
+      },
+      key() {
+        return null;
+      },
+      removeItem() {},
+      setItem() {
+        throw new Error("QuotaExceededError");
+      },
+    },
+  };
+} else {
+  (globalThis as { window?: unknown }).window = { localStorage: storage };
+}
 
 const settings = await import("./settings.ts");
+
+if (CASE === "roundtrip") {
+  settings.setTerminalSettings({ fontSize: 15, scrollbackLines: 5000 });
+}
+if (CASE === "storage-throw") {
+  // Must not throw; in-memory value still updates.
+  settings.setGeneralSettings({ confirmCloseWorkspace: true });
+}
+
 console.log(
   JSON.stringify({
     terminal: settings.getTerminalSettings(),
     general: settings.getGeneralSettings(),
+    raw_terminal: storage.getItem("herdr-t3:settings:terminal"),
   }),
 );
 
