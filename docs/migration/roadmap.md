@@ -60,8 +60,18 @@ report.
    Perf: #231 bench workload on Rust/native is at parity-or-better
    vs TS/WASM (see #286). Exit-criteria remainder: `switched` awaits
    a Rust consumer (boundary 4).
-4. **streaming/render pipeline** (B5/B6): depends on 3; needs UI
-   conformance adapter to exist first for render assertions.
+4. **streaming/render pipeline** (B5/B6): **in progress** (#294).
+   `src/lib/ghostty/scene.ts` extracts the DOM-free paint-scene core
+   out of `renderer.ts` (the Canvas2D painter is now a thin consumer of
+   the ordered `PaintOp` list, contract `terminal-render@1`);
+   `crates/terminal-render` mirrors it in Rust over `terminal-core`.
+   `terminal.scene-render` scenario passes on TS + Rust and 9 Rust
+   integration tests cover op ordering, dirty-row repaints, styles,
+   washes, cursor and background-image geometry. New registry entry
+   `terminal.scene` at `rust-implemented`. Remaining: the `surface.ts`
+   orchestration layer (selection/scroll/IME coalescing) and the
+   ui-conformance render assertions once a Rust surface consumer
+   exists.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
    (Electron + GPUI host evidence recorded); remaining prerequisite is
    the terminal/render pipeline (boundary 4) it renders.
