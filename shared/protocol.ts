@@ -313,7 +313,29 @@ export type ClientFrame =
   | { type: "machine_add"; id: string; label: string; target: string; session?: string }
   /** `id` correlates the rpc_result; `machine` is herdr's saved-machine profile id. */
   | { type: "machine_remove"; id: string; machine: string }
-  | { type: "machine_update"; id: string; machine: string; label?: string; enabled?: boolean };
+  | { type: "machine_update"; id: string; machine: string; label?: string; enabled?: boolean }
+  /**
+   * Installed-plugin discovery on one host (ADR-0011): runs
+   * `herdr plugin list --json` on the machine's own host and answers on
+   * `rpc_result` with `{ plugins: PluginListEntry[] }`.
+   */
+  | { type: "plugin_list"; id: string; machine?: string }
+  /**
+   * One plugin contract command on one host (ADR-0011): resolves the
+   * installed plugin, verifies its `capability`, then runs
+   * `<plugin_root>/src/cli.ts <command> [args]` as argv — never through
+   * a forwarded socket and never by reading plugin state files.
+   * `args` are argv elements; the bridge adds no shell interpolation.
+   */
+  | {
+      type: "plugin_call";
+      id: string;
+      machine?: string;
+      plugin: string;
+      command: string;
+      args?: string[];
+      timeout_ms?: number;
+    };
 
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
 export type ServerFrame =
@@ -386,6 +408,32 @@ export const RPC_METHODS = [
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
+
+/* ------------------------------------------------------------------ */
+/* Plugin contract boundary types (ADR-0011)                            */
+/* ------------------------------------------------------------------ */
+
+/** One entry of a `plugin_list` result — the fields herdr-t3 consumes. */
+export interface PluginListEntry {
+  plugin_id: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+  plugin_root: string;
+  description?: string;
+}
+
+export interface PluginListResult {
+  plugins: PluginListEntry[];
+}
+
+/**
+ * `plugin_call` success payload: the plugin CLI's single JSON document
+ * from stdout, passed through verbatim (contract `ok`/`error` fields
+ * inside it are the plugin's own). Transport/contract failures come back
+ * as `rpc_result` errors instead.
+ */
+export type PluginCallResult = Record<string, unknown>;
 
 export function isRpcMethod(method: string): method is RpcMethod {
   return (RPC_METHODS as readonly string[]).includes(method);
@@ -489,6 +537,30 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         (frame["label"] === undefined || (typeof frame["label"] === "string" && frame["label"].length > 0 && frame["label"].length <= 128)) &&
         (frame["enabled"] === undefined || typeof frame["enabled"] === "boolean") &&
         (frame["label"] !== undefined || frame["enabled"] !== undefined)
+      );
+    case "plugin_list":
+      return typeof frame["id"] === "string" && machineOk;
+    case "plugin_call":
+      return (
+        typeof frame["id"] === "string" &&
+        machineOk &&
+        typeof frame["plugin"] === "string" &&
+        frame["plugin"].length > 0 &&
+        frame["plugin"].length <= 128 &&
+        typeof frame["command"] === "string" &&
+        frame["command"].length > 0 &&
+        frame["command"].length <= 64 &&
+        (frame["args"] === undefined ||
+          (Array.isArray(frame["args"]) &&
+            frame["args"].length <= 32 &&
+            frame["args"].every(
+              (a) => typeof a === "string" && a.length <= 4096 && !a.includes("\0"),
+            ))) &&
+        (frame["timeout_ms"] === undefined ||
+          (typeof frame["timeout_ms"] === "number" &&
+            Number.isInteger(frame["timeout_ms"]) &&
+            frame["timeout_ms"] >= 500 &&
+            frame["timeout_ms"] <= 120_000))
       );
     default:
       return false;

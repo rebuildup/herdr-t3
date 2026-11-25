@@ -314,16 +314,29 @@ describe("partitionAgents organize overlay (issue #173)", () => {
 
   test("settled moves a row to the Settled shelf regardless of herdr status", () => {
     const working = entry(agent({ pane_id: "w1", agent_status: "working", state_change_seq: 5 }));
-    const blocked = entry(agent({ pane_id: "b1", agent_status: "blocked", state_change_seq: 3 }));
+    const idle = entry(agent({ pane_id: "i1", agent_status: "idle", state_change_seq: 2 }));
     const organize: AgentOrganizeMap = {
       [key("w1")]: { kind: "settled", seq: 5 },
-      [key("b1")]: { kind: "settled", seq: 3 },
+      [key("i1")]: { kind: "settled", seq: 2 },
     };
-    const { sections, organize: active } = partitionAgents([working, blocked], organize);
-    expect(sections.settled.map((e) => e.agent.pane_id)).toEqual(["b1", "w1"]);
+    const { sections, organize: active } = partitionAgents([working, idle], organize);
+    expect(sections.settled.map((e) => e.agent.pane_id)).toEqual(["w1", "i1"]);
     expect(sections.working).toEqual([]);
     expect(sections.attention).toEqual([]);
     expect(active).toEqual(organize);
+  });
+
+  test("attention rows are never hidden by an organize record (ADR-0011)", () => {
+    const blocked = entry(agent({ pane_id: "b1", agent_status: "blocked", state_change_seq: 3 }));
+    const { sections, organize: active } = partitionAgents([blocked], {
+      [key("b1")]: { kind: "settled", seq: 3 },
+    });
+    expect(sections.attention.map((e) => e.agent.pane_id)).toEqual(["b1"]);
+    expect(sections.settled).toEqual([]);
+    // The record is not "active" while the pane needs attention; the
+    // plugin projection (which reports such items as in_inbox) is the
+    // authoritative source and rebuilds it on the next refresh.
+    expect(active).toEqual({});
   });
 
   test("snoozed moves the row to the Snoozed shelf, out of natural sections", () => {

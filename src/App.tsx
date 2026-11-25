@@ -24,6 +24,7 @@ import { NoticeToasts } from "./shell/NoticeToasts";
 import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
 import { callRpc, ensureMachine, initBridge, selectWorkspace } from "./shell/bridge";
+import { initInbox } from "./shell/inbox";
 import { onSnapshot } from "./lib/api";
 import type { SessionSnapshot } from "../shared/protocol";
 import { isElectron } from "./lib/env";
@@ -36,6 +37,7 @@ export default function App() {
   useEffect(() => {
     initRouter();
     const disconnectBridge = initBridge();
+    initInbox();
     // Attention toasts (issue #113): diff each machine's pushed snapshots
     // for agent blocked/done transitions. The first snapshot per machine
     // is a baseline and never notifies.

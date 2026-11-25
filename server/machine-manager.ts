@@ -15,13 +15,16 @@
 import { spawn } from "node:child_process";
 import type { ClientFrame, MachineInfo, MachineStatus, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint, type BridgeSession } from "./bridge-core.ts";
+import { HerdrError } from "./herdr.ts";
 import { loadMachineMetadata, loadSavedMachines, type SavedMachine } from "./machines.ts";
+import { localPluginHost, PluginService, type PluginHost } from "./plugins.ts";
 import {
   classifySshFailure,
   endpointFromMachine,
   resolveRemoteHerdr,
   sshApiConnector,
   sshClientConnector,
+  sshPluginHost,
   type SshEndpoint,
 } from "./ssh.ts";
 
@@ -65,11 +68,16 @@ export class MachineManager {
   private readonly lastProbeSnapshots = new Map<string, string>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
+  /** Plugin contract boundary (ADR-0011): host argv exec per machine. */
+  private readonly plugins: PluginService;
+  /** Resolved plugin hosts per machine (local + ssh), cached for reuse. */
+  private readonly pluginHosts = new Map<string, PluginHost>();
 
   constructor(options: MachineManagerOptions) {
     this.send = options.send;
     this.listSource = options.listMachines ?? (() => loadSavedMachines());
     this.herdrRunner = options.runHerdr ?? ((args, timeoutMs) => this.spawnHerdr(args, timeoutMs));
+    this.plugins = new PluginService((machine) => this.pluginHost(machine));
     this.probeFetcher = options.probeFetch ?? null;
     this.infos.set(LOCAL_ID, {
       id: LOCAL_ID,
@@ -168,6 +176,10 @@ export class MachineManager {
         return true;
       case "machine_update":
         void this.updateMachine(frame);
+        return true;
+      case "plugin_list":
+      case "plugin_call":
+        void this.handlePluginFrame(frame);
         return true;
       default:
         break;
@@ -373,6 +385,7 @@ export class MachineManager {
     }
     if (!this.generationCurrent(machine, generation)) return;
 
+    this.pluginHosts.set(machine, sshPluginHost(endpoint, saved.session));
     const bridgeEndpoint: BridgeEndpoint = {
       api: sshApiConnector(endpoint),
       client: sshClientConnector(endpoint),
@@ -394,6 +407,8 @@ export class MachineManager {
     // its connectInner aborts itself via the generation check.
     this.resolving.delete(machine);
     this.pendingFrames.delete(machine);
+    this.pluginHosts.delete(machine);
+    this.plugins.invalidate(machine);
     const managed = this.sessions.get(machine);
     if (managed) {
       managed.session.close();
@@ -539,5 +554,64 @@ export class MachineManager {
     }
     this.machineResult(frame.id, output.trim(), "machine_update_failed");
     await this.refresh();
+  }
+
+  /* ------------------------- plugin boundary ------------------------- */
+
+  /**
+   * Plugin contract frames (ADR-0011): discovery and contract calls run
+   * as argv on the machine's own host — independent of whether its bridge
+   * session is up, but still requiring a resolvable host.
+   */
+  private async handlePluginFrame(
+    frame: Extract<ClientFrame, { type: "plugin_list" | "plugin_call" }>,
+  ): Promise<void> {
+    const machine =
+      "machine" in frame && typeof frame.machine === "string" && frame.machine.length > 0
+        ? frame.machine
+        : LOCAL_ID;
+    try {
+      const result =
+        frame.type === "plugin_list"
+          ? await this.plugins.listPlugins(machine)
+          : await this.plugins.call(machine, {
+              plugin: frame.plugin,
+              command: frame.command,
+              args: frame.args,
+              timeoutMs: frame.timeout_ms,
+            });
+      this.send({ type: "rpc_result", id: frame.id, ok: true, result, machine });
+    } catch (error: unknown) {
+      const err = error instanceof HerdrError ? error : new HerdrError("plugin_error", String(error));
+      this.send({
+        type: "rpc_result",
+        id: frame.id,
+        ok: false,
+        error: { code: err.code, message: err.message },
+        machine,
+      });
+    }
+  }
+
+  /** PluginHost for one machine: local spawn, or ssh argv on the endpoint. */
+  private async pluginHost(machine: string): Promise<PluginHost | null> {
+    if (machine === LOCAL_ID) return localPluginHost();
+    const cached = this.pluginHosts.get(machine);
+    if (cached) return cached;
+    const info = this.infos.get(machine);
+    if (!info || info.kind !== "ssh" || !info.enabled) return null;
+    const saved = this.listSource().find((m) => m.id === machine);
+    if (!saved) return null;
+    try {
+      const metadata = loadMachineMetadata(machine);
+      const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
+      const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
+      const host = sshPluginHost(endpoint, saved.session);
+      this.pluginHosts.set(machine, host);
+      return host;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      throw new HerdrError("plugin_host_unreachable", `cannot reach ${machine} for plugin execution: ${text}`);
+    }
   }
 }
