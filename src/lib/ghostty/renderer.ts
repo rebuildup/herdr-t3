@@ -97,6 +97,8 @@ export class GhosttyRenderer {
   setFont(font: { fontFamily?: string; fontSize?: number }): void {
     if (font.fontFamily !== undefined) this.options.fontFamily = font.fontFamily;
     if (font.fontSize !== undefined) this.options.fontSize = font.fontSize;
+    this.fontStrings.clear();
+    this.advanceCache.clear();
     this.invalidate();
   }
 
@@ -204,9 +206,11 @@ export class GhosttyRenderer {
         : 0;
       const bgAlpha = this.bgOpacity * (1 - Math.min(1, Math.max(0, this.bgImage?.opacity ?? 0)));
       bctx.globalAlpha = bgAlpha;
+      this.lastGlobalAlpha = bgAlpha;
       bctx.fillStyle = this.options.background;
       bctx.fillRect(0, top, W, m.cellH);
       bctx.globalAlpha = 1;
+      this.lastGlobalAlpha = 1;
       this.paintBackgroundImage(top, m.cellH, imageAlpha);
       this.paintImages(0, top, m.cellH);
       this.paintRowBackgrounds(y);
@@ -316,6 +320,16 @@ export class GhosttyRenderer {
 
   /** ascent/descent of the UI font, measured once per font/size pair */
   private textMetrics: { key: string; ascent: number; descent: number } | null = null;
+  /** draw-font string per bold/italic flag pair (issue #213) */
+  private readonly fontStrings = new Map<number, string>();
+  /** last font/fillStyle/alpha pushed to the context, to skip redundant sets */
+  private lastDrawFont = "";
+  private lastFillStyle = "";
+  private lastGlobalAlpha = -1;
+  /** grapheme advance measurements, keyed by font + text (issue #213) */
+  private readonly advanceCache = new Map<string, number>();
+  private measureCtx: CanvasRenderingContext2D | null = null;
+  private measureFont = "";
 
   /**
    * The alphabetic baseline y for a cell row: the font's ink box is centered
@@ -338,37 +352,114 @@ export class GhosttyRenderer {
     return rowTop + (m.cellH - (ascent + descent)) / 2 + ascent;
   }
 
+  /** the canvas font for a run's bold/italic bits; the string is built once per pair (issue #213) */
+  private fontFor(flags: number): string {
+    const key = flags & (STYLE_BOLD | STYLE_ITALIC);
+    let font = this.fontStrings.get(key);
+    if (font === undefined) {
+      font = `${flags & STYLE_ITALIC ? "italic " : ""}${flags & STYLE_BOLD ? "bold " : ""}${this.options.fontSize}px ${this.options.fontFamily}`;
+      this.fontStrings.set(key, font);
+    }
+    return font;
+  }
+
+  /** advance width of one grapheme under `font`, measured once and cached */
+  private glyphAdvance(text: string, font: string): number {
+    if (!this.measureCtx) {
+      this.measureCtx = document.createElement("canvas").getContext("2d");
+      if (!this.measureCtx) return -1;
+    }
+    if (this.measureFont !== font) {
+      this.measureCtx.font = font;
+      this.measureFont = font;
+    }
+    const key = `${font}\n${text}`;
+    let width = this.advanceCache.get(key);
+    if (width === undefined) {
+      width = this.measureCtx.measureText(text).width;
+      this.advanceCache.set(key, width);
+    }
+    return width;
+  }
+
+  /**
+   * A cell may join a batched `fillText` only when its grapheme's advance is
+   * its cell width — true for every narrow glyph of a real monospace font,
+   * and the check is what keeps fallback-font substitutions and odd wide
+   * glyphs on their exact cell instead of drifting the rest of the run.
+   */
+  private advanceMatches(text: string, expected: number, font: string): boolean {
+    const width = this.glyphAdvance(text, font);
+    return width >= 0 && Math.abs(width - expected) <= 0.02;
+  }
+
   private paintRowText(y: number): void {
     const m = this.metrics!;
     const { bctx } = this;
     const baseline = this.baselineFor(y * m.cellH);
+    const cellW = m.cellW;
     for (const run of this.rows.get(y) ?? []) {
       const flags = run.flags;
       if (flags & STYLE_INVISIBLE) continue;
       const fg = run.fg ?? this.options.foreground;
       const bg = run.bg ?? this.options.background;
       const color = flags & STYLE_INVERSE ? bg : fg;
-      bctx.fillStyle = color;
-      bctx.font = `${flags & STYLE_ITALIC ? "italic " : ""}${flags & STYLE_BOLD ? "bold " : ""}${this.options.fontSize}px ${this.options.fontFamily}`;
-      const prevAlpha = bctx.globalAlpha;
-      bctx.globalAlpha = flags & STYLE_FAINT ? 0.5 : 1;
-      let cx = run.x * m.cellW;
-      let width = 0;
-      for (const cell of run.cells) {
-        if (cell.text !== " ") bctx.fillText(cell.text, cx, baseline);
-        const step = (cell.wide ? 2 : 1) * m.cellW;
-        cx += step;
-        width += step;
+      if (color !== this.lastFillStyle) {
+        bctx.fillStyle = color;
+        this.lastFillStyle = color;
       }
-      bctx.globalAlpha = prevAlpha;
+      const font = this.fontFor(flags);
+      if (font !== this.lastDrawFont) {
+        bctx.font = font;
+        this.lastDrawFont = font;
+      }
+      const alpha = flags & STYLE_FAINT ? 0.5 : 1;
+      if (alpha !== this.lastGlobalAlpha) {
+        bctx.globalAlpha = alpha;
+        this.lastGlobalAlpha = alpha;
+      }
+      // Join consecutive cells into one fillText (issue #213): per-cell
+      // calls dominated frame cost on output-heavy panes. `x` always
+      // advances by cell steps, never by drawn width, so a grapheme that
+      // fails the advance check is flushed and drawn alone at its exact
+      // cell — the row can never drift.
+      let text = "";
+      let segX = 0;
+      let x = run.x * cellW;
+      const flush = () => {
+        if (text !== "") {
+          bctx.fillText(text, segX, baseline);
+          text = "";
+        }
+      };
+      for (const cell of run.cells) {
+        const step = (cell.wide ? 2 : 1) * cellW;
+        if (this.advanceMatches(cell.text, step, font)) {
+          if (text === "") segX = x;
+          text += cell.text;
+        } else {
+          flush();
+          if (cell.text !== " ") bctx.fillText(cell.text, x, baseline);
+        }
+        x += step;
+      }
+      flush();
+      const width = x - run.x * cellW;
       // underline and strikethrough are drawn: canvas text has no decoration channel
       const lines: number[] = [];
       if (flags & STYLE_UNDERLINE_MASK) lines.push(baseline + this.options.fontSize * 0.15);
       if (flags & STYLE_STRIKE) lines.push(baseline - this.options.fontSize * 0.3);
       if (lines.length) {
-        bctx.fillStyle = color;
-        for (const ly of lines) bctx.fillRect(run.x * m.cellW, ly, width, Math.max(1, m.cellH * 0.06));
+        if (color !== this.lastFillStyle) {
+          bctx.fillStyle = color;
+          this.lastFillStyle = color;
+        }
+        for (const ly of lines) bctx.fillRect(run.x * cellW, ly, width, Math.max(1, m.cellH * 0.06));
       }
+    }
+    if (this.lastGlobalAlpha !== 1) {
+      bctx.globalAlpha = 1;
+      this.lastGlobalAlpha = 1;
     }
   }
 
@@ -470,5 +561,7 @@ export class GhosttyRenderer {
     this.imageCache.clear();
     this.rows.clear();
     this.pending.clear();
+    this.fontStrings.clear();
+    this.advanceCache.clear();
   }
 }

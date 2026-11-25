@@ -89,6 +89,7 @@ real TUI can prove.
 | 12 | ホバー詳細: agent 行ホバーカード・workspace/tab の tooltip | ☐ | ☐ | |
 | 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant |
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
+| 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
 
 ### Human acceptance procedures
 
