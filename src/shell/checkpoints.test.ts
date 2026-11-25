@@ -6,6 +6,10 @@ import {
   checkpointDeleteFromDoc,
   checkpointDiffArgs,
   checkpointDiffFromDoc,
+  checkpointPlanArgs,
+  checkpointPlanFromDoc,
+  checkpointRestoreArgs,
+  checkpointRestoreFromDoc,
   checkpointsCapabilityFromDoc,
   checkpointsListArgs,
   checkpointsListFromDoc,
@@ -201,6 +205,102 @@ describe("checkpoint create/delete documents", () => {
   });
 });
 
+describe("checkpointPlanFromDoc (contract rev 2, #264)", () => {
+  const PLAN_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "plan",
+    checkpoint: ENTRY,
+    repo_root: "/abs/repo",
+    commit: "feedface1234",
+    ref: { name: ENTRY.ref, exists: true, oid: "feedface1234" },
+    plan: { files_to_change: 3, untracked_to_delete: 2, already_matches: false },
+    warnings: ["submodule gitlinks recorded (1); restore covers the root repo only"],
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("projects plan counts, ref probe and warnings verbatim", () => {
+    const result = checkpointPlanFromDoc(PLAN_DOC);
+    expect(result).not.toBeNull();
+    expect(result?.files_to_change).toBe(3);
+    expect(result?.untracked_to_delete).toBe(2);
+    expect(result?.already_matches).toBe(false);
+    expect(result?.commit).toBe("feedface1234");
+    expect(result?.ref?.exists).toBe(true);
+    expect(result?.warnings[0]).toContain("root repo only");
+  });
+
+  test("keeps ref.exists:false and already_matches honest", () => {
+    const result = checkpointPlanFromDoc({
+      ...PLAN_DOC,
+      ref: { name: ENTRY.ref, exists: false, oid: null },
+      plan: { files_to_change: 0, untracked_to_delete: 0, already_matches: true },
+      warnings: ["checkpoint ref is missing; planning against recorded commit"],
+    });
+    expect(result?.ref?.exists).toBe(false);
+    expect(result?.already_matches).toBe(true);
+    expect(result?.warnings).toHaveLength(1);
+  });
+
+  test("rejects foreign contracts, wrong command, malformed plan", () => {
+    expect(checkpointPlanFromDoc({ ...PLAN_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointPlanFromDoc({ ...PLAN_DOC, command: "show" })).toBeNull();
+    expect(checkpointPlanFromDoc({ ...PLAN_DOC, plan: null })).toBeNull();
+    expect(
+      checkpointPlanFromDoc({ ...PLAN_DOC, plan: { files_to_change: "3" } }),
+    ).toBeNull();
+  });
+});
+
+describe("checkpointRestoreFromDoc (contract rev 2, #264)", () => {
+  const RESTORE_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "restore",
+    ok: true,
+    checkpoint: ENTRY,
+    repo_root: "/abs/repo",
+    restored_commit: "feedface1234",
+    pre_restore: {
+      id: "pre-1",
+      ref: "refs/herdr-plugins/checkpoints/0123456789abcdef/pre-1",
+      commit: "precommit00",
+      label: "pre-restore:mj3k2x9f-1a2b3c4d",
+    },
+    isolation: "single_pane",
+    sharing_panes: ["w1:p1"],
+    clean_passes: 2,
+    warnings: ["submodule gitlinks recorded (1); v1 restores the root repo only"],
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("projects pre_restore, isolation, sharing panes and clean passes", () => {
+    const result = checkpointRestoreFromDoc(RESTORE_DOC);
+    expect(result).not.toBeNull();
+    expect(result?.restored_commit).toBe("feedface1234");
+    expect(result?.pre_restore?.id).toBe("pre-1");
+    expect(result?.pre_restore?.label).toBe("pre-restore:mj3k2x9f-1a2b3c4d");
+    expect(result?.isolation).toBe("single_pane");
+    expect(result?.sharing_panes).toEqual(["w1:p1"]);
+    expect(result?.clean_passes).toBe(2);
+    expect(result?.warnings[0]).toContain("root repo only");
+  });
+
+  test("accepts forced isolation and tolerates unknown isolation values", () => {
+    expect(
+      checkpointRestoreFromDoc({ ...RESTORE_DOC, isolation: "forced" })?.isolation,
+    ).toBe("forced");
+    expect(
+      checkpointRestoreFromDoc({ ...RESTORE_DOC, isolation: "bogus" })?.isolation,
+    ).toBeNull();
+  });
+
+  test("rejects foreign contracts, wrong command, ok:false", () => {
+    expect(checkpointRestoreFromDoc({ ...RESTORE_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointRestoreFromDoc({ ...RESTORE_DOC, command: "plan" })).toBeNull();
+    expect(checkpointRestoreFromDoc({ ...RESTORE_DOC, ok: false })).toBeNull();
+    expect(checkpointRestoreFromDoc({ ...RESTORE_DOC, checkpoint: { id: "x" } })).toBeNull();
+  });
+});
+
 describe("checkpoints argv builders", () => {
   test("list: --repo/--limit flag pairs only", () => {
     expect(checkpointsListArgs()).toEqual([]);
@@ -248,6 +348,24 @@ describe("checkpoints argv builders", () => {
       "/abs/repo",
     ]);
     expect(checkpointDeleteArgs("abc")).toEqual(["abc"]);
+  });
+
+  test("plan/restore: id positional, optional --repo, --force only on restore", () => {
+    expect(checkpointPlanArgs("abc")).toEqual(["abc"]);
+    expect(checkpointPlanArgs("abc", { repo: "/abs/other-worktree" })).toEqual([
+      "abc",
+      "--repo",
+      "/abs/other-worktree",
+    ]);
+    expect(checkpointRestoreArgs("abc")).toEqual(["abc"]);
+    expect(checkpointRestoreArgs("abc", { repo: "/abs/other", force: true })).toEqual([
+      "abc",
+      "--repo",
+      "/abs/other",
+      "--force",
+    ]);
+    expect(checkpointRestoreArgs("abc", { force: false })).toEqual(["abc"]);
+    expect(checkpointRestoreArgs("abc", { repo: "  " })).toEqual(["abc"]);
   });
 });
 
@@ -322,12 +440,54 @@ describe("classifyCheckpointsError", () => {
       "timeout",
       "git_error",
       "usage",
+      // plan/restore kinds (contract rev 2).
+      "repo_mismatch",
+      "checkpoint_ref_missing",
+      "shared_worktree",
+      "session_unreachable",
+      "restore_failed",
+      "clean_failed",
+      "clean_incomplete",
+      "restore_verify_failed",
     ]) {
       expect(classifyCheckpointsError(err(code))).toMatchObject({
         kind: "plugin",
         code,
       });
     }
+  });
+
+  test("plugin error fields pass through (panes, pre_restore_*)", () => {
+    const withFields = Object.assign(new Error("shared"), {
+      code: "shared_worktree",
+      fields: { panes: ["w1:p1", "w1:p2"] },
+    });
+    expect(classifyCheckpointsError(withFields)).toMatchObject({
+      kind: "plugin",
+      code: "shared_worktree",
+      fields: { panes: ["w1:p1", "w1:p2"] },
+    });
+    const preRestore = Object.assign(new Error("partial"), {
+      code: "restore_failed",
+      fields: {
+        pre_restore_checkpoint_id: "pre-1",
+        pre_restore_ref: "refs/herdr-plugins/checkpoints/k/pre-1",
+        pre_restore_commit: "abc123",
+      },
+    });
+    expect(classifyCheckpointsError(preRestore)).toMatchObject({
+      kind: "plugin",
+      code: "restore_failed",
+      fields: { pre_restore_checkpoint_id: "pre-1" },
+    });
+    // Errors without fields keep the optional property absent.
+    const noFields = classifyCheckpointsError(err("usage"));
+    expect(noFields.kind).toBe("plugin");
+    if (noFields.kind === "plugin") expect(noFields.fields).toBeUndefined();
+    // Non-object fields are ignored, never forwarded.
+    const bad = Object.assign(new Error("x"), { code: "usage", fields: "nope" });
+    const badClassified = classifyCheckpointsError(bad);
+    if (badClassified.kind === "plugin") expect(badClassified.fields).toBeUndefined();
   });
 
   test("unknown codes degrade to plugin_error, never a fake success", () => {

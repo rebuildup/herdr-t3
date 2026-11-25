@@ -210,6 +210,13 @@ const ERROR_FIELD_ALLOWLIST = new Set([
   "pane_id",
   "branch",
   "remote",
+  // checkpoints-v1 restore contract extras (issue #264): pane ids that
+  // share the target worktree, and the mandatory pre-restore checkpoint
+  // identifiers carried on mutation-phase failures.
+  "panes",
+  "pre_restore_checkpoint_id",
+  "pre_restore_ref",
+  "pre_restore_commit",
 ]);
 const ERROR_FIELD_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
 const MAX_ERROR_FIELDS = 24;

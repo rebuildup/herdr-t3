@@ -18,3 +18,4 @@
 | [ADR-0014](./ADR-0014.md) | Accepted | Projects/Scripts surface: projects-v1 contract pin @c8460283 and scope (auto triggers upstream-gated) |
 | [ADR-0015](./ADR-0015.md) | Accepted | Projects/Scripts: projects-v1 schema v2 re-pin @b0c8c60 (run ownership + stop confirmation) |
 | [ADR-0016](./ADR-0016.md) | Accepted | Checkpoints surface: checkpoints-v1 contract pin @4aab1a7 and scope (restore/auto-capture/GC upstream-gated) |
+| [ADR-0017](./ADR-0017.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @c8dc3b3 and plan/restore adoption (shared-worktree isolation, pre-restore recovery) |
