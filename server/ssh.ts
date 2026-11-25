@@ -474,15 +474,28 @@ function sshExec(
  * element; Windows endpoints go through the same PowerShell encoded-script
  * path as the bridges. `cwd` is a host-local path.
  */
-export function remoteArgvCommand(endpoint: SshEndpoint, argv: string[], cwd?: string): string {
+export function remoteArgvCommand(
+  endpoint: SshEndpoint,
+  argv: string[],
+  cwd?: string,
+  envRemove: string[] = [],
+): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
-    return cwd ? `cd ${shellQuote(cwd)} && ${parts}` : parts;
+    // POSIX-portable scrub: `env -u` is GNU-only (absent on macOS/BSD), so
+    // blank the variables instead — plugin CLIs treat empty as unset.
+    const scrub = envRemove.map((name) => `${name}=''`).join(" ");
+    const command = scrub ? `${scrub} ${parts}` : parts;
+    return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
   }
+  // PowerShell has no env-assignment scrub; clear the variables in the
+  // session before invoking the command (issue #228 — plugin CLIs resolve
+  // pane from env).
+  const scrub = envRemove.map((name) => `$env:${name}=$null; `).join("");
   const invoke = argv.map(quotePowerShellArg).join(" ");
-  const script = cwd
+  const script = scrub + (cwd
     ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
-    : `& ${invoke}; exit $LASTEXITCODE`;
+    : `& ${invoke}; exit $LASTEXITCODE`);
   return windowsPowerShellScriptCommand(script);
 }
 
@@ -504,7 +517,7 @@ export function sshPluginHost(
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, argv, options.cwd),
+        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? []),
         options.timeoutMs,
       ).then((r) => ({
         code: r.code,

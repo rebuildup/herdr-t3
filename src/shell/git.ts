@@ -8,8 +8,9 @@
  * Stage-1 build (`status`/`diff`/`project` only, drifted `diff`/`stat`
  * field names), so every parser tolerates additive fields and the drifted
  * names, and `gitCapability` reports which commands a host actually
- * advertises. Mutations are not part of this read surface and are never
- * fabricated here.
+ * advertises. The mutation/remote commands added by #228 (`stage` …
+ * `push`, `remote`) live below the read surface; every control is gated
+ * on the host's advertised capability sets.
  *
  * Freshness is pull-based: callers refresh on open and on demand. The
  * contract's `project` metadata projection is a herdr-side concern and is
@@ -189,8 +190,9 @@ export interface GitCompareResult {
 
 /**
  * Per-host capability probe (`capability` command). `commands` is the
- * authoritative read surface; `mutationCommands` is reported for #228/#229
- * but never invoked from this module. `contractOk` is false when the
+ * authoritative read surface; `mutationCommands` gates the #228
+ * mutation/remote helpers below (`remote` itself is a read command and
+ * gates on `commands`). `contractOk` is false when the
  * plugin answers with a foreign/missing contract — callers treat that as
  * "not supported by this plugin version", distinct from boundary errors.
  */
@@ -693,6 +695,387 @@ export async function fetchGitCompare(
     throw error;
   }
   return result;
+}
+
+/* ---------------------------- mutations ------------------------------- */
+
+/**
+ * Mutation documents (git-v1 @62309b9c, issue #228) share
+ * `{contract, command, pane_id, repo_root, ok:true, ...}`. The pane is
+ * always the first positional; `PluginService.call` scrubs the
+ * HERDR_PANE_ID/HERDR_PLUGIN_CONTEXT_JSON env fallback server-side so the
+ * positional is authoritative for every command — including `branch` and
+ * `upstream`, where the plugin lets env win over positionals.
+ */
+export interface GitMutationBase {
+  pane_id: string;
+  repo_root: string | null;
+  command: string;
+}
+
+export interface GitStageResult extends GitMutationBase {
+  all: boolean;
+  paths: string[];
+  output: string;
+}
+
+export interface GitCommitResult extends GitMutationBase {
+  sha: string;
+  summary: string;
+}
+
+export interface GitBranchResult extends GitMutationBase {
+  action: "create" | "switch";
+  name: string;
+  output: string;
+}
+
+export interface GitUpstreamResult extends GitMutationBase {
+  upstream: string;
+  output: string;
+}
+
+export interface GitFetchResult extends GitMutationBase {
+  remote: string | null;
+  prune: boolean;
+  output: string;
+}
+
+export interface GitPushResult extends GitMutationBase {
+  remote: string | null;
+  refspec: string | null;
+  set_upstream: boolean;
+  force_with_lease: boolean;
+  output: string;
+}
+
+export interface GitRemoteInfo {
+  name: string;
+  /** Fetch URL; credentials already stripped by the plugin. */
+  url: string;
+  /** Push URL (falls back to `url` plugin-side); credentials stripped. */
+  push_url: string;
+}
+
+export interface GitRemoteResult {
+  pane_id: string;
+  repo_root: string | null;
+  remotes: GitRemoteInfo[];
+}
+
+/**
+ * Light validation shared by every mutation document: foreign contracts,
+ * `ok !== true`, a mismatched `command`, or a missing `pane_id` all reject
+ * — a mutation must never be reported as success on a malformed doc.
+ */
+export function gitMutationFromDoc(
+  doc: Record<string, unknown>,
+  command: string,
+): GitMutationBase | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["ok"] !== true) return null;
+  const docCommand = doc["command"];
+  if (typeof docCommand === "string" && docCommand !== command) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  return { pane_id: paneId, repo_root: str(doc["repo_root"]), command };
+}
+
+function mutationBadOutput(command: string): Error {
+  const error = new Error(`git plugin returned an unrecognized ${command} document`);
+  (error as { code?: string }).code = "plugin_bad_output";
+  return error;
+}
+
+/** pluginCall + mutation-doc validation; returns the raw document. */
+async function callGitMutation(
+  machine: string,
+  command: string,
+  args: string[],
+  timeoutMs?: number,
+): Promise<Record<string, unknown>> {
+  return pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command,
+    args,
+    ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+  });
+}
+
+function baseOrThrow(
+  doc: Record<string, unknown>,
+  command: string,
+): GitMutationBase {
+  const base = gitMutationFromDoc(doc, command);
+  if (base === null) throw mutationBadOutput(command);
+  return base;
+}
+
+/* Fetch/push are network-facing; the plugin's own remote default is 60s
+ * and the bridge caps timeout_ms at 120s. */
+const GIT_REMOTE_TIMEOUT_MS = 120_000;
+
+/* ------------------------- argv builders (pure) ------------------------ */
+
+/**
+ * Pure argv builders for the mutation commands — exported so tests can
+ * pin the exact contract shape (pane first, flags as separate elements,
+ * repeated `-m`/`--path` pairs) without a plugin host.
+ */
+export function gitStageArgs(
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): string[] {
+  const args = [paneId];
+  if (options.all === true) args.push("--all");
+  for (const path of options.paths ?? []) {
+    if (path.length > 0) args.push("--path", path);
+  }
+  return args;
+}
+
+export function gitUnstageArgs(
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): string[] {
+  // Same argv shape as stage; only the command differs.
+  return gitStageArgs(paneId, options);
+}
+
+export function gitCommitArgs(
+  paneId: string,
+  options: { messages: string[]; allowEmpty?: boolean | undefined },
+): string[] {
+  const args = [paneId];
+  for (const message of options.messages) {
+    if (message.trim() !== "") args.push("-m", message);
+  }
+  if (options.allowEmpty === true) args.push("--allow-empty");
+  return args;
+}
+
+export function gitBranchArgs(
+  action: "create" | "switch",
+  paneId: string,
+  name: string,
+  options: { switchTo?: boolean | undefined } = {},
+): string[] {
+  const args = ["branch", action, paneId, name];
+  if (action === "create" && options.switchTo === true) args.push("--switch");
+  return args;
+}
+
+export function gitUpstreamArgs(paneId: string, upstream: string): string[] {
+  return ["upstream", paneId, upstream];
+}
+
+export function gitFetchArgs(
+  paneId: string,
+  options: { remote?: string | undefined; prune?: boolean | undefined } = {},
+): string[] {
+  const args = ["fetch", paneId];
+  const remote = options.remote?.trim() ?? "";
+  if (remote !== "") args.push(remote);
+  if (options.prune === true) args.push("--prune");
+  return args;
+}
+
+export function gitPushArgs(
+  paneId: string,
+  options: {
+    remote?: string | undefined;
+    refspec?: string | undefined;
+    setUpstream?: boolean | undefined;
+    forceWithLease?: boolean | undefined;
+  } = {},
+): string[] {
+  const args = ["push", paneId];
+  const remote = options.remote?.trim() ?? "";
+  const refspec = options.refspec?.trim() ?? "";
+  if (remote !== "") args.push(remote);
+  if (refspec !== "") args.push(refspec);
+  if (options.setUpstream === true) args.push("--set-upstream");
+  if (options.forceWithLease === true) args.push("--force-with-lease");
+  return args;
+}
+
+/**
+ * Stage paths (`--path` repeated) or everything (`--all`). The contract
+ * requires one of the two; the plugin rejects neither with `usage`.
+ */
+export async function gitStage(
+  machine: string,
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): Promise<GitStageResult> {
+  const args = gitStageArgs(paneId, options);
+  const all = options.all === true;
+  const paths = (options.paths ?? []).filter((p) => p.length > 0);
+  const doc = await callGitMutation(machine, "stage", args);
+  return { ...baseOrThrow(doc, "stage"), all, paths, output: str(doc["output"]) ?? "" };
+}
+
+/** Unstage paths or everything; same argv shape as `gitStage`. */
+export async function gitUnstage(
+  machine: string,
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): Promise<GitStageResult> {
+  const args = gitUnstageArgs(paneId, options);
+  const all = options.all === true;
+  const paths = (options.paths ?? []).filter((p) => p.length > 0);
+  const doc = await callGitMutation(machine, "unstage", args);
+  return { ...baseOrThrow(doc, "unstage"), all, paths, output: str(doc["output"]) ?? "" };
+}
+
+/**
+ * Commit with one `-m` per message (repeatable) and explicit
+ * `--allow-empty` only — the plugin never guesses an empty commit.
+ */
+export async function gitCommit(
+  machine: string,
+  paneId: string,
+  options: { messages: string[]; allowEmpty?: boolean | undefined },
+): Promise<GitCommitResult> {
+  const doc = await callGitMutation(machine, "commit", gitCommitArgs(paneId, options));
+  return {
+    ...baseOrThrow(doc, "commit"),
+    sha: str(doc["sha"]) ?? "",
+    summary: str(doc["summary"]) ?? "",
+  };
+}
+
+/** `branch create <pane> <name> [--switch]`. */
+export async function gitBranchCreate(
+  machine: string,
+  paneId: string,
+  name: string,
+  options: { switchTo?: boolean | undefined } = {},
+): Promise<GitBranchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "branch",
+    gitBranchArgs("create", paneId, name, options),
+  );
+  return {
+    ...baseOrThrow(doc, "branch"),
+    action: "create",
+    name: str(doc["name"]) ?? name,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `branch switch <pane> <name>`. */
+export async function gitBranchSwitch(
+  machine: string,
+  paneId: string,
+  name: string,
+): Promise<GitBranchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "branch",
+    gitBranchArgs("switch", paneId, name),
+  );
+  return {
+    ...baseOrThrow(doc, "branch"),
+    action: "switch",
+    name: str(doc["name"]) ?? name,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `upstream <pane> <ref>` — `git branch --set-upstream-to` equivalent. */
+export async function gitUpstream(
+  machine: string,
+  paneId: string,
+  upstream: string,
+): Promise<GitUpstreamResult> {
+  const doc = await callGitMutation(machine, "upstream", gitUpstreamArgs(paneId, upstream));
+  return {
+    ...baseOrThrow(doc, "upstream"),
+    upstream: str(doc["upstream"]) ?? upstream,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `fetch <pane> [remote] [--prune]`; network-facing → 120s budget. */
+export async function gitFetch(
+  machine: string,
+  paneId: string,
+  options: { remote?: string | undefined; prune?: boolean | undefined } = {},
+): Promise<GitFetchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "fetch",
+    gitFetchArgs(paneId, options),
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+  return {
+    ...baseOrThrow(doc, "fetch"),
+    remote: str(doc["remote"]),
+    prune: doc["prune"] === true,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/**
+ * `push <pane> [remote] [refspec] [--set-upstream] [--force-with-lease]`.
+ * The contract has no plain `--force`; non-fast-forward surfaces as
+ * `git_error`, never a silent retry.
+ */
+export async function gitPush(
+  machine: string,
+  paneId: string,
+  options: {
+    remote?: string | undefined;
+    refspec?: string | undefined;
+    setUpstream?: boolean | undefined;
+    forceWithLease?: boolean | undefined;
+  } = {},
+): Promise<GitPushResult> {
+  const doc = await callGitMutation(
+    machine,
+    "push",
+    gitPushArgs(paneId, options),
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+  return {
+    ...baseOrThrow(doc, "push"),
+    remote: str(doc["remote"]),
+    refspec: str(doc["refspec"]),
+    set_upstream: doc["set_upstream"] === true,
+    force_with_lease: doc["force_with_lease"] === true,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `remote <pane>` — read-only remote list (credentials stripped). */
+export async function gitRemote(
+  machine: string,
+  paneId: string,
+): Promise<GitRemoteResult> {
+  const doc = await callGitMutation(machine, "remote", [paneId]);
+  if (!contractAllowed(doc)) throw mutationBadOutput("remote");
+  const docCommand = doc["command"];
+  if (typeof docCommand === "string" && docCommand !== "remote") {
+    throw mutationBadOutput("remote");
+  }
+  const paneIdOut = str(doc["pane_id"]);
+  if (paneIdOut === null) throw mutationBadOutput("remote");
+  const rawRemotes = doc["remotes"];
+  if (!Array.isArray(rawRemotes)) throw mutationBadOutput("remote");
+  const remotes: GitRemoteInfo[] = [];
+  for (const raw of rawRemotes) {
+    if (!isRecord(raw)) continue;
+    const name = str(raw["name"]);
+    if (name === null) continue;
+    remotes.push({
+      name,
+      url: str(raw["url"]) ?? "",
+      push_url: str(raw["pushUrl"]) ?? str(raw["url"]) ?? "",
+    });
+  }
+  return { pane_id: paneIdOut, repo_root: str(doc["repo_root"]), remotes };
 }
 
 /* ---------------------------- capability ------------------------------ */

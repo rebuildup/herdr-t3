@@ -45,7 +45,7 @@ source of truth. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227, capability-gated per host); mutations → #228, forge → #229 (upstream-gated) |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge → #229 (upstream-gated) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 

@@ -10,7 +10,7 @@
  * not-installed / disabled / incompatible / unreachable / contract-error
  * stay distinct instead of collapsing into an empty result.
  */
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import type { PluginCallResult, PluginListEntry, PluginListResult } from "../shared/protocol.ts";
 import { HerdrError } from "./herdr.ts";
 
@@ -32,6 +32,15 @@ export interface PluginExecOptions {
   /** Host-local working directory (plugin_root for contract calls). */
   cwd?: string;
   timeoutMs: number;
+  /**
+   * Environment variable names stripped from the child environment.
+   * Plugin CLIs resolve their target pane from HERDR_PANE_ID /
+   * HERDR_PLUGIN_CONTEXT_JSON when no positional is given — and for
+   * `branch`/`upstream` env takes precedence over positionals — so a
+   * herdr-t3 server running inside a herdr pane must not leak those
+   * variables into plugin processes (ADR-0011, issue #228).
+   */
+  envRemove?: string[];
 }
 
 /** Executes argv on the host owning the herdr session. */
@@ -95,12 +104,20 @@ export function localPluginHost(): PluginHost {
       if (argv.length === 0) {
         return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: "empty argv" });
       }
+      const envRemove = options.envRemove ?? [];
+      let env: NodeJS.ProcessEnv | undefined;
+      if (envRemove.length > 0) {
+        env = { ...process.env };
+        for (const key of envRemove) delete env[key];
+      }
+      const spawnOptions: SpawnOptions = {
+        cwd: options.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+      };
+      if (env !== undefined) spawnOptions.env = env;
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn(argv[0] as string, argv.slice(1), {
-          cwd: options.cwd,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
+        child = spawn(argv[0] as string, argv.slice(1), spawnOptions);
       } catch (error) {
         return Promise.resolve({
           code: null,
@@ -123,6 +140,14 @@ const DISCOVERY_TTL_MS = 30_000;
 const CAPABILITY_TTL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * Env vars a herdr-t3 server may carry from its own herdr pane. Plugin
+ * CLIs resolve the target pane from them, and for `branch`/`upstream`
+ * env beats the positional pane — always scrub them from contract calls
+ * so the explicit pane positional is authoritative (issue #228).
+ */
+const PLUGIN_ENV_SCRUB = ["HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
 
 export interface PluginCallRequest {
   plugin: string;
@@ -306,6 +331,7 @@ export class PluginService {
     const outcome = await host.exec(argv, {
       cwd: entry.plugin_root,
       timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
+      envRemove: PLUGIN_ENV_SCRUB,
     });
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;

@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifyGitError,
+  gitBranchArgs,
   gitCapabilityFromDoc,
+  gitCommitArgs,
   gitCompareFromDoc,
   gitDiffFromDoc,
+  gitFetchArgs,
   gitFilesFromDoc,
   gitLogFromDoc,
+  gitMutationFromDoc,
+  gitPushArgs,
+  gitStageArgs,
   gitStatusFromDoc,
+  gitUnstageArgs,
+  gitUpstreamArgs,
 } from "./git";
 
 const STATUS_DOC = {
@@ -380,5 +388,123 @@ describe("gitCapabilityFromDoc", () => {
     expect(gitCapabilityFromDoc({ contract: "herdr-plugins.inbox/v1", commands: [] })).toBeNull();
     expect(gitCapabilityFromDoc({ commands: ["status"] })).toBeNull();
     expect(gitCapabilityFromDoc({ contract: "herdr-plugins.git/v1" })?.commands.size).toBe(0);
+  });
+});
+
+describe("gitMutationFromDoc (issue #228)", () => {
+  const STAGE_DOC = {
+    contract: "herdr-plugins.git/v1",
+    command: "stage",
+    pane_id: "w1:p1",
+    repo_root: "/repo",
+    ok: true,
+    all: false,
+    paths: ["src/a.ts"],
+    output: "",
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("accepts a well-formed mutation document", () => {
+    const base = gitMutationFromDoc(STAGE_DOC, "stage");
+    expect(base).not.toBeNull();
+    expect(base?.pane_id).toBe("w1:p1");
+    expect(base?.repo_root).toBe("/repo");
+    expect(base?.command).toBe("stage");
+  });
+
+  test("rejects foreign contracts, ok!=true, command mismatch, missing pane", () => {
+    expect(gitMutationFromDoc({ ...STAGE_DOC, contract: "herdr-plugins.inbox/v1" }, "stage")).toBeNull();
+    expect(gitMutationFromDoc({ ...STAGE_DOC, ok: false }, "stage")).toBeNull();
+    expect(gitMutationFromDoc({ ...STAGE_DOC, ok: undefined }, "stage")).toBeNull();
+    expect(gitMutationFromDoc({ ...STAGE_DOC, command: "unstage" }, "stage")).toBeNull();
+    expect(gitMutationFromDoc({ ...STAGE_DOC, pane_id: undefined }, "stage")).toBeNull();
+    // A missing contract field is tolerated (additive tolerance).
+    const { contract: _c, ...noContract } = STAGE_DOC;
+    expect(gitMutationFromDoc(noContract, "stage")).not.toBeNull();
+  });
+});
+
+describe("mutation argv builders (herdr-plugins.git/v1 @62309b9c)", () => {
+  test("stage/unstage: pane first, --all or repeated --path", () => {
+    expect(gitStageArgs("w1:p1", { all: true })).toEqual(["w1:p1", "--all"]);
+    expect(gitStageArgs("w1:p1", { paths: ["a.ts", "b.ts"] })).toEqual([
+      "w1:p1",
+      "--path",
+      "a.ts",
+      "--path",
+      "b.ts",
+    ]);
+    expect(gitStageArgs("w1:p1", {})).toEqual(["w1:p1"]);
+    expect(gitUnstageArgs("w1:p1", { paths: ["a.ts"] })).toEqual([
+      "w1:p1",
+      "--path",
+      "a.ts",
+    ]);
+  });
+
+  test("commit: pane first, repeated -m pairs, explicit --allow-empty", () => {
+    expect(gitCommitArgs("w1:p1", { messages: ["one", "two"], allowEmpty: true })).toEqual([
+      "w1:p1",
+      "-m",
+      "one",
+      "-m",
+      "two",
+      "--allow-empty",
+    ]);
+    expect(gitCommitArgs("w1:p1", { messages: ["  ", "real"] })).toEqual([
+      "w1:p1",
+      "-m",
+      "real",
+    ]);
+  });
+
+  test("branch: subcommand shape with pane before name", () => {
+    expect(gitBranchArgs("create", "w1:p1", "feature")).toEqual([
+      "branch",
+      "create",
+      "w1:p1",
+      "feature",
+    ]);
+    expect(gitBranchArgs("create", "w1:p1", "feature", { switchTo: true })).toEqual([
+      "branch",
+      "create",
+      "w1:p1",
+      "feature",
+      "--switch",
+    ]);
+    expect(gitBranchArgs("switch", "w1:p1", "main")).toEqual([
+      "branch",
+      "switch",
+      "w1:p1",
+      "main",
+    ]);
+  });
+
+  test("upstream/fetch/push argv shapes", () => {
+    expect(gitUpstreamArgs("w1:p1", "origin/main")).toEqual(["upstream", "w1:p1", "origin/main"]);
+    expect(gitFetchArgs("w1:p1")).toEqual(["fetch", "w1:p1"]);
+    expect(gitFetchArgs("w1:p1", { remote: "origin", prune: true })).toEqual([
+      "fetch",
+      "w1:p1",
+      "origin",
+      "--prune",
+    ]);
+    expect(
+      gitPushArgs("w1:p1", {
+        remote: "origin",
+        refspec: "HEAD:main",
+        setUpstream: true,
+        forceWithLease: true,
+      }),
+    ).toEqual([
+      "push",
+      "w1:p1",
+      "origin",
+      "HEAD:main",
+      "--set-upstream",
+      "--force-with-lease",
+    ]);
+    // No plain --force exists in the contract.
+    expect(gitPushArgs("w1:p1", { remote: "origin" })).toEqual(["push", "w1:p1", "origin"]);
   });
 });
