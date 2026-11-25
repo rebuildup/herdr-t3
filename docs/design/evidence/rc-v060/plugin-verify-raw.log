@@ -1,0 +1,91 @@
+Raw outputs captured during rc-v060 plugin verification (trimmed).
+See plugin-verify.md for analysis. Session ht3rc, pane w1:p1 in
+/tmp/rc-ckpt-repo; bridge on 127.0.0.1:4799 with
+HERDR_SOCKET=~/.config/herdr/sessions/ht3rc/herdr.sock.
+
+== capability (per plugin, `bun run src/cli.ts capability`) ==
+inbox:       {"contract":"herdr-plugins.inbox/v1","plugin":"rebuildup.inbox","version":"0.1.0",commands:[list,settle,snooze,restore,reconcile,watch,capability]}
+git:         {"contract":"herdr-plugins.git/v1","plugin":"rebuildup.git","version":"0.2.0",commands:[capability,status,files,diff,log,compare,stage,unstage,commit,branch,upstream,fetch,push,remote,pr,...]}
+projects:    {"contract":"herdr-plugins.projects/v1","plugin":"rebuildup.projects","version":"0.1.0",commands:[capability,list,show,discover,register,update,archive,unarchive,pin,unpin,settings,scripts,repos]}
+checkpoints: {"contract":"herdr-plugins.checkpoints/v1","plugin":"rebuildup.checkpoints","version":"0.4.0",commands:[capability,create,save,list,show,diff,plan,restore,restore-group,delete,gc,prune]}
+
+== herdr plugin link (x4) ==
+{"type":"plugin_linked","plugin":{"plugin_id":"rebuildup.inbox","enabled":true,"source":{"kind":"local"},...}} (same shape for git/projects/checkpoints)
+
+== herdr plugin list --json ==
+{"type":"plugin_list","result":{"plugins":[checkpoints 0.4.0, git 0.2.0, inbox 0.1.0, projects 0.1.0]}} — all enabled:true
+
+== inbox list --session ht3rc (env-scrubbed) ==
+{"contract":"herdr-plugins.inbox/v1","session":{"name":"ht3rc","socket":null},"counts":{"total":1,"inbox":1},"items":[{"pane_id":"w1:p1","cwd":"/private/tmp/rc-ckpt-repo","in_inbox":true}]}
+
+== inbox settle w1:p1 --session ht3rc ==
+{"command":"settle","pane_id":"w1:p1","organize":{"kind":"settled","since":"2026-11-25T07:56:20.804Z"},"warnings":[]}
+
+== inbox restore w1:p1 --session ht3rc ==
+{"command":"restore","pane_id":"w1:p1","organize":null,"warnings":[]}
+
+== git status w1:p1 --session ht3rc ==
+{"command":"status","pane_id":"w1:p1","repo":{"root":"/private/tmp/rc-ckpt-repo"},"branch":{"name":"main"},"changes":{"staged":0,"unstaged":1,"untracked":0,"conflicted":0}}
+
+== git files / log (same pane) ==
+files: [{"path":"a.txt","worktree":"M","kind":"modified","staged":false,"unstaged":true}]
+log:   commits[0]={sha:c78a2e9...,subject:"init"},has_more:false
+
+== projects ==
+list:            {"projects":[]}
+discover:        {"repos":[{"cwd":"/private/tmp/rc-ckpt-repo","root":"/private/tmp/rc-ckpt-repo","registered_project_id":null}]}
+register:        {"project":{"id":"rc-ckpt-repo","title":"RCVerify","repos":[{"root":"/private/tmp/rc-ckpt-repo"}],"archived":false}}
+settings get:    {"settings":{}}
+archive:         {"project":{...,"archived":true}}
+
+== checkpoints (repo /tmp/rc-ckpt-repo) ==
+create --label rc-test: {"ok":true,"checkpoint":{"id":"mwvtyj7f-c08197b5","ref":"refs/herdr-plugins/checkpoints/b653f143761108a1/mwvtyj7f-c08197b5","commit":"ad9322965cf699e194e7a0c698f6f62278d976ae","label":"rc-test","kind":"manual","files_summary":"M\ta.txt\n"}}
+git for-each-ref refs/herdr-plugins: ad93229... refs/herdr-plugins/checkpoints/b653f143761108a1/mwvtyj7f-c08197b5
+list --repo:     count:1,total:1
+show <id>:       summary.output contains "herdr checkpoint mwvtyj7f-c08197b5 ... 1 file changed, 1 insertion(+)"
+plan <id> --repo:{"plan":{"files_to_change":1,"untracked_to_delete":0,"already_matches":false}}
+diff HEAD <id>:  patch "diff --git a/a.txt ... +change", bytes:107
+gc --dry-run:    {"dry_run":true,"totals":{"evaluated":1,"would_delete":0,"kept":1}}
+prune --dry-run: {"dry_run":true,"totals":{"scanned":1,"orphans":0,"would_delete":0}}
+delete <id>:     {"ok":true,"id":"mwvtyj7f-c08197b5","ref_existed":true}; for-each-ref after: 0
+
+== env precedence ==
+HERDR_SOCKET_PATH=/nonexistent HERDR_SESSION=bogus list --session ht3rc:
+  {"ok":false,"error":{"code":"error","message":"Error: connect ENOENT /nonexistent"}} exit=1
+HERDR_SESSION=bogus list (socket path unset):
+  {"ok":false,"error":{"code":"error","message":"Error: connect ENOENT /Users/rebui/.config/herdr/sessions/bogus/herdr.sock"}} exit=1
+HERDR_SESSION=ht3rc list: resolves ht3rc socket, total:1
+(ambient HERDR_SOCKET_PATH from this pane's env overrides --session —
+contract precedence: HERDR_SOCKET_PATH > --session/HERDR_SESSION > default)
+
+== bridge WS (ws://127.0.0.1:4799/ws) ==
+/api/health: {"ok":true,"herdr":{"reachable":true,"socket":"/Users/rebui/.config/herdr/sessions/ht3rc/herdr.sock","version":"0.9.5","protocol":22}}
+
+plugin_list id=pl1 ok=true machine=local →
+  plugins:[rebuildup.checkpoints 0.4.0, rebuildup.git 0.2.0, rebuildup.inbox 0.1.0, rebuildup.projects 0.1.0] all enabled
+
+plugin_call inbox list id=pc1 ok=true → *** DEFECT D1 ***
+  session:{"name":null,"socket":null}, counts.total:11,
+  items: wK3:p1,wK4:p1,wK8:p1,wKB:p1,wKE:p1,wKG:p1,wKJ:p1,wKK:p1,wKS:p1,wKT:p1,wKV:p1
+  (DEFAULT session panes, though bridge HERDR_SOCKET=ht3rc)
+
+plugin_call inbox list args:["--session","ht3rc"] id=pc2 ok=true →
+  session:{"name":"ht3rc"}, total:1, items:[w1:p1 /private/tmp/rc-ckpt-repo]
+
+plugin_call inbox settle w1:p1 --session ht3rc id=s1 → ok, organize settled
+plugin_call inbox restore w1:p1 --session ht3rc id=s2 → ok (raced: final state settled, later restored via CLI)
+
+plugin_call git status w1:p1 --session ht3rc id=g1 → ok, repo /private/tmp/rc-ckpt-repo branch main unstaged:1
+plugin_call git status wK3:p1 id=g3 → ok (!) — pane wK3:p1 does not exist in ht3rc;
+  resolved against DEFAULT session (repo /Users/rebui/work/herdr-t3, branch release-0-6-0)
+
+plugin_call projects list id=g2 → ok, projects:[rc-ckpt-repo ...]
+plugin_call checkpoints list --repo /tmp/rc-ckpt-repo id=pc3 → ok, count:0
+plugin_call rebuildup.nope list id=e1 → ok:false {"code":"plugin_not_installed"}
+plugin_call rebuildup.inbox bogus id=e2 → ok:false {"code":"plugin_unsupported_command"}
+
+== cleanup ==
+herdr plugin unlink rebuildup.inbox|git|projects|checkpoints → plugin_unlinked removed:true x4
+herdr plugin list → "No plugins installed."
+herdr session stop ht3rc → "stopped session ht3rc"
+rm -rf /tmp/rc-ckpt-repo; bridge server killed.
