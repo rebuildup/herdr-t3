@@ -3,7 +3,8 @@
  *
  * `rebuildup.projects` on the host owns the project registry and script
  * run records through the `herdr-plugins.projects/v1` contract, pinned
- * at rebuildup/herdr-plugins@c8460283 (release-0-3-0). The contract doc
+ * at rebuildup/herdr-plugins@b0c8c60 (release-0-3-0, schema v2 run
+ * records — ADR-0015). The contract doc
  * is docs/migration/contracts/plugin-projects.md.
  *
  * `plugin_call` carries only the TOP-LEVEL command word (`list`,
@@ -13,9 +14,15 @@
  * command+subcommand pair ("scripts run", "scripts stop"), so gating
  * maps pairs, never bare words.
  *
- * Honest-state rules (ADR-0014): `running` does NOT mean the process is
- * alive — records are displayed exactly as the plugin returns them and
- * are never upgraded to `success`. `runOn*` flags are inert metadata:
+ * Honest-state rules (ADR-0014/0015): `running` does NOT mean the
+ * process is alive — records are displayed exactly as the plugin
+ * returns them and are never upgraded to `success`. `stopping` and
+ * `stop_unconfirmed` are in-flight stop confirmation states, never
+ * terminal success or plain failure. `stale_pane` outcomes mean the
+ * record's ownership tuple (host + session_key + pane/workspace/tab +
+ * started_at, schema v2) failed re-validation — the plugin touched no
+ * pane — and are classified distinctly. `runOn*` flags are inert
+ * metadata:
  * upstream has no execution mapping for them (herdr-plugins#60), so the
  * UI marks them "not wired" and offers no trigger affordance.
  */
@@ -40,7 +47,7 @@ export type ProjectsUnavailableReason =
  */
 export type ProjectsError =
   | { kind: "unavailable"; reason: ProjectsUnavailableReason; detail: string }
-  | { kind: "plugin"; code: string; detail: string };
+  | { kind: "plugin"; code: string; detail: string; fields?: Record<string, unknown> };
 
 /** Plugin `error.kind` values from the projects-v1 contract. */
 const PROJECTS_ERROR_KINDS = new Set([
@@ -80,6 +87,10 @@ const PROJECTS_ERROR_KINDS = new Set([
 export function classifyProjectScriptsError(error: unknown): ProjectsError {
   const code = (error as { code?: string })?.code ?? "";
   const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257); absent
+  // on older plugin revisions and non-plugin failures.
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields = isRecord(rawFields) ? rawFields : undefined;
   switch (code) {
     case "plugin_not_installed":
       return { kind: "unavailable", reason: "not_installed", detail };
@@ -96,10 +107,29 @@ export function classifyProjectScriptsError(error: unknown): ProjectsError {
       return { kind: "unavailable", reason: "unreachable", detail };
     default:
       if (PROJECTS_ERROR_KINDS.has(code)) {
-        return { kind: "plugin", code, detail };
+        return fields === undefined
+          ? { kind: "plugin", code, detail }
+          : { kind: "plugin", code, detail, fields };
       }
-      return { kind: "plugin", code: "plugin_error", detail };
+      return fields === undefined
+        ? { kind: "plugin", code: "plugin_error", detail }
+        : { kind: "plugin", code: "plugin_error", detail, fields };
   }
+}
+
+/**
+ * Repo roots a `repo_ambiguous` contract error carries in
+ * `fields.repos` (issue #257). Returns null when the error has no
+ * usable `repos` list — older plugin revisions emit kind+message only,
+ * so callers keep their `list`-derived candidates as the fallback.
+ */
+export function repoAmbiguousRepoRoots(error: unknown): string[] | null {
+  const fields = (error as { fields?: unknown })?.fields;
+  if (!isRecord(fields)) return null;
+  const repos = fields["repos"];
+  if (!Array.isArray(repos)) return null;
+  const roots = repos.filter((r): r is string => typeof r === "string" && r !== "");
+  return roots.length > 0 ? roots : null;
 }
 
 /* ------------------------------ capability ---------------------------- */
@@ -352,14 +382,34 @@ export function projectScriptsListFromDoc(doc: Record<string, unknown>): Project
   };
 }
 
-/** `scripts run` result ∈ running|success|failed|stopped|unknown. */
+/**
+ * `scripts run`/record `result` states (schema v2): `running |
+ * stopping | stop_unconfirmed | success | failed | stopped | unknown`.
+ * `stopping` = stop requested, exit unconfirmed; `stop_unconfirmed` =
+ * the bounded confirmation window elapsed without evidence. Both stay
+ * in the active set until `results`/`logs` promote them to `stopped`.
+ */
 export type ScriptRunResult =
   | "running"
+  | "stopping"
+  | "stop_unconfirmed"
   | "success"
   | "failed"
   | "stopped"
   | "unknown"
   | string;
+
+/** Active results that `scripts stop`/`results` still reconcile (v2). */
+export const SCRIPT_RUN_ACTIVE_RESULTS: ReadonlySet<string> = new Set([
+  "running",
+  "stopping",
+  "stop_unconfirmed",
+]);
+
+/** True while a run record is still in the active (reconcilable) set. */
+export function isActiveScriptRunResult(result: string): boolean {
+  return SCRIPT_RUN_ACTIVE_RESULTS.has(result);
+}
 
 export interface ScriptRunScriptRef {
   id: string | null;
@@ -393,6 +443,15 @@ export interface ScriptRun {
   finished_at: string | null;
   exit_code: number | null;
   result: ScriptRunResult;
+  /**
+   * Schema v2 ownership fields (#66): `host` + `session_key` identify
+   * the owning herdr session; `stop_requested_at` marks when a stop
+   * was requested. v1 records lack all three — they parse as `null`
+   * and are verified by pane context only.
+   */
+  host: string | null;
+  session_key: string | null;
+  stop_requested_at: string | null;
   log_path: string | null;
   error: string | null;
 }
@@ -433,6 +492,9 @@ export function scriptRunFromDoc(raw: unknown): ScriptRun | null {
     finished_at: str(raw["finished_at"]),
     exit_code: num(raw["exit_code"]),
     result: result ?? "unknown",
+    host: str(raw["host"]),
+    session_key: str(raw["session_key"]),
+    stop_requested_at: str(raw["stop_requested_at"]),
     log_path: str(raw["log_path"]),
     error: str(raw["error"]),
   };
@@ -440,7 +502,13 @@ export function scriptRunFromDoc(raw: unknown): ScriptRun | null {
 
 export interface ScriptRunOutcome {
   run: ScriptRun;
-  action: "stopped" | "already_finished" | "pane_gone" | string;
+  /**
+   * `stopped | already_finished | pane_gone | stale_pane |
+   * stop_unconfirmed` (schema v2). `stale_pane` means ownership
+   * re-validation failed — zero pane side effects; `stop_unconfirmed`
+   * means the stop was requested but exit stayed unproven.
+   */
+  action: "stopped" | "already_finished" | "pane_gone" | "stale_pane" | "stop_unconfirmed" | string;
 }
 
 export interface ScriptRunDoc {
@@ -609,8 +677,11 @@ export async function runProjectScript(
 }
 
 /**
- * `scripts stop <run-id|project>` — mutation; ctrl+c + close on the
- * RECORDED panes only. Fails `no_running_runs` when nothing stopped.
+ * `scripts stop <run-id|project>` — mutation; ownership re-validation,
+ * then ctrl+c + close + bounded confirmation on the RECORDED panes
+ * only (schema v2). `stale_pane` outcomes touched no pane;
+ * `stop_unconfirmed` means exit stayed unproven. Fails
+ * `no_running_runs` when nothing was acted on.
  */
 export async function stopProjectScripts(
   machine: string,

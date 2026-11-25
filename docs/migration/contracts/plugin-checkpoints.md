@@ -1,7 +1,7 @@
 # Contract: worktree checkpoints (B3)
 
 Version: 1. Scope: consuming `herdr-plugins.checkpoints/v1` through
-`plugin_call` (ADR-0011 boundary, ADR-0015 pin at
+`plugin_call` (ADR-0011 boundary, ADR-0016 pin at
 `rebuildup/herdr-plugins@4aab1a7`). The plugin owns capture, hidden git
 refs (`refs/herdr-plugins/checkpoints/<repo-key>/<id>`), and the state
 index; herdr-t3 renders them and forwards explicit user operations
@@ -70,7 +70,7 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 
 ## Evidence today
 
-`docs/adr/ADR-0015.md` (pin + scope). Implementation evidence:
+`docs/adr/ADR-0016.md` (pin + scope). Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
 `src/components/CheckpointsDialog.tsx`, menu wiring in
 `src/shell/WorkspaceHeader.tsx`. Live plugin hosts are RC verification.

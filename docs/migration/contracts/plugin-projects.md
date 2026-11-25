@@ -1,10 +1,10 @@
 # Contract: projects registry and project scripts (B3)
 
-Version: 1. Scope: consuming `herdr-plugins.projects/v1` through
-`plugin_call` (ADR-0011 boundary, ADR-0014 pin at
-`rebuildup/herdr-plugins@c8460283`). The plugin owns the registry and
-script run records; herdr-t3 renders them and forwards explicit user
-operations only.
+Version: 2 (run-record schema v2). Scope: consuming
+`herdr-plugins.projects/v1` through `plugin_call` (ADR-0011 boundary,
+ADR-0014 pin amended by ADR-0015 at `rebuildup/herdr-plugins@b0c8c60`).
+The plugin owns the registry and script run records; herdr-t3 renders
+them and forwards explicit user operations only.
 
 ## Operations
 
@@ -25,9 +25,20 @@ Scripts:
 - `scripts run <project> <name> [--repo PATH]` → dedicated herdr
   workspace/pane execution; `--repo` required for multi-repo projects
   (`repo_ambiguous` otherwise — never auto-picked).
-- `scripts stop <run-id|project>` → ctrl+c + close on recorded panes
-  only; `scripts results [project]` → run records with lazy liveness
-  reconcile; `scripts logs <run-id>` → bounded log tail.
+- `scripts stop <run-id|project>` → ownership re-validation, then
+  ctrl+c + close + bounded exit confirmation on recorded panes only;
+  outcomes include `stale_pane`/`stop_unconfirmed`. `scripts results
+  [project]` → run records with lazy ownership-checked reconcile;
+  `scripts logs <run-id>` → bounded log tail, read only after
+  ownership validation.
+- Run records are schema v2: `host`, `session_key`, and
+  `stop_requested_at` join the v1 fields (v1 records load them
+  `null`). `result` gains `stopping`/`stop_unconfirmed`; the active
+  set is `running | stopping | stop_unconfirmed`. Before any
+  input/close/read the plugin re-validates the ownership tuple
+  (host + session_key + pane/workspace/tab + started_at) via
+  `pane.get`; foreign or mismatched panes yield `stale_pane` with zero
+  pane side effects.
 
 ## Ordering and semantics
 
@@ -38,9 +49,13 @@ Scripts:
 - Registry state is host-global; reads (`list`/`show`/`capability`)
   work without a session, `discover`/`scripts *` require one and surface
   transport failure as unavailable, not empty.
-- `scripts results` may legitimately report `running` for a dead pane —
-  the plugin reconciles lazily; the client displays the record as
-  returned and never upgrades it to `success`.
+- `scripts results` may legitimately report `running`/`stopping`/
+  `stop_unconfirmed` for a dead or unconfirmed pane — the plugin
+  reconciles lazily after ownership re-validation; the client displays
+  the record as returned, shows stopping states as in-flight
+  confirmation (never success/failure), and never upgrades it to
+  `success`. `stale_pane` outcomes/record errors are classified
+  distinctly — the pane was provably not the record's.
 - `runOnWorktreeCreate`/`runOnSettle`/`stopOnSettle` are listed but have
   no upstream execution mapping (herdr-plugins#60): the UI marks them
   inert and provides no trigger affordance.
@@ -56,7 +71,9 @@ Scripts:
   `invalid_script_list`, `unknown_script`, `ambiguous_script`,
   `no_repos`, `repo_ambiguous`, `ambiguous_run`, `run_not_found`,
   `no_running_runs`, `script_run_error`, plus git kinds
-  (`not_a_repo`, `bare_repo`, `git_missing`, `timeout`).
+  (`not_a_repo`, `bare_repo`, `git_missing`, `timeout`). Contract
+  extras (`repos`, `key`, `run_id`, `project_id`, …) reach the client
+  as bounded `rpc_result.error.fields` (issue #257).
 
 ## Negative cases
 
@@ -71,6 +88,7 @@ Scripts:
 
 ## Evidence today
 
-`docs/adr/ADR-0014.md` (pin + scope). Implementation evidence lands with
+`docs/adr/ADR-0014.md` + `docs/adr/ADR-0015.md` (pin + scope + schema
+v2 re-pin). Implementation evidence lands with
 #252/#253 (`src/shell/projects*.ts`, dialog tests). Live plugin hosts
 are RC verification.

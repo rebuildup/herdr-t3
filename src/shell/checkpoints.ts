@@ -1,5 +1,5 @@
 /*
- * Plugin-backed checkpoints store (ADR-0011, ADR-0015; issue #260).
+ * Plugin-backed checkpoints store (ADR-0011, ADR-0016; issue #260).
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
@@ -14,7 +14,7 @@
  * dialog was opened from); `list --repo` filters by canonical repo
  * root.
  *
- * Honest-state rules (ADR-0015): `show` reports `ref.exists:false`
+ * Honest-state rules (ADR-0016): `show` reports `ref.exists:false`
  * while still returning the state entry — the ref may have been
  * deleted out-of-band and the client must render that, never drop the
  * row. `delete` is idempotent: `ref_existed:false` plus `warnings`

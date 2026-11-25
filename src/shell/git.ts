@@ -46,7 +46,13 @@ export type GitStatusState =
   | { kind: "loading" }
   | { kind: "ready"; status: GitStatusReport }
   | { kind: "unavailable"; reason: GitUnavailableReason; detail: string }
-  | { kind: "repo_error"; code: GitRepoErrorKind | string; detail: string };
+  | {
+      kind: "repo_error";
+      code: GitRepoErrorKind | string;
+      detail: string;
+      /** Bounded contract extras forwarded by the bridge (issue #257). */
+      fields?: Record<string, unknown>;
+    };
 
 export interface GitRepoInfo {
   root: string;
@@ -474,6 +480,9 @@ export function gitCapabilityFromDoc(doc: Record<string, unknown>): GitCapabilit
 export function classifyGitError(error: unknown): GitStatusState & { kind: "unavailable" | "repo_error" } {
   const code = (error as { code?: string })?.code ?? "";
   const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257).
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields = isRecord(rawFields) ? rawFields : undefined;
   switch (code) {
     case "plugin_not_installed":
       return { kind: "unavailable", reason: "not_installed", detail };
@@ -490,9 +499,13 @@ export function classifyGitError(error: unknown): GitStatusState & { kind: "unav
       return { kind: "unavailable", reason: "unreachable", detail };
     default:
       if (REPO_ERROR_KINDS.has(code)) {
-        return { kind: "repo_error", code, detail };
+        return fields === undefined
+          ? { kind: "repo_error", code, detail }
+          : { kind: "repo_error", code, detail, fields };
       }
-      return { kind: "repo_error", code: "git_error", detail };
+      return fields === undefined
+        ? { kind: "repo_error", code: "git_error", detail }
+        : { kind: "repo_error", code: "git_error", detail, fields };
   }
 }
 
@@ -1452,7 +1465,11 @@ export function classifyForgeError(error: unknown): GitStatusState & { kind: "un
   const code = (error as { code?: string })?.code ?? "";
   if (FORGE_ERROR_KINDS.has(code)) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { kind: "repo_error", code, detail };
+    const rawFields = (error as { fields?: unknown })?.fields;
+    const fields = isRecord(rawFields) ? rawFields : undefined;
+    return fields === undefined
+      ? { kind: "repo_error", code, detail }
+      : { kind: "repo_error", code, detail, fields };
   }
   return classifyGitError(error);
 }

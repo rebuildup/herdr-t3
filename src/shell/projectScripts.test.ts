@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifyProjectScriptsError,
+  isActiveScriptRunResult,
   projectScriptsListArgs,
   projectScriptsListFromDoc,
   projectScriptsLogsArgs,
@@ -10,6 +11,7 @@ import {
   projectsCapabilityFromDoc,
   projectsListArgs,
   projectsListFromDoc,
+  repoAmbiguousRepoRoots,
   scriptLogsFromDoc,
   scriptResultsFromDoc,
   scriptRunFromDoc,
@@ -206,6 +208,48 @@ describe("scriptRunFromDoc", () => {
     expect(run?.finished_at).toBe("2026-11-25T00:05:00.000Z");
   });
 
+  test("v1 records (no schema v2 fields) parse ownership fields as null", () => {
+    // RUN_DOC deliberately omits host/session_key/stop_requested_at —
+    // the v1 shape must keep loading with those fields null.
+    const run = scriptRunFromDoc(RUN_DOC);
+    expect(run?.host).toBeNull();
+    expect(run?.session_key).toBeNull();
+    expect(run?.stop_requested_at).toBeNull();
+  });
+
+  test("schema v2 records carry host, session_key, stop_requested_at", () => {
+    const run = scriptRunFromDoc({
+      ...RUN_DOC,
+      result: "stop_unconfirmed",
+      finished_at: null,
+      exit_code: null,
+      host: "my-mac.local",
+      session_key: "my-mac.local /Users/me/.config/herdr/sessions/main/herdr.sock",
+      stop_requested_at: "2026-11-25T00:04:00.000Z",
+    });
+    expect(run?.host).toBe("my-mac.local");
+    expect(run?.session_key).toContain("herdr.sock");
+    expect(run?.stop_requested_at).toBe("2026-11-25T00:04:00.000Z");
+    expect(run?.result).toBe("stop_unconfirmed");
+  });
+
+  test("stopping/stop_unconfirmed parse as in-flight results", () => {
+    for (const result of ["stopping", "stop_unconfirmed"]) {
+      const run = scriptRunFromDoc({ run_id: `run-${result}`, result });
+      expect(run?.result).toBe(result);
+      expect(isActiveScriptRunResult(run?.result ?? "")).toBe(true);
+    }
+  });
+
+  test("isActiveScriptRunResult covers exactly the v2 active set", () => {
+    for (const active of ["running", "stopping", "stop_unconfirmed"]) {
+      expect(isActiveScriptRunResult(active)).toBe(true);
+    }
+    for (const terminal of ["success", "failed", "stopped", "unknown", ""]) {
+      expect(isActiveScriptRunResult(terminal)).toBe(false);
+    }
+  });
+
   test("tolerates missing optional fields; running is honest", () => {
     const run = scriptRunFromDoc({
       run_id: "run-x",
@@ -251,14 +295,35 @@ describe("script result document parsers", () => {
         { run: { ...RUN_DOC, result: "stopped", exit_code: null }, action: "stopped" },
         { run: RUN_DOC, action: "already_finished" },
         { run: { ...RUN_DOC, result: "unknown" }, action: "pane_gone" },
+        // schema v2 outcomes: ownership failure touches no pane;
+        // unconfirmed stop stays reconcilable.
+        {
+          run: { ...RUN_DOC, result: "unknown", error: "stale_pane" },
+          action: "stale_pane",
+        },
+        {
+          run: {
+            ...RUN_DOC,
+            result: "stop_unconfirmed",
+            finished_at: null,
+            exit_code: null,
+            stop_requested_at: "2026-11-25T00:04:00.000Z",
+          },
+          action: "stop_unconfirmed",
+        },
       ],
       generated_at: "2026-11-25T00:00:00.000Z",
     };
     const result = scriptStopFromDoc(doc);
-    expect(result?.outcomes).toHaveLength(3);
+    expect(result?.outcomes).toHaveLength(5);
     expect(result?.outcomes[0]?.action).toBe("stopped");
     expect(result?.outcomes[0]?.run.result).toBe("stopped");
     expect(result?.outcomes[2]?.action).toBe("pane_gone");
+    expect(result?.outcomes[3]?.action).toBe("stale_pane");
+    expect(result?.outcomes[3]?.run.error).toBe("stale_pane");
+    expect(result?.outcomes[4]?.action).toBe("stop_unconfirmed");
+    expect(result?.outcomes[4]?.run.result).toBe("stop_unconfirmed");
+    expect(result?.outcomes[4]?.run.stop_requested_at).toBe("2026-11-25T00:04:00.000Z");
     expect(scriptStopFromDoc({ ...doc, outcomes: "nope" })).toBeNull();
     expect(scriptStopFromDoc({ ...doc, contract: "x/v9" })).toBeNull();
   });
@@ -407,6 +472,45 @@ describe("classifyProjectScriptsError", () => {
       kind: "plugin",
       code: "plugin_error",
     });
+  });
+
+  test("bounded contract error fields pass through to the classified error", () => {
+    const withFields = Object.assign(new Error("pick a repo"), {
+      code: "repo_ambiguous",
+      fields: { project_id: "my-app", repos: ["/abs/a", "/abs/b"] },
+    });
+    expect(classifyProjectScriptsError(withFields)).toMatchObject({
+      kind: "plugin",
+      code: "repo_ambiguous",
+      fields: { project_id: "my-app", repos: ["/abs/a", "/abs/b"] },
+    });
+    // Non-record fields are ignored; unavailable reasons never carry them.
+    const badFields = Object.assign(new Error("m"), { code: "repo_ambiguous", fields: "nope" });
+    expect(classifyProjectScriptsError(badFields)).not.toHaveProperty("fields");
+    const boundary = Object.assign(new Error("m"), {
+      code: "plugin_disabled",
+      fields: { key: "x" },
+    });
+    expect(classifyProjectScriptsError(boundary)).not.toHaveProperty("fields");
+  });
+});
+
+describe("repoAmbiguousRepoRoots (issue #257)", () => {
+  test("reads repos from error fields; null without usable fields", () => {
+    const err = Object.assign(new Error("m"), {
+      code: "repo_ambiguous",
+      fields: { repos: ["/abs/a", "/abs/b", 3, ""] },
+    });
+    expect(repoAmbiguousRepoRoots(err)).toEqual(["/abs/a", "/abs/b"]);
+    // Older plugin revisions: no fields at all → caller falls back to list.
+    expect(repoAmbiguousRepoRoots(new Error("m"))).toBeNull();
+    expect(repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: {} }))).toBeNull();
+    expect(
+      repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: { repos: "nope" } })),
+    ).toBeNull();
+    expect(
+      repoAmbiguousRepoRoots(Object.assign(new Error("m"), { fields: { repos: [] } })),
+    ).toBeNull();
   });
 });
 

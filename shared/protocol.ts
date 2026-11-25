@@ -348,7 +348,20 @@ export type ServerFrame =
    */
   | { type: "snapshot"; snapshot: SessionSnapshot; machine: string; probe?: boolean }
   | { type: "event"; event: unknown; machine: string }
-  | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string }; machine?: string }
+  | {
+      type: "rpc_result";
+      id: string;
+      ok: boolean;
+      result?: unknown;
+      /**
+       * `fields` carries bounded structured extras from a plugin contract
+       * error (issue #257): the plugin's own non-secret `error.*` siblings
+       * (`repos`, `key`, `run_id`, …), already size-capped server-side.
+       * Additive — older servers never send it and older clients ignore it.
+       */
+      error?: { code: string; message: string; fields?: PluginErrorFields };
+      machine?: string;
+    }
   /** `data` is base64: terminal output is arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_data"; paneId: string; data: string; machine: string }
   /**
@@ -434,6 +447,13 @@ export interface PluginListResult {
  * as `rpc_result` errors instead.
  */
 export type PluginCallResult = Record<string, unknown>;
+
+/**
+ * Structured extras a plugin contract error may carry across the bridge
+ * (issue #257). Upstream contracts document these as non-secret; the
+ * server still bounds count, key length and value size before sending.
+ */
+export type PluginErrorFields = Record<string, unknown>;
 
 export function isRpcMethod(method: string): method is RpcMethod {
   return (RPC_METHODS as readonly string[]).includes(method);

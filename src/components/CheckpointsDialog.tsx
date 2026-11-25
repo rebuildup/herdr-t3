@@ -1,5 +1,5 @@
 /*
- * Checkpoints dialog (issue #260, ADR-0015): consumes
+ * Checkpoints dialog (issue #260, ADR-0016): consumes
  * `herdr-plugins.checkpoints/v1` through `plugin_call` only — the
  * plugin owns capture, hidden refs (`refs/herdr-plugins/checkpoints/…`)
  * and the state index; this surface lists, shows, diffs, creates and

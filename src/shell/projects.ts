@@ -1,10 +1,11 @@
 /*
- * Plugin-backed Projects store (ADR-0011 boundary, ADR-0014 pin;
+ * Plugin-backed Projects store (ADR-0011 boundary, ADR-0014/0015 pin;
  * issue #252).
  *
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
- * rebuildup/herdr-plugins@c8460283 (release-0-3-0): `list`, `show`,
+ * rebuildup/herdr-plugins@b0c8c60 (release-0-3-0, schema v2 run
+ * records — ADR-0015): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The
  * `scripts *` commands belong to issue #253 and are not consumed here.
@@ -41,7 +42,7 @@ export type ProjectsUnavailableReason =
  */
 export type ProjectsCallError =
   | { kind: "unavailable"; reason: ProjectsUnavailableReason; detail: string }
-  | { kind: "projects_error"; code: string; detail: string };
+  | { kind: "projects_error"; code: string; detail: string; fields?: Record<string, unknown> };
 
 /* ------------------------------ model -------------------------------- */
 
@@ -369,7 +370,7 @@ export function projectMutationFromDoc(
 
 /**
  * Contract `error.kind` values preserved through plugin_call
- * (projects-v1 @c8460283). Includes the git kinds surfaced by repo
+ * (projects-v1 @b0c8c60). Includes the git kinds surfaced by repo
  * resolution and the script kinds shared with the #253 surface so a
  * future script error is never degraded to a generic failure here.
  */
@@ -412,6 +413,12 @@ const PROJECTS_ERROR_KINDS = new Set([
 export function classifyProjectsError(error: unknown): ProjectsCallError {
   const code = (error as { code?: string })?.code ?? "";
   const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257).
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields =
+    typeof rawFields === "object" && rawFields !== null && !Array.isArray(rawFields)
+      ? (rawFields as Record<string, unknown>)
+      : undefined;
   switch (code) {
     case "plugin_not_installed":
       return { kind: "unavailable", reason: "not_installed", detail };
@@ -428,9 +435,13 @@ export function classifyProjectsError(error: unknown): ProjectsCallError {
       return { kind: "unavailable", reason: "unreachable", detail };
     default:
       if (PROJECTS_ERROR_KINDS.has(code)) {
-        return { kind: "projects_error", code, detail };
+        return fields === undefined
+          ? { kind: "projects_error", code, detail }
+          : { kind: "projects_error", code, detail, fields };
       }
-      return { kind: "projects_error", code: "plugin_error", detail };
+      return fields === undefined
+        ? { kind: "projects_error", code: "plugin_error", detail }
+        : { kind: "projects_error", code: "plugin_error", detail, fields };
   }
 }
 

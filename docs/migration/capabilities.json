@@ -104,7 +104,7 @@
     },
     {
       "id": "plugin-projects",
-      "version": 1,
+      "version": 2,
       "title": "herdr-plugins.projects/v1 registry and scripts",
       "spec": "docs/migration/contracts/plugin-projects.md",
       "oracle": "conformance",
@@ -449,6 +449,7 @@
         "unsupported_command",
         "incompatible",
         "plugin error.kind passthrough",
+        "bounded error.fields extras (issue #257)",
         "timeout",
         "non-JSON stdout"
       ],
@@ -456,10 +457,14 @@
         "spawns plugin CLI on local or SSH host"
       ],
       "scenarios": [
-        "server/plugins.test.ts"
+        "server/plugins.test.ts",
+        "shared/protocol.test.ts",
+        "src/shell/projectScripts.test.ts"
       ],
       "evidence": [
         "server/plugins.ts",
+        "shared/protocol.ts",
+        "src/lib/api.ts",
         "docs/adr/ADR-0011.md",
         "docs/adr/ADR-0012.md"
       ],
@@ -1006,7 +1011,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@1",
+        "plugin-projects@2",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1044,7 +1049,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @c8460283"
+          "herdr-plugins.projects/v1 @b0c8c60"
         ],
         "excluded": false
       },
@@ -1058,7 +1063,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@1",
+        "plugin-projects@2",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1100,7 +1105,7 @@
         ],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @c8460283",
+          "herdr-plugins.projects/v1 @b0c8c60",
           "herdr pane execution API",
           "auto triggers: herdr-plugins#60 (upstream gap)"
         ],
@@ -1150,7 +1155,7 @@
         "src/components/CheckpointsDialog.tsx",
         "src/shell/WorkspaceHeader.tsx",
         "docs/migration/contracts/plugin-checkpoints.md",
-        "docs/adr/ADR-0015.md"
+        "docs/adr/ADR-0016.md"
       ],
       "stage": "current-verified",
       "status": {

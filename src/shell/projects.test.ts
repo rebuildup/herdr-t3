@@ -39,7 +39,7 @@ const PROJECT = {
   updated_at: "2026-11-21T00:00:00.000Z",
 };
 
-describe("projects argv builders (herdr-plugins.projects/v1 @c8460283)", () => {
+describe("projects argv builders (herdr-plugins.projects/v1 @b0c8c60)", () => {
   test("list/show/discover argv", () => {
     expect(projectsListArgs()).toEqual([]);
     expect(projectsListArgs({ all: true })).toEqual(["--all"]);
@@ -432,5 +432,22 @@ describe("classifyProjectsError", () => {
       kind: "projects_error",
       code: "plugin_error",
     });
+  });
+
+  test("bounded contract error fields pass through (issue #257)", () => {
+    const withFields = Object.assign(new Error("m"), {
+      code: "settings_key_not_allowed",
+      fields: { key: "display.title" },
+    });
+    expect(classifyProjectsError(withFields)).toMatchObject({
+      kind: "projects_error",
+      code: "settings_key_not_allowed",
+      fields: { key: "display.title" },
+    });
+    const badFields = Object.assign(new Error("m"), {
+      code: "settings_key_not_allowed",
+      fields: ["not", "a", "record"],
+    });
+    expect(classifyProjectsError(badFields)).not.toHaveProperty("fields");
   });
 });
