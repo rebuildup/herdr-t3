@@ -53,6 +53,7 @@ import {
   runProjectScript,
   stopProjectScripts,
   type ProjectScript,
+  type ProjectScriptShell,
   type ProjectSummary,
   type ProjectsCapability,
   type ProjectsError,
@@ -88,6 +89,12 @@ const PLUGIN_ERROR_LABELS: Record<string, string> = {
   run_not_found: "run not found",
   no_running_runs: "no running runs",
   script_run_error: "script run error",
+  // Shell-family resolution (#67): both abort BEFORE injection — the
+  // pane is closed and NO run record is persisted, so these are run
+  // request failures, never recorded run failures.
+  shell_unknown: "detected shell is not supported (fish/nu/…) — pick a shell explicitly",
+  not_a_shell: "pane is not running a supported shell — pick a shell explicitly",
+  invalid_shell: "invalid --shell value",
   not_a_repo: "not a git repository",
   bare_repo: "bare repository (no work tree)",
   git_missing: "git not found on the host",
@@ -193,6 +200,18 @@ const SCRIPT_SOURCE_LABELS: Record<string, string> = {
   builtin: "builtin",
 };
 
+/**
+ * `shell_source` labels for run records (#67). `host_default` is the
+ * plugin's conservative host-OS fallback when detection was
+ * inconclusive — shown as an auto-detected default, never as a user
+ * choice (`flag` is the only user-selected source).
+ */
+const SHELL_SOURCE_LABELS: Record<string, string> = {
+  flag: "explicit (--shell)",
+  process_info: "detected from pane",
+  host_default: "host default (auto-detected)",
+};
+
 /** Inert auto-trigger flags: listed as metadata, never as live triggers. */
 function AutoFlags({ script }: { script: ProjectScript }) {
   const flags: string[] = [];
@@ -246,6 +265,10 @@ function ScriptsPane({
   const [busyName, setBusyName] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // `auto` = contract default: the plugin resolves the shell family
+  // itself (flag → pane.process_info → host default) and records
+  // `shell_source`; an explicit family sends `--shell <family>`.
+  const [shell, setShell] = useState<ProjectScriptShell>("auto");
 
   // `--repo` is only sent for multi-repo projects: the contract defaults
   // to the first registered repo for `scripts list`, while `scripts run`
@@ -283,6 +306,7 @@ function ScriptsPane({
     try {
       const { run: started } = await runProjectScript(machine, project.id, script.name, {
         repo: effectiveRepo ?? undefined,
+        shell,
       });
       // Display the record exactly as returned — `running` does not mean
       // the process is alive and is never upgraded to `success`.
@@ -351,6 +375,26 @@ function ScriptsPane({
             {project.repos[0]?.root}
           </TooltipPopup>
         </Tooltip>
+      ) : null}
+
+      {canRun === true ? (
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+          Shell
+          <Select
+            value={shell}
+            onValueChange={(value) => setShell(value as ProjectScriptShell)}
+          >
+            <SelectTrigger aria-label="Script shell">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">auto (detect)</SelectItem>
+              <SelectItem value="sh">sh</SelectItem>
+              <SelectItem value="cmd">cmd</SelectItem>
+              <SelectItem value="powershell">powershell</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
       ) : null}
 
       {project.repos.length === 0 ? (
@@ -490,6 +534,17 @@ function RunDetail({
           <div className="flex gap-2">
             <dt className="w-16 shrink-0 text-muted-foreground">stop req.</dt>
             <dd className="min-w-0 flex-1">{formatTime(run.stop_requested_at)}</dd>
+          </div>
+        ) : null}
+        {run.shell_family !== null ? (
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 text-muted-foreground">shell</dt>
+            <dd className="min-w-0 flex-1">
+              {run.shell_family}
+              {run.shell_source !== null
+                ? ` · ${SHELL_SOURCE_LABELS[run.shell_source] ?? run.shell_source}`
+                : ""}
+            </dd>
           </div>
         ) : null}
         {run.host !== null || run.session_key !== null ? (
