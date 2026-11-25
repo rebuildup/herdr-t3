@@ -21,3 +21,4 @@
 | [ADR-0017](./ADR-0017.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @c8dc3b3 and plan/restore adoption (shared-worktree isolation, pre-restore recovery) |
 | [ADR-0018](./ADR-0018.md) | Accepted | Source Control surface: git-v1 re-pin @d057830 (strict option parsing, usage exit 2) |
 | [ADR-0019](./ADR-0019.md) | Accepted | Projects/Scripts: projects-v1 re-pin @3b28349 (durable script completion receipt) |
+| [ADR-0020](./ADR-0020.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @55df8d0a and work-unit auto-capture adoption (kind/auto_captures/--auto) |

@@ -20,8 +20,14 @@
  *   and offer `--force` only as a separate, clearly-labelled action —
  *   never implicit. Mutation-phase failures surface the plugin's
  *   `pre_restore_*` fields with a recovery affordance.
- * - v1 has no auto-capture/GC (herdr-plugins #74–#75); no such
- *   affordance exists here.
+ * - Since the @55df8d0a re-pin (herdr-plugins #74) entries carry
+ *   `kind` (manual/auto/pre_restore) shown as a badge, and every
+ *   command payload may carry `auto_captures` drain outcomes —
+ *   captured ids, skipped pane reasons and `session_unreachable` are
+ *   rendered wherever they arrive, never swallowed. Auto-capture
+ *   granularity is herdr `agent_status` work-units, NOT per-turn.
+ *   `create --auto` exists only as an explicit opt-in label; no
+ *   agent-driven trigger is fabricated here.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
@@ -38,6 +44,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input, Label } from "./ui/input";
+import { Switch } from "./ui/switch";
 import {
   Select,
   SelectContent,
@@ -58,6 +65,7 @@ import {
   fetchCheckpointShow,
   fetchCheckpointsList,
   restoreCheckpoint,
+  type AutoCapturesReport,
   type CheckpointDiffResult,
   type CheckpointEntry,
   type CheckpointPlanResult,
@@ -158,6 +166,87 @@ function supportsMutation(
 
 const UNSUPPORTED_TEXT = "not supported by this plugin version";
 
+/* --------------------- provenance + auto-capture UI -------------------- */
+
+const KIND_LABELS: Record<string, string> = {
+  manual: "manual",
+  auto: "auto",
+  pre_restore: "pre-restore",
+};
+
+function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * Capture-provenance badge. `auto`/`pre_restore` get distinct variants;
+ * `manual` (including pre-#74 entries with no `kind`) stays outline and
+ * unknown future kinds render their raw value — never relabelled.
+ */
+function KindBadge({ kind }: { kind: string }) {
+  const variant =
+    kind === "auto" ? "secondary" : kind === "pre_restore" ? "info" : "outline";
+  return (
+    <Badge size="sm" variant={variant}>
+      {kindLabel(kind)}
+    </Badge>
+  );
+}
+
+/**
+ * Honest drain-outcome notice for the `auto_captures` block every
+ * command payload may carry: captured count, per-pane skip reasons and
+ * the `session_unreachable` note (marks stay pending). Rendered wherever
+ * a result carries the block — never swallowed.
+ */
+function AutoCapturesNote({
+  report,
+}: {
+  report: AutoCapturesReport | null | undefined;
+}) {
+  if (report == null) return null;
+  const segments: string[] = [];
+  if (report.captured.length > 0) {
+    segments.push(
+      `${report.captured.length} work-unit checkpoint${report.captured.length === 1 ? "" : "s"} auto-captured`,
+    );
+  }
+  if (report.skipped.length > 0) {
+    segments.push(
+      `skipped ${report.skipped.map((s) => `${s.pane_id} (${s.reason})`).join(", ")}`,
+    );
+  }
+  if (report.session_unreachable) {
+    segments.push("herdr session unreachable — pending captures stay queued");
+  }
+  if (segments.length === 0) return null;
+  return (
+    <div className="text-2xs text-muted-foreground">
+      auto-capture: {segments.join("; ")}
+    </div>
+  );
+}
+
+/** One-line suffix appended to mutation notices carrying auto_captures. */
+function describeAutoCaptures(report: AutoCapturesReport | null): string {
+  if (report === null) return "";
+  const parts: string[] = [];
+  if (report.captured.length > 0) {
+    parts.push(
+      `${report.captured.length} work-unit checkpoint${report.captured.length === 1 ? "" : "s"} auto-captured`,
+    );
+  }
+  if (report.skipped.length > 0) {
+    parts.push(
+      `${report.skipped.length} skipped (${report.skipped.map((s) => `${s.pane_id}: ${s.reason}`).join(", ")})`,
+    );
+  }
+  if (report.session_unreachable) {
+    parts.push("session unreachable — captures stay pending");
+  }
+  return parts.length > 0 ? ` — auto-capture: ${parts.join("; ")}` : "";
+}
+
 function SectionMessage({ children }: { children: React.ReactNode }) {
   return <div className="text-xs text-muted-foreground">{children}</div>;
 }
@@ -205,6 +294,7 @@ function CreateForm({
   const [mode, setMode] = useState<"pane" | "repo">("pane");
   const [repoPath, setRepoPath] = useState("");
   const [label, setLabel] = useState("");
+  const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -225,11 +315,16 @@ function CreateForm({
         effectiveMode === "pane"
           ? { paneId: pane?.pane_id }
           : { repo: repoPath.trim() },
-        { label: label.trim() === "" ? undefined : label },
+        {
+          label: label.trim() === "" ? undefined : label,
+          auto,
+        },
       );
       const warnings =
         result.warnings.length > 0 ? ` — ${result.warnings.join("; ")}` : "";
-      setNotice(`checkpoint ${result.checkpoint.id} captured${warnings}`);
+      setNotice(
+        `checkpoint ${result.checkpoint.id} captured${result.checkpoint.kind === "auto" ? " (kind:auto)" : ""}${warnings}${describeAutoCaptures(result.auto_captures)}`,
+      );
       setLabel("");
       onCreated();
     } catch (err: unknown) {
@@ -285,6 +380,21 @@ function CreateForm({
             placeholder="e.g. before refactor"
           />
         </label>
+        <div className="flex items-center gap-2 text-2xs text-muted-foreground sm:col-span-2">
+          <Switch
+            size="sm"
+            checked={auto}
+            onCheckedChange={(checked) => setAuto(checked === true)}
+            aria-label="Record as auto checkpoint"
+          />
+          <span>
+            Record as auto — marks the entry{" "}
+            <span className="font-mono">kind:&quot;auto&quot;</span> for
+            agent-detected work-unit boundaries. It only labels this
+            capture; the plugin&apos;s agent-status hook captures
+            work-units automatically regardless.
+          </span>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -339,6 +449,9 @@ function CheckpointList({
                 {entry.branch !== null ? ` · ${entry.branch}` : ""}
               </span>
             </span>
+            {/* manual is the default provenance — badge only
+                non-default kinds to keep rows quiet; detail shows all. */}
+            {entry.kind !== "manual" ? <KindBadge kind={entry.kind} /> : null}
             {entry.submodules.length > 0 ? (
               <Badge size="sm" variant="outline">
                 submodules
@@ -524,7 +637,10 @@ function RestoreDialog({
                 preview unavailable: {planError}
               </div>
             ) : plan !== null ? (
-              <PlanPreview plan={plan} />
+              <>
+                <PlanPreview plan={plan} />
+                <AutoCapturesNote report={plan.auto_captures} />
+              </>
             ) : null}
 
             {failure !== null ? (
@@ -618,6 +734,7 @@ function RestoreDialog({
                     {warning}
                   </div>
                 ))}
+                <AutoCapturesNote report={result.auto_captures} />
               </div>
             ) : null}
           </div>
@@ -757,6 +874,12 @@ function CheckpointDetail({
           <dt className="w-16 shrink-0 text-muted-foreground">created</dt>
           <dd className="min-w-0 flex-1">{formatTime(entry.created_at)}</dd>
         </div>
+        <div className="flex gap-2">
+          <dt className="w-16 shrink-0 text-muted-foreground">kind</dt>
+          <dd className="min-w-0 flex-1">
+            <KindBadge kind={entry.kind} />
+          </dd>
+        </div>
         {entry.label !== null ? (
           <div className="flex gap-2">
             <dt className="w-16 shrink-0 text-muted-foreground">label</dt>
@@ -764,6 +887,8 @@ function CheckpointDetail({
           </div>
         ) : null}
       </dl>
+
+      <AutoCapturesNote report={show?.auto_captures} />
 
       {refMissing ? (
         <div className="text-2xs text-warning">
@@ -936,6 +1061,7 @@ function DiffPane({
           <pre className="max-h-56 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
             {result.patch === "" ? "(empty diff)" : result.patch}
           </pre>
+          <AutoCapturesNote report={result.auto_captures} />
         </>
       ) : null}
     </div>
@@ -1033,9 +1159,10 @@ export function CheckpointsDialog({
         const warnings =
           result.warnings.length > 0 ? ` — ${result.warnings.join("; ")}` : "";
         setDeleteNotice(
-          result.ref_existed
+          (result.ref_existed
             ? `deleted ${result.id}`
-            : `removed ${result.id} (ref already gone)${warnings}`,
+            : `removed ${result.id} (ref already gone)${warnings}`) +
+            describeAutoCaptures(result.auto_captures),
         );
         setConfirmDelete(null);
         setSelectedId(null);
@@ -1129,6 +1256,9 @@ export function CheckpointsDialog({
                 </div>
 
                 <div className="text-xs font-medium">Checkpoints</div>
+                {/* The list command itself drains pending auto-captures;
+                    surface its report until the next fetch replaces it. */}
+                <AutoCapturesNote report={listResult?.auto_captures} />
                 {listLoading && listResult === null ? (
                   <SectionMessage>loading checkpoints…</SectionMessage>
                 ) : listError !== null ? (

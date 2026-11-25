@@ -112,11 +112,11 @@
     },
     {
       "id": "plugin-checkpoints",
-      "version": 2,
+      "version": 3,
       "title": "herdr-plugins.checkpoints/v1 hidden-ref checkpoints",
       "spec": "docs/migration/contracts/plugin-checkpoints.md",
       "oracle": "conformance",
-      "summary": "Worktree checkpoints as hidden git refs: capability/create/list/show/diff/plan/restore/delete via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; auto-capture/GC are v1 non-goals."
+      "summary": "Worktree checkpoints as hidden git refs: capability/create/list/show/diff/plan/restore/delete via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; work-unit auto-capture (kind/auto_captures/create --auto) consumed @55df8d0a; GC and per-turn capture are non-goals."
     }
   ],
   "capabilities": [
@@ -1123,7 +1123,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-checkpoints@2",
+        "plugin-checkpoints@3",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1137,7 +1137,9 @@
         "diff checkpoint/HEAD pairs (bounded patch)",
         "plan restore preview (files_to_change/untracked_to_delete/already_matches)",
         "restore with plan gate, same-repo --repo override, shared-worktree/session isolation, explicit --force only, pre_restore recovery",
-        "create via --repo PATH or focused pane id, optional label",
+        "create via --repo PATH or focused pane id, optional label, explicit --auto (kind:auto)",
+        "kind badge (manual/auto/pre_restore) on list/detail",
+        "auto_captures drain outcomes surfaced on every command result (captured/skipped/session_unreachable)",
         "delete with confirm (idempotent ref_existed/warnings)"
       ],
       "errors": [
@@ -1163,17 +1165,18 @@
         "server/plugins.ts",
         "docs/migration/contracts/plugin-checkpoints.md",
         "docs/adr/ADR-0016.md",
-        "docs/adr/ADR-0017.md"
+        "docs/adr/ADR-0017.md",
+        "docs/adr/ADR-0020.md"
       ],
       "stage": "current-verified",
       "status": {
         "implemented": true,
         "known_issues": [
-          "auto-capture/multi-repo orchestration/GC are v1 non-goals (herdr-plugins#74-#75)"
+          "per-turn auto-capture/multi-repo orchestration/GC are non-goals (herdr-plugins#75+); auto-capture granularity is agent_status work-units"
         ],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.checkpoints/v1 @c8dc3b3",
+          "herdr-plugins.checkpoints/v1 @55df8d0a",
           "git + bun on the plugin host"
         ],
         "excluded": false

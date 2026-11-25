@@ -1,11 +1,12 @@
 /*
- * Plugin-backed checkpoints store (ADR-0011, ADR-0016/ADR-0017; issues
- * #260/#264).
+ * Plugin-backed checkpoints store (ADR-0011, ADR-0016/0017/0020; issues
+ * #260/#264/#268).
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
- * pinned at rebuildup/herdr-plugins@c8dc3b3 (release-0-4-0, re-pin per
- * ADR-0017). The contract doc is docs/migration/contracts/plugin-checkpoints.md.
+ * pinned at rebuildup/herdr-plugins@55df8d0a (release-0-4-0, re-pin per
+ * ADR-0017/ADR-0020). The contract doc is
+ * docs/migration/contracts/plugin-checkpoints.md.
  *
  * Commands are flat words (`create`, `list`, `show`, `diff`, `plan`,
  * `restore`, `delete`) carried as the `plugin_call` command;
@@ -27,8 +28,19 @@
  * plus `warnings` when the hidden ref was already gone or the repo
  * unreachable. Restore failures in the mutation phase carry
  * `pre_restore_*` error fields (the recovery checkpoint) — surfaced
- * verbatim, never swallowed. v1 still has no auto-capture/GC — those
- * stay upstream (herdr-plugins #74–#75) and are not offered here.
+ * verbatim, never swallowed.
+ *
+ * Since @55df8d0a (herdr-plugins #74) every command except
+ * `capability`/`help` lazily drains pending work-unit auto-captures
+ * recorded by the plugin's `agent_status` event hooks; outcomes arrive
+ * as `auto_captures` on the payload (omitted when empty) and are
+ * surfaced to the user, never swallowed. Entries carry `kind`
+ * (`manual`/`auto`/`pre_restore`; absent on pre-#74 entries = manual)
+ * and `create` accepts `--auto`. Granularity is herdr `agent_status`
+ * work-units — NOT per-turn; no per-message signal exists upstream.
+ * The plugin also projects display-only `checkpoint_latest`/
+ * `checkpoint_count` pane metadata after pane-targeted captures; this
+ * client does not consume it.
  */
 import { pluginCall } from "../lib/api";
 
@@ -242,6 +254,19 @@ export function checkpointsCapability(
 /* ------------------------------ documents ------------------------------ */
 
 /**
+ * Capture provenance recorded by the plugin (@55df8d0a, herdr-plugins
+ * #74): `"manual"` (explicit `create`), `"auto"` (lazy work-unit drain
+ * or `create --auto`), `"pre_restore"` (mandatory pre-restore safety
+ * capture). Entries written before auto-capture carry no `kind` and
+ * are treated as `"manual"`. The open-string union keeps unknown
+ * future kinds honest instead of relabelling them.
+ */
+export type CheckpointKind = "manual" | "auto" | "pre_restore";
+export type CheckpointEntryKind = CheckpointKind | (string & {});
+
+const CHECKPOINT_KINDS = new Set<string>(["manual", "auto", "pre_restore"]);
+
+/**
  * One checkpoint entry as stored in plugin state. Optional upstream
  * fields are omitted (not nulled) when absent; `files_summary` is the
  * bounded `git diff --name-status` captured at create time.
@@ -256,9 +281,76 @@ export interface CheckpointEntry {
   branch: string | null;
   created_at: string;
   label: string | null;
+  kind: CheckpointEntryKind;
   files_summary: string | null;
   files_summary_truncated: boolean;
   submodules: string[];
+}
+
+/**
+ * Work-unit auto-capture drain report every command payload may carry
+ * (omitted upstream when empty; `capability`/`help` never drain).
+ * `skipped[].reason` is one of `stale_generation`,
+ * `pane_or_agent_gone`, `no_pane_cwd` or a git/checkpoint error kind —
+ * kept as a free-form string so new reasons stay visible. Auto-capture
+ * never fails the command; `session_unreachable` leaves marks pending
+ * for a later invocation.
+ */
+export interface AutoCaptureSkipped {
+  pane_id: string;
+  reason: string;
+}
+
+export interface AutoCapturesReport {
+  /** Checkpoint ids produced by this drain, in capture order. */
+  captured: string[];
+  /** Pending marks evaluated and dropped without a capture. */
+  skipped: AutoCaptureSkipped[];
+  /** True when the herdr snapshot was unreachable; marks stay pending. */
+  session_unreachable: boolean;
+}
+
+/** Parse the optional `auto_captures` block; null when absent/malformed. */
+export function autoCapturesFromDoc(
+  doc: Record<string, unknown>,
+): AutoCapturesReport | null {
+  const raw = doc["auto_captures"];
+  if (!isRecord(raw)) return null;
+  const skipped: AutoCaptureSkipped[] = [];
+  if (Array.isArray(raw["skipped"])) {
+    for (const item of raw["skipped"]) {
+      if (!isRecord(item)) continue;
+      const paneId = str(item["pane_id"]);
+      const reason = str(item["reason"]);
+      if (paneId !== null && paneId !== "" && reason !== null && reason !== "") {
+        skipped.push({ pane_id: paneId, reason });
+      }
+    }
+  }
+  const report: AutoCapturesReport = {
+    captured: strArray(raw["captured"]),
+    skipped,
+    session_unreachable: raw["session_unreachable"] === true,
+  };
+  // The contract omits the block when empty; a present-but-empty block
+  // is equivalent, so normalize it away rather than rendering a
+  // meaningless "0 captured" notice.
+  if (
+    report.captured.length === 0 &&
+    report.skipped.length === 0 &&
+    !report.session_unreachable
+  ) {
+    return null;
+  }
+  return report;
+}
+
+function checkpointKindFromDoc(raw: unknown): CheckpointEntryKind {
+  const kind = str(raw);
+  // Absent kind on pre-#74 entries means "manual"; known kinds pass
+  // through; unknown future kinds are preserved verbatim (honest).
+  if (kind === null || kind === "") return "manual";
+  return CHECKPOINT_KINDS.has(kind) ? (kind as CheckpointKind) : (kind as string & {});
 }
 
 function checkpointEntryFromDoc(raw: unknown): CheckpointEntry | null {
@@ -289,6 +381,7 @@ function checkpointEntryFromDoc(raw: unknown): CheckpointEntry | null {
     branch: str(raw["branch"]),
     created_at: str(raw["created_at"]) ?? "",
     label: str(raw["label"]),
+    kind: checkpointKindFromDoc(raw["kind"]),
     files_summary: str(raw["files_summary"]),
     files_summary_truncated: raw["files_summary_truncated"] === true,
     submodules: strArray(raw["submodules"]),
@@ -302,6 +395,7 @@ export interface CheckpointsListResult {
   total: number;
   truncated: boolean;
   checkpoints: CheckpointEntry[];
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -323,6 +417,7 @@ export function checkpointsListFromDoc(
     total: num(doc["total"]) ?? checkpoints.length,
     truncated: doc["truncated"] === true,
     checkpoints,
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -347,6 +442,7 @@ export interface CheckpointShowResult {
   ref: CheckpointRefStatus | null;
   summary: CheckpointSummary | null;
   summary_error: string | null;
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -383,6 +479,7 @@ export function checkpointShowFromDoc(
     ref,
     summary,
     summary_error: str(doc["summary_error"]),
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -403,6 +500,7 @@ export interface CheckpointDiffResult {
   patch: string;
   truncated: boolean;
   bytes: number;
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -438,6 +536,7 @@ export function checkpointDiffFromDoc(
     patch,
     truncated: doc["truncated"] === true,
     bytes: num(doc["bytes"]) ?? patch.length,
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -448,6 +547,7 @@ export interface CheckpointCreateResult {
   repo_root: string | null;
   checkpoint: CheckpointEntry;
   warnings: string[];
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -463,6 +563,7 @@ export function checkpointCreateFromDoc(
     repo_root: str(doc["repo_root"]),
     checkpoint,
     warnings: strArray(doc["warnings"]),
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -477,6 +578,7 @@ export interface CheckpointDeleteResult {
   ref: string;
   ref_existed: boolean;
   warnings: string[];
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -492,6 +594,7 @@ export function checkpointDeleteFromDoc(
     ref: str(doc["ref"]) ?? "",
     ref_existed: doc["ref_existed"] === true,
     warnings: strArray(doc["warnings"]),
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -512,6 +615,7 @@ export interface CheckpointPlanResult {
   untracked_to_delete: number;
   already_matches: boolean;
   warnings: string[];
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -544,6 +648,7 @@ export function checkpointPlanFromDoc(
     untracked_to_delete: untrackedToDelete,
     already_matches: rawPlan["already_matches"] === true,
     warnings: strArray(doc["warnings"]),
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -582,6 +687,7 @@ export interface CheckpointRestoreResult {
   sharing_panes: string[];
   clean_passes: number | null;
   warnings: string[];
+  auto_captures: AutoCapturesReport | null;
   generated_at: string | null;
 }
 
@@ -616,6 +722,7 @@ export function checkpointRestoreFromDoc(
     sharing_panes: strArray(doc["sharing_panes"]),
     clean_passes: num(doc["clean_passes"]),
     warnings: strArray(doc["warnings"]),
+    auto_captures: autoCapturesFromDoc(doc),
     generated_at: str(doc["generated_at"]),
   };
 }
@@ -665,7 +772,7 @@ export function checkpointDiffArgs(
 
 export function checkpointCreateArgs(
   target: { repo?: string | undefined; paneId?: string | undefined },
-  options: { label?: string | undefined } = {},
+  options: { label?: string | undefined; auto?: boolean | undefined } = {},
 ): string[] {
   const args: string[] = [];
   const repo = target.repo?.trim() ?? "";
@@ -677,6 +784,10 @@ export function checkpointCreateArgs(
   }
   const label = options.label?.trim() ?? "";
   if (label !== "") args.push("--label", label);
+  // `--auto` records kind:"auto" — for callers that detect their own
+  // work-unit boundary; it never triggers the plugin's agent-status
+  // drain differently, it only labels the entry.
+  if (options.auto === true) args.push("--auto");
   return args;
 }
 
@@ -778,14 +889,17 @@ export async function fetchCheckpointDiff(
 }
 
 /**
- * `create [--repo PATH | <pane_id>] [--label TEXT]` — mutation; writes a
- * hidden ref + state entry plugin-side. The user's index/worktree are
- * never touched. Returns the new entry and capture warnings.
+ * `create [--repo PATH | <pane_id>] [--label TEXT] [--auto]` —
+ * mutation; writes a hidden ref + state entry plugin-side. The user's
+ * index/worktree are never touched. `auto` records `kind:"auto"` (an
+ * explicit pane-targeted create also clears that pane's pending
+ * auto-capture mark plugin-side). Returns the new entry, capture
+ * warnings and any `auto_captures` drain report.
  */
 export async function createCheckpoint(
   machine: string,
   target: { repo?: string | undefined; paneId?: string | undefined },
-  options: { label?: string | undefined } = {},
+  options: { label?: string | undefined; auto?: boolean | undefined } = {},
 ): Promise<CheckpointCreateResult> {
   const doc = await pluginCall(machine, {
     plugin: CHECKPOINTS_PLUGIN_ID,

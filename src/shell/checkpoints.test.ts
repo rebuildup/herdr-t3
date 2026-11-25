@@ -78,6 +78,71 @@ describe("checkpointsListFromDoc (herdr-plugins.checkpoints/v1)", () => {
     expect(older?.files_summary).toBeNull();
     expect(older?.files_summary_truncated).toBe(false);
     expect(older?.submodules).toEqual([]);
+    // Pre-#74 entries carry no `kind`; absent projects as "manual".
+    expect(entry?.kind).toBe("manual");
+    expect(older?.kind).toBe("manual");
+  });
+
+  test("kind passes through auto/pre_restore and preserves unknown kinds", () => {
+    const withKind = (kind: unknown) => ({
+      ...LIST_DOC,
+      checkpoints: [{ ...ENTRY, kind }],
+    });
+    expect(checkpointsListFromDoc(withKind("auto"))?.checkpoints[0]?.kind).toBe("auto");
+    expect(checkpointsListFromDoc(withKind("pre_restore"))?.checkpoints[0]?.kind).toBe(
+      "pre_restore",
+    );
+    expect(checkpointsListFromDoc(withKind("manual"))?.checkpoints[0]?.kind).toBe("manual");
+    // Unknown future kinds are preserved verbatim, never relabelled.
+    expect(checkpointsListFromDoc(withKind("turn"))?.checkpoints[0]?.kind).toBe("turn");
+    expect(checkpointsListFromDoc(withKind(42))?.checkpoints[0]?.kind).toBe("manual");
+  });
+
+  test("auto_captures drain report parses on every command payload", () => {
+    const report = {
+      captured: ["cap-1", "cap-2"],
+      skipped: [
+        { pane_id: "w1:p1", reason: "stale_generation" },
+        { pane_id: "w1:p2", reason: "no_pane_cwd" },
+      ],
+      session_unreachable: false,
+    };
+    const list = checkpointsListFromDoc({ ...LIST_DOC, auto_captures: report });
+    expect(list?.auto_captures).toEqual({
+      captured: ["cap-1", "cap-2"],
+      skipped: [
+        { pane_id: "w1:p1", reason: "stale_generation" },
+        { pane_id: "w1:p2", reason: "no_pane_cwd" },
+      ],
+      session_unreachable: false,
+    });
+    const show = checkpointShowFromDoc({
+      contract: "herdr-plugins.checkpoints/v1",
+      command: "show",
+      checkpoint: ENTRY,
+      auto_captures: { captured: [], skipped: [], session_unreachable: true },
+    });
+    expect(show?.auto_captures?.session_unreachable).toBe(true);
+    // Omitted block → null; present-but-empty block normalizes to null.
+    expect(checkpointsListFromDoc(LIST_DOC)?.auto_captures).toBeNull();
+    expect(
+      checkpointsListFromDoc({
+        ...LIST_DOC,
+        auto_captures: { captured: [], skipped: [] },
+      })?.auto_captures,
+    ).toBeNull();
+    // Malformed entries inside skipped are dropped, not fatal.
+    const messy = checkpointsListFromDoc({
+      ...LIST_DOC,
+      auto_captures: {
+        captured: "nope",
+        skipped: [{ pane_id: "w1:p1" }, { pane_id: "w1:p2", reason: "git_error" }, "x"],
+      },
+    });
+    expect(messy?.auto_captures?.captured).toEqual([]);
+    expect(messy?.auto_captures?.skipped).toEqual([
+      { pane_id: "w1:p2", reason: "git_error" },
+    ]);
   });
 
   test("rejects foreign contracts, wrong command, and malformed docs", () => {
@@ -176,12 +241,14 @@ describe("checkpoint create/delete documents", () => {
       repo_root: "/abs/repo",
       checkpoint: ENTRY,
       warnings: ["submodule gitlinks recorded (1)"],
+      auto_captures: { captured: ["cap-9"], skipped: [], session_unreachable: false },
       generated_at: "2026-11-25T00:00:00.000Z",
     };
     const result = checkpointCreateFromDoc(doc);
     expect(result?.checkpoint.id).toBe(ENTRY.id);
     expect(result?.pane_id).toBe("w1:p1");
     expect(result?.warnings).toEqual(["submodule gitlinks recorded (1)"]);
+    expect(result?.auto_captures?.captured).toEqual(["cap-9"]);
     expect(checkpointCreateFromDoc({ ...doc, ok: false })).toBeNull();
     expect(checkpointCreateFromDoc({ ...doc, contract: "x/v1" })).toBeNull();
   });
@@ -348,6 +415,20 @@ describe("checkpoints argv builders", () => {
       "/abs/repo",
     ]);
     expect(checkpointDeleteArgs("abc")).toEqual(["abc"]);
+  });
+
+  test("create --auto appends the flag after target/label", () => {
+    expect(checkpointCreateArgs({ paneId: "w1:p1" }, { auto: true })).toEqual([
+      "w1:p1",
+      "--auto",
+    ]);
+    expect(
+      checkpointCreateArgs({ repo: "/abs/repo" }, { label: "snap", auto: true }),
+    ).toEqual(["--repo", "/abs/repo", "--label", "snap", "--auto"]);
+    expect(checkpointCreateArgs({ paneId: "w1:p1" }, { auto: false })).toEqual([
+      "w1:p1",
+    ]);
+    expect(checkpointCreateArgs({ paneId: "w1:p1" })).toEqual(["w1:p1"]);
   });
 
   test("plan/restore: id positional, optional --repo, --force only on restore", () => {

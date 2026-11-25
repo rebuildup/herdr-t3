@@ -1,8 +1,9 @@
 # Contract: worktree checkpoints (B3)
 
-Version: 2. Scope: consuming `herdr-plugins.checkpoints/v1` through
+Version: 3. Scope: consuming `herdr-plugins.checkpoints/v1` through
 `plugin_call` (ADR-0011 boundary, ADR-0016 pin re-pinned by ADR-0017 at
-`rebuildup/herdr-plugins@c8dc3b3`). The plugin owns capture, hidden git
+`rebuildup/herdr-plugins@c8dc3b3`, re-pinned again by ADR-0020 at
+`rebuildup/herdr-plugins@55df8d0a`). The plugin owns capture, hidden git
 refs (`refs/herdr-plugins/checkpoints/<repo-key>/<id>`), the state
 index, and restore execution; herdr-t3 renders them and forwards
 explicit user operations only. Upstream spec:
@@ -14,9 +15,11 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 
 - `capability` → `{contract, commands, mutation_commands:["create","delete",
   "restore"], read_only:false, requires:{git,bun}}`.
-- `create [--repo PATH | <pane_id>] [--label TEXT]` → synthetic commit
-  parented to HEAD, stored under the hidden ref; `--repo` and a pane id
-  are mutually exclusive. Pane ids resolve through the herdr session
+- `create [--repo PATH | <pane_id>] [--label TEXT] [--auto]` → synthetic
+  commit parented to HEAD, stored under the hidden ref; `--repo` and a
+  pane id are mutually exclusive. `--auto` records `kind:"auto"` (an
+  explicit pane-targeted create also clears that pane's pending
+  auto-capture mark). Pane ids resolve through the herdr session
   snapshot plugin-side (same path as `rebuildup.git`).
 - `list [--repo PATH] [--limit N]` → entries newest-first
   (`created_at` desc), default limit 100, max 1000; `truncated`/`total`
@@ -55,6 +58,27 @@ Commands are flat `plugin_call` command words (no subcommand argv):
   sha256(canonical repo root)[:16]; `ref` =
   `refs/herdr-plugins/checkpoints/<repo_key>/<id>`; `commit` is a
   synthetic commit whose first parent is the captured HEAD.
+- `kind` records capture provenance: `"manual"` (explicit `create`),
+  `"auto"` (lazy work-unit drain or `create --auto`), `"pre_restore"`
+  (mandatory pre-restore safety capture). Entries written before
+  auto-capture carry no `kind` and are treated as `"manual"`; unknown
+  future kinds are preserved verbatim, never relabelled.
+- Work-unit auto-capture (herdr-plugins#74): `pane.agent_status_changed`
+  (`working → idle|done` edge, generation-guarded) and `pane.closed`
+  hooks only write capture-pending marks; EVERY command except
+  `capability`/`help` lazily drains them before its own work. Drain
+  outcomes appear as `auto_captures` on the payload (omitted when
+  empty): `{captured:[ids], skipped:[{pane_id,reason}],
+  session_unreachable}`. `skipped[].reason` is `stale_generation`,
+  `pane_or_agent_gone`, `no_pane_cwd` or a git/checkpoint error kind;
+  auto-capture never fails the command and an unreachable session
+  leaves marks pending. Granularity is herdr `agent_status`
+  work-units — NOT per-turn (no per-message turn signal exists
+  upstream). After pane-targeted captures the plugin projects
+  display-only `checkpoint_latest`/`checkpoint_count` pane metadata
+  tokens; this client does not consume them.
+- The UI surfaces `auto_captures` on every result path (list, create,
+  delete, show, diff, plan, restore) and badges `kind` on list/detail.
 - `show`/`plan` report `ref.exists:false` while still returning the
   entry — the ref may have been deleted out-of-band; the client renders
   that state, never drops the row.
@@ -69,9 +93,10 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 - Capture never touches the user's index/worktree (temporary
   `GIT_INDEX_FILE`); submodule gitlinks are recorded but submodule
   worktree contents are not captured or restored (record-and-warn).
-- v1 non-goals (herdr-plugins#74–#75): no turn-boundary auto-capture,
-  no multi-repo orchestration, no checkpoint GC, no private object
-  store/quarantine, no submodule worktree capture/restore.
+- v1 non-goals (herdr-plugins#75+): no per-turn (per-message)
+  auto-capture — work-unit captures key on `agent_status` transitions
+  only — no multi-repo orchestration, no checkpoint GC, no private
+  object store/quarantine, no submodule worktree capture/restore.
 
 ## Errors
 
@@ -95,7 +120,9 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 
 - No direct reads of plugin state files or hidden refs — resolution is
   the plugin's job.
-- No auto-capture/GC affordances — not in the v1 contract.
+- No GC or per-turn auto-capture affordances — not in the contract;
+  work-unit auto-capture is plugin-driven and its outcomes are only
+  surfaced, never triggered or fabricated client-side.
 - No implicit or automatic `--force` restore; forcing is always an
   explicit secondary user action.
 - No Electron/Node-only APIs in the consuming code — everything flows
@@ -108,7 +135,8 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 ## Evidence today
 
 `docs/adr/ADR-0016.md` (initial pin) + `docs/adr/ADR-0017.md` (re-pin +
-plan/restore scope). Implementation evidence:
+plan/restore scope) + `docs/adr/ADR-0020.md` (re-pin @55df8d0a +
+work-unit auto-capture). Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
 `src/components/CheckpointsDialog.tsx`, menu wiring in
 `src/shell/WorkspaceHeader.tsx`, error-field allowlist in
