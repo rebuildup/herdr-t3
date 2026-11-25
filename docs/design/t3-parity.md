@@ -48,7 +48,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @62309b9c (ADR-0012): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge `pr status|list|view|create` connected (#229, gh-gated: `gh_missing`/`gh_error` shown as reasons) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
-| Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @c8460283 (ADR-0014): registry UI → #252 |
+| Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @c8460283 (ADR-0014): registry UI connected (#252, capability-gated per host) |
 | Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI → #253; auto triggers upstream-gated (herdr-plugins#60) |
 | Checkpoints | [plugin]/blocked | no published contract at @c8460283 (herdr-plugins#4); #221 remainder |
 
