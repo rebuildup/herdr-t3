@@ -9,3 +9,6 @@ description = "Product-intended Rust codec for the herdr-t3 bridge<->client prot
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
