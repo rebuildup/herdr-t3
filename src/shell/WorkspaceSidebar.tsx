@@ -179,6 +179,7 @@ function WorkspaceRow({
     <button
       type="button"
       data-sidebar-row={workspace.workspace_id}
+      data-sidebar-workspace={workspace.workspace_id}
       onClick={() => selectWorkspace(machine.id, workspace.workspace_id)}
       className={cn(
         // Two-line hierarchy per info-architecture.md §7 (herdr spaces token

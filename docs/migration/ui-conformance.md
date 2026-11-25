@@ -16,6 +16,13 @@ and siblings; capabilities: `docs/migration/capabilities.json`.
 harness/ui/
   targets.json            semantic target registry (stable IDs)
   scenarios/<area>/*.json versioned scenarios
+  lib/                    runner + adapter interface (types.ts, runner.ts)
+  adapters/electron.ts    real-app driver over CDP (Input.dispatch* + uiObserve)
+  adapters/gpui.ts        JSON-lines client for the GPUI test host
+  evidence/<adapter>/     recorded run results (herdr-t3/ui-evidence v1)
+  run.ts                  scenario runner CLI
+crates/ui-test-host/      durable GPUI test host (real gpui window + input)
+scripts/ui-electron.sh    full-stack launcher: fixture herdr session -> bridge -> vite -> electron -> scenarios
 scripts/check-ui-scenarios.ts   validator (CI)
 ```
 
@@ -54,16 +61,32 @@ scripts/check-ui-scenarios.ts   validator (CI)
   screenshot comparison (when added) fixes viewport/theme/font/DPI and
   complements, never replaces, structural assertions.
 
-## Status (honest record — do not overstate)
+## Status
 
-- **Electron adapter: not yet implemented.** Requires a driver
-  decision (CDP vs Playwright vs accessibility tree). Scenarios are
-  currently spec-only; the validator keeps them well-formed.
-- **GPUI adapter: not built.** No GPUI test host exists in this repo;
-  per #238 acceptance, the "same scenario runs on a minimal GPUI test
-  host" evidence is **absent** and both-OS GPUI verification is
-  **unproven** — the UI conformance gate stays **BLOCKED** in the
-  readiness check (#241) until a spike produces that evidence.
-- Fault-injection coverage (focus loss, state not preserved, clipping)
-  is expressed as negative scenarios once adapters exist; until then
-  only format validation runs in CI.
+- **Electron adapter: implemented.** `harness/ui/adapters/electron.ts`
+  drives the real app over CDP (`Input.dispatchMouseEvent` for clicks and
+  wheel, `Runtime.evaluate` for observation via the read-only
+  `window.__herdrT3Ui.observe()` bridge in `src/lib/uiObserve.ts`). Launch
+  the stack with `scripts/ui-electron.sh`, which seeds an isolated herdr
+  fixture session — never the user's live session (AGENTS.md §3).
+- **GPUI adapter: implemented.** `crates/ui-test-host` is a durable test
+  host (not a throwaway demo): a real gpui window view with
+  `debug_selector`s matching the semantic targets, driven through
+  `TestAppContext` input simulation (`simulate_click`, `ScrollWheelEvent`
+  over `debug_bounds`). `harness/ui/adapters/gpui.ts` speaks JSON-lines
+  over stdio; `UI_INJECT_FAULT` mirrors the Electron fault names.
+- **Same scenarios, same verdicts.** `bun harness/ui/run.ts --adapter
+  electron|gpui` replays every scenario on both implementations and
+  records `herdr-t3/ui-evidence` v1 files under `harness/ui/evidence/`.
+- **Fault-injection proven.** `--inject-fault scroll-not-preserved` and
+  `--inject-fault selection-lost` make the session-switch scenario FAIL
+  on both adapters while unrelated scenarios still pass — the harness
+  detects real misbehavior rather than rubber-stamping. The readiness
+  gate (`scripts/check-migration-readiness.ts`, `ui-conformance`) requires
+  committed PASS evidence for every scenario on BOTH adapters plus FAIL
+  evidence for both faults before it reports PASS.
+- **Observation note.** Terminal scroll offsets are read from herdr's
+  `pane.scroll.offset_from_bottom` via `session.snapshot` — herdr owns
+  scrollback and `AttachScroll` moves the pane viewport server-side; the
+  local ghostty engine on an attach client never scrolls its own
+  viewport, so local engine state cannot observe it.
