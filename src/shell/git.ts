@@ -9,8 +9,9 @@
  * field names), so every parser tolerates additive fields and the drifted
  * names, and `gitCapability` reports which commands a host actually
  * advertises. The mutation/remote commands added by #228 (`stage` …
- * `push`, `remote`) live below the read surface; every control is gated
- * on the host's advertised capability sets.
+ * `push`, `remote`) live below the read surface, and the forge `pr`
+ * commands (#229) sit between them and capability; every control is
+ * gated on the host's advertised capability sets.
  *
  * Freshness is pull-based: callers refresh on open and on demand. The
  * contract's `project` metadata projection is a herdr-side concern and is
@@ -1076,6 +1077,384 @@ export async function gitRemote(
     });
   }
   return { pane_id: paneIdOut, repo_root: str(doc["repo_root"]), remotes };
+}
+
+/* ------------------------------- forge -------------------------------- */
+
+/*
+ * Forge surface (issue #229): `pr list|status|view|create` backed by the
+ * host's `gh` CLI (git-v1 @62309b9c). `pr` is one command with the action
+ * as the first positional and the pane second (`pr <action> <pane> …`);
+ * `--repo owner/name` overrides forge-repo detection for every action.
+ * `gh_missing`/`gh_error`/`timeout` arrive as plugin error kinds and are
+ * classified like repo errors — the UI shows the reason, never an empty
+ * result. `pr status` returning `pr: null` means "no open PR", which is
+ * a normal state, not a failure.
+ */
+
+export interface GitPrActor {
+  login: string | null;
+}
+
+/** `pr list` row — the plugin's fixed gh --json projection. */
+export interface GitPrSummary {
+  number: number;
+  title: string;
+  /** gh state: OPEN / CLOSED / MERGED. */
+  state: string;
+  isDraft: boolean;
+  author: GitPrActor;
+  headRefName: string;
+  baseRefName: string;
+  updatedAt: string | null;
+  url: string;
+}
+
+export interface GitPrCheck {
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
+  workflow: string | null;
+}
+
+export interface GitPrReview {
+  author: string | null;
+  state: string | null;
+  submittedAt: string | null;
+}
+
+/** Bounded `pr view`/`pr status` projection (plugin caps body/reviews/checks). */
+export interface GitPrView {
+  number: number;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  author: GitPrActor;
+  headRefName: string;
+  baseRefName: string;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  reviewDecision: string | null;
+  url: string;
+  body: string;
+  bodyTruncated: boolean;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  checks: GitPrCheck[];
+  checksTruncated: boolean;
+  reviews: GitPrReview[];
+}
+
+interface GitPrBase {
+  pane_id: string;
+  repo_root: string | null;
+  /** Forge repo `owner/name` as resolved by the plugin. */
+  repo: string | null;
+  generated_at: string | null;
+}
+
+export interface GitPrListResult extends GitPrBase {
+  action: "list";
+  prs: GitPrSummary[];
+}
+
+export interface GitPrStatusResult extends GitPrBase {
+  action: "status";
+  branch: string;
+  detached: boolean;
+  /** null = no open PR for the branch (normal state). */
+  pr: GitPrView | null;
+}
+
+export interface GitPrViewResult extends GitPrBase {
+  action: "view";
+  pr: GitPrView;
+}
+
+export interface GitPrCreateResult extends GitPrBase {
+  action: "create";
+  url: string;
+  number: number | null;
+}
+
+function gitPrActor(raw: unknown): GitPrActor {
+  if (typeof raw === "string") return { login: raw };
+  if (!isRecord(raw)) return { login: null };
+  return { login: str(raw["login"]) };
+}
+
+function gitPrSummaryFromDoc(raw: unknown): GitPrSummary | null {
+  if (!isRecord(raw)) return null;
+  const number = num(raw["number"]);
+  if (number === null) return null;
+  return {
+    number,
+    title: str(raw["title"]) ?? "",
+    state: str(raw["state"]) ?? "",
+    isDraft: raw["isDraft"] === true,
+    author: gitPrActor(raw["author"]),
+    headRefName: str(raw["headRefName"]) ?? "",
+    baseRefName: str(raw["baseRefName"]) ?? "",
+    updatedAt: str(raw["updatedAt"]),
+    url: str(raw["url"]) ?? "",
+  };
+}
+
+function gitPrViewFromDoc(raw: unknown): GitPrView | null {
+  if (!isRecord(raw)) return null;
+  const number = num(raw["number"]);
+  if (number === null) return null;
+  const checksRaw = Array.isArray(raw["statusCheckRollup"]) ? raw["statusCheckRollup"] : [];
+  const checks: GitPrCheck[] = [];
+  for (const c of checksRaw) {
+    if (!isRecord(c)) continue;
+    checks.push({
+      name: str(c["name"]),
+      status: str(c["status"]),
+      conclusion: str(c["conclusion"]),
+      workflow: str(c["workflow"]),
+    });
+  }
+  const reviewsRaw = Array.isArray(raw["reviews"]) ? raw["reviews"] : [];
+  const reviews: GitPrReview[] = [];
+  for (const r of reviewsRaw) {
+    if (!isRecord(r)) continue;
+    reviews.push({
+      author: str(r["author"]),
+      state: str(r["state"]),
+      submittedAt: str(r["submittedAt"]),
+    });
+  }
+  return {
+    number,
+    title: str(raw["title"]) ?? "",
+    state: str(raw["state"]) ?? "",
+    isDraft: raw["isDraft"] === true,
+    author: gitPrActor(raw["author"]),
+    headRefName: str(raw["headRefName"]) ?? "",
+    baseRefName: str(raw["baseRefName"]) ?? "",
+    mergeable: str(raw["mergeable"]),
+    mergeStateStatus: str(raw["mergeStateStatus"]),
+    reviewDecision: str(raw["reviewDecision"]),
+    url: str(raw["url"]) ?? "",
+    body: str(raw["body"]) ?? "",
+    bodyTruncated: raw["body_truncated"] === true,
+    additions: num(raw["additions"]),
+    deletions: num(raw["deletions"]),
+    changedFiles: num(raw["changedFiles"]),
+    createdAt: str(raw["createdAt"]),
+    updatedAt: str(raw["updatedAt"]),
+    checks,
+    checksTruncated: raw["checks_truncated"] === true,
+    reviews,
+  };
+}
+
+/**
+ * Shared projection for `pr` documents: foreign contracts, a mismatched
+ * `command`/`action`, or a missing `pane_id` all reject — callers must
+ * never render a foreign document as forge data.
+ */
+function gitPrBaseFromDoc(
+  doc: Record<string, unknown>,
+  action: "list" | "status" | "view" | "create",
+): GitPrBase | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "pr") return null;
+  if (doc["action"] !== action) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  return {
+    pane_id: paneId,
+    repo_root: str(doc["repo_root"]),
+    repo: str(doc["repo"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+export function gitPrListFromDoc(doc: Record<string, unknown>): GitPrListResult | null {
+  const base = gitPrBaseFromDoc(doc, "list");
+  if (base === null || !Array.isArray(doc["prs"])) return null;
+  const prs: GitPrSummary[] = [];
+  for (const raw of doc["prs"]) {
+    const pr = gitPrSummaryFromDoc(raw);
+    if (pr !== null) prs.push(pr);
+  }
+  return { ...base, action: "list", prs };
+}
+
+export function gitPrStatusFromDoc(doc: Record<string, unknown>): GitPrStatusResult | null {
+  const base = gitPrBaseFromDoc(doc, "status");
+  if (base === null) return null;
+  const branch = str(doc["branch"]);
+  if (branch === null) return null;
+  const prRaw = doc["pr"];
+  return {
+    ...base,
+    action: "status",
+    branch,
+    detached: doc["detached"] === true,
+    pr: prRaw === null || prRaw === undefined ? null : gitPrViewFromDoc(prRaw),
+  };
+}
+
+export function gitPrViewFromResultDoc(doc: Record<string, unknown>): GitPrViewResult | null {
+  const base = gitPrBaseFromDoc(doc, "view");
+  if (base === null) return null;
+  const pr = gitPrViewFromDoc(doc["pr"]);
+  if (pr === null) return null;
+  return { ...base, action: "view", pr };
+}
+
+export function gitPrCreateFromDoc(doc: Record<string, unknown>): GitPrCreateResult | null {
+  const base = gitPrBaseFromDoc(doc, "create");
+  if (base === null || doc["ok"] !== true) return null;
+  const url = str(doc["url"]);
+  if (url === null) return null;
+  return { ...base, action: "create", url, number: num(doc["number"]) };
+}
+
+export interface GitPrListOptions {
+  state?: "open" | "closed" | "merged" | "all" | undefined;
+  limit?: number | undefined;
+  head?: string | undefined;
+  repo?: string | undefined;
+}
+
+/** `pr list <pane> [--state] [--limit] [--head] [--repo]`. */
+export function gitPrListArgs(paneId: string, options: GitPrListOptions = {}): string[] {
+  const args = ["list", paneId];
+  if (options.state !== undefined) args.push("--state", options.state);
+  if (options.limit !== undefined) args.push("--limit", String(options.limit));
+  const head = options.head?.trim() ?? "";
+  if (head !== "") args.push("--head", head);
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  return args;
+}
+
+export interface GitPrCreateOptions {
+  title: string;
+  body?: string | undefined;
+  bodyFile?: string | undefined;
+  draft?: boolean | undefined;
+  base?: string | undefined;
+  head?: string | undefined;
+  repo?: string | undefined;
+}
+
+/**
+ * `pr create <pane> --title T [--body B | --body-file PATH] [--draft]
+ * [--base] [--head] [--repo]`. The branch must already be pushed; gh's
+ * own push/prompt flow is not driven (GH_PROMPT_DISABLED plugin-side).
+ */
+export function gitPrCreateArgs(paneId: string, options: GitPrCreateOptions): string[] {
+  const args = ["create", paneId, "--title", options.title];
+  if (options.body !== undefined && options.bodyFile === undefined) {
+    args.push("--body", options.body);
+  }
+  if (options.bodyFile !== undefined) args.push("--body-file", options.bodyFile);
+  if (options.draft === true) args.push("--draft");
+  const base = options.base?.trim() ?? "";
+  if (base !== "") args.push("--base", base);
+  const head = options.head?.trim() ?? "";
+  if (head !== "") args.push("--head", head);
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  return args;
+}
+
+function prBadOutput(action: string): Error {
+  const error = new Error(`git plugin returned an unrecognized pr ${action} document`);
+  (error as { code?: string }).code = "plugin_bad_output";
+  return error;
+}
+
+async function callGitPr(
+  machine: string,
+  args: string[],
+): Promise<Record<string, unknown>> {
+  return pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "pr",
+    args,
+    timeout_ms: GIT_REMOTE_TIMEOUT_MS,
+  });
+}
+
+/** `pr list` — open PRs by default; state/head/repo are optional filters. */
+export async function fetchGitPrList(
+  machine: string,
+  paneId: string,
+  options: GitPrListOptions = {},
+): Promise<GitPrListResult> {
+  const doc = await callGitPr(machine, gitPrListArgs(paneId, options));
+  const result = gitPrListFromDoc(doc);
+  if (result === null) throw prBadOutput("list");
+  return result;
+}
+
+/** `pr status` — the current branch's open PR, or `pr: null` when none. */
+export async function fetchGitPrStatus(
+  machine: string,
+  paneId: string,
+  options: { repo?: string | undefined } = {},
+): Promise<GitPrStatusResult> {
+  const args = ["status", paneId];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  const doc = await callGitPr(machine, args);
+  const result = gitPrStatusFromDoc(doc);
+  if (result === null) throw prBadOutput("status");
+  return result;
+}
+
+/** `pr view <pane> <number>` — bounded detail projection. */
+export async function fetchGitPrView(
+  machine: string,
+  paneId: string,
+  number: number,
+  options: { repo?: string | undefined } = {},
+): Promise<GitPrViewResult> {
+  const args = ["view", paneId, String(number)];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  const doc = await callGitPr(machine, args);
+  const result = gitPrViewFromResultDoc(doc);
+  if (result === null) throw prBadOutput("view");
+  return result;
+}
+
+/** `pr create` — the only forge mutation; requires a title. */
+export async function gitPrCreate(
+  machine: string,
+  paneId: string,
+  options: GitPrCreateOptions,
+): Promise<GitPrCreateResult> {
+  const doc = await callGitPr(machine, gitPrCreateArgs(paneId, options));
+  const result = gitPrCreateFromDoc(doc);
+  if (result === null) throw prBadOutput("create");
+  return result;
+}
+
+/** gh/forge error kinds preserved through plugin_call (issue #229). */
+const FORGE_ERROR_KINDS = new Set(["gh_missing", "gh_error"]);
+
+/**
+ * Forge-aware classification: `gh_missing`/`gh_error` keep their plugin
+ * kind so the UI can say "install/authenticate gh" instead of a generic
+ * git error. Everything else delegates to `classifyGitError`.
+ */
+export function classifyForgeError(error: unknown): GitStatusState & { kind: "unavailable" | "repo_error" } {
+  const code = (error as { code?: string })?.code ?? "";
+  if (FORGE_ERROR_KINDS.has(code)) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { kind: "repo_error", code, detail };
+  }
+  return classifyGitError(error);
 }
 
 /* ---------------------------- capability ------------------------------ */

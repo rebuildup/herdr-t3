@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -23,16 +23,21 @@ import {
 } from "./ui/dialog";
 import { focusPaneTerminal } from "../lib/paneFocus";
 import {
+  classifyForgeError,
   classifyGitError,
   fetchGitCompare,
   fetchGitDiff,
   fetchGitFiles,
   fetchGitLog,
+  fetchGitPrList,
+  fetchGitPrStatus,
+  fetchGitPrView,
   gitBranchCreate,
   gitBranchSwitch,
   gitCapability,
   gitCommit,
   gitFetch,
+  gitPrCreate,
   gitPush,
   gitRemote,
   gitStage,
@@ -45,6 +50,10 @@ import {
   type GitFileEntry,
   type GitFilesResult,
   type GitLogCommit,
+  type GitPrListResult,
+  type GitPrStatusResult,
+  type GitPrView,
+  type GitPrViewResult,
   type GitRemoteResult,
   type GitStatusState,
 } from "../shell/git";
@@ -67,6 +76,8 @@ const REPO_ERROR_LABELS: Record<string, string> = {
   timeout: "git command timed out",
   usage: "invalid git arguments",
   git_error: "git error",
+  gh_missing: "gh CLI not found on the host",
+  gh_error: "gh error — check `gh auth status` on the host",
 };
 
 function repoErrorLabel(code: string): string {
@@ -74,8 +85,11 @@ function repoErrorLabel(code: string): string {
 }
 
 /** One-line classified reason for a failed plugin call. */
-function gitErrorText(error: unknown): string {
-  const classified = classifyGitError(error);
+function gitErrorText(
+  error: unknown,
+  classify: (e: unknown) => ReturnType<typeof classifyGitError> = classifyGitError,
+): string {
+  const classified = classify(error);
   if (classified.kind === "unavailable") {
     return (
       UNAVAILABLE_LABELS[classified.reason] ??
@@ -1372,9 +1386,518 @@ function SyncSection({
   );
 }
 
+/* ------------------------------- Forge (pr) ---------------------------- */
+
+/**
+ * Forge surface (issue #229): `pr status|list|view|create` via the host's
+ * `gh` CLI. Reads gate on `commands`, `pr create` on
+ * `mutation_commands` (the plugin lists `pr` in both). `gh_missing` /
+ * `gh_error` surface as classified reasons; `pr: null` on status is the
+ * normal "no open PR" state. `--repo owner/name` is an optional override
+ * applied to every call (a ref mirrors state into the stable callbacks).
+ */
+const PR_LIST_STATES = ["open", "closed", "merged", "all"] as const;
+type PrListState = (typeof PR_LIST_STATES)[number];
+
+function prBadge(state: string, isDraft: boolean) {
+  return (
+    <>
+      {isDraft ? (
+        <Badge size="sm" variant="outline">
+          draft
+        </Badge>
+      ) : null}
+      {state !== "" ? (
+        <Badge size="sm" variant={state === "OPEN" ? "secondary" : "outline"}>
+          {state.toLowerCase()}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
+function PrSummaryRow({
+  pr,
+  selected,
+  onSelect,
+}: {
+  pr: GitPrView | { number: number; title: string; state: string; isDraft: boolean; author: { login: string | null }; headRefName: string; baseRefName: string; updatedAt: string | null };
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- composite row selection, same pattern as file rows
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full min-w-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
+        selected ? "bg-accent" : ""
+      }`}
+    >
+      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+        #{pr.number}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{pr.title}</span>
+      <span className="flex shrink-0 items-center gap-1">{prBadge(pr.state, pr.isDraft)}</span>
+      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+        {pr.headRefName}→{pr.baseRefName}
+      </span>
+    </button>
+  );
+}
+
+function PrViewDetail({ view }: { view: GitPrView }) {
+  return (
+    <div className="flex max-h-96 flex-col gap-2 overflow-auto pr-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-xs font-medium">#{view.number}</span>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{view.title}</span>
+        {prBadge(view.state, view.isDraft)}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-2xs text-muted-foreground">
+        {view.author.login !== null ? <span>@{view.author.login}</span> : null}
+        <span className="font-mono">
+          {view.headRefName} → {view.baseRefName}
+        </span>
+        {view.additions !== null || view.deletions !== null ? (
+          <span className="font-mono">
+            +{view.additions ?? 0} −{view.deletions ?? 0}
+            {view.changedFiles !== null ? ` · ${view.changedFiles} files` : ""}
+          </span>
+        ) : null}
+        {view.mergeable !== null ? <span>mergeable: {view.mergeable}</span> : null}
+        {view.mergeStateStatus !== null ? <span>{view.mergeStateStatus}</span> : null}
+        {view.reviewDecision !== null ? <span>review: {view.reviewDecision}</span> : null}
+      </div>
+      {view.url !== "" ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={<div className="truncate font-mono text-2xs text-muted-foreground" />}
+          >
+            {view.url}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" className="max-w-96 break-all">
+            {view.url}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+      {view.body.trim() !== "" ? (
+        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-2xs whitespace-pre-wrap break-words">
+          {view.body}
+        </pre>
+      ) : null}
+      {view.bodyTruncated ? (
+        <div className="text-2xs text-muted-foreground">body truncated at 8000 chars</div>
+      ) : null}
+      {view.checks.length > 0 || view.checksTruncated ? (
+        <div className="flex flex-col gap-0.5">
+          <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+            Checks{view.checksTruncated ? " (truncated)" : ""}
+          </div>
+          {view.checks.map((check, i) => (
+            <div key={`${check.name ?? ""}-${i}`} className="flex items-baseline gap-1.5 px-1 text-2xs">
+              <span className="min-w-0 flex-1 truncate">{check.name ?? "check"}</span>
+              <span className="shrink-0 font-mono text-muted-foreground">
+                {check.conclusion ?? check.status ?? ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {view.reviews.length > 0 ? (
+        <div className="flex flex-col gap-0.5">
+          <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+            Reviews (latest {view.reviews.length})
+          </div>
+          {view.reviews.map((review, i) => (
+            <div key={`${review.author ?? ""}-${i}`} className="flex items-baseline gap-1.5 px-1 text-2xs">
+              <span className="shrink-0">{review.author ?? "unknown"}</span>
+              <span className="shrink-0 font-mono text-muted-foreground">{review.state ?? ""}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {relativeTime(review.submittedAt)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ForgeSection({
+  machine,
+  paneId,
+  cap,
+  refreshKey,
+  onChanged,
+}: {
+  machine: string;
+  paneId: string;
+  cap: GitCapability | null | undefined;
+  refreshKey: number;
+  onChanged: () => void;
+}) {
+  const readSupported = supports(cap, "pr");
+  const createSupported = supportsMutation(cap, "pr");
+  const forgeError = (e: unknown) => gitErrorText(e, classifyForgeError);
+
+  const repoRef = useRef("");
+  const [repoInput, setRepoInput] = useState("");
+  const setRepo = (value: string) => {
+    repoRef.current = value;
+    setRepoInput(value);
+  };
+  const repoArg = () => {
+    const repo = repoRef.current.trim();
+    return repo === "" ? undefined : repo;
+  };
+
+  const [status, setStatus] = useState<GitPrStatusResult | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+
+  const [listState, setListState] = useState<PrListState>("open");
+  const headRef = useRef("");
+  const [headFilter, setHeadFilter] = useState("");
+  const setHeadQuery = (value: string) => {
+    headRef.current = value;
+    setHeadFilter(value);
+  };
+  const [list, setList] = useState<GitPrListResult | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [listLoaded, setListLoaded] = useState(false);
+
+  const [selected, setSelected] = useState<number | null>(null);
+  const [view, setView] = useState<GitPrViewResult | null>(null);
+  const [viewError, setViewError] = useState<string | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+
+  const loadStatus = useCallback(() => {
+    setStatusLoading(true);
+    setStatusError(null);
+    fetchGitPrStatus(machine, paneId, { repo: repoArg() })
+      .then((r) => {
+        setStatus(r);
+        setStatusLoaded(true);
+      })
+      .catch((err: unknown) => {
+        setStatus(null);
+        setStatusLoaded(true);
+        setStatusError(forgeError(err));
+      })
+      .finally(() => setStatusLoading(false));
+    // repoArg reads the ref — repo edits do not retrigger loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machine, paneId]);
+
+  const loadList = useCallback(() => {
+    setListLoading(true);
+    setListError(null);
+    fetchGitPrList(machine, paneId, {
+      state: listState,
+      head: headRef.current.trim() === "" ? undefined : headRef.current.trim(),
+      repo: repoArg(),
+    })
+      .then((r) => {
+        setList(r);
+        setListLoaded(true);
+      })
+      .catch((err: unknown) => {
+        setList(null);
+        setListLoaded(true);
+        setListError(forgeError(err));
+      })
+      .finally(() => setListLoading(false));
+    // headFilter/repoArg read refs — text edits do not retrigger loads;
+    // Enter or Reload applies the head filter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machine, paneId, listState]);
+
+  const loadView = useCallback(
+    (number: number) => {
+      setViewLoading(true);
+      setViewError(null);
+      fetchGitPrView(machine, paneId, number, { repo: repoArg() })
+        .then(setView)
+        .catch((err: unknown) => {
+          setView(null);
+          setViewError(forgeError(err));
+        })
+        .finally(() => setViewLoading(false));
+      // repoArg reads a ref — repo edits do not retrigger view loads.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- repoArg is ref-backed
+    },
+    [machine, paneId],
+  );
+
+  const loadAll = useCallback(() => {
+    loadStatus();
+    loadList();
+  }, [loadStatus, loadList]);
+
+  useEffect(() => {
+    if (readSupported === true) loadAll();
+  }, [readSupported, loadAll, refreshKey]);
+
+  const afterMutation = useCallback(() => {
+    onChanged();
+    loadStatus();
+    loadList();
+    if (selected !== null) loadView(selected);
+  }, [onChanged, loadStatus, loadList, loadView, selected]);
+
+  const createMut = useGitMutation(afterMutation);
+  const [showCreate, setShowCreate] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [draft, setDraft] = useState(false);
+  const [base, setBase] = useState("");
+  const [head, setHead] = useState("");
+
+  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
+  if (readSupported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
+  if (readSupported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-1">
+            <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+              Current branch
+            </div>
+            <Button size="xs" variant="ghost" disabled={statusLoading} onClick={loadStatus}>
+              {statusLoading ? "loading…" : "Refresh"}
+            </Button>
+          </div>
+          {!statusLoaded && statusLoading ? (
+            <SectionMessage>loading…</SectionMessage>
+          ) : statusError !== null ? (
+            <SectionMessage>status unavailable: {statusError}</SectionMessage>
+          ) : status !== null ? (
+            <div className="flex flex-col gap-1 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono">{status.branch}</span>
+                {status.detached ? (
+                  <Badge size="sm" variant="outline">
+                    detached
+                  </Badge>
+                ) : null}
+                {status.repo !== null ? (
+                  <span className="font-mono text-2xs text-muted-foreground">{status.repo}</span>
+                ) : null}
+              </div>
+              {status.pr !== null ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-2xs text-muted-foreground">
+                    #{status.pr.number}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{status.pr.title}</span>
+                  {prBadge(status.pr.state, status.pr.isDraft)}
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelected(status.pr!.number);
+                      loadView(status.pr!.number);
+                    }}
+                  >
+                    View
+                  </Button>
+                </div>
+              ) : (
+                <SectionMessage>no open PR for this branch</SectionMessage>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-1">
+            <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+              Pull requests
+            </div>
+            <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadList}>
+              {listLoading ? "loading…" : "Reload"}
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Select
+              value={listState}
+              onValueChange={(v) => {
+                if (v !== null) setListState(v as PrListState);
+              }}
+            >
+              <SelectTrigger className="w-24" aria-label="PR state filter">
+                <SelectValue>{listState}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {PR_LIST_STATES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={headFilter}
+              onChange={(e) => setHeadQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadList();
+              }}
+              placeholder="head branch (optional)"
+              size="compact"
+              font="mono"
+              className="w-40"
+              aria-label="Filter by head branch"
+            />
+          </div>
+          <Input
+            value={repoInput}
+            onChange={(e) => setRepo(e.currentTarget.value)}
+            placeholder="repo override owner/name (optional)"
+            size="compact"
+            font="mono"
+            aria-label="Forge repo override"
+          />
+          {!listLoaded && listLoading ? (
+            <SectionMessage>loading…</SectionMessage>
+          ) : listError !== null ? (
+            <SectionMessage>list unavailable: {listError}</SectionMessage>
+          ) : list !== null ? (
+            list.prs.length === 0 ? (
+              <SectionMessage>no pull requests</SectionMessage>
+            ) : (
+              <div className="flex max-h-56 flex-col gap-0.5 overflow-auto">
+                {list.prs.map((pr) => (
+                  <PrSummaryRow
+                    key={pr.number}
+                    pr={pr}
+                    selected={selected === pr.number}
+                    onSelect={() => {
+                      setSelected(pr.number);
+                      loadView(pr.number);
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          ) : null}
+        </div>
+
+        {createSupported === true ? (
+          <div className="flex flex-col gap-2">
+            <Button
+              size="xs"
+              variant="ghost"
+              className="self-start"
+              onClick={() => setShowCreate((v) => !v)}
+            >
+              {showCreate ? "Hide new PR form" : "New pull request"}
+            </Button>
+            {showCreate ? (
+              <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.currentTarget.value)}
+                  placeholder="Title (required)"
+                  size="compact"
+                  aria-label="Pull request title"
+                />
+                <Textarea
+                  value={body}
+                  onChange={(e) => setBody(e.currentTarget.value)}
+                  placeholder="Body (optional)"
+                  aria-label="Pull request body"
+                  className="min-h-16"
+                />
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Input
+                    value={base}
+                    onChange={(e) => setBase(e.currentTarget.value)}
+                    placeholder="base branch"
+                    size="compact"
+                    font="mono"
+                    className="w-32"
+                    aria-label="Base branch"
+                  />
+                  <Input
+                    value={head}
+                    onChange={(e) => setHead(e.currentTarget.value)}
+                    placeholder="head branch"
+                    size="compact"
+                    font="mono"
+                    className="w-32"
+                    aria-label="Head branch"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <Switch
+                      size="sm"
+                      checked={draft}
+                      onCheckedChange={(checked) => setDraft(checked === true)}
+                      aria-label="Draft pull request"
+                    />
+                    <Label className="cursor-pointer">draft</Label>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    className="ml-auto"
+                    disabled={createMut.busy || title.trim() === ""}
+                    onClick={() =>
+                      void createMut.run(async () => {
+                        const r = await gitPrCreate(machine, paneId, {
+                          title: title.trim(),
+                          body: body === "" ? undefined : body,
+                          draft,
+                          base: base.trim() === "" ? undefined : base.trim(),
+                          head: head.trim() === "" ? undefined : head.trim(),
+                          repo: repoArg(),
+                        });
+                        setTitle("");
+                        setBody("");
+                        setBase("");
+                        setHead("");
+                        setDraft(false);
+                        return `created ${r.number !== null ? `#${r.number} ` : ""}${r.url}`;
+                      })
+                    }
+                  >
+                    {createMut.busy ? "Creating…" : "Create PR"}
+                  </Button>
+                </div>
+                <MutationFeedback error={createMut.error} notice={createMut.notice} />
+              </div>
+            ) : null}
+          </div>
+        ) : createSupported === null ? null : (
+          <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>
+        )}
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+          {selected !== null ? `PR #${selected}` : "Pull request"}
+        </div>
+        {selected === null ? (
+          <SectionMessage>select a pull request to view it</SectionMessage>
+        ) : viewLoading && view === null ? (
+          <SectionMessage>loading…</SectionMessage>
+        ) : viewError !== null ? (
+          <SectionMessage>view unavailable: {viewError}</SectionMessage>
+        ) : view !== null && view.pr.number === selected ? (
+          <PrViewDetail view={view.pr} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------- dialog ------------------------------- */
 
-type Section = "changes" | "commit" | "history" | "compare" | "sync";
+type Section = "changes" | "commit" | "history" | "compare" | "sync" | "pr";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "changes", label: "Changes" },
@@ -1382,13 +1905,15 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "history", label: "History" },
   { id: "compare", label: "Compare" },
   { id: "sync", label: "Sync" },
+  { id: "pr", label: "PRs" },
 ];
 
 /**
- * Source Control surface (issues #220/#227/#228, ADR-0011/ADR-0012):
+ * Source Control surface (issues #220/#227/#228/#229, ADR-0011/ADR-0012):
  * git status, files/diff, log and compare reads plus explicit-only
  * mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote`
- * list) for the focused pane, served by the host's `rebuildup.git`
+ * list) and the forge `pr` surface (status/list/view/create via the
+ * host's `gh`) for the focused pane, served by the host's `rebuildup.git`
  * plugin (`herdr-plugins.git/v1` pinned at 62309b9c). Each section
  * lazy-loads and gates on the host's advertised `capability.commands` /
  * `mutation_commands`; Stage-1 plugins simply hide the mutation
@@ -1488,6 +2013,15 @@ export function GitDialog({
                   paneId={paneId}
                   state={status}
                   cap={cap}
+                  onChanged={() => setRefreshKey((k) => k + 1)}
+                />
+              ) : null}
+              {section === "pr" ? (
+                <ForgeSection
+                  machine={machine}
+                  paneId={paneId}
+                  cap={cap}
+                  refreshKey={refreshKey}
                   onChanged={() => setRefreshKey((k) => k + 1)}
                 />
               ) : null}
