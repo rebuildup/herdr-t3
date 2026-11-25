@@ -87,7 +87,8 @@ async function main(): Promise<number> {
           adapter: "rust",
           pass: false,
           steps: [],
-          error: "rust diff-adapter unavailable (cargo toolchain or DIFF_ADAPTER_BIN required)",
+          error:
+            "rust adapters unavailable (cargo toolchain, DIFF_ADAPTER_BIN and/or PROTOCOL_CODEC_BIN required)",
         });
         continue;
       }

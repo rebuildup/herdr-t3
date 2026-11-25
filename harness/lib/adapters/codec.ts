@@ -15,6 +15,7 @@ import {
   msgAttachTerminal,
   terminalHello,
 } from "../../../server/client-link.ts";
+import { isClientFrame } from "../../../shared/protocol.ts";
 import type { Adapter, Observation } from "../types.ts";
 
 function hex(bytes: number[] | Uint8Array): string {
@@ -47,6 +48,60 @@ function str(input: Record<string, unknown>, key: string): string {
   return v;
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * `ServerFrame` type tags (shared/protocol.ts). The current client casts
+ * `JSON.parse` results with no runtime validation, so this op-level check
+ * is the contract boundary both adapters implement: known `type` plus the
+ * envelope fields the typed codec requires. Deliberately *not* a full
+ * re-validation of every payload field — deep payload checks live in the
+ * `json_parse_snapshot` op and in Rust unit tests.
+ */
+const SERVER_FRAME_TYPES = new Set([
+  "ready",
+  "snapshot",
+  "event",
+  "rpc_result",
+  "terminal_data",
+  "terminal_mouse_capture",
+  "terminal_closed",
+  "machines",
+  "machine_status",
+]);
+
+function isStr(v: unknown): v is string {
+  return typeof v === "string";
+}
+
+function serverFrameShapeOk(frame: Record<string, unknown>): boolean {
+  const str = (k: string) => isStr(frame[k]);
+  switch (frame["type"]) {
+    case "ready":
+    case "snapshot":
+      return isPlainObject(frame["snapshot"]) && str("machine");
+    case "event":
+      // `event` is a required field of any JSON value (including null).
+      return "event" in frame && str("machine");
+    case "rpc_result":
+      return str("id") && typeof frame["ok"] === "boolean";
+    case "terminal_data":
+      return str("paneId") && str("data") && str("machine");
+    case "terminal_mouse_capture":
+      return str("paneId") && typeof frame["enabled"] === "boolean" && str("machine");
+    case "terminal_closed":
+      return str("paneId") && str("machine");
+    case "machines":
+      return Array.isArray(frame["machines"]);
+    case "machine_status":
+      return isPlainObject(frame["machine"]);
+    default:
+      return false;
+  }
+}
+
 const OPS = new Set([
   "varint_encode",
   "varint_decode",
@@ -58,6 +113,10 @@ const OPS = new Set([
   "encode_attach_terminal",
   "encode_attach_scroll",
   "encode_attach_mouse",
+  "json_is_client_frame",
+  "json_encode_client_frame",
+  "json_decode_server_frame",
+  "json_parse_snapshot",
 ]);
 
 export const codecAdapter: Adapter = {
@@ -151,6 +210,42 @@ export const codecAdapter: Adapter = {
               ),
             ),
           });
+        }
+        /* ---- json_* ops: protocol.codec capability (issue #275) ----
+         * These wrap the real shared/protocol.ts surface. Where the
+         * current implementation has no runtime validator (ServerFrame
+         * decode is a bare cast, SessionSnapshot parse is a cast), the
+         * op implements the contract-level check both adapters share;
+         * deep typed strictness beyond that lives in Rust unit tests. */
+        case "json_is_client_frame":
+          return ok({ valid: isClientFrame(input["frame"]) });
+        case "json_encode_client_frame": {
+          const frame = input["frame"];
+          if (!isClientFrame(frame)) throw new Error("invalid client frame");
+          return ok({ frame });
+        }
+        case "json_decode_server_frame": {
+          const text = str(input, "json");
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            throw new Error("malformed server frame");
+          }
+          if (
+            !isPlainObject(parsed) ||
+            !isStr(parsed["type"]) ||
+            !SERVER_FRAME_TYPES.has(parsed["type"]) ||
+            !serverFrameShapeOk(parsed)
+          ) {
+            throw new Error("malformed server frame");
+          }
+          return ok({ frame: parsed });
+        }
+        case "json_parse_snapshot": {
+          const snapshot = input["snapshot"];
+          if (!isPlainObject(snapshot)) throw new Error("snapshot must be an object");
+          return ok({ snapshot });
         }
         default:
           return fail(`ts codec adapter: unknown op "${op}"`);
