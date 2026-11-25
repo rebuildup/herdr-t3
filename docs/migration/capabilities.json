@@ -1068,12 +1068,22 @@
         "ctrl+c+pane close on stop",
         "run records persisted plugin-side"
       ],
-      "scenarios": [],
-      "evidence": [],
-      "stage": "contract-defined",
+      "scenarios": [
+        "src/shell/projectScripts.test.ts"
+      ],
+      "evidence": [
+        "src/shell/projectScripts.ts",
+        "src/components/ProjectScriptsDialog.tsx",
+        "src/shell/WorkspaceHeader.tsx",
+        "docs/migration/contracts/plugin-projects.md",
+        "docs/adr/ADR-0014.md"
+      ],
+      "stage": "current-verified",
       "status": {
-        "implemented": false,
-        "known_issues": [],
+        "implemented": true,
+        "known_issues": [
+          "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert — no upstream execution mapping (herdr-plugins#60)"
+        ],
         "os_gaps": [],
         "upstream_deps": [
           "herdr-plugins.projects/v1 @c8460283",

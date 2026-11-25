@@ -20,6 +20,7 @@ import {
   PencilIcon,
   PlusIcon,
   Rows2,
+  SquarePlayIcon,
   SquareSplitHorizontalIcon,
   XIcon,
 } from "lucide-react";
@@ -64,6 +65,7 @@ import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
+import { ProjectScriptsDialog } from "~/components/ProjectScriptsDialog";
 import { GitDialog } from "~/components/GitDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
@@ -106,6 +108,7 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
+  const [projectScriptsOpen, setProjectScriptsOpen] = useState(false);
   const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
@@ -609,6 +612,9 @@ export function WorkspaceHeader() {
               >
                 <FolderGit2Icon /> Source Control…
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProjectScriptsOpen(true)}>
+                <SquarePlayIcon /> Project Scripts…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
                 <GitBranchIcon /> Worktrees…
               </DropdownMenuItem>
@@ -644,6 +650,12 @@ export function WorkspaceHeader() {
           machine={machine}
           workspace={workspace}
           onClose={() => setWorktreesOpen(false)}
+        />
+      ) : null}
+      {projectScriptsOpen ? (
+        <ProjectScriptsDialog
+          machine={machine}
+          onClose={() => setProjectScriptsOpen(false)}
         />
       ) : null}
     </>
