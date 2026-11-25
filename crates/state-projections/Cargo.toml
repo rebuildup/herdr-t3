@@ -1,0 +1,15 @@
+[package]
+name = "state-projections"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Product-intended Rust state projections for herdr-t3 (issue #281): pure derivations over SessionSnapshot mirroring src/lib/workspace.ts and src/shell/agents.ts — deriveWorkspace/workspaceTitle/paneTitle and the agent shelf projection (collectAgentEntries/partitionAgents and helpers). Depends on protocol-codec types."
+
+[dependencies]
+protocol-codec = { path = "../protocol-codec" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }

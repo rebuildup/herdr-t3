@@ -12,14 +12,17 @@ import type { Adapter, Observation } from "./types.ts";
  *   (bincode-2 varint frames). Proves the harness pattern.
  * - `crates/protocol-codec` (`protocol-codec-adapter` bin) — the
  *   product-intended protocol.codec implementation (issue #275).
+ * - `crates/state-projections` (`state-projections-adapter` bin) — the
+ *   product-intended state projections (issue #281).
  *
  * Both read a batch of steps as JSON and emit observations in the same
  * shape as the TS adapters, so the same fixtures and the same comparator
  * judge both sides. Steps are partitioned per binary and reassembled by
  * index, so scenarios may mix op families freely.
  *
- * Binary resolution: $DIFF_ADAPTER_BIN / $PROTOCOL_CODEC_BIN, else
- * target/debug/<name>, built on demand via cargo when available.
+ * Binary resolution: $DIFF_ADAPTER_BIN / $PROTOCOL_CODEC_BIN /
+ * $STATE_PROJECTIONS_BIN, else target/debug/<name>, built on demand via
+ * cargo when available.
  */
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -59,6 +62,13 @@ const JSON_CODEC_OPS = new Set([
   "json_parse_snapshot",
 ]);
 
+/** state-projection ops served by the product crate (issue #281). */
+const PROJECTION_OPS = new Set([
+  "derive_workspace",
+  "agent_entries",
+  "agent_partition",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -75,6 +85,14 @@ const BINS: RustBin[] = [
     envVar: "PROTOCOL_CODEC_BIN",
     fileName: "protocol-codec-adapter",
     label: "protocol-codec-adapter",
+  },
+  {
+    ops: PROJECTION_OPS,
+    path: null,
+    package: "state-projections",
+    envVar: "STATE_PROJECTIONS_BIN",
+    fileName: "state-projections-adapter",
+    label: "state-projections-adapter",
   },
 ];
 

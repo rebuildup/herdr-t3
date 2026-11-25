@@ -4,9 +4,10 @@
   "id": "projection.agent-entries-partition",
   "capability": "agent.projection",
   "contract": "agent-inbox@1",
-  "oracle": "spec",
+  "oracle": "differential",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "steps": [
     {
@@ -232,7 +233,10 @@
               "display_name": "Claude",
               "work_target": "vim",
               "workspace_title": "main",
-              "tab_label": ""
+              "tab_label": "",
+              "state_label": "blocked",
+              "aux_labels": [],
+              "row_signature": "local\u001fmain\u001f\u001fClaude\u001fvim"
             },
             {
               "key": "local\nw1:p1",
@@ -243,7 +247,10 @@
               "display_name": "Codex",
               "work_target": "bun test",
               "workspace_title": "main",
-              "tab_label": ""
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [],
+              "row_signature": "local\u001fmain\u001f\u001fCodex\u001fbun test"
             }
           ]
         }
@@ -275,7 +282,10 @@
                 "display_name": "Claude",
                 "work_target": "vim",
                 "workspace_title": "main",
-                "tab_label": ""
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "local\u001fmain\u001f\u001fClaude\u001fvim"
               }
             ],
             "working": [
@@ -288,7 +298,10 @@
                 "display_name": "Codex",
                 "work_target": "bun test",
                 "workspace_title": "main",
-                "tab_label": ""
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "local\u001fmain\u001f\u001fCodex\u001fbun test"
               }
             ],
             "done": [],
@@ -326,7 +339,10 @@
                 "display_name": "Claude",
                 "work_target": "vim",
                 "workspace_title": "main",
-                "tab_label": ""
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "local\u001fmain\u001f\u001fClaude\u001fvim"
               }
             ],
             "working": [
@@ -339,7 +355,10 @@
                 "display_name": "Codex",
                 "work_target": "bun test",
                 "workspace_title": "main",
-                "tab_label": ""
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "local\u001fmain\u001f\u001fCodex\u001fbun test"
               }
             ],
             "done": [],

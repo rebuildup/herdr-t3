@@ -39,9 +39,14 @@ report.
    remaining exit work is `switched` (a Rust bridge consumer) — a later
    boundary ticket, not this one.
 2. **state projections** (`agent.projection`, workspace derive, B3):
-   pure functions over SessionSnapshot; harness `projection.*`
-   scenarios exist. Exit: same scenarios on Rust impl + perf baseline
-   comparison for projection hot paths.
+   **landed** (#281). `crates/state-projections` ports the full
+   `workspace.ts`/`agents.ts` surface; `projection.*` scenarios pass on
+   TS + Rust (differential, incl. organize overlay/unresolved-machine
+   pruning), unit + property tests cover the ported cases. Registry
+   stage `rust-implemented`; `switched` awaits a Rust consumer. Perf
+   spot-check recorded on the ticket PR (derive ~300–490 ns/op,
+   collect+partition ~3.4–11 µs/op TS vs Rust — clone overhead noted,
+   revisit with the consumer if it matters).
 3. **terminal engine/frame** (`terminal.*`, B5): libghostty-vt port is
    the heavy lift; `terminal-session@1` contract + terminal scenarios
    (screen/modes/input/scrollback/resize) are the oracle. Exit:

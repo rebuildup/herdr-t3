@@ -5,8 +5,11 @@
  */
 import type { MachineInfo, SessionSnapshot } from "../../../shared/protocol.ts";
 import {
+  agentAuxStateLabels,
   agentDisplayName,
   agentOrganizeKey,
+  agentRowSignature,
+  agentStateLabel,
   agentStateSeq,
   agentWorkTarget,
   collectAgentEntries,
@@ -49,6 +52,9 @@ function summarizeEntry(entry: AgentListEntry): Record<string, unknown> {
     work_target: agentWorkTarget(entry.agent, entry.pane),
     workspace_title: entry.workspaceTitle,
     tab_label: entry.tabLabel,
+    state_label: agentStateLabel(entry.agent),
+    aux_labels: agentAuxStateLabels(entry.agent),
+    row_signature: agentRowSignature(entry),
   };
 }
 

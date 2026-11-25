@@ -1,14 +1,24 @@
 {
   "format": "herdr-t3/recorded-manifest",
   "version": 1,
-  "recorded_at": "2026-11-25T05:52:55.115Z",
+  "recorded_at": "2026-11-25T07:33:44.450Z",
   "bun": "1.4.4",
-  "git": "9ed4e01d21f37df2d9c33f1f08ce8b34dcdd87aa",
+  "git": "75f9020cb475294620927b7d34fced6b34457283",
   "scenarios": [
     {
-      "id": "codec.json-frames",
-      "path": "scenarios/codec/json-frames.json",
-      "input_sha256": "368d86e7a719072050b2bbee1ebdc5bf1ecd3b7a1d69413b7168779c548890a0"
+      "id": "projection.agent-entries-partition",
+      "path": "scenarios/projection/agents.json",
+      "input_sha256": "f35fb79ed9a93e00dd02d54a227f72f4b86b54d8d1a5debcbc20300eced33ab8"
+    },
+    {
+      "id": "projection.agent-organize",
+      "path": "scenarios/projection/agents-organize.json",
+      "input_sha256": "973729475ca0c802ec7cbbbed23a0722fd35413df6c81d3f78a517212021831f"
+    },
+    {
+      "id": "projection.derive-workspace",
+      "path": "scenarios/projection/workspace.json",
+      "input_sha256": "42f912c39ee66b28dd790fee2f0c847086cc9b61dec2f90965aa9d873195d580"
     }
   ]
 }
