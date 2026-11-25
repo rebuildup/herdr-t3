@@ -372,27 +372,30 @@ pub fn agent_work_target(agent: &AgentInfo, pane: Option<&PaneInfo>) -> Option<S
         .or_else(|| agent.title.clone())
 }
 
-/// `AgentListEntry` — owned clones; projection inputs are per-snapshot.
+/// `AgentListEntry` — borrows the snapshot/machine records it projects
+/// (issue #287: the owned-clone version cost ~3x the TS path). The two
+/// computed fields stay owned/`&str` because they are derived, not
+/// references into the inputs.
 #[derive(Debug, Clone)]
-pub struct AgentListEntry {
-    pub machine: MachineInfo,
-    pub agent: AgentInfo,
-    pub workspace: Option<WorkspaceInfo>,
-    pub pane: Option<PaneInfo>,
+pub struct AgentListEntry<'a> {
+    pub machine: &'a MachineInfo,
+    pub agent: &'a AgentInfo,
+    pub workspace: Option<&'a WorkspaceInfo>,
+    pub pane: Option<&'a PaneInfo>,
     pub workspace_title: Option<String>,
-    pub tab_label: Option<String>,
+    pub tab_label: Option<&'a str>,
 }
 
 /// `agentRowSignature` — `\u001f`-joined identity for disambiguation.
 /// `Array.join` renders `undefined`/`null` elements as `""` (unlike
 /// template strings), so absent ids contribute empty fields here.
-pub fn agent_row_signature(entry: &AgentListEntry) -> String {
+pub fn agent_row_signature(entry: &AgentListEntry<'_>) -> String {
     [
-        entry.machine.id.clone().unwrap_or_default(),
+        opt_str(&entry.machine.id).unwrap_or_default().to_string(),
         entry.workspace_title.clone().unwrap_or_default(),
-        entry.tab_label.clone().unwrap_or_default(),
-        agent_display_name(&entry.agent),
-        agent_work_target(&entry.agent, entry.pane.as_ref()).unwrap_or_default(),
+        entry.tab_label.unwrap_or_default().to_string(),
+        agent_display_name(entry.agent),
+        agent_work_target(entry.agent, entry.pane).unwrap_or_default(),
     ]
     .join("\u{1f}")
 }
@@ -413,12 +416,13 @@ pub fn agent_organize_key(machine_id: &str, pane_id: &str) -> String {
 /// `collectAgentEntries` — every agent across live machines.
 /// `stale` holds machine ids whose snapshot is last-known (skipped).
 /// `branch_index` maps `"{machine}\n{workspace}"` -> branch name.
-pub fn collect_agent_entries(
-    machines: &[MachineInfo],
-    snapshots: &HashMap<String, SessionSnapshot>,
+/// Entries borrow the inputs — no per-record clones (issue #287).
+pub fn collect_agent_entries<'a>(
+    machines: &'a [MachineInfo],
+    snapshots: &'a HashMap<String, SessionSnapshot>,
     stale: &HashSet<String>,
     branch_index: &HashMap<String, String>,
-) -> Vec<AgentListEntry> {
+) -> Vec<AgentListEntry<'a>> {
     let mut list = Vec::new();
     for machine in machines {
         let machine_id = templ_id(&machine.id);
@@ -428,29 +432,31 @@ pub fn collect_agent_entries(
         let Some(snap) = snapshots.get(&machine_id) else {
             continue;
         };
-        let ws_by_id: HashMap<Option<String>, &WorkspaceInfo> = snap
+        // id -> record maps keyed by &str: the TS Map keeps the *last*
+        // duplicate, and HashMap::collect does the same.
+        let ws_by_id: HashMap<Option<&'a str>, &'a WorkspaceInfo> = snap
             .workspaces
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .map(|w| (w.workspace_id.clone(), w))
+            .map(|w| (w.workspace_id.as_deref(), w))
             .collect();
-        let tab_by_id: HashMap<Option<String>, &TabInfo> = snap
+        let tab_by_id: HashMap<Option<&'a str>, &'a TabInfo> = snap
             .tabs
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .map(|t| (t.tab_id.clone(), t))
+            .map(|t| (t.tab_id.as_deref(), t))
             .collect();
-        let pane_by_id: HashMap<Option<String>, &PaneInfo> = snap
+        let pane_by_id: HashMap<Option<&'a str>, &'a PaneInfo> = snap
             .panes
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .map(|p| (p.pane_id.clone(), p))
+            .map(|p| (p.pane_id.as_deref(), p))
             .collect();
         for agent in snap.agents.as_deref().unwrap_or(&[]) {
-            let ws = ws_by_id.get(&agent.workspace_id).copied();
+            let ws = ws_by_id.get(&agent.workspace_id.as_deref()).copied();
             let branch = ws.and_then(|w| {
                 branch_index.get(&format!(
                     "{}\n{}",
@@ -458,21 +464,21 @@ pub fn collect_agent_entries(
                     templ_id(&w.workspace_id)
                 ))
             });
-            let tab = tab_by_id.get(&agent.tab_id).copied();
+            let tab = tab_by_id.get(&agent.tab_id.as_deref()).copied();
             let tab_count = ws
                 .and_then(|w| w.tab_count.as_ref())
                 .and_then(Number::as_f64)
                 .unwrap_or(0.0);
             list.push(AgentListEntry {
-                machine: machine.clone(),
-                agent: agent.clone(),
-                workspace: ws.cloned(),
-                pane: pane_by_id.get(&agent.pane_id).map(|p| (*p).clone()),
-                workspace_title: ws.map(|w| {
-                    workspace_title(w, branch.map(String::as_str))
-                }).or_else(|| agent.workspace_id.clone()),
+                machine,
+                agent,
+                workspace: ws,
+                pane: pane_by_id.get(&agent.pane_id.as_deref()).copied(),
+                workspace_title: ws
+                    .map(|w| workspace_title(w, branch.map(String::as_str)))
+                    .or_else(|| agent.workspace_id.clone()),
                 tab_label: if ws.is_some() && tab_count > 1.0 {
-                    tab.and_then(|t| t.label.clone())
+                    tab.and_then(|t| t.label.as_deref())
                 } else {
                     None
                 },
@@ -485,18 +491,18 @@ pub fn collect_agent_entries(
 /* --------------------------- organize overlay --------------------------- */
 
 #[derive(Debug, Default)]
-pub struct AgentSections {
-    pub attention: Vec<AgentListEntry>,
-    pub done: Vec<AgentListEntry>,
-    pub working: Vec<AgentListEntry>,
-    pub idle: Vec<AgentListEntry>,
-    pub snoozed: Vec<AgentListEntry>,
-    pub settled: Vec<AgentListEntry>,
+pub struct AgentSections<'a> {
+    pub attention: Vec<AgentListEntry<'a>>,
+    pub done: Vec<AgentListEntry<'a>>,
+    pub working: Vec<AgentListEntry<'a>>,
+    pub idle: Vec<AgentListEntry<'a>>,
+    pub snoozed: Vec<AgentListEntry<'a>>,
+    pub settled: Vec<AgentListEntry<'a>>,
 }
 
 #[derive(Debug)]
-pub struct AgentPartition {
-    pub sections: AgentSections,
+pub struct AgentPartition<'a> {
+    pub sections: AgentSections<'a>,
     /// Surviving organize records as their original JSON values.
     pub organize: Map<String, Value>,
 }
@@ -506,11 +512,11 @@ pub struct AgentPartition {
 /// `organize` is the raw JSON map (values preserved verbatim);
 /// `unresolved`: `None` = machine list not loaded (keep every unseen
 /// record), `Some(set)` = machine ids without a usable snapshot.
-pub fn partition_agents(
-    entries: Vec<AgentListEntry>,
+pub fn partition_agents<'a>(
+    entries: Vec<AgentListEntry<'a>>,
     organize: &Map<String, Value>,
     unresolved: Option<&HashSet<String>>,
-) -> Result<AgentPartition, String> {
+) -> Result<AgentPartition<'a>, String> {
     let mut sections = AgentSections::default();
     let mut active: Map<String, Value> = Map::new();
     let mut seen_keys: HashSet<String> = HashSet::new();
@@ -524,7 +530,7 @@ pub fn partition_agents(
     };
 
     let mut sorted = entries;
-    sorted.sort_by(|a, b| compare_agents(&a.agent, &b.agent));
+    sorted.sort_by(|a, b| compare_agents(a.agent, b.agent));
 
     for entry in sorted {
         let machine_key = templ_id(&entry.machine.id);
@@ -544,7 +550,7 @@ pub fn partition_agents(
                 Some(Value::Null) => {
                     return Err("invalid organize record".to_string());
                 }
-                Some(r) if state_seq_f64(&entry.agent) <= record_seq(r) => {
+                Some(r) if state_seq_f64(entry.agent) <= record_seq(r) => {
                     Some(r.clone())
                 }
                 _ => None,
@@ -604,7 +610,7 @@ pub fn partition_agents(
 
 /// Serialize an AgentListEntry to the adapter's summary shape —
 /// mirrors `summarizeEntry` in harness/lib/adapters/projection.ts.
-pub fn summarize_entry(entry: &AgentListEntry) -> Value {
+pub fn summarize_entry(entry: &AgentListEntry<'_>) -> Value {
     let mut m = Map::new();
     m.insert(
         "key".into(),
@@ -622,16 +628,16 @@ pub fn summarize_entry(entry: &AgentListEntry) -> Value {
     if let Some(status) = &entry.agent.agent_status {
         m.insert("status".into(), Value::String(status.clone()));
     }
-    if let Some(seq) = agent_state_seq(&entry.agent) {
+    if let Some(seq) = agent_state_seq(entry.agent) {
         m.insert("seq".into(), serde_json::to_value(seq).unwrap_or(Value::Null));
     }
     m.insert(
         "display_name".into(),
-        Value::String(agent_display_name(&entry.agent)),
+        Value::String(agent_display_name(entry.agent)),
     );
     m.insert(
         "work_target".into(),
-        agent_work_target(&entry.agent, entry.pane.as_ref())
+        agent_work_target(entry.agent, entry.pane)
             .map(Value::String)
             .unwrap_or(Value::Null),
     );
@@ -642,18 +648,17 @@ pub fn summarize_entry(entry: &AgentListEntry) -> Value {
         "tab_label".into(),
         entry
             .tab_label
-            .clone()
-            .map(Value::String)
+            .map(|s| Value::String(s.to_string()))
             .unwrap_or(Value::Null),
     );
     m.insert(
         "state_label".into(),
-        Value::String(agent_state_label(&entry.agent)),
+        Value::String(agent_state_label(entry.agent)),
     );
     m.insert(
         "aux_labels".into(),
         Value::Array(
-            agent_aux_state_labels(&entry.agent)
+            agent_aux_state_labels(entry.agent)
                 .into_iter()
                 .map(Value::String)
                 .collect(),
@@ -667,8 +672,8 @@ pub fn summarize_entry(entry: &AgentListEntry) -> Value {
 }
 
 /// Serialize AgentSections to the adapter's `sections` object shape.
-pub fn summarize_sections(sections: &AgentSections) -> Value {
-    let section = |v: &[AgentListEntry]| {
+pub fn summarize_sections(sections: &AgentSections<'_>) -> Value {
+    let section = |v: &[AgentListEntry<'_>]| {
         Value::Array(v.iter().map(summarize_entry).collect())
     };
     let mut m = Map::new();

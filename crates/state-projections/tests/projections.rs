@@ -19,15 +19,31 @@ fn machine(id: &str) -> MachineInfo {
         .unwrap()
 }
 
-fn entry(agent: AgentInfo) -> AgentListEntry {
-    AgentListEntry {
-        machine: machine("local"),
-        agent,
-        workspace: None,
-        pane: None,
-        workspace_title: Some("ws".into()),
-        tab_label: None,
+/// Owned fixture vending borrowed `AgentListEntry`s (issue #287: entries
+/// borrow their inputs, so tests keep the inputs alive in a fixture).
+struct Fixture {
+    machine: MachineInfo,
+    agent: AgentInfo,
+}
+
+impl Fixture {
+    fn on(machine_id: &str, agent: AgentInfo) -> Self {
+        Self { machine: machine(machine_id), agent }
     }
+    fn entry(&self) -> AgentListEntry<'_> {
+        AgentListEntry {
+            machine: &self.machine,
+            agent: &self.agent,
+            workspace: None,
+            pane: None,
+            workspace_title: Some("ws".into()),
+            tab_label: None,
+        }
+    }
+}
+
+fn fixture(agent: AgentInfo) -> Fixture {
+    Fixture::on("local", agent)
 }
 
 /* ------------------------------ workspace.ts ---------------------------- */
@@ -230,8 +246,10 @@ fn agent_work_target_pane_then_agent() {
 
 #[test]
 fn signature_and_short_id() {
-    let a = entry(agent(json!({"pane_id":"w1:p1","agent":"pi"})));
-    let b = entry(agent(json!({"pane_id":"w1:p2","agent":"pi"})));
+    let fa = fixture(agent(json!({"pane_id":"w1:p1","agent":"pi"})));
+    let fb = fixture(agent(json!({"pane_id":"w1:p2","agent":"pi"})));
+    let a = fa.entry();
+    let b = fb.entry();
     assert_eq!(agent_row_signature(&a), agent_row_signature(&b));
     let mut c = a.clone();
     c.workspace_title = Some("other".into());
@@ -268,8 +286,9 @@ fn collect_entries_resolves_context_and_skips() {
     }));
     let mut snaps = HashMap::new();
     snaps.insert("local".to_string(), s);
+    let machines = [machine("local")];
     let entries = collect_agent_entries(
-        &[machine("local")],
+        &machines,
         &snaps,
         &HashSet::new(),
         &HashMap::from([("local\nw1".to_string(), "feature/x".to_string())]),
@@ -296,12 +315,13 @@ fn partition_shelves_and_organize_overlay() {
         ("i1", "idle", 2),
         ("b2", "blocked", 9),
     ];
-    let entries: Vec<_> = agents
+    let fixtures: Vec<Fixture> = agents
         .iter()
-        .map(|(p, s, q)| entry(agent(json!({"pane_id":p,"agent_status":s,"state_change_seq":q}))))
+        .map(|(p, s, q)| fixture(agent(json!({"pane_id":p,"agent_status":s,"state_change_seq":q}))))
         .collect();
+    let entries: Vec<_> = fixtures.iter().map(Fixture::entry).collect();
     let part = partition_agents(entries, &serde_json::Map::new(), None).unwrap();
-    let ids = |v: &[AgentListEntry]| v.iter().map(|e| e.agent.pane_id.clone().unwrap()).collect::<Vec<_>>();
+    let ids = |v: &[AgentListEntry<'_>]| v.iter().map(|e| e.agent.pane_id.clone().unwrap()).collect::<Vec<_>>();
     assert_eq!(ids(&part.sections.attention), ["b2", "b1"]);
     assert_eq!(ids(&part.sections.working), ["w1"]);
     assert_eq!(ids(&part.sections.done), ["d1"]);
@@ -324,10 +344,13 @@ fn organize(pairs: &[(&str, &str, i64)]) -> serde_json::Map<String, Value> {
 
 #[test]
 fn partition_settled_snoozed_auto_return() {
-    let e = |p: &str, s: &str, q: i64| entry(agent(json!({"pane_id":p,"agent_status":s,"state_change_seq":q})));
     // settled at same seq shelves; seq advance auto-returns
+    let f_work5 = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":5})));
+    let f_work6 = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":6})));
+    let f_s1 = fixture(agent(json!({"pane_id":"s1","agent_status":"working","state_change_seq":5})));
+    let f_w1b = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":4})));
     let part = partition_agents(
-        vec![e("w1", "working", 5)],
+        vec![f_work5.entry()],
         &organize(&[("w1", "settled", 5)]),
         None,
     )
@@ -335,7 +358,7 @@ fn partition_settled_snoozed_auto_return() {
     assert_eq!(part.sections.settled.len(), 1);
     assert!(part.organize.contains_key("local\nw1"));
     let part = partition_agents(
-        vec![e("w1", "working", 6)],
+        vec![f_work6.entry()],
         &organize(&[("w1", "settled", 5)]),
         None,
     )
@@ -344,7 +367,7 @@ fn partition_settled_snoozed_auto_return() {
     assert!(part.organize.is_empty());
     // snoozed shelves out of natural sections
     let part = partition_agents(
-        vec![e("s1", "working", 5), e("w1", "working", 4)],
+        vec![f_s1.entry(), f_w1b.entry()],
         &organize(&[("s1", "snoozed", 5)]),
         None,
     )
@@ -355,8 +378,8 @@ fn partition_settled_snoozed_auto_return() {
 
 #[test]
 fn partition_attention_never_hidden() {
-    let e = entry(agent(json!({"pane_id":"b1","agent_status":"blocked","state_change_seq":3})));
-    let part = partition_agents(vec![e], &organize(&[("b1", "settled", 3)]), None).unwrap();
+    let f = fixture(agent(json!({"pane_id":"b1","agent_status":"blocked","state_change_seq":3})));
+    let part = partition_agents(vec![f.entry()], &organize(&[("b1", "settled", 3)]), None).unwrap();
     assert_eq!(part.sections.attention.len(), 1);
     assert!(part.sections.settled.is_empty());
     assert!(part.organize.is_empty());
@@ -365,30 +388,29 @@ fn partition_attention_never_hidden() {
 #[test]
 fn partition_revision_fallback_and_per_machine_keys() {
     // seq falls back to revision
-    let e = entry(agent(json!({"pane_id":"w1","agent_status":"idle","revision":9})));
-    let part = partition_agents(vec![e], &organize(&[("w1", "snoozed", 9)]), None).unwrap();
+    let f = fixture(agent(json!({"pane_id":"w1","agent_status":"idle","revision":9})));
+    let part = partition_agents(vec![f.entry()], &organize(&[("w1", "snoozed", 9)]), None).unwrap();
     assert_eq!(part.sections.snoozed.len(), 1);
     // same pane_id on another machine is independent
-    let mut remote = entry(agent(json!({"pane_id":"p1","agent_status":"working","state_change_seq":2})));
-    remote.machine = machine("remote");
-    let local_e = entry(agent(json!({"pane_id":"p1","agent_status":"working","state_change_seq":2})));
+    let remote = Fixture::on("remote", agent(json!({"pane_id":"p1","agent_status":"working","state_change_seq":2})));
+    let local = fixture(agent(json!({"pane_id":"p1","agent_status":"working","state_change_seq":2})));
     let mut org = serde_json::Map::new();
     org.insert(agent_organize_key("local", "p1"), json!({"kind":"settled","seq":2}));
-    let part = partition_agents(vec![local_e, remote], &org, None).unwrap();
+    let part = partition_agents(vec![local.entry(), remote.entry()], &org, None).unwrap();
     assert_eq!(part.sections.settled[0].machine.id.as_deref(), Some("local"));
     assert_eq!(part.sections.working[0].machine.id.as_deref(), Some("remote"));
 }
 
 #[test]
 fn partition_prunes_and_preserves_unresolved() {
-    let e = || entry(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":5})));
+    let f = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":5})));
     let mut org = serde_json::Map::new();
     org.insert(agent_organize_key("local", "w1"), json!({"kind":"settled","seq":5}));
     org.insert(agent_organize_key("local", "gone"), json!({"kind":"snoozed","seq":3}));
     org.insert(agent_organize_key("remote", "r1"), json!({"kind":"snoozed","seq":2}));
     // unresolved = {"remote"}: local gone-record pruned, remote kept
     let part = partition_agents(
-        vec![e()],
+        vec![f.entry()],
         &org,
         Some(&HashSet::from(["remote".to_string()])),
     )
@@ -397,34 +419,34 @@ fn partition_prunes_and_preserves_unresolved() {
     assert!(!part.organize.contains_key("local\ngone"));
     assert!(part.organize.contains_key("remote\nr1"));
     // unresolved = null: everything unseen survives
-    let part = partition_agents(vec![e()], &org, None).unwrap();
+    let part = partition_agents(vec![f.entry()], &org, None).unwrap();
     assert!(part.organize.contains_key("local\ngone"));
     assert!(part.organize.contains_key("remote\nr1"));
     // unresolved = empty set: all unseen pruned
-    let part = partition_agents(vec![e()], &org, Some(&HashSet::new())).unwrap();
+    let part = partition_agents(vec![f.entry()], &org, Some(&HashSet::new())).unwrap();
     assert_eq!(part.organize.len(), 1);
     assert!(part.organize.contains_key("local\nw1"));
 }
 
 #[test]
 fn partition_malformed_records() {
-    let e = || entry(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":5})));
+    let f = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":5})));
     // seq as string coerces via JS ToNumber: "5" <= 5 -> shelved
     let mut org = serde_json::Map::new();
     org.insert(agent_organize_key("local", "w1"), json!({"kind":"settled","seq":"5"}));
-    let part = partition_agents(vec![e()], &org, None).unwrap();
+    let part = partition_agents(vec![f.entry()], &org, None).unwrap();
     assert_eq!(part.sections.settled.len(), 1);
     // null record crashes in TS (record.seq) -> error here too
     let mut org = serde_json::Map::new();
     org.insert(agent_organize_key("local", "w1"), Value::Null);
-    assert!(partition_agents(vec![e()], &org, None).is_err());
+    assert!(partition_agents(vec![f.entry()], &org, None).is_err());
     // invalid kind with satisfied seq -> error (TS sections[kind] crash)
     let mut org = serde_json::Map::new();
     org.insert(agent_organize_key("local", "w1"), json!({"kind":"bogus","seq":5}));
-    assert!(partition_agents(vec![e()], &org, None).is_err());
+    assert!(partition_agents(vec![f.entry()], &org, None).is_err());
     // ...but invalid kind with advanced seq is never shelved -> natural
-    let e2 = entry(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":9})));
-    let part = partition_agents(vec![e2], &org, None).unwrap();
+    let f2 = fixture(agent(json!({"pane_id":"w1","agent_status":"working","state_change_seq":9})));
+    let part = partition_agents(vec![f2.entry()], &org, None).unwrap();
     assert_eq!(part.sections.working.len(), 1);
 }
 
@@ -462,7 +484,8 @@ proptest! {
             0..6,
         ),
     ) {
-        let entries: Vec<AgentListEntry> = agents.iter().cloned().map(entry).collect();
+        let fixtures: Vec<Fixture> = agents.iter().cloned().map(|a| fixture(a)).collect();
+        let entries: Vec<AgentListEntry<'_>> = fixtures.iter().map(Fixture::entry).collect();
         let n = entries.len();
         let mut org = serde_json::Map::new();
         for (i, (kind, seq)) in organize_keys.iter().enumerate() {
