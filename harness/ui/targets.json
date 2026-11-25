@@ -1,0 +1,48 @@
+{
+  "format": "herdr-t3/ui-targets",
+  "version": 1,
+  "note": "Semantic target registry for UI conformance scenarios (issue #238). IDs are framework-independent; each adapter maps them to platform reality (ARIA/DOM for Electron, GPUI element IDs for the Rust host). 'evidence' records where the current implementation exposes the target today.",
+  "targets": {
+    "workspace.sidebar": {
+      "kind": "region",
+      "evidence": ["src/shell/WorkspaceSidebar.tsx", "role=navigation aria-label=Workspaces"]
+    },
+    "workspace.item": {
+      "kind": "item",
+      "selectable": true,
+      "evidence": ["src/shell/WorkspaceSidebar.tsx"]
+    },
+    "workspace.breadcrumb": {
+      "kind": "region",
+      "evidence": ["src/components/WorkspaceBreadcrumb.tsx"]
+    },
+    "terminal.pane": {
+      "kind": "surface",
+      "evidence": ["src/components/PaneTerminal.tsx", "src/lib/ghostty/session.ts"]
+    },
+    "terminal.surface": {
+      "kind": "surface",
+      "evidence": ["src/components/PaneTerminal.tsx"]
+    },
+    "agent.shelf": {
+      "kind": "region",
+      "evidence": ["src/shell/WorkspaceSidebar.tsx", "docs/migration/contracts/agent-inbox.md"]
+    },
+    "dialog.settings": {
+      "kind": "dialog",
+      "evidence": ["src/shell/SettingsModal.tsx"]
+    },
+    "dialog.machine": {
+      "kind": "dialog",
+      "evidence": ["src/components/MachineDialog.tsx"]
+    },
+    "nav.sidebar-toggle": {
+      "kind": "control",
+      "evidence": ["src/shell/AppShell.tsx aria-label=Toggle main sidebar"]
+    },
+    "theme.mode-tiles": {
+      "kind": "control",
+      "evidence": ["src/components/ThemeModeTiles.tsx", "src/lib/theme.ts"]
+    }
+  }
+}

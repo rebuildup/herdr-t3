@@ -36,4 +36,7 @@ printf 'Checking migration registry...\n'
 bun scripts/check-migration-registry.ts
 bun scripts/check-migration-registry.ts --self-test
 
+printf 'Checking UI conformance scenarios...\n'
+bun scripts/check-ui-scenarios.ts
+
 printf 'All repository checks passed.\n'

@@ -82,7 +82,8 @@
       "title": "UI shell semantics",
       "spec": "docs/migration/contracts/ui-shell.md",
       "oracle": "conformance",
-      "summary": "T3 shell semantics: actions, focus, motion, theme roles, window chrome — implementation-independent."
+      "summary": "T3 shell semantics: actions, focus, motion, theme roles, window chrome — implementation-independent.",
+      "evidence": ["docs/migration/ui-conformance.md", "harness/ui/targets.json", "scripts/check-ui-scenarios.ts"]
     },
     {
       "id": "distribution",
