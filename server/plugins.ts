@@ -160,6 +160,12 @@ const MAX_TIMEOUT_MS = 120_000;
  * empty value as unset, but the `herdr` binary itself treats a present
  * `HERDR_SOCKET_PATH` (even empty) as an explicit override — local
  * spawn deletes the keys and the SSH path unsets them remotely.
+ *
+ * The list also covers `GIT_*` repo/config/transport targeting vars
+ * (ADR-0023): upstream git invocations inherit the plugin CLI's
+ * environment verbatim, so ambient `GIT_DIR`/`GIT_CONFIG_*`/`GIT_SSH*`
+ * would redirect plugin git operations to a foreign repository,
+ * object store, config or transport.
  */
 export const PLUGIN_ENV_SCRUB = [
   // Socket/session targeting.
@@ -184,6 +190,53 @@ export const PLUGIN_ENV_SCRUB = [
   "HERDR_PLUGIN_EVENT_JSON",
   "HERDR_PLUGIN_CLICKED_URL",
   "HERDR_PLUGIN_LINK_HANDLER_ID",
+  // Git repo/config/transport targeting (ADR-0023, issue #280,
+  // upstream herdr-plugins#96). Plugin git invocations inherit this
+  // environment verbatim — upstream git-core spreads process.env into
+  // every `git` spawn with only GIT_TERMINAL_PROMPT/GIT_OPTIONAL_LOCKS
+  // pinned — so ambient GIT_* vars can point plugin git operations at a
+  // different repository, index, object store, config file or ssh
+  // transport.
+  //
+  // Repository / index / object-store targeting.
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_NAMESPACE",
+  "GIT_PREFIX",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  // Config file targeting and env-config injection. GIT_CONFIG_COUNT
+  // alone disables the GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> family:
+  // git only reads those indexed pairs when COUNT is set, so scrubbing
+  // the count neutralizes arbitrary indices without prefix matching.
+  // GIT_CONFIG_PARAMETERS is git's internal `-c` passthrough and is
+  // parsed whenever present.
+  "GIT_CONFIG",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  // Transport / subprocess lookup. GIT_SSH*/GIT_PROXY_COMMAND redirect
+  // fetch/push transport; GIT_ASKPASS and GIT_EXEC_PATH select
+  // executables git runs.
+  "GIT_SSH",
+  "GIT_SSH_COMMAND",
+  "GIT_ASKPASS",
+  "GIT_PROXY_COMMAND",
+  "GIT_EXEC_PATH",
+  //
+  // Deliberately NOT scrubbed: GIT_PAGER/GIT_EDITOR/GIT_SEQUENCE_EDITOR/
+  // GIT_MERGE_AUTOEDIT (editor/pager program selection, not repo
+  // targeting; interactive prompting is already pinned off upstream via
+  // GIT_TERMINAL_PROMPT=0), GIT_SSH_VARIANT (output parsing only),
+  // GIT_AUTHOR_*/GIT_COMMITTER_* (commit identity), GIT_TRACE*/
+  // diagnostics, GIT_TEMPLATE_DIR (init-only), and git-internal
+  // GIT_QUARANTINE_PATH/GIT_SHALLOW_FILE/GIT_REPLACE_REF_BASE.
 ];
 
 export interface PluginCallRequest {

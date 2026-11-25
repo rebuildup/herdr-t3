@@ -41,6 +41,19 @@ CLI implementations.
   set. Local spawn deletes the keys; the SSH path emits `unset` (POSIX)
   / `$env:X=$null` (PowerShell, which deletes) inside the remote
   command. Explicit `--session` appending is unchanged.
+- Ambient git env scrub (ADR-0023, issue #280): the same
+  `PLUGIN_ENV_SCRUB` also removes `GIT_*` repo/config/transport
+  targeting vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+  `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+  `GIT_COMMON_DIR`, `GIT_NAMESPACE`, `GIT_PREFIX`,
+  `GIT_CEILING_DIRECTORIES`, `GIT_DISCOVERY_ACROSS_FILESYSTEM`,
+  `GIT_CONFIG`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
+  `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`,
+  `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `GIT_PROXY_COMMAND`,
+  `GIT_EXEC_PATH`) because upstream git invocations inherit the plugin
+  CLI environment verbatim. `GIT_CONFIG_COUNT` is scrubbed so the
+  indexed `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` family stays
+  inert; editor/pager and identity vars are intentionally kept.
 - Organize state (settle/snooze) is plugin-owned; the #173 localStorage
   overlay is a legacy migration source only, removed per ADR-0011 — it
   must not become a second source of truth.
@@ -68,6 +81,8 @@ CLI implementations.
 - no `--session` for the default session;
 - no ambient `HERDR_*` targeting env reaching any exec (discovery,
   capability, contract call) on local or SSH hosts;
+- no ambient `GIT_*` repo/config/transport targeting env reaching any
+  exec on local or SSH hosts;
 - no offering mutations when `mutation_commands`/`capability` does not
   advertise them;
 - no localStorage organize state surviving as authoritative after

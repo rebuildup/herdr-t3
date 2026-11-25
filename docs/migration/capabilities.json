@@ -458,7 +458,8 @@
       ],
       "side_effects": [
         "spawns plugin CLI on local or SSH host",
-        "ambient HERDR_* targeting env removed from every exec (ADR-0022, issue #270)"
+        "ambient HERDR_* targeting env removed from every exec (ADR-0022, issue #270)",
+        "ambient GIT_* repo/config/transport targeting env removed from every exec (ADR-0023, issue #280)"
       ],
       "scenarios": [
         "server/plugins.test.ts",
