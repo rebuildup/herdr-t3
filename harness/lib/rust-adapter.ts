@@ -17,6 +17,9 @@ import type { Adapter, Observation } from "./types.ts";
  * - `crates/terminal-core` (`terminal-core-adapter` bin) — the
  *   product-intended terminal engine/session (issue #286), native
  *   libghostty-vt via FFI.
+ * - `crates/terminal-render` (`terminal-render-adapter` bin) — the
+ *   product-intended paint scene (issue #294), port of
+ *   src/lib/ghostty/scene.ts.
  *
  * Both read a batch of steps as JSON and emit observations in the same
  * shape as the TS adapters, so the same fixtures and the same comparator
@@ -89,6 +92,16 @@ const TERMINAL_OPS = new Set([
   "dispose",
 ]);
 
+/** terminal-render paint-scene ops (issue #294). */
+const SCENE_OPS = new Set([
+  "scene_new",
+  "scene_write",
+  "scene_collect",
+  "scene_render",
+  "scene_set",
+  "scene_dispose",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -121,6 +134,14 @@ const BINS: RustBin[] = [
     envVar: "TERMINAL_CORE_BIN",
     fileName: "terminal-core-adapter",
     label: "terminal-core-adapter",
+  },
+  {
+    ops: SCENE_OPS,
+    path: null,
+    package: "terminal-render",
+    envVar: "TERMINAL_RENDER_BIN",
+    fileName: "terminal-render-adapter",
+    label: "terminal-render-adapter",
   },
 ];
 

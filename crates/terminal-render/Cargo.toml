@@ -1,0 +1,12 @@
+[package]
+name = "terminal-render"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Product-intended Rust terminal paint scene for herdr-t3 (issue #294): DOM-free port of src/lib/ghostty/scene.ts per contract terminal-render@1 — row cache, dirty tracking, band compositing, text batching, overlays, Kitty image placement, background-image fitting. Emits ordered PaintOp lists a runtime painter executes."
+
+[dependencies]
+terminal-core = { path = "../terminal-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

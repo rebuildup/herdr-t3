@@ -1,12 +1,11 @@
 /**
- * The Canvas2D renderer for a GhosttySession: the engine hands changed rows as runs of styled cells,
- * this paints them at the cell metrics the surface measured, plus the Kitty images the program
- * placed. A second canvas stacked above carries the selection, the search matches and the cursor,
- * which repaint cheaply without touching the text.
- *
- * Colours come resolved ("hex") through the palette and theme the session was given, so a theme
- * change is a session.setColors away and the next frame already draws it. `foreground`, `background`
- * and `cursor` here are the theme's own colours, used where a run names none.
+ * The Canvas2D painter for a GhosttySession's paint scene: GhosttyScene
+ * (scene.ts, contract terminal-render@1) decides what to draw; this class
+ * executes the ops on two stacked canvases — text below, selection/search/
+ * cursor above. Colours come resolved ("#rrggbb") through the palette and
+ * theme the session was given, so a theme change is a session.setColors
+ * away and the next frame already draws it. `foreground`, `background` and
+ * `cursor` here are the theme's own colours, used where a run names none.
  */
 import type { GhosttySession } from "./session.ts";
 import type {
@@ -14,17 +13,10 @@ import type {
   GhosttyBackgroundImagePosition,
 } from "../theme.ts";
 import {
-  STYLE_BOLD,
-  STYLE_FAINT,
-  STYLE_INVERSE,
-  STYLE_INVISIBLE,
-  STYLE_ITALIC,
-  STYLE_STRIKE,
-  STYLE_UNDERLINE_MASK,
-  type GhosttyImage,
-  type GhosttyRun,
-  type ScreenRange,
-} from "./session.ts";
+  GhosttyScene,
+  type PaintOp,
+  type SceneBackgroundImage,
+} from "./scene.ts";
 
 export interface GhosttyRendererOptions {
   fontFamily: string;
@@ -52,30 +44,21 @@ interface Metrics { cols: number; rows: number; cellW: number; cellH: number; dp
 
 export class GhosttyRenderer {
   private readonly session: GhosttySession;
-  private readonly options: GhosttyRendererOptions;
+  private readonly scene: GhosttyScene;
   private readonly bottom: HTMLCanvasElement;
   private readonly top: HTMLCanvasElement;
   private readonly bctx: CanvasRenderingContext2D;
   private readonly tctx: CanvasRenderingContext2D;
-  /** every row's latest runs, keyed by viewport y */
-  private readonly rows = new Map<number, GhosttyRun[]>();
-  private readonly pending = new Set<number>();
-  private images: GhosttyImage[] = [];
   private readonly imageCache = new Map<number, { generation: number; canvas: HTMLCanvasElement }>();
-  private metrics: Metrics | null = null;
-  private selection: ScreenRange | null = null;
-  private highlights: ScreenRange[] = [];
-  private cursorOn = true;
   private bgImage: GhosttyBackgroundImageSpec | null = null;
-  private bgOpacity = 1;
-  /** fitted destination rect of the background image, recomputed per metrics */
-  private bgDest: { x: number; y: number; w: number; h: number; tile: boolean } | null = null;
-  private bgDestKey = "";
   private disposed = false;
 
   constructor(host: HTMLElement, session: GhosttySession, options: GhosttyRendererOptions) {
     this.session = session;
-    this.options = options;
+    this.scene = new GhosttyScene(session, options, {
+      measure: (text, font) => this.measureAdvance(text, font),
+      box: (fontSize, fontFamily) => this.fontBox(fontSize, fontFamily),
+    });
     this.bottom = document.createElement("canvas");
     this.top = document.createElement("canvas");
     this.bottom.className = "ghostty-canvas is-text";
@@ -95,16 +78,11 @@ export class GhosttyRenderer {
 
   /** the draw font changed: glyph runs are re-measured on the next frame */
   setFont(font: { fontFamily?: string; fontSize?: number }): void {
-    if (font.fontFamily !== undefined) this.options.fontFamily = font.fontFamily;
-    if (font.fontSize !== undefined) this.options.fontSize = font.fontSize;
-    this.fontStrings.clear();
-    this.advanceCache.clear();
-    this.invalidate();
+    this.scene.setFont(font);
   }
 
   /** the cell grid and the canvas backing size, in CSS pixels times devicePixelRatio */
   setMetrics(metrics: Metrics): void {
-    this.metrics = metrics;
     for (const canvas of [this.bottom, this.top]) {
       canvas.width = Math.round(metrics.cols * metrics.cellW * metrics.dpr);
       canvas.height = Math.round(metrics.rows * metrics.cellH * metrics.dpr);
@@ -113,45 +91,51 @@ export class GhosttyRenderer {
     }
     this.bctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
     this.tctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
-    this.invalidate();
+    this.scene.setMetrics(metrics);
   }
 
   /** repaint every row: a resize, a scroll, a theme change */
   invalidate(): void {
-    this.rows.clear();
-    this.pending.clear();
+    this.scene.invalidate();
   }
 
-  setSelection(range: ScreenRange | null): void {
-    this.selection = range;
+  setSelection(range: Parameters<GhosttyScene["setSelection"]>[0]): void {
+    this.scene.setSelection(range);
   }
 
-  setHighlights(ranges: ScreenRange[]): void {
-    this.highlights = ranges;
+  setHighlights(ranges: Parameters<GhosttyScene["setHighlights"]>[0]): void {
+    this.scene.setHighlights(ranges);
   }
 
   setCursorVisible(visible: boolean): void {
-    this.cursorOn = visible;
+    this.scene.setCursorVisible(visible);
   }
 
   /** the theme changed: the defaults unnamed runs and the cursor are drawn with, and the washes */
   setColors(colors: Partial<Pick<GhosttyRendererOptions, "foreground" | "background" | "cursor" | "selection" | "search">>): void {
-    Object.assign(this.options, colors);
-    this.invalidate();
+    this.scene.setColors(colors);
   }
 
-  /** `background-opacity`: alpha of the window background under text and cell colours */
   setBackgroundOpacity(alpha: number): void {
-    this.bgOpacity = Math.min(1, Math.max(0, alpha));
-    this.invalidate();
+    this.scene.setBackgroundOpacity(alpha);
   }
 
   /** a loaded `background-image` to draw under the cell grid, or null to clear it */
   setBackgroundImage(spec: GhosttyBackgroundImageSpec | null): void {
     this.bgImage = spec;
-    this.bgDest = null;
-    this.bgDestKey = "";
-    this.invalidate();
+    this.scene.setBackgroundImage(spec ? this.sceneSpec(spec) : null);
+  }
+
+  private sceneSpec(spec: GhosttyBackgroundImageSpec): SceneBackgroundImage {
+    return {
+      handle: spec.image,
+      width: spec.image.naturalWidth || spec.image.width,
+      height: spec.image.naturalHeight || spec.image.height,
+      opacity: spec.opacity,
+      position: spec.position,
+      fit: spec.fit,
+      repeat: spec.repeat,
+    };
   }
 
   /**
@@ -160,211 +144,109 @@ export class GhosttyRenderer {
    * set repaints all rows it can cover.
    */
   collect(): boolean {
-    const m = this.metrics;
-    if (!m) return false;
-    let changed = false;
-    if (this.rows.size === 0) {
-      this.session.frameAll((y, runs) => {
-        this.rows.set(y, runs);
-        this.pending.add(y);
-      });
-      changed = true;
-    } else {
-      changed = this.session.frame((y, runs) => {
-        this.rows.set(y, runs);
-        this.pending.add(y);
-      });
-    }
-    const placed = this.session.placedImages();
-    if (placed !== null) {
-      this.images = placed;
-      for (let y = 0; y < m.rows; y++) this.pending.add(y);
-      changed = true;
-    }
-    return changed;
+    return this.scene.collect();
   }
 
   /** draw what collect() cached; the overlay (selection, matches, cursor) always repaints */
   render(): void {
-    const m = this.metrics;
-    if (!m || this.disposed) return;
-    const { bctx } = this;
-    const W = m.cols * m.cellW;
-    // with images on screen every row band is composited on its own (each clipped to its band), so
-    // every row repaints: an image spanning rows must not be clipped away by a neighbour's clear
-    const all = this.images.length > 0 ? Array.from({ length: m.rows }, (_, y) => y) : [...this.pending];
-    for (const y of all) {
-      const top = y * m.cellH;
-      bctx.clearRect(0, top, W, m.cellH);
-      // Window background at `background-opacity`; when an image is set the
-      // background color only shows through where the image lets it
-      // (Ghostty mixes image over background at background-image-opacity,
-      // then applies background-opacity to the composite — approximated by
-      // alpha = imageOpacity * backgroundOpacity for the image draw).
-      const imageAlpha = this.bgImage
-        ? Math.min(1, Math.max(0, this.bgImage.opacity * this.bgOpacity))
-        : 0;
-      const bgAlpha = this.bgOpacity * (1 - Math.min(1, Math.max(0, this.bgImage?.opacity ?? 0)));
-      bctx.globalAlpha = bgAlpha;
-      this.lastGlobalAlpha = bgAlpha;
-      bctx.fillStyle = this.options.background;
-      bctx.fillRect(0, top, W, m.cellH);
-      bctx.globalAlpha = 1;
-      this.lastGlobalAlpha = 1;
-      this.paintBackgroundImage(top, m.cellH, imageAlpha);
-      this.paintImages(0, top, m.cellH);
-      this.paintRowBackgrounds(y);
-      this.paintImages(1, top, m.cellH);
-      this.paintRowText(y);
-      this.paintImages(2, top, m.cellH);
-    }
-    this.pending.clear();
-    this.paintOverlay(m);
+    if (this.disposed) return;
+    const frame = this.scene.render();
+    for (const op of frame.text) this.paint(this.bctx, op);
+    this.paintOverlay(frame.overlay);
   }
 
-  /**
-   * The `background-image` fitted into the surface for the current metrics,
-   * honouring `background-image-fit`/`position`/`repeat` (issue #108).
-   * `repeat` tiles the image at its contain-fitted size — Ghostty repeats to
-   * fill gaps left by letterboxing, and cover/stretch already fill the
-   * surface so repetition is a no-op for them.
-   */
-  private backgroundDest(): { x: number; y: number; w: number; h: number; tile: boolean } | null {
-    const spec = this.bgImage;
-    const m = this.metrics;
-    if (!spec || !m) return null;
-    const W = m.cols * m.cellW;
-    const H = m.rows * m.cellH;
-    const iw = spec.image.naturalWidth || spec.image.width;
-    const ih = spec.image.naturalHeight || spec.image.height;
-    if (!iw || !ih || W <= 0 || H <= 0) return null;
-    const key = `${W}x${H}:${iw}x${ih}:${spec.fit}:${spec.position}:${spec.repeat}`;
-    if (this.bgDest && this.bgDestKey === key) return this.bgDest;
-
-    const [fx, fy] = (() => {
-      switch (spec.position) {
-        case "top-left": return [0, 0] as const;
-        case "top-center": return [0.5, 0] as const;
-        case "top-right": return [1, 0] as const;
-        case "center-left": return [0, 0.5] as const;
-        case "center-right": return [1, 0.5] as const;
-        case "bottom-left": return [0, 1] as const;
-        case "bottom-center": return [0.5, 1] as const;
-        case "bottom-right": return [1, 1] as const;
-        default: return [0.5, 0.5] as const;
-      }
-    })();
-    let w: number, h: number;
-    switch (spec.fit) {
-      case "stretch": w = W; h = H; break;
-      case "none": w = iw; h = ih; break;
-      case "cover": {
-        const s = Math.max(W / iw, H / ih);
-        w = iw * s; h = ih * s;
-        break;
-      }
-      default: { // contain
-        const s = Math.min(W / iw, H / ih);
-        w = iw * s; h = ih * s;
-      }
-    }
-    const tile = spec.repeat && spec.fit !== "cover" && spec.fit !== "stretch";
-    this.bgDest = { x: fx * (W - w), y: fy * (H - h), w, h, tile };
-    this.bgDestKey = key;
-    return this.bgDest;
+  private paintOverlay(ops: PaintOp[]): void {
+    const { tctx } = this;
+    // the scene's overlay always starts with a full clear
+    for (const op of ops) this.paint(tctx, op);
   }
 
-  /** draw the background image clipped to one row band */
-  private paintBackgroundImage(top: number, cellH: number, alpha: number): void {
-    const spec = this.bgImage;
-    const dest = this.backgroundDest();
-    const m = this.metrics;
-    if (!spec || !dest || !m || alpha <= 0) return;
-    const { bctx } = this;
-    const bandBottom = top + cellH;
-    bctx.save();
-    bctx.beginPath();
-    bctx.rect(0, top, m.cols * m.cellW, cellH);
-    bctx.clip();
-    bctx.globalAlpha = alpha;
-    if (dest.tile) {
-      // tile at the fitted single-image size; pattern transform scales the
-      // source to the tile and positions the first tile like `position` does
-      const pattern = bctx.createPattern(spec.image, "repeat");
-      if (pattern) {
-        const sx = dest.w / (spec.image.naturalWidth || spec.image.width);
-        const sy = dest.h / (spec.image.naturalHeight || spec.image.height);
-        pattern.setTransform(
-          new DOMMatrix().translateSelf(dest.x, dest.y).scaleSelf(sx, sy),
-        );
-        bctx.fillStyle = pattern;
-        bctx.fillRect(0, top, m.cols * m.cellW, cellH);
-      }
-    } else if (dest.y + dest.h > top && dest.y < bandBottom) {
-      bctx.drawImage(spec.image, dest.x, dest.y, dest.w, dest.h);
-    }
-    bctx.restore();
-    bctx.globalAlpha = 1;
-  }
-
-  private paintRowBackgrounds(y: number): void {
-    const m = this.metrics!;
-    const { bctx } = this;
-    for (const run of this.rows.get(y) ?? []) {
-      if (!run.bg) continue;
-      const width = run.cells.reduce((sum, cell) => sum + (cell.wide ? 2 : 1), 0);
-      bctx.fillStyle = run.bg;
-      bctx.fillRect(run.x * m.cellW, y * m.cellH, width * m.cellW, m.cellH);
+  private paint(ctx: CanvasRenderingContext2D, op: PaintOp): void {
+    switch (op.op) {
+      case "clear":
+        ctx.clearRect(op.rect.x, op.rect.y, op.rect.w, op.rect.h);
+        return;
+      case "fill_rect":
+        ctx.globalAlpha = op.alpha;
+        ctx.fillStyle = op.color;
+        ctx.fillRect(op.rect.x, op.rect.y, op.rect.w, op.rect.h);
+        ctx.globalAlpha = 1;
+        return;
+      case "stroke_rect":
+        ctx.strokeStyle = op.color;
+        ctx.lineWidth = op.lineWidth;
+        ctx.strokeRect(op.rect.x, op.rect.y, op.rect.w, op.rect.h);
+        return;
+      case "fill_text":
+        ctx.font = op.font;
+        ctx.fillStyle = op.color;
+        ctx.globalAlpha = op.alpha;
+        ctx.fillText(op.text, op.x, op.y);
+        ctx.globalAlpha = 1;
+        return;
+      case "draw_image":
+        this.paintImage(ctx, op);
+        return;
     }
   }
 
-  /** ascent/descent of the UI font, measured once per font/size pair */
-  private textMetrics: { key: string; ascent: number; descent: number } | null = null;
-  /** draw-font string per bold/italic flag pair (issue #213) */
-  private readonly fontStrings = new Map<number, string>();
-  /** last font/fillStyle/alpha pushed to the context, to skip redundant sets */
-  private lastDrawFont = "";
-  private lastFillStyle = "";
-  private lastGlobalAlpha = -1;
-  /** grapheme advance measurements, keyed by font + text (issue #213) */
-  private readonly advanceCache = new Map<string, number>();
+  private paintImage(ctx: CanvasRenderingContext2D, op: Extract<PaintOp, { op: "draw_image" }>): void {
+    const clip = op.clip;
+    ctx.save();
+    if (clip) {
+      ctx.beginPath();
+      ctx.rect(clip.x, clip.y, clip.w, clip.h);
+      ctx.clip();
+    }
+    ctx.globalAlpha = op.alpha;
+    if (op.image.kind === "background") {
+      const spec = this.bgImage;
+      if (spec) {
+        if (op.repeat) {
+          const iw = spec.image.naturalWidth || spec.image.width;
+          const ih = spec.image.naturalHeight || spec.image.height;
+          const pattern = ctx.createPattern(spec.image, "repeat");
+          if (pattern) {
+            const sx = op.dst.w / iw;
+            const sy = op.dst.h / ih;
+            pattern.setTransform(
+              new DOMMatrix().translateSelf(op.dst.x, op.dst.y).scaleSelf(sx, sy),
+            );
+            ctx.fillStyle = pattern;
+            const r = clip ?? { x: 0, y: 0, w: op.dst.x + op.dst.w, h: op.dst.y + op.dst.h };
+            ctx.fillRect(r.x, r.y, r.w, r.h);
+          }
+        } else if (op.src) {
+          ctx.drawImage(spec.image, op.src.x, op.src.y, op.src.w, op.src.h, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
+        } else {
+          ctx.drawImage(spec.image, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
+        }
+      }
+    } else {
+      const pixels = this.session.imagePixels(op.image.id);
+      if (pixels) {
+        let entry = this.imageCache.get(op.image.id);
+        if (!entry || entry.generation !== op.image.generation) {
+          const canvas = document.createElement("canvas");
+          canvas.width = pixels.width;
+          canvas.height = pixels.height;
+          canvas.getContext("2d")!.putImageData(new ImageData(pixels.rgba, pixels.width, pixels.height), 0, 0);
+          entry = { generation: op.image.generation, canvas };
+          this.imageCache.set(op.image.id, entry);
+        }
+        const src = op.src ?? { x: 0, y: 0, w: pixels.width, h: pixels.height };
+        ctx.drawImage(entry.canvas, src.x, src.y, src.w, src.h, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   private measureCtx: CanvasRenderingContext2D | null = null;
   private measureFont = "";
 
-  /**
-   * The alphabetic baseline y for a cell row: the font's ink box is centered
-   * in the cell so ascenders and descenders never touch the cell edges.
-   */
-  private baselineFor(rowTop: number): number {
-    const m = this.metrics!;
-    const key = `${this.options.fontSize}px ${this.options.fontFamily}`;
-    if (!this.textMetrics || this.textMetrics.key !== key) {
-      const probe = document.createElement("canvas").getContext("2d")!;
-      probe.font = key;
-      const box = probe.measureText("Mg");
-      this.textMetrics = {
-        key,
-        ascent: box.actualBoundingBoxAscent || this.options.fontSize * 0.8,
-        descent: box.actualBoundingBoxDescent || this.options.fontSize * 0.25,
-      };
-    }
-    const { ascent, descent } = this.textMetrics;
-    return rowTop + (m.cellH - (ascent + descent)) / 2 + ascent;
-  }
-
-  /** the canvas font for a run's bold/italic bits; the string is built once per pair (issue #213) */
-  private fontFor(flags: number): string {
-    const key = flags & (STYLE_BOLD | STYLE_ITALIC);
-    let font = this.fontStrings.get(key);
-    if (font === undefined) {
-      font = `${flags & STYLE_ITALIC ? "italic " : ""}${flags & STYLE_BOLD ? "bold " : ""}${this.options.fontSize}px ${this.options.fontFamily}`;
-      this.fontStrings.set(key, font);
-    }
-    return font;
-  }
-
-  /** advance width of one grapheme under `font`, measured once and cached */
-  private glyphAdvance(text: string, font: string): number {
+  /** advance width of one grapheme under `font`, measured once and cached by the scene */
+  private measureAdvance(text: string, font: string): number {
     if (!this.measureCtx) {
       this.measureCtx = document.createElement("canvas").getContext("2d");
       if (!this.measureCtx) return -1;
@@ -373,195 +255,34 @@ export class GhosttyRenderer {
       this.measureCtx.font = font;
       this.measureFont = font;
     }
-    const key = `${font}\n${text}`;
-    let width = this.advanceCache.get(key);
-    if (width === undefined) {
-      width = this.measureCtx.measureText(text).width;
-      this.advanceCache.set(key, width);
-    }
-    return width;
+    return this.measureCtx.measureText(text).width;
   }
 
-  /**
-   * A cell may join a batched `fillText` only when its grapheme's advance is
-   * its cell width — true for every narrow glyph of a real monospace font,
-   * and the check is what keeps fallback-font substitutions and odd wide
-   * glyphs on their exact cell instead of drifting the rest of the run.
-   */
-  private advanceMatches(text: string, expected: number, font: string): boolean {
-    const width = this.glyphAdvance(text, font);
-    return width >= 0 && Math.abs(width - expected) <= 0.02;
-  }
-
-  private paintRowText(y: number): void {
-    const m = this.metrics!;
-    const { bctx } = this;
-    const baseline = this.baselineFor(y * m.cellH);
-    const cellW = m.cellW;
-    for (const run of this.rows.get(y) ?? []) {
-      const flags = run.flags;
-      if (flags & STYLE_INVISIBLE) continue;
-      const fg = run.fg ?? this.options.foreground;
-      const bg = run.bg ?? this.options.background;
-      const color = flags & STYLE_INVERSE ? bg : fg;
-      if (color !== this.lastFillStyle) {
-        bctx.fillStyle = color;
-        this.lastFillStyle = color;
-      }
-      const font = this.fontFor(flags);
-      if (font !== this.lastDrawFont) {
-        bctx.font = font;
-        this.lastDrawFont = font;
-      }
-      const alpha = flags & STYLE_FAINT ? 0.5 : 1;
-      if (alpha !== this.lastGlobalAlpha) {
-        bctx.globalAlpha = alpha;
-        this.lastGlobalAlpha = alpha;
-      }
-      // Join consecutive cells into one fillText (issue #213): per-cell
-      // calls dominated frame cost on output-heavy panes. `x` always
-      // advances by cell steps, never by drawn width, so a grapheme that
-      // fails the advance check is flushed and drawn alone at its exact
-      // cell — the row can never drift.
-      let text = "";
-      let segX = 0;
-      let x = run.x * cellW;
-      const flush = () => {
-        if (text !== "") {
-          bctx.fillText(text, segX, baseline);
-          text = "";
-        }
-      };
-      for (const cell of run.cells) {
-        const step = (cell.wide ? 2 : 1) * cellW;
-        if (this.advanceMatches(cell.text, step, font)) {
-          if (text === "") segX = x;
-          text += cell.text;
-        } else {
-          flush();
-          if (cell.text !== " ") bctx.fillText(cell.text, x, baseline);
-        }
-        x += step;
-      }
-      flush();
-      const width = x - run.x * cellW;
-      // underline and strikethrough are drawn: canvas text has no decoration channel
-      const lines: number[] = [];
-      if (flags & STYLE_UNDERLINE_MASK) lines.push(baseline + this.options.fontSize * 0.15);
-      if (flags & STYLE_STRIKE) lines.push(baseline - this.options.fontSize * 0.3);
-      if (lines.length) {
-        if (color !== this.lastFillStyle) {
-          bctx.fillStyle = color;
-          this.lastFillStyle = color;
-        }
-        for (const ly of lines) bctx.fillRect(run.x * cellW, ly, width, Math.max(1, m.cellH * 0.06));
-      }
+  /** ascent/descent of the UI font, probed once per font/size pair by the scene */
+  private boxCtx: CanvasRenderingContext2D | null = null;
+  private boxFont = "";
+  private fontBox(fontSize: number, fontFamily: string): { ascent: number; descent: number } {
+    if (!this.boxCtx) {
+      this.boxCtx = document.createElement("canvas").getContext("2d");
+      if (!this.boxCtx) return { ascent: 0, descent: 0 };
     }
-    if (this.lastGlobalAlpha !== 1) {
-      bctx.globalAlpha = 1;
-      this.lastGlobalAlpha = 1;
+    const font = `${fontSize}px ${fontFamily}`;
+    if (this.boxFont !== font) {
+      this.boxCtx.font = font;
+      this.boxFont = font;
     }
-  }
-
-  /**
-   * The images on one layer that reach into the band `[top, top+cellH)`, each clipped to it: the
-   * engine places them in viewport cells with pixel offsets, so a picture can span rows.
-   */
-  private paintImages(layer: number, top: number, cellH: number): void {
-    const m = this.metrics!;
-    const { bctx } = this;
-    const bandBottom = top + cellH;
-    bctx.save();
-    bctx.beginPath();
-    bctx.rect(0, top, m.cols * m.cellW, cellH);
-    bctx.clip();
-    for (const image of this.images) {
-      if (image.layer !== layer) continue;
-      const y = image.row * m.cellH + image.offsetY;
-      const h = image.height;
-      if (y + h <= top || y >= bandBottom) continue;
-      const pixels = this.session.imagePixels(image.id);
-      if (!pixels) continue;
-      let entry = this.imageCache.get(image.id);
-      if (!entry || entry.generation !== image.generation) {
-        const canvas = document.createElement("canvas");
-        canvas.width = pixels.width;
-        canvas.height = pixels.height;
-        canvas.getContext("2d")!.putImageData(new ImageData(pixels.rgba, pixels.width, pixels.height), 0, 0);
-        entry = { generation: image.generation, canvas };
-        this.imageCache.set(image.id, entry);
-      }
-      const { source } = image;
-      if (source.width > 0 && source.height > 0) {
-        bctx.drawImage(entry.canvas, source.x, source.y, source.width, source.height,
-          image.col * m.cellW + image.offsetX, y, image.width, h);
-      }
-    }
-    bctx.restore();
-  }
-
-  /** selection and search washes, then the cursor, on the overlay canvas */
-  private paintOverlay(m: Metrics): void {
-    const { tctx } = this;
-    tctx.clearRect(0, 0, m.cols * m.cellW, m.rows * m.cellH);
-    const viewportTop = this.session.history().viewportTop;
-    const wash = (range: ScreenRange, color: string | undefined): void => {
-      if (!color) return;
-      tctx.fillStyle = color;
-      this.eachCell(range, viewportTop, m, (x, y, w, h) => tctx.fillRect(x * m.cellW, y * m.cellH, w * m.cellW, h * m.cellH));
+    const box = this.boxCtx.measureText("Mg");
+    return {
+      ascent: box.actualBoundingBoxAscent || fontSize * 0.8,
+      descent: box.actualBoundingBoxDescent || fontSize * 0.25,
     };
-    if (this.selection) wash(this.selection, this.options.selection ?? "rgba(120,160,255,0.28)");
-    for (const match of this.highlights) wash(match, this.options.search ?? "rgba(250,204,21,0.22)");
-    if (this.cursorOn) this.paintCursor(m);
-  }
-
-  /** the cells of a screen range that are on the viewport, row by row */
-  private eachCell(range: ScreenRange, viewportTop: number, m: Metrics, draw: (x: number, y: number, w: number, h: number) => void): void {
-    const top = Math.max(range.start.y, viewportTop);
-    const bottom = Math.min(range.end.y, viewportTop + m.rows - 1);
-    if (bottom < top) return;
-    for (let y = top; y <= bottom; y++) {
-      const vy = y - viewportTop;
-      const from = y === range.start.y ? range.start.x : 0;
-      const to = y === range.end.y ? range.end.x : m.cols - 1;
-      if (to >= from) draw(from, vy, to - from + 1, 1);
-    }
-  }
-
-  private paintCursor(m: Metrics): void {
-    const { tctx } = this;
-    const cursor = this.session.cursorState();
-    if (!cursor.visible || cursor.x >= m.cols || cursor.y >= m.rows) return;
-    const x = cursor.x * m.cellW, y = cursor.y * m.cellH;
-    const w = m.cellW, h = m.cellH;
-    tctx.fillStyle = this.options.cursor;
-    tctx.strokeStyle = this.options.cursor;
-    switch (cursor.style) {
-      case "bar":
-        tctx.fillRect(x, y, Math.max(2, w * 0.12), h);
-        break;
-      case "underline":
-        tctx.fillRect(x, y + h * 0.82, w, Math.max(1, h * 0.12));
-        break;
-      case "hollow":
-        tctx.lineWidth = 1;
-        tctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-        break;
-      default:
-        tctx.globalAlpha = 0.35;
-        tctx.fillRect(x, y, w, h);
-        tctx.globalAlpha = 1;
-    }
   }
 
   dispose(): void {
     this.disposed = true;
+    this.scene.dispose();
     this.bottom.remove();
     this.top.remove();
     this.imageCache.clear();
-    this.rows.clear();
-    this.pending.clear();
-    this.fontStrings.clear();
-    this.advanceCache.clear();
   }
 }
