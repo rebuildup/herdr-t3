@@ -482,14 +482,15 @@ export function remoteArgvCommand(
 ): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
-    const command =
-      envRemove.length > 0
-        ? `env ${envRemove.map((name) => `-u ${shellQuote(name)}`).join(" ")} ${parts}`
-        : parts;
+    // POSIX-portable scrub: `env -u` is GNU-only (absent on macOS/BSD), so
+    // blank the variables instead — plugin CLIs treat empty as unset.
+    const scrub = envRemove.map((name) => `${name}=''`).join(" ");
+    const command = scrub ? `${scrub} ${parts}` : parts;
     return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
   }
-  // PowerShell has no `env -u`; clear the variables in the session before
-  // invoking the command (issue #228 — plugin CLIs resolve pane from env).
+  // PowerShell has no env-assignment scrub; clear the variables in the
+  // session before invoking the command (issue #228 — plugin CLIs resolve
+  // pane from env).
   const scrub = envRemove.map((name) => `$env:${name}=$null; `).join("");
   const invoke = argv.map(quotePowerShellArg).join(" ");
   const script = scrub + (cwd

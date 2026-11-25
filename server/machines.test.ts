@@ -158,10 +158,10 @@ describe("remoteArgvCommand env scrubbing (issue #228)", () => {
   const win = { id: "w", target: "h", session: "s1", remoteHerdr: "C:\\herdr.exe", os: "windows" };
   const scrub = ["HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
 
-  test("posix endpoint prepends env -u for each removed variable", () => {
+  test("posix endpoint blanks each removed variable (portable, no env -u)", () => {
     const cmd = remoteArgvCommand(posix, ["bun", "run", "src/cli.ts", "stage", "w1:p1"], "/plugins/git", scrub);
     expect(cmd).toBe(
-      "cd '/plugins/git' && env -u 'HERDR_PANE_ID' -u 'HERDR_PLUGIN_CONTEXT_JSON' 'bun' 'run' 'src/cli.ts' 'stage' 'w1:p1'",
+      "cd '/plugins/git' && HERDR_PANE_ID='' HERDR_PLUGIN_CONTEXT_JSON='' 'bun' 'run' 'src/cli.ts' 'stage' 'w1:p1'",
     );
   });
 
