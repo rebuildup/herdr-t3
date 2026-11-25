@@ -598,3 +598,72 @@ describe("PluginService.call", () => {
     ).rejects.toMatchObject({ code: "plugin_incompatible" });
   });
 });
+
+describe("plugin host session/socket targeting (issue #289)", () => {
+  const SOCKET = "/cfg/herdr/sessions/ht3rc/herdr.sock";
+
+  function socketHost() {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "list",
+        outcome: ok({ contract: "herdr-plugins.inbox/v1", items: [] }),
+      },
+    ]);
+    host.pluginSocket = SOCKET;
+    return host;
+  }
+
+  test("every exec kind targets the bridge socket: --socket argv + HERDR_SOCKET_PATH env", async () => {
+    const host = socketHost();
+    const svc = serviceFor(host);
+    await svc.call("local", { plugin: "rebuildup.inbox", command: "list" });
+    // call order: discovery, capability probe, contract call.
+    expect(host.calls).toHaveLength(3);
+    // `herdr plugin list` has no --socket flag; the bridge-resolved
+    // socket travels as HERDR_SOCKET_PATH, re-pinned after the scrub.
+    expect(host.calls[0]).toEqual(["herdr", "plugin", "list", "--json"]);
+    expect(host.options[0]?.envSet).toEqual({ HERDR_SOCKET_PATH: SOCKET });
+    expect(host.options[0]?.envRemove).toEqual(PLUGIN_ENV_SCRUB);
+    // Plugin CLIs take the explicit --socket (beats env/default upstream).
+    expect(host.calls[1]).toEqual(["bun", "run", "src/cli.ts", "capability", "--socket", SOCKET]);
+    expect(host.calls[2]).toEqual(["bun", "run", "src/cli.ts", "list", "--socket", SOCKET]);
+    // Plugin-CLI execs need no env pin: --socket already wins over any
+    // ambient HERDR_SOCKET_PATH/HERDR_SESSION.
+    expect(host.options[1]?.envSet).toBeUndefined();
+    expect(host.options[2]?.envSet).toBeUndefined();
+  });
+
+  test("--socket wins over --session when a host sets both", async () => {
+    const host = socketHost();
+    host.pluginSession = "work";
+    await serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "list" });
+    const callArgv = host.calls.find((c) => c[0] === "bun" && c[3] === "list");
+    expect(callArgv).toEqual(["bun", "run", "src/cli.ts", "list", "--socket", SOCKET]);
+  });
+
+  test("localPluginHost resolves HERDR_SOCKET as pluginSocket (the #289 scenario)", () => {
+    const previous = process.env["HERDR_SOCKET"];
+    process.env["HERDR_SOCKET"] = SOCKET;
+    try {
+      expect(localPluginHost().pluginSocket).toBe(SOCKET);
+    } finally {
+      if (previous === undefined) delete process.env["HERDR_SOCKET"];
+      else process.env["HERDR_SOCKET"] = previous;
+    }
+    // An explicit path still wins for tests/custom wiring.
+    expect(localPluginHost("/explicit/herdr.sock").pluginSocket).toBe("/explicit/herdr.sock");
+  });
+
+  test("envSet re-pins HERDR_SOCKET_PATH after the scrub in the local spawn", async () => {
+    const outcome = await localPluginHost().exec(
+      [process.execPath, "-e", "console.log(process.env.HERDR_SOCKET_PATH ?? 'unset')"],
+      {
+        timeoutMs: 15_000,
+        envRemove: ["HERDR_SOCKET_PATH"],
+        envSet: { HERDR_SOCKET_PATH: SOCKET },
+      },
+    );
+    expect(outcome.code).toBe(0);
+    expect(outcome.stdout.trim()).toBe(SOCKET);
+  });
+});

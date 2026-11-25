@@ -40,7 +40,15 @@ CLI implementations.
   `--session`, and the `herdr` binary treats a present-but-empty var as
   set. Local spawn deletes the keys; the SSH path emits `unset` (POSIX)
   / `$env:X=$null` (PowerShell, which deletes) inside the remote
-  command. Explicit `--session` appending is unchanged.
+  command.
+- Explicit session/socket targeting (issue #289): no plugin exec may
+  resolve a different Host/Session than the bridge. The local host
+  forwards the bridge's resolved socket (`herdrSocketPath()` —
+  `HERDR_SOCKET` env or the default) to plugin CLIs as `--socket PATH`
+  and to `herdr plugin list` as `HERDR_SOCKET_PATH` re-pinned after the
+  scrub (the herdr CLI has no `--socket` flag); SSH hosts pass
+  `--session <name>` to plugin CLIs and to the discovery `herdr` argv
+  for non-`default` sessions.
 - Ambient git env scrub (ADR-0023, issue #280): the same
   `PLUGIN_ENV_SCRUB` also removes `GIT_*` repo/config/transport
   targeting vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
@@ -79,6 +87,9 @@ CLI implementations.
 - no shell interpolation of `args` on any OS;
 - no reading of plugin state files;
 - no `--session` for the default session;
+- no plugin exec resolving a different Host/Session than the bridge
+  (local `HERDR_SOCKET` must reach every exec kind; SSH named sessions
+  must reach discovery as well as contract calls);
 - no ambient `HERDR_*` targeting env reaching any exec (discovery,
   capability, contract call) on local or SSH hosts;
 - no ambient `GIT_*` repo/config/transport targeting env reaching any
@@ -92,9 +103,11 @@ CLI implementations.
 
 `server/plugins.test.ts` (envelope parsing, error-kind preservation,
 error-field passthrough/caps, capability gating, env scrub on every
-exec kind + real local spawn),
-`server/machines.test.ts` (`remoteArgvCommand` scrub tokens for POSIX
-`unset` and PowerShell `$env:X=$null`),
+exec kind + real local spawn, `--socket`/`HERDR_SOCKET_PATH` targeting
+on every exec kind, issue #289),
+`server/machines.test.ts` (`remoteArgvCommand` scrub/envSet tokens for
+POSIX `unset`/`export` and PowerShell `$env:X=$null`/assignment,
+`sshPluginHost` session targeting),
 `shared/protocol.test.ts` (rpc_result error fields schema),
 `src/shell/git.test.ts`, `src/shell/projects.test.ts`,
 `src/shell/projectScripts.test.ts` (classifier field passthrough),
