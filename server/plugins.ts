@@ -406,6 +406,23 @@ function outcomeToJson(
     // own code so callers can distinguish e.g. `usage` from `error`.
     const doc = parseJson(outcome.stderr.trim());
     if (isRecord(doc) && isRecord(doc["error"])) {
+      // Partial-failure convention (checkpoints-v1 `save` /
+      // `restore-group` / `gc` / `prune`, herdr-plugins#75): the plugin
+      // prints the FULL per-repo report on stdout, a summary error on
+      // stderr and exits 1. Returning a bare HerdrError would silently
+      // drop that report, so when stdout also carries a contract
+      // document that itself reports `ok:false`, hand the report back
+      // as the result document with the stderr error attached under
+      // `error` — the client renders per-repo outcomes honestly instead
+      // of a generic failure. Hard failures emit no stdout document and
+      // still take the error path below.
+      const stdoutDoc = parseJson(outcome.stdout);
+      if (isRecord(stdoutDoc) && stdoutDoc["ok"] === false) {
+        const merged: Record<string, unknown> = { ...stdoutDoc };
+        const boundedError = boundErrorValue(doc["error"], 0);
+        if (isRecord(boundedError)) merged["error"] = boundedError;
+        return { doc: merged };
+      }
       const err = doc["error"];
       // Contracts may carry the real classification in `kind` (git-v1:
       // not_a_repo/bare_repo/git_missing/…) with a generic `code`; prefer

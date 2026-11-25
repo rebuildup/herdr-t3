@@ -1,9 +1,10 @@
 # Contract: worktree checkpoints (B3)
 
-Version: 3. Scope: consuming `herdr-plugins.checkpoints/v1` through
+Version: 4. Scope: consuming `herdr-plugins.checkpoints/v1` through
 `plugin_call` (ADR-0011 boundary, ADR-0016 pin re-pinned by ADR-0017 at
 `rebuildup/herdr-plugins@c8dc3b3`, re-pinned again by ADR-0021 at
-`rebuildup/herdr-plugins@55df8d0a`). The plugin owns capture, hidden git
+`rebuildup/herdr-plugins@55df8d0a`, re-pinned by ADR-0024 at
+`rebuildup/herdr-plugins@ae4f214`). The plugin owns capture, hidden git
 refs (`refs/herdr-plugins/checkpoints/<repo-key>/<id>`), the state
 index, and restore execution; herdr-t3 renders them and forwards
 explicit user operations only. Upstream spec:
@@ -13,17 +14,34 @@ explicit user operations only. Upstream spec:
 
 Commands are flat `plugin_call` command words (no subcommand argv):
 
-- `capability` → `{contract, commands, mutation_commands:["create","delete",
-  "restore"], read_only:false, requires:{git,bun}}`.
+- `capability` → `{contract, commands, mutation_commands:["create","save",
+  "delete","restore","restore-group","gc","prune"], read_only:false,
+  requires:{git,bun}}`.
 - `create [--repo PATH | <pane_id>] [--label TEXT] [--auto]` → synthetic
   commit parented to HEAD, stored under the hidden ref; `--repo` and a
   pane id are mutually exclusive. `--auto` records `kind:"auto"` (an
   explicit pane-targeted create also clears that pane's pending
   auto-capture mark). Pane ids resolve through the herdr session
   snapshot plugin-side (same path as `rebuildup.git`).
-- `list [--repo PATH] [--limit N]` → entries newest-first
+- `list [--repo PATH] [--group ID] [--limit N]` → entries newest-first
   (`created_at` desc), default limit 100, max 1000; `truncated`/`total`
-  report plugin-side pagination.
+  report plugin-side pagination. `--group` filters by save-group id;
+  the payload echoes `group`.
+- `save [--repo PATH ...] [--pane ID] [--label TEXT]` → multi-repo
+  checkpoint group: one checkpoint per resolved repo under a shared
+  `group_id` (`grp-…`). Repo set: repeated `--repo` flags, a pane
+  target, or — with neither — live discovery across session pane cwds
+  (`skipped_panes` reports non-repo cwds; unreachable session →
+  `session_unreachable`). `ok` is true only when EVERY repo captured.
+- `restore-group <group-id> [--force]` → restores every state entry
+  with the matching `group_id`, per-repo through the full `restore`
+  pipeline; `--repo` is rejected; unknown id → `unknown_group`.
+- `gc [--repo PATH] [--dry-run] [--max-count N] [--max-age-days N]
+  [--protect-days N]` → bounded retention; `pre_restore` entries
+  younger than protect-days exempt; evicts ref+state together;
+  unreachable repos skipped under `unreachable`.
+- `prune [--repo PATH] [--dry-run]` → deletes hidden refs unreferenced
+  by state; same ok/exit rule as `gc`.
 - `show <id> [--max-bytes N]` → entry + `ref:{name,exists,oid}` probe +
   bounded `git show --stat` (`summary`, `summary_error`).
 - `diff <id|HEAD> <id|HEAD> [--max-bytes N]` → bounded
@@ -58,6 +76,21 @@ Commands are flat `plugin_call` command words (no subcommand argv):
   sha256(canonical repo root)[:16]; `ref` =
   `refs/herdr-plugins/checkpoints/<repo_key>/<id>`; `commit` is a
   synthetic commit whose first parent is the captured HEAD.
+  `group_id` (`grp-…`) is present only on entries captured by `save` —
+  the shared id `restore-group` operates on.
+- **Partial-failure convention** (ADR-0024): `save`, `restore-group`,
+  `gc` and `prune` print the FULL report on stdout, a summary error on
+  stderr and exit 1 when the outcome is partial (`partial_save` /
+  `partial_restore`) or nothing was evaluable (`unreachable_repos`).
+  The bridge (`outcomeToJson`) detects this shape — non-zero exit +
+  contract error on stderr + an `ok:false` JSON document on stdout —
+  and returns the stdout report as the `plugin_call` document with the
+  stderr `error` object attached under `error`. Per-repo `ok:false`
+  entries are rendered individually; the report is never dropped into
+  a generic failure. Hard failures (no stdout document) still throw.
+- `gc`/`prune` are destructive; the UI requires a fresh `--dry-run`
+  preview of identical parameters before enabling execute — a UI
+  rule, not a contract rule.
 - `kind` records capture provenance: `"manual"` (explicit `create`),
   `"auto"` (lazy work-unit drain or `create --auto`), `"pre_restore"`
   (mandatory pre-restore safety capture). Entries written before
@@ -93,10 +126,10 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 - Capture never touches the user's index/worktree (temporary
   `GIT_INDEX_FILE`); submodule gitlinks are recorded but submodule
   worktree contents are not captured or restored (record-and-warn).
-- v1 non-goals (herdr-plugins#75+): no per-turn (per-message)
-  auto-capture — work-unit captures key on `agent_status` transitions
-  only — no multi-repo orchestration, no checkpoint GC, no private
-  object store/quarantine, no submodule worktree capture/restore.
+- v1 non-goals (upstream requests / later hardening): no per-turn
+  (per-message) auto-capture — work-unit captures key on `agent_status`
+  transitions only — no private object store/quarantine, no submodule
+  worktree capture/restore.
 
 ## Errors
 
@@ -109,22 +142,25 @@ Commands are flat `plugin_call` command words (no subcommand argv):
   `checkpoint_ref_missing`, `shared_worktree` (with `error.panes`),
   `session_unreachable`, `restore_failed`, `clean_failed`,
   `clean_incomplete`, `restore_verify_failed` (mutation failures carry
-  `pre_restore_*` fields), `git_missing`, `timeout`, `git_error`,
-  `usage`.
+  `pre_restore_*` fields), `unknown_group`, `partial_save`,
+  `partial_restore`, `unreachable_repos`, `git_missing`, `timeout`,
+  `git_error`, `usage`.
 - Bridge forwards allowlisted error extras only (`panes`,
   `pre_restore_checkpoint_id`, `pre_restore_ref`,
   `pre_restore_commit` added for this contract); everything else is
-  dropped server-side.
+  dropped server-side. Partial group outcomes bypass the error path:
+  the report document returns with the stderr `error` attached under
+  `error` (see Ordering and semantics).
 
 ## Negative cases
 
 - No direct reads of plugin state files or hidden refs — resolution is
   the plugin's job.
-- No GC or per-turn auto-capture affordances — not in the contract;
-  work-unit auto-capture is plugin-driven and its outcomes are only
-  surfaced, never triggered or fabricated client-side.
+- No GC or prune execution without a fresh dry-run preview of the same
+  parameters; work-unit auto-capture is plugin-driven and its outcomes
+  are only surfaced, never triggered or fabricated client-side.
 - No implicit or automatic `--force` restore; forcing is always an
-  explicit secondary user action.
+  explicit secondary user action (single restore or whole-group retry).
 - No Electron/Node-only APIs in the consuming code — everything flows
   through `plugin_call` frames so the GPUI port keeps the same surface.
 - No offering of mutations the host's `mutation_commands` does not
@@ -136,7 +172,9 @@ Commands are flat `plugin_call` command words (no subcommand argv):
 
 `docs/adr/ADR-0016.md` (initial pin) + `docs/adr/ADR-0017.md` (re-pin +
 plan/restore scope) + `docs/adr/ADR-0021.md` (re-pin @55df8d0a +
-work-unit auto-capture). Implementation evidence:
+work-unit auto-capture) + `docs/adr/ADR-0024.md` (re-pin @ae4f214 +
+save/restore-group/gc/prune + partial-report bridge convention).
+Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
 `src/components/CheckpointsDialog.tsx`, menu wiring in
 `src/shell/WorkspaceHeader.tsx`, error-field allowlist in

@@ -25,3 +25,4 @@
 | [ADR-0021](./ADR-0021.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @55df8d0a and work-unit auto-capture adoption (kind/auto_captures/--auto) |
 | [ADR-0022](./ADR-0022.md) | Accepted | plugin exec env scrub: no ambient herdr targeting vars on any exec path |
 | [ADR-0023](./ADR-0023.md) | Accepted | plugin exec env scrub: no ambient GIT_* repo/config/transport targeting vars |
+| [ADR-0024](./ADR-0024.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @ae4f214 and save/restore-group/gc/prune adoption (partial-report bridge convention) |

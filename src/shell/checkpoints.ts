@@ -4,14 +4,15 @@
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
- * pinned at rebuildup/herdr-plugins@55df8d0a (release-0-4-0, re-pin per
- * ADR-0017/ADR-0021). The contract doc is
+ * pinned at rebuildup/herdr-plugins@ae4f214 (release-0-4-0, re-pin per
+ * ADR-0017/ADR-0021/ADR-0024). The contract doc is
  * docs/migration/contracts/plugin-checkpoints.md.
  *
- * Commands are flat words (`create`, `list`, `show`, `diff`, `plan`,
- * `restore`, `delete`) carried as the `plugin_call` command;
- * `capability.commands` advertises the same words and
- * `mutation_commands` carries `create`, `delete` and `restore`.
+ * Commands are flat words (`create`, `save`, `list`, `show`, `diff`,
+ * `plan`, `restore`, `restore-group`, `delete`, `gc`, `prune`) carried
+ * as the `plugin_call` command; `capability.commands` advertises the
+ * same words and `mutation_commands` carries `create`, `save`,
+ * `delete`, `restore`, `restore-group`, `gc` and `prune`.
  * `create` resolves its repo either from an explicit `--repo PATH` or
  * from a pane id positional (the focused pane the dialog was opened
  * from); `list --repo` filters by canonical repo root. `plan` is a
@@ -41,6 +42,22 @@
  * The plugin also projects display-only `checkpoint_latest`/
  * `checkpoint_count` pane metadata after pane-targeted captures; this
  * client does not consume it.
+ *
+ * Since @ae4f214 (herdr-plugins #75/#94) the contract adds multi-repo
+ * groups and bounded retention: `save` captures one checkpoint per
+ * repo under a shared `group_id` (`grp-…`; explicit `--repo` list, a
+ * pane target, or live discovery from session pane cwds with
+ * `skipped_panes` for non-repo cwds), `restore-group <id>` restores
+ * every member per-repo, `list` gains `--group` + entry `group_id`,
+ * and `gc`/`prune` enforce bounded retention / orphan-ref deletion
+ * with mandatory `--dry-run` previews consumed by the UI. Partial
+ * group outcomes are honest: the plugin prints the full per-repo
+ * report on stdout plus a `{kind:"partial_save"|"partial_restore"|
+ * "unreachable_repos"}` summary on stderr with exit 1; the bridge
+ * (server/plugins.ts `outcomeToJson`) returns the stdout report as the
+ * result document with the stderr error attached under `error`, so
+ * per-repo `ok:false` entries are rendered individually — never
+ * collapsed into a generic failure.
  */
 import { pluginCall } from "../lib/api";
 
@@ -100,6 +117,16 @@ const CHECKPOINTS_ERROR_KINDS = new Set([
   "clean_failed",
   "clean_incomplete",
   "restore_verify_failed",
+  // Multi-repo groups + retention (contract rev 3, @ae4f214).
+  "unknown_group",
+  // Partial group outcomes: the full per-repo report arrives as the
+  // result document (`ok:false` + `error` attached by the bridge);
+  // these kinds classify the attached error when they surface as a
+  // thrown failure on older bridges.
+  "partial_save",
+  "partial_restore",
+  // gc/prune when NO repo could be evaluated/scanned.
+  "unreachable_repos",
   // Shared git-core spawn failures.
   "git_missing",
   "timeout",
@@ -282,6 +309,11 @@ export interface CheckpointEntry {
   created_at: string;
   label: string | null;
   kind: CheckpointEntryKind;
+  /**
+   * Shared `save`-group id (`grp-…`), present only on entries captured
+   * by `save`; absent on `create`/auto/pre_restore entries → null.
+   */
+  group_id: string | null;
   files_summary: string | null;
   files_summary_truncated: boolean;
   submodules: string[];
@@ -382,6 +414,7 @@ function checkpointEntryFromDoc(raw: unknown): CheckpointEntry | null {
     created_at: str(raw["created_at"]) ?? "",
     label: str(raw["label"]),
     kind: checkpointKindFromDoc(raw["kind"]),
+    group_id: str(raw["group_id"]),
     files_summary: str(raw["files_summary"]),
     files_summary_truncated: raw["files_summary_truncated"] === true,
     submodules: strArray(raw["submodules"]),
@@ -391,6 +424,8 @@ function checkpointEntryFromDoc(raw: unknown): CheckpointEntry | null {
 /** `list` document: newest `created_at` first, plugin-paginated. */
 export interface CheckpointsListResult {
   repo_root: string | null;
+  /** Active `--group` filter echoed by the plugin, else null. */
+  group: string | null;
   count: number;
   total: number;
   truncated: boolean;
@@ -413,6 +448,7 @@ export function checkpointsListFromDoc(
   }
   return {
     repo_root: str(doc["repo_root"]),
+    group: str(doc["group"]),
     count: num(doc["count"]) ?? checkpoints.length,
     total: num(doc["total"]) ?? checkpoints.length,
     truncated: doc["truncated"] === true,
@@ -727,6 +763,487 @@ export function checkpointRestoreFromDoc(
   };
 }
 
+/* -------------------- group + retention documents (rev 3) ------------- */
+
+/**
+ * Contract error object attached to a result document by the bridge
+ * when the plugin used the partial-failure convention (full report on
+ * stdout + `{kind:"partial_*"|"unreachable_repos"}` on stderr + exit
+ * 1). Absent on clean exit-0 payloads.
+ */
+export interface CheckpointDocError {
+  kind: string;
+  message: string;
+}
+
+/** Parse the bridge-attached `error` block; null when absent/malformed. */
+export function checkpointDocErrorFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointDocError | null {
+  const raw = doc["error"];
+  if (!isRecord(raw)) return null;
+  const kind = str(raw["kind"]);
+  const message = str(raw["message"]);
+  if (kind === null || kind === "" || message === null) return null;
+  return { kind, message };
+}
+
+/** Per-repo `{repo_root, kind, message}` entry in gc/prune `unreachable`. */
+export interface CheckpointUnreachableRepo {
+  repo_root: string;
+  kind: string;
+  message: string;
+}
+
+function unreachableRepoFromDoc(raw: unknown): CheckpointUnreachableRepo | null {
+  if (!isRecord(raw)) return null;
+  const repoRoot = str(raw["repo_root"]);
+  if (repoRoot === null || repoRoot === "") return null;
+  return {
+    repo_root: repoRoot,
+    kind: str(raw["kind"]) ?? "",
+    message: str(raw["message"]) ?? "",
+  };
+}
+
+function unreachableReposFromDoc(raw: unknown): CheckpointUnreachableRepo[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CheckpointUnreachableRepo[] = [];
+  for (const item of raw) {
+    const parsed = unreachableRepoFromDoc(item);
+    if (parsed !== null) out.push(parsed);
+  }
+  return out;
+}
+
+/* ---- save ---- */
+
+export interface CheckpointSaveRepoOk {
+  ok: true;
+  repo_root: string;
+  checkpoint: CheckpointEntry;
+}
+
+export interface CheckpointSaveRepoFail {
+  ok: false;
+  repo_root: string;
+  error: { kind: string; message: string };
+}
+
+export type CheckpointSaveRepoResult = CheckpointSaveRepoOk | CheckpointSaveRepoFail;
+
+export interface CheckpointSkippedPane {
+  pane_id: string;
+  reason: string;
+}
+
+/**
+ * `save` document: one checkpoint per resolved repo under a shared
+ * `group_id`. `ok` is true only when EVERY repo captured; partial
+ * outcomes arrive as `ok:false` + the bridge-attached `error`
+ * (`partial_save`) with the full per-repo `results` intact.
+ */
+export interface CheckpointSaveResult {
+  ok: boolean;
+  group: string | null;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: CheckpointSaveRepoResult[];
+  skipped_panes: CheckpointSkippedPane[];
+  error: CheckpointDocError | null;
+  auto_captures: AutoCapturesReport | null;
+  generated_at: string | null;
+}
+
+function saveRepoResultFromDoc(raw: unknown): CheckpointSaveRepoResult | null {
+  if (!isRecord(raw)) return null;
+  const repoRoot = str(raw["repo_root"]);
+  if (repoRoot === null || repoRoot === "") return null;
+  if (raw["ok"] === true) {
+    const checkpoint = checkpointEntryFromDoc(raw["checkpoint"]);
+    if (checkpoint === null) return null;
+    return { ok: true, repo_root: repoRoot, checkpoint };
+  }
+  const err = raw["error"];
+  if (isRecord(err)) {
+    const kind = str(err["kind"]);
+    const message = str(err["message"]);
+    if (kind !== null && kind !== "" && message !== null) {
+      return { ok: false, repo_root: repoRoot, error: { kind, message } };
+    }
+  }
+  return null;
+}
+
+function skippedPanesFromDoc(raw: unknown): CheckpointSkippedPane[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CheckpointSkippedPane[] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const paneId = str(item["pane_id"]);
+    const reason = str(item["reason"]);
+    if (paneId !== null && paneId !== "" && reason !== null && reason !== "") {
+      out.push({ pane_id: paneId, reason });
+    }
+  }
+  return out;
+}
+
+export function checkpointSaveFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointSaveResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "save") return null;
+  if (!Array.isArray(doc["results"])) return null;
+  const results: CheckpointSaveRepoResult[] = [];
+  for (const raw of doc["results"]) {
+    const parsed = saveRepoResultFromDoc(raw);
+    if (parsed !== null) results.push(parsed);
+  }
+  return {
+    ok: doc["ok"] === true,
+    group: str(doc["group"]),
+    total: num(doc["total"]) ?? results.length,
+    succeeded: num(doc["succeeded"]) ?? results.filter((r) => r.ok).length,
+    failed: num(doc["failed"]) ?? results.filter((r) => !r.ok).length,
+    results,
+    skipped_panes: skippedPanesFromDoc(doc["skipped_panes"]),
+    error: checkpointDocErrorFromDoc(doc),
+    auto_captures: autoCapturesFromDoc(doc),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/* ---- restore-group ---- */
+
+/** Pre-restore recovery checkpoint shape shared by restore payloads. */
+export interface CheckpointPreRestore {
+  id: string;
+  ref: string;
+  commit: string;
+  label: string | null;
+}
+
+function preRestoreFromDoc(raw: unknown): CheckpointPreRestore | null {
+  if (!isRecord(raw)) return null;
+  const id = str(raw["id"]);
+  const ref = str(raw["ref"]);
+  const commit = str(raw["commit"]);
+  if (id === null || ref === null || commit === null) return null;
+  return { id, ref, commit, label: str(raw["label"]) };
+}
+
+export interface CheckpointGroupRestoreOk {
+  ok: true;
+  id: string;
+  repo_root: string;
+  checkpoint: CheckpointEntry | null;
+  restored_commit: string | null;
+  pre_restore: CheckpointPreRestore | null;
+  isolation: CheckpointRestoreIsolation | null;
+  sharing_panes: string[];
+  clean_passes: number | null;
+  warnings: string[];
+}
+
+export interface CheckpointGroupRestoreFail {
+  ok: false;
+  id: string;
+  repo_root: string;
+  error: { kind: string; message: string; fields: Record<string, unknown> };
+  pre_restore: CheckpointPreRestore | null;
+}
+
+export type CheckpointGroupRestoreResult =
+  | CheckpointGroupRestoreOk
+  | CheckpointGroupRestoreFail;
+
+/**
+ * `restore-group <group-id>` document: every state entry with the
+ * matching `group_id`, restored per-repo through the full restore
+ * pipeline. `ok` is true only when EVERY member restored; partial
+ * outcomes arrive as `ok:false` + the bridge-attached `error`
+ * (`partial_restore`) with the full per-repo `results` intact.
+ */
+export interface CheckpointRestoreGroupResult {
+  ok: boolean;
+  group: string | null;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: CheckpointGroupRestoreResult[];
+  error: CheckpointDocError | null;
+  auto_captures: AutoCapturesReport | null;
+  generated_at: string | null;
+}
+
+function groupRestoreIsolationFromDoc(
+  raw: unknown,
+): CheckpointRestoreIsolation | null {
+  const value = str(raw);
+  return value !== null && RESTORE_ISOLATIONS.has(value as CheckpointRestoreIsolation)
+    ? (value as CheckpointRestoreIsolation)
+    : null;
+}
+
+function groupRestoreResultFromDoc(raw: unknown): CheckpointGroupRestoreResult | null {
+  if (!isRecord(raw)) return null;
+  const id = str(raw["id"]);
+  const repoRoot = str(raw["repo_root"]);
+  if (id === null || id === "" || repoRoot === null || repoRoot === "") return null;
+  const preRestore = preRestoreFromDoc(raw["pre_restore"]);
+  if (raw["ok"] === true) {
+    return {
+      ok: true,
+      id,
+      repo_root: repoRoot,
+      checkpoint: checkpointEntryFromDoc(raw["checkpoint"]),
+      restored_commit: str(raw["restored_commit"]),
+      pre_restore: preRestore,
+      isolation: groupRestoreIsolationFromDoc(raw["isolation"]),
+      sharing_panes: strArray(raw["sharing_panes"]),
+      clean_passes: num(raw["clean_passes"]),
+      warnings: strArray(raw["warnings"]),
+    };
+  }
+  const err = raw["error"];
+  if (!isRecord(err)) return null;
+  const kind = str(err["kind"]);
+  const message = str(err["message"]);
+  if (kind === null || kind === "" || message === null) return null;
+  // Extra error keys (panes, pre_restore_* ids, …) pass through as
+  // fields so the UI can render pane ids / recovery checkpoints.
+  const fields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(err)) {
+    if (key !== "kind" && key !== "message") fields[key] = value;
+  }
+  return {
+    ok: false,
+    id,
+    repo_root: repoRoot,
+    error: { kind, message, fields },
+    pre_restore: preRestore,
+  };
+}
+
+export function checkpointRestoreGroupFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointRestoreGroupResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "restore-group") return null;
+  if (!Array.isArray(doc["results"])) return null;
+  const results: CheckpointGroupRestoreResult[] = [];
+  for (const raw of doc["results"]) {
+    const parsed = groupRestoreResultFromDoc(raw);
+    if (parsed !== null) results.push(parsed);
+  }
+  return {
+    ok: doc["ok"] === true,
+    group: str(doc["group"]),
+    total: num(doc["total"]) ?? results.length,
+    succeeded: num(doc["succeeded"]) ?? results.filter((r) => r.ok).length,
+    failed: num(doc["failed"]) ?? results.filter((r) => !r.ok).length,
+    results,
+    error: checkpointDocErrorFromDoc(doc),
+    auto_captures: autoCapturesFromDoc(doc),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/* ---- gc ---- */
+
+export interface CheckpointGcRepoReport {
+  repo_root: string;
+  evaluated: number;
+  /** Ids actually evicted; null on dry-run (would_delete set instead). */
+  deleted: string[] | null;
+  would_delete: string[] | null;
+  /** Ids exempt as young pre_restore entries. */
+  protected_ids: string[];
+  kept: number;
+  errors: { id: string; message: string }[];
+}
+
+export interface CheckpointGcPolicy {
+  max_count: number;
+  max_age_days: number;
+  pre_restore_protect_days: number;
+}
+
+export interface CheckpointGcResult {
+  ok: boolean;
+  dry_run: boolean;
+  policy: CheckpointGcPolicy | null;
+  repos: CheckpointGcRepoReport[];
+  unreachable: CheckpointUnreachableRepo[];
+  totals: {
+    evaluated: number;
+    deleted: number | null;
+    would_delete: number | null;
+    protected: number;
+    kept: number;
+    errors: number;
+  };
+  error: CheckpointDocError | null;
+  auto_captures: AutoCapturesReport | null;
+  generated_at: string | null;
+}
+
+function gcRepoReportFromDoc(raw: unknown): CheckpointGcRepoReport | null {
+  if (!isRecord(raw)) return null;
+  const repoRoot = str(raw["repo_root"]);
+  if (repoRoot === null || repoRoot === "") return null;
+  const errors: { id: string; message: string }[] = [];
+  if (Array.isArray(raw["errors"])) {
+    for (const item of raw["errors"]) {
+      if (!isRecord(item)) continue;
+      const id = str(item["id"]);
+      const message = str(item["message"]);
+      if (id !== null && message !== null) errors.push({ id, message });
+    }
+  }
+  return {
+    repo_root: repoRoot,
+    evaluated: num(raw["evaluated"]) ?? 0,
+    deleted: Array.isArray(raw["deleted"]) ? strArray(raw["deleted"]) : null,
+    would_delete: Array.isArray(raw["would_delete"])
+      ? strArray(raw["would_delete"])
+      : null,
+    protected_ids: strArray(raw["protected"]),
+    kept: num(raw["kept"]) ?? 0,
+    errors,
+  };
+}
+
+export function checkpointGcFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointGcResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "gc") return null;
+  if (!Array.isArray(doc["repos"])) return null;
+  const repos: CheckpointGcRepoReport[] = [];
+  for (const raw of doc["repos"]) {
+    const parsed = gcRepoReportFromDoc(raw);
+    if (parsed !== null) repos.push(parsed);
+  }
+  const rawPolicy = doc["policy"];
+  const policy: CheckpointGcPolicy | null = isRecord(rawPolicy)
+    ? {
+        max_count: num(rawPolicy["max_count"]) ?? 0,
+        max_age_days: num(rawPolicy["max_age_days"]) ?? 0,
+        pre_restore_protect_days:
+          num(rawPolicy["pre_restore_protect_days"]) ?? 0,
+      }
+    : null;
+  const rawTotals = doc["totals"];
+  const totals = isRecord(rawTotals)
+    ? {
+        evaluated: num(rawTotals["evaluated"]) ?? 0,
+        deleted: num(rawTotals["deleted"]),
+        would_delete: num(rawTotals["would_delete"]),
+        protected: num(rawTotals["protected"]) ?? 0,
+        kept: num(rawTotals["kept"]) ?? 0,
+        errors: num(rawTotals["errors"]) ?? 0,
+      }
+    : { evaluated: 0, deleted: null, would_delete: null, protected: 0, kept: 0, errors: 0 };
+  return {
+    ok: doc["ok"] === true,
+    dry_run: doc["dry_run"] === true,
+    policy,
+    repos,
+    unreachable: unreachableReposFromDoc(doc["unreachable"]),
+    totals,
+    error: checkpointDocErrorFromDoc(doc),
+    auto_captures: autoCapturesFromDoc(doc),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/* ---- prune ---- */
+
+export interface CheckpointPruneRepoReport {
+  repo_root: string;
+  scanned: number;
+  /** Hidden refs no state entry references. */
+  orphans: string[];
+  /** Refs actually deleted; null on dry-run. */
+  deleted: string[] | null;
+  errors: { ref: string; message: string }[];
+}
+
+export interface CheckpointPruneResult {
+  ok: boolean;
+  dry_run: boolean;
+  repos: CheckpointPruneRepoReport[];
+  unreachable: CheckpointUnreachableRepo[];
+  totals: {
+    scanned: number;
+    orphans: number;
+    deleted: number | null;
+    would_delete: number | null;
+    errors: number;
+  };
+  error: CheckpointDocError | null;
+  auto_captures: AutoCapturesReport | null;
+  generated_at: string | null;
+}
+
+function pruneRepoReportFromDoc(raw: unknown): CheckpointPruneRepoReport | null {
+  if (!isRecord(raw)) return null;
+  const repoRoot = str(raw["repo_root"]);
+  if (repoRoot === null || repoRoot === "") return null;
+  const errors: { ref: string; message: string }[] = [];
+  if (Array.isArray(raw["errors"])) {
+    for (const item of raw["errors"]) {
+      if (!isRecord(item)) continue;
+      const ref = str(item["ref"]);
+      const message = str(item["message"]);
+      if (ref !== null && message !== null) errors.push({ ref, message });
+    }
+  }
+  return {
+    repo_root: repoRoot,
+    scanned: num(raw["scanned"]) ?? 0,
+    orphans: strArray(raw["orphans"]),
+    deleted: Array.isArray(raw["deleted"]) ? strArray(raw["deleted"]) : null,
+    errors,
+  };
+}
+
+export function checkpointPruneFromDoc(
+  doc: Record<string, unknown>,
+): CheckpointPruneResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "prune") return null;
+  if (!Array.isArray(doc["repos"])) return null;
+  const repos: CheckpointPruneRepoReport[] = [];
+  for (const raw of doc["repos"]) {
+    const parsed = pruneRepoReportFromDoc(raw);
+    if (parsed !== null) repos.push(parsed);
+  }
+  const rawTotals = doc["totals"];
+  const totals = isRecord(rawTotals)
+    ? {
+        scanned: num(rawTotals["scanned"]) ?? 0,
+        orphans: num(rawTotals["orphans"]) ?? 0,
+        deleted: num(rawTotals["deleted"]),
+        would_delete: num(rawTotals["would_delete"]),
+        errors: num(rawTotals["errors"]) ?? 0,
+      }
+    : { scanned: 0, orphans: 0, deleted: null, would_delete: null, errors: 0 };
+  return {
+    ok: doc["ok"] === true,
+    dry_run: doc["dry_run"] === true,
+    repos,
+    unreachable: unreachableReposFromDoc(doc["unreachable"]),
+    totals,
+    error: checkpointDocErrorFromDoc(doc),
+    auto_captures: autoCapturesFromDoc(doc),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
 /* ------------------------- argv builders (pure) ------------------------ */
 
 /**
@@ -736,11 +1253,17 @@ export function checkpointRestoreFromDoc(
  * `--label` is an optional flag pair on either form.
  */
 export function checkpointsListArgs(
-  options: { repo?: string | undefined; limit?: number | undefined } = {},
+  options: {
+    repo?: string | undefined;
+    group?: string | undefined;
+    limit?: number | undefined;
+  } = {},
 ): string[] {
   const args: string[] = [];
   const repo = options.repo?.trim() ?? "";
   if (repo !== "") args.push("--repo", repo);
+  const group = options.group?.trim() ?? "";
+  if (group !== "") args.push("--group", group);
   if (options.limit !== undefined && Number.isInteger(options.limit) && options.limit > 0) {
     args.push("--limit", String(options.limit));
   }
@@ -825,6 +1348,93 @@ export function checkpointRestoreArgs(
   return args;
 }
 
+/**
+ * `save` repo-set resolution, in upstream priority order: repeated
+ * `--repo PATH` flags (explicit enumeration), `--pane ID` for a single
+ * pane's repo, or — with neither — live discovery across every repo
+ * resolved from the session snapshot's pane cwds. `repos` wins over
+ * `paneId` if both are somehow supplied (callers never do this; the
+ * plugin would reject the combination anyway). `--label` applies to
+ * every captured entry.
+ */
+export function checkpointSaveArgs(
+  target: { repos?: string[] | undefined; paneId?: string | undefined },
+  options: { label?: string | undefined } = {},
+): string[] {
+  const args: string[] = [];
+  const repos = (target.repos ?? [])
+    .map((r) => r.trim())
+    .filter((r) => r !== "");
+  if (repos.length > 0) {
+    for (const repo of repos) args.push("--repo", repo);
+  } else {
+    const paneId = target.paneId?.trim() ?? "";
+    if (paneId !== "") args.push("--pane", paneId);
+  }
+  const label = options.label?.trim() ?? "";
+  if (label !== "") args.push("--label", label);
+  return args;
+}
+
+/** `restore-group <group-id> [--force]` — `--repo` is rejected upstream. */
+export function checkpointRestoreGroupArgs(
+  groupId: string,
+  options: { force?: boolean | undefined } = {},
+): string[] {
+  const args = [groupId];
+  if (options.force === true) args.push("--force");
+  return args;
+}
+
+/**
+ * `gc [--repo PATH] [--dry-run] [--max-count N] [--max-age-days N]
+ * [--protect-days N]` — bounded retention; policy flags only appended
+ * when explicitly set (plugin/config defaults otherwise).
+ */
+export function checkpointGcArgs(
+  options: {
+    repo?: string | undefined;
+    dryRun?: boolean | undefined;
+    maxCount?: number | undefined;
+    maxAgeDays?: number | undefined;
+    protectDays?: number | undefined;
+  } = {},
+): string[] {
+  const args: string[] = [];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  if (options.dryRun === true) args.push("--dry-run");
+  if (options.maxCount !== undefined && Number.isInteger(options.maxCount) && options.maxCount > 0) {
+    args.push("--max-count", String(options.maxCount));
+  }
+  if (
+    options.maxAgeDays !== undefined &&
+    Number.isInteger(options.maxAgeDays) &&
+    options.maxAgeDays > 0
+  ) {
+    args.push("--max-age-days", String(options.maxAgeDays));
+  }
+  if (
+    options.protectDays !== undefined &&
+    Number.isInteger(options.protectDays) &&
+    options.protectDays > 0
+  ) {
+    args.push("--protect-days", String(options.protectDays));
+  }
+  return args;
+}
+
+/** `prune [--repo PATH] [--dry-run]` — orphan hidden-ref deletion. */
+export function checkpointPruneArgs(
+  options: { repo?: string | undefined; dryRun?: boolean | undefined } = {},
+): string[] {
+  const args: string[] = [];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") args.push("--repo", repo);
+  if (options.dryRun === true) args.push("--dry-run");
+  return args;
+}
+
 /* ------------------------------ fetchers -------------------------------- */
 
 function badOutput(command: string): Error {
@@ -840,7 +1450,11 @@ function badOutput(command: string): Error {
  */
 export async function fetchCheckpointsList(
   machine: string,
-  options: { repo?: string | undefined; limit?: number | undefined } = {},
+  options: {
+    repo?: string | undefined;
+    group?: string | undefined;
+    limit?: number | undefined;
+  } = {},
 ): Promise<CheckpointsListResult> {
   const doc = await pluginCall(machine, {
     plugin: CHECKPOINTS_PLUGIN_ID,
@@ -967,5 +1581,94 @@ export async function restoreCheckpoint(
   });
   const result = checkpointRestoreFromDoc(doc);
   if (result === null) throw badOutput("restore");
+  return result;
+}
+
+/**
+ * `save` — multi-repo checkpoint group. `repos` enumerates explicit
+ * `--repo PATH` flags; `paneId` targets one pane's repo; neither means
+ * live discovery across session pane cwds (`skipped_panes` reports
+ * non-repo cwds; `session_unreachable` throws when herdr is down).
+ * Partial captures resolve as `ok:false` + `error.kind:"partial_save"`
+ * with the full per-repo report — never thrown away.
+ */
+export async function saveCheckpoints(
+  machine: string,
+  target: { repos?: string[] | undefined; paneId?: string | undefined },
+  options: { label?: string | undefined } = {},
+): Promise<CheckpointSaveResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "save",
+    args: checkpointSaveArgs(target, options),
+  });
+  const result = checkpointSaveFromDoc(doc);
+  if (result === null) throw badOutput("save");
+  return result;
+}
+
+/**
+ * `restore-group <group-id> [--force]` — restores every checkpoint
+ * captured by one `save` call, per-repo through the full restore
+ * pipeline (isolation check + mandatory pre-restore per member).
+ * Partial restores resolve as `ok:false` + `error.kind:"partial_restore"`
+ * with the full per-repo report; `unknown_group` throws.
+ */
+export async function restoreCheckpointGroup(
+  machine: string,
+  groupId: string,
+  options: { force?: boolean | undefined } = {},
+): Promise<CheckpointRestoreGroupResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "restore-group",
+    args: checkpointRestoreGroupArgs(groupId, options),
+  });
+  const result = checkpointRestoreGroupFromDoc(doc);
+  if (result === null) throw badOutput("restore-group");
+  return result;
+}
+
+/**
+ * `gc` — bounded retention. `dryRun:true` is the mandatory preview
+ * (`would_delete`/`protected`/`unreachable`); `dryRun:false` executes.
+ * `ok:false` only when NO repo could be evaluated (`unreachable_repos`
+ * error attached).
+ */
+export async function fetchCheckpointsGc(
+  machine: string,
+  options: {
+    repo?: string | undefined;
+    dryRun?: boolean | undefined;
+    maxCount?: number | undefined;
+    maxAgeDays?: number | undefined;
+    protectDays?: number | undefined;
+  } = {},
+): Promise<CheckpointGcResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "gc",
+    args: checkpointGcArgs(options),
+  });
+  const result = checkpointGcFromDoc(doc);
+  if (result === null) throw badOutput("gc");
+  return result;
+}
+
+/**
+ * `prune` — deletes hidden refs unreferenced by state. `dryRun:true`
+ * lists orphans without deleting; same ok/exit rule as `gc`.
+ */
+export async function fetchCheckpointsPrune(
+  machine: string,
+  options: { repo?: string | undefined; dryRun?: boolean | undefined } = {},
+): Promise<CheckpointPruneResult> {
+  const doc = await pluginCall(machine, {
+    plugin: CHECKPOINTS_PLUGIN_ID,
+    command: "prune",
+    args: checkpointPruneArgs(options),
+  });
+  const result = checkpointPruneFromDoc(doc);
+  if (result === null) throw badOutput("prune");
   return result;
 }
