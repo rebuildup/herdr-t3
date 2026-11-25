@@ -40,6 +40,14 @@
       "kind": "control",
       "evidence": ["src/shell/AppShell.tsx aria-label=Toggle main sidebar"]
     },
+    "nav.settings": {
+      "kind": "control",
+      "evidence": ["src/shell/SidebarChrome.tsx data-ui-nav=settings"]
+    },
+    "nav.settings-appearance": {
+      "kind": "control",
+      "evidence": ["src/shell/SettingsModal.tsx data-settings-section=appearance"]
+    },
     "theme.mode-tiles": {
       "kind": "control",
       "evidence": ["src/components/ThemeModeTiles.tsx", "src/lib/theme.ts"]

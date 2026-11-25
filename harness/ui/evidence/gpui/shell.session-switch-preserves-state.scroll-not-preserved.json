@@ -1,0 +1,83 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "gpui",
+  "scenario": "shell.session-switch-preserves-state",
+  "capability": "ui.shell",
+  "contract": "ui-shell@1",
+  "fixture": "two-workspaces-with-scrollback",
+  "pass": false,
+  "injected_fault": "scroll-not-preserved",
+  "git_sha": "1e74a6154bd7687b685b87caf767b7c668dca457",
+  "recorded_at": "2026-11-25T05:27:20.929Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "action",
+      "name": "select workspace.item",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 2,
+      "kind": "wait",
+      "name": "wait terminal.scroll_offset",
+      "ok": true
+    },
+    {
+      "index": 3,
+      "kind": "action",
+      "name": "terminal.scroll terminal.pane",
+      "ok": true
+    },
+    {
+      "index": 4,
+      "kind": "assert",
+      "name": "terminal.scroll_offset (capture before)",
+      "ok": true
+    },
+    {
+      "index": 5,
+      "kind": "action",
+      "name": "select workspace.item",
+      "ok": true
+    },
+    {
+      "index": 6,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 7,
+      "kind": "assert",
+      "name": "state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 8,
+      "kind": "action",
+      "name": "select workspace.item",
+      "ok": true
+    },
+    {
+      "index": 9,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 10,
+      "kind": "wait",
+      "name": "wait terminal.scroll_offset",
+      "ok": false,
+      "detail": "timeout, last=0"
+    }
+  ],
+  "error": null
+}

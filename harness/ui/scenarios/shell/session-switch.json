@@ -4,15 +4,21 @@
   "id": "shell.session-switch-preserves-state",
   "capability": "ui.shell",
   "contract": "ui-shell@1",
-  "fixture": "two-workspaces-two-panes",
+  "fixture": "two-workspaces-with-scrollback",
   "os": ["macos", "windows-11"],
   "steps": [
-    { "action": "select", "target": "workspace.item", "params": { "id": "w1" } },
-    { "action": "terminal.scroll", "target": "terminal.pane", "params": { "id": "p1", "rows": -10 } },
-    { "action": "select", "target": "workspace.item", "params": { "id": "w2" } },
-    { "assert": "state.selected_workspace", "equals": "w2" },
-    { "action": "select", "target": "workspace.item", "params": { "id": "w1" } },
-    { "assert": "state.selected_workspace", "equals": "w1" },
-    { "assert": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "p1" }, "equals": -10 }
+    { "action": "select", "target": "workspace.item", "params": { "id": "$first" } },
+    { "wait": { "until": "state.selected_workspace", "equals": "$first", "timeout_ms": 5000 } },
+    { "wait": { "until": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "$first" }, "equals": 0, "timeout_ms": 15000 } },
+    { "action": "terminal.scroll", "target": "terminal.pane", "params": { "id": "$first", "rows": 10 } },
+    { "assert": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "$first" }, "capture_as": "before" },
+    { "action": "select", "target": "workspace.item", "params": { "id": "$second" } },
+    { "wait": { "until": "state.selected_workspace", "equals": "$second", "timeout_ms": 5000 } },
+    { "assert": "state.selected_workspace", "equals": "$second" },
+    { "action": "select", "target": "workspace.item", "params": { "id": "$first" } },
+    { "wait": { "until": "state.selected_workspace", "equals": "$first", "timeout_ms": 5000 } },
+    { "wait": { "until": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "$first" }, "equals": "$captured:before", "timeout_ms": 15000 } },
+    { "assert": "state.selected_workspace", "equals": "$first" },
+    { "assert": "terminal.scroll_offset", "target": "terminal.pane", "params": { "id": "$first" }, "equals": "$captured:before" }
   ]
 }

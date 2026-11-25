@@ -1,0 +1,29 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "electron",
+  "scenario": "shell.session-switch-preserves-state",
+  "capability": "ui.shell",
+  "contract": "ui-shell@1",
+  "fixture": "two-workspaces-with-scrollback",
+  "pass": false,
+  "injected_fault": "selection-lost",
+  "git_sha": "1e74a6154bd7687b685b87caf767b7c668dca457",
+  "recorded_at": "2026-11-25T05:02:18.397Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "action",
+      "name": "select workspace.item",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": false,
+      "detail": "timeout, last=null"
+    }
+  ],
+  "error": null
+}

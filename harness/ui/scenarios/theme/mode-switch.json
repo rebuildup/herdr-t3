@@ -8,10 +8,16 @@
   "os": ["macos", "windows-11"],
   "steps": [
     { "assert": "state.appearance_mode", "equals": "system" },
+    { "action": "activate", "target": "nav.settings" },
+    { "wait": { "until": "state.settings_open", "equals": true, "timeout_ms": 5000 } },
+    { "action": "activate", "target": "nav.settings-appearance" },
+    { "wait": { "until": "dialog.section", "equals": "appearance", "timeout_ms": 5000 } },
     { "action": "select", "target": "theme.mode-tiles", "params": { "mode": "dark" } },
+    { "wait": { "until": "state.theme_resolved", "equals": "dark", "timeout_ms": 5000 } },
     { "assert": "state.appearance_mode", "equals": "dark" },
     { "assert": "state.theme_resolved", "equals": "dark" },
     { "action": "select", "target": "theme.mode-tiles", "params": { "mode": "light" } },
+    { "wait": { "until": "state.theme_resolved", "equals": "light", "timeout_ms": 5000 } },
     { "assert": "state.theme_resolved", "equals": "light" }
   ]
 }

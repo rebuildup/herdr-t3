@@ -17,7 +17,7 @@
  * Usage: bun scripts/check-migration-readiness.ts [--json] [--self-test]
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -91,6 +91,58 @@ interface Gate {
   note: string;
 }
 
+/**
+ * ui-conformance gate (issue #238): PASS only when committed evidence shows
+ *  - every scenario PASS on BOTH adapters (real Electron app via CDP and
+ *    the GPUI test host), and
+ *  - fault-injection runs that correctly FAIL on both adapters, proving
+ *    the harness detects real UI misbehavior rather than rubber-stamping.
+ */
+function uiConformanceVerdict(): "PASS" | "BLOCKED" {
+  const scenariosDir = join(ROOT, "harness/ui/scenarios");
+  const evidenceDir = join(ROOT, "harness/ui/evidence");
+  if (!existsSync(scenariosDir)) return "BLOCKED";
+  const scenarioIds: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir)) {
+      const p = join(dir, e);
+      try {
+        if (statSync(p).isDirectory()) walk(p);
+        else if (e.endsWith(".json")) {
+          scenarioIds.push(JSON.parse(readFileSync(p, "utf8")).id as string);
+        }
+      } catch {
+        /* unreadable scenario — the scenario validator reports it */
+      }
+    }
+  };
+  walk(scenariosDir);
+  if (scenarioIds.length === 0) return "BLOCKED";
+
+  const readEvidence = (adapter: string, file: string): { pass?: boolean } | null => {
+    const p = join(evidenceDir, adapter, file);
+    if (!existsSync(p)) return null;
+    try {
+      return JSON.parse(readFileSync(p, "utf8")) as { pass?: boolean };
+    } catch {
+      return null;
+    }
+  };
+
+  for (const adapter of ["electron", "gpui"]) {
+    for (const id of scenarioIds) {
+      if (readEvidence(adapter, `${id}.json`)?.pass !== true) return "BLOCKED";
+    }
+    // detection proofs: injected faults must produce FAIL evidence
+    for (const fault of ["scroll-not-preserved", "selection-lost"]) {
+      if (readEvidence(adapter, `shell.session-switch-preserves-state.${fault}.json`)?.pass !== false) {
+        return "BLOCKED";
+      }
+    }
+  }
+  return "PASS";
+}
+
 function gates(): Gate[] {
   const has = (p: string) => existsSync(join(ROOT, p));
   const dirHas = (p: string, suffix: string) =>
@@ -136,9 +188,15 @@ function gates(): Gate[] {
     },
     {
       id: "ui-conformance",
-      verdict: has("harness/ui/adapters/gpui") || has("harness/ui/adapters/electron") ? "PASS" : "BLOCKED",
-      evidence: ["docs/migration/ui-conformance.md", "harness/ui/"],
-      note: "scenario format + spec scenarios exist; NO execution adapter (Electron driver or GPUI test host) implemented — GPUI both-OS capability unproven, gate must not pass",
+      verdict: uiConformanceVerdict(),
+      evidence: [
+        "docs/migration/ui-conformance.md",
+        "harness/ui/scenarios/",
+        "harness/ui/adapters/",
+        "harness/ui/evidence/",
+        "crates/ui-test-host/",
+      ],
+      note: "every scenario must have PASS evidence on BOTH the real Electron adapter (CDP-driven app) and the GPUI test host (real gpui window + input dispatch), plus fault-injection runs that correctly FAIL — recorded under harness/ui/evidence/",
     },
     {
       id: "os-real-device",

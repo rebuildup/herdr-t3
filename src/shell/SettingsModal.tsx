@@ -793,6 +793,7 @@ export function SettingsModal() {
                       <button
                         key={s.id}
                         type="button"
+                        data-settings-section={s.id}
                         onClick={() => navigate(settingsHash(s.id))}
                         className={cn(
                           "flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",

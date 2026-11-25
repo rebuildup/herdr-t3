@@ -26,6 +26,7 @@ import {
   onTerminalThemeChange,
 } from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
+import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
 
@@ -113,6 +114,7 @@ export function PaneTerminal({
     let disposed = false;
     let surface: GhosttySurface | null = null;
     let session: GhosttySession | null = null;
+    let unregisterProbe: (() => void) | null = null;
     // Attach bytes that arrive while the WASM module compiles queue here and
     // flush in order once the surface exists — the stream is never dropped.
     const pending: Uint8Array[] = [];
@@ -145,6 +147,11 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        // Conformance observation (#238): rows scrolled above the bottom.
+        unregisterProbe = registerTerminalScrollProbe(`${machine}\n${paneId}`, () => {
+          const h = created.history();
+          return h.scrollback - h.viewportTop;
+        });
         const terminalSettings = getTerminalSettings();
         surface = new GhosttySurface(host, created, {
           session: created,
@@ -413,6 +420,7 @@ export function PaneTerminal({
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
+      unregisterProbe?.();
       surface?.dispose();
       session?.dispose();
     };
@@ -442,7 +450,7 @@ export function PaneTerminal({
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      <div ref={hostRef} className="absolute inset-0" />
+      <div ref={hostRef} className="absolute inset-0" data-ui-terminal={`${machine}\n${paneId}`} />
       {searchOpen && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md">
           <Input

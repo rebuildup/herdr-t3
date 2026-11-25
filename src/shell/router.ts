@@ -103,6 +103,11 @@ export function useRoute(): ShellRoute {
   return useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 }
 
+/** Non-hook read of the current route (test/diagnostic observation, #238). */
+export function currentRoute(): ShellRoute {
+  return snapshot;
+}
+
 export function navigate(to: string) {
   const hash = to.startsWith("#") ? to : `#${to}`;
   if (currentHash() === hash) {
