@@ -13,7 +13,14 @@
  *   are shown verbatim.
  * - `diff` truncation (`--max-bytes` cap) is surfaced as a notice, not
  *   hidden.
- * - v1 has no restore/auto-capture/GC (herdr-plugins #73–#75); no such
+ * - `plan` previews restore before it runs: `untracked_to_delete`
+ *   files are PERMANENTLY deleted and are labelled as such.
+ * - `restore` is gated twice: the `plan` preview and an explicit
+ *   confirm. `shared_worktree`/`session_unreachable` show the pane ids
+ *   and offer `--force` only as a separate, clearly-labelled action —
+ *   never implicit. Mutation-phase failures surface the plugin's
+ *   `pre_restore_*` fields with a recovery affordance.
+ * - v1 has no auto-capture/GC (herdr-plugins #74–#75); no such
  *   affordance exists here.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -47,10 +54,14 @@ import {
   createCheckpoint,
   deleteCheckpoint,
   fetchCheckpointDiff,
+  fetchCheckpointPlan,
   fetchCheckpointShow,
   fetchCheckpointsList,
+  restoreCheckpoint,
   type CheckpointDiffResult,
   type CheckpointEntry,
+  type CheckpointPlanResult,
+  type CheckpointRestoreResult,
   type CheckpointShowResult,
   type CheckpointsCapability,
   type CheckpointsError,
@@ -78,6 +89,14 @@ const PLUGIN_ERROR_LABELS: Record<string, string> = {
   timeout: "git command timed out",
   git_error: "git error",
   usage: "invalid arguments",
+  repo_mismatch: "target is not a worktree of this repository",
+  checkpoint_ref_missing: "checkpoint hidden ref no longer exists",
+  shared_worktree: "worktree is shared by other live panes",
+  session_unreachable: "herdr session unreachable — isolation cannot be proven",
+  restore_failed: "restore failed",
+  clean_failed: "untracked-file cleanup failed",
+  clean_incomplete: "untracked-file cleanup did not converge",
+  restore_verify_failed: "post-restore verification failed",
   plugin_error: "checkpoints plugin error",
 };
 
@@ -103,6 +122,28 @@ function supports(cap: CheckpointsCapability | null | undefined, command: string
   if (cap === undefined) return null;
   if (cap === null) return false;
   return cap.commands.has(command);
+}
+
+/** String list carried in a classified plugin error's `fields`. */
+function errorFieldStrings(
+  classified: CheckpointsError | null,
+  key: string,
+): string[] {
+  if (classified === null || classified.kind !== "plugin") return [];
+  const value = classified.fields?.[key];
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string")
+    : [];
+}
+
+/** Single string carried in a classified plugin error's `fields`. */
+function errorFieldString(
+  classified: CheckpointsError | null,
+  key: string,
+): string | null {
+  if (classified === null || classified.kind !== "plugin") return null;
+  const value = classified.fields?.[key];
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 /** Same probe against `mutation_commands`. */
@@ -315,22 +356,318 @@ function CheckpointList({
   );
 }
 
+/* ------------------------------- restore -------------------------------- */
+
+const ISOLATION_LABELS: Record<string, string> = {
+  isolated: "isolated (no other panes in the worktree)",
+  single_pane: "single pane",
+  no_panes: "no panes",
+  forced: "forced (--force bypassed the isolation check)",
+};
+
+/** Read-only `plan` preview — shown before any restore can run. */
+function PlanPreview({ plan }: { plan: CheckpointPlanResult }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2 text-2xs">
+        <span className="text-muted-foreground">files to change:</span>
+        <span className="font-mono">{plan.files_to_change}</span>
+        <span className="text-muted-foreground">untracked to delete:</span>
+        <span className="font-mono">{plan.untracked_to_delete}</span>
+        {plan.already_matches ? (
+          <Badge size="sm" variant="outline">
+            already matches
+          </Badge>
+        ) : null}
+        {plan.ref !== null && !plan.ref.exists ? (
+          <Badge size="sm" variant="warning">
+            ref missing — planning recorded commit
+          </Badge>
+        ) : null}
+      </div>
+      {plan.untracked_to_delete > 0 ? (
+        <div className="text-2xs text-warning">
+          {plan.untracked_to_delete} untracked file
+          {plan.untracked_to_delete === 1 ? "" : "s"} will be{" "}
+          <span className="font-medium">permanently deleted</span> by restore
+          (git clean -fd) — this cannot be undone.
+        </div>
+      ) : null}
+      {plan.warnings.map((warning) => (
+        <div key={warning} className="text-2xs text-muted-foreground">
+          {warning}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Restore confirm dialog. The `plan` preview is fetched on open (and on
+ * explicit refresh after a `--repo` override) and gates the Restore
+ * button. `shared_worktree`/`session_unreachable` failures render the
+ * pane ids and offer `--force` only as a separate labelled action;
+ * mutation-phase failures surface `pre_restore_*` with a recovery
+ * affordance.
+ */
+function RestoreDialog({
+  machine,
+  entry,
+  onClose,
+  onRestored,
+  onSelectCheckpoint,
+}: {
+  machine: string;
+  entry: CheckpointEntry;
+  onClose: () => void;
+  onRestored: () => void;
+  onSelectCheckpoint: (id: string) => void;
+}) {
+  const [repoOverride, setRepoOverride] = useState("");
+  const [plan, setPlan] = useState<CheckpointPlanResult | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<CheckpointRestoreResult | null>(null);
+  const [failure, setFailure] = useState<CheckpointsError | null>(null);
+
+  const repoArg = repoOverride.trim() === "" ? undefined : repoOverride.trim();
+
+  const loadPlan = useCallback(() => {
+    setPlanLoading(true);
+    setPlanError(null);
+    fetchCheckpointPlan(machine, entry.id, { repo: repoArg })
+      .then(setPlan)
+      .catch((err: unknown) => {
+        setPlan(null);
+        setPlanError(checkpointsErrorText(err));
+      })
+      .finally(() => setPlanLoading(false));
+    // repoArg is read at call time; refresh is explicit via the button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machine, entry.id]);
+
+  useEffect(() => {
+    loadPlan();
+  }, [loadPlan]);
+
+  const runRestore = async (force: boolean) => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      setResult(await restoreCheckpoint(machine, entry.id, { repo: repoArg, force }));
+    } catch (err: unknown) {
+      setFailure(classifyCheckpointsError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const failureCode = failure?.kind === "plugin" ? failure.code : null;
+  const sharingPanes = errorFieldStrings(failure, "panes");
+  const preRestoreId = errorFieldString(failure, "pre_restore_checkpoint_id");
+  const canForce =
+    failureCode === "shared_worktree" || failureCode === "session_unreachable";
+
+  const close = () => {
+    onClose();
+    if (result !== null) onRestored();
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Restore checkpoint?</DialogTitle>
+          <DialogDescription>
+            Restores the worktree and index of{" "}
+            <span className="font-mono">{entry.repo_root}</span> to checkpoint{" "}
+            <span className="font-mono">{checkpointTitle(entry)}</span>. A
+            pre-restore checkpoint is always captured first as the recovery
+            path; untracked files absent from the checkpoint are permanently
+            deleted.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogPanel>
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+              Target worktree (optional — defaults to the checkpoint&apos;s repo
+              root; another worktree of the same repository only)
+              <Input
+                size="sm"
+                font="mono"
+                value={repoOverride}
+                onChange={(e) => setRepoOverride(e.target.value)}
+                placeholder={entry.repo_root}
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={loadPlan}
+                disabled={planLoading || busy}
+              >
+                {planLoading ? "Previewing…" : "Refresh preview"}
+              </Button>
+            </div>
+            {planLoading && plan === null ? (
+              <SectionMessage>computing restore preview…</SectionMessage>
+            ) : planError !== null ? (
+              <div className="text-2xs text-destructive">
+                preview unavailable: {planError}
+              </div>
+            ) : plan !== null ? (
+              <PlanPreview plan={plan} />
+            ) : null}
+
+            {failure !== null ? (
+              <div className="flex flex-col gap-1.5 rounded-md border border-destructive/40 p-2">
+                <div className="text-2xs text-destructive">
+                  {failure.kind === "plugin"
+                    ? `${pluginErrorLabel(failure.code)}${failure.detail ? ` — ${failure.detail}` : ""}`
+                    : checkpointsErrorText(failure)}
+                </div>
+                {sharingPanes.length > 0 ? (
+                  <div className="text-2xs text-muted-foreground">
+                    sharing panes:{" "}
+                    <span className="font-mono">{sharingPanes.join(", ")}</span>
+                  </div>
+                ) : null}
+                {preRestoreId !== null ? (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-2xs text-muted-foreground">
+                      A pre-restore checkpoint{" "}
+                      <span className="font-mono">{preRestoreId}</span> was
+                      captured before the failure — restore it to recover the
+                      previous state.
+                    </div>
+                    <div>
+                      <Button
+                        size="xs"
+                        variant="secondary"
+                        onClick={() => {
+                          onSelectCheckpoint(preRestoreId);
+                          close();
+                        }}
+                      >
+                        Open pre-restore checkpoint
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {canForce ? (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="text-2xs text-warning">
+                      Forcing bypasses the shared-worktree isolation check —
+                      other panes may be editing this worktree right now.
+                    </div>
+                    <div>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        disabled={busy}
+                        onClick={() => void runRestore(true)}
+                      >
+                        {busy ? "Restoring…" : "Force restore anyway"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {result !== null ? (
+              <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+                <div>
+                  restored commit{" "}
+                  <span className="font-mono">{result.restored_commit ?? "—"}</span>
+                </div>
+                <div>
+                  isolation:{" "}
+                  {result.isolation !== null
+                    ? (ISOLATION_LABELS[result.isolation] ?? result.isolation)
+                    : "—"}
+                  {result.sharing_panes.length > 0
+                    ? ` (sharing: ${result.sharing_panes.join(", ")})`
+                    : ""}
+                </div>
+                <div>
+                  clean passes: {result.clean_passes ?? "—"}
+                </div>
+                {result.pre_restore !== null ? (
+                  <div>
+                    pre-restore checkpoint{" "}
+                    <span className="font-mono">{result.pre_restore.id}</span>{" "}
+                    <span className="font-mono text-muted-foreground">
+                      {result.pre_restore.commit}
+                    </span>
+                    {result.pre_restore.label !== null
+                      ? ` (${result.pre_restore.label})`
+                      : ""}
+                  </div>
+                ) : null}
+                {result.warnings.map((warning) => (
+                  <div key={warning} className="text-muted-foreground">
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </DialogPanel>
+
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={close}>
+            {result !== null ? "Done" : "Cancel"}
+          </Button>
+          {result === null ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={busy || plan === null || planError !== null}
+              onClick={() => void runRestore(false)}
+            >
+              {busy ? "Restoring…" : "Restore"}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ------------------------------ detail --------------------------------- */
 
 function CheckpointDetail({
   machine,
   entry,
   canDelete,
+  canPlan,
+  canRestore,
   onRequestDelete,
+  onRestored,
+  onSelectCheckpoint,
 }: {
   machine: string;
   entry: CheckpointEntry;
   canDelete: boolean;
+  canPlan: boolean;
+  canRestore: boolean;
   onRequestDelete: (entry: CheckpointEntry) => void;
+  onRestored: () => void;
+  onSelectCheckpoint: (id: string) => void;
 }) {
   const [show, setShow] = useState<CheckpointShowResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
 
   useEffect(() => {
     setShow(null);
@@ -353,6 +690,14 @@ function CheckpointDetail({
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">
           {entry.id}
         </span>
+        {canRestore === true ? (
+          <Button size="xs" variant="secondary" onClick={() => setRestoreOpen(true)}>
+            Restore…
+          </Button>
+        ) : null}
+        {canRestore === false ? (
+          <span className="text-2xs text-muted-foreground">{UNSUPPORTED_TEXT} (restore)</span>
+        ) : null}
         {canDelete === true ? (
           <Button
             size="xs"
@@ -464,6 +809,22 @@ function CheckpointDetail({
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {canPlan === false ? (
+        <div className="text-2xs text-muted-foreground">
+          {UNSUPPORTED_TEXT} (plan)
+        </div>
+      ) : null}
+
+      {restoreOpen ? (
+        <RestoreDialog
+          machine={machine}
+          entry={entry}
+          onClose={() => setRestoreOpen(false)}
+          onRestored={onRestored}
+          onSelectCheckpoint={onSelectCheckpoint}
+        />
       ) : null}
     </div>
   );
@@ -626,6 +987,8 @@ export function CheckpointsDialog({
   const listSupported = supports(cap, "list");
   const canCreate = supportsMutation(cap, "create");
   const canDelete = supportsMutation(cap, "delete");
+  const canRestore = supportsMutation(cap, "restore");
+  const canPlan = supports(cap, "plan");
 
   const loadList = useCallback(() => {
     setListLoading(true);
@@ -695,7 +1058,8 @@ export function CheckpointsDialog({
           <DialogDescription>
             Worktree checkpoints from the rebuildup.checkpoints plugin —
             synthetic commits under hidden git refs. Capture never touches
-            your index or staging area; v1 has no restore.
+            your index or staging area; restore previews changes first and
+            always keeps a pre-restore checkpoint.
           </DialogDescription>
         </DialogHeader>
 
@@ -786,7 +1150,14 @@ export function CheckpointsDialog({
                     machine={machine}
                     entry={selectedEntry}
                     canDelete={canDelete === true}
+                    canPlan={canPlan === true}
+                    canRestore={canRestore === true}
                     onRequestDelete={setConfirmDelete}
+                    onRestored={refreshAll}
+                    onSelectCheckpoint={(id) => {
+                      refreshAll();
+                      setSelectedId(id);
+                    }}
                   />
                 ) : (
                   <SectionMessage>select a checkpoint to inspect it</SectionMessage>

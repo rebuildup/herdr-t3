@@ -267,6 +267,69 @@ describe("PluginService.call", () => {
     });
   });
 
+  test("checkpoints restore extras (panes, pre_restore_*) cross the bridge (#264)", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "restore",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.checkpoints/v1",
+            ok: false,
+            error: {
+              code: "error",
+              kind: "shared_worktree",
+              message: "2 live panes share worktree",
+              panes: ["w1:p1", "w2:p3"],
+            },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    const shared = await serviceFor(host)
+      .call("local", { plugin: "rebuildup.inbox", command: "restore", args: ["cp-1"] })
+      .then(() => null)
+      .catch((e: unknown) => e as HerdrError);
+    expect(shared?.code).toBe("shared_worktree");
+    expect(shared?.fields).toEqual({ panes: ["w1:p1", "w2:p3"] });
+
+    const host2 = inboxHost([
+      {
+        match: (a) => a[3] === "restore",
+        outcome: {
+          code: 1,
+          stdout: "",
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.checkpoints/v1",
+            ok: false,
+            error: {
+              code: "error",
+              kind: "restore_failed",
+              message: "git restore exited 1",
+              pre_restore_checkpoint_id: "pre-9",
+              pre_restore_ref: "refs/herdr-plugins/checkpoints/k/pre-9",
+              pre_restore_commit: "abc123",
+              env: { SECRET: "dropped" },
+            },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    const failed = await serviceFor(host2)
+      .call("local", { plugin: "rebuildup.inbox", command: "restore", args: ["cp-1"] })
+      .then(() => null)
+      .catch((e: unknown) => e as HerdrError);
+    expect(failed?.code).toBe("restore_failed");
+    expect(failed?.fields).toEqual({
+      pre_restore_checkpoint_id: "pre-9",
+      pre_restore_ref: "refs/herdr-plugins/checkpoints/k/pre-9",
+      pre_restore_commit: "abc123",
+    });
+  });
+
   test("error fields are capped: field count, string length, value size", async () => {
     const long = "x".repeat(5000);
     const error: Record<string, unknown> = {
