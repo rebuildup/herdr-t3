@@ -13,7 +13,7 @@
  * herdr's endpoints.json so `herdr machine add/remove` is picked up.
  */
 import { spawn } from "node:child_process";
-import type { ClientFrame, MachineInfo, MachineStatus, ServerFrame } from "../shared/protocol.ts";
+import type { ClientFrame, MachineInfo, MachineStatus, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint, type BridgeSession } from "./bridge-core.ts";
 import { loadMachineMetadata, loadSavedMachines, type SavedMachine } from "./machines.ts";
 import {
@@ -41,12 +41,15 @@ export interface MachineManagerOptions {
   listMachines?: () => SavedMachine[];
   /** Override for tests: the `herdr machine …` shell-out. */
   runHerdr?: (args: string[], timeoutMs: number) => Promise<string>;
+  /** Override for tests: the snapshot fetch used by probe() (issue #212). */
+  probeFetch?: (machine: string) => Promise<SessionSnapshot>;
 }
 
 export class MachineManager {
   private readonly send: (frame: ServerFrame) => void;
   private readonly listSource: () => SavedMachine[];
   private readonly herdrRunner: (args: string[], timeoutMs: number) => Promise<string>;
+  private readonly probeFetcher: ((machine: string) => Promise<SessionSnapshot>) | null;
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly infos = new Map<string, MachineInfo>();
   private readonly resolving = new Map<string, Promise<void>>();
@@ -58,6 +61,8 @@ export class MachineManager {
    * carry user input or mutate state is refused instead of being flushed
    * later (nothing typed or commanded during an outage may auto-send). */
   private readonly pendingFrames = new Map<string, ClientFrame[]>();
+  /** Last snapshot JSON pushed per machine by probe(), for dedupe (issue #212). */
+  private readonly lastProbeSnapshots = new Map<string, string>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
 
@@ -65,6 +70,7 @@ export class MachineManager {
     this.send = options.send;
     this.listSource = options.listMachines ?? (() => loadSavedMachines());
     this.herdrRunner = options.runHerdr ?? ((args, timeoutMs) => this.spawnHerdr(args, timeoutMs));
+    this.probeFetcher = options.probeFetch ?? null;
     this.infos.set(LOCAL_ID, {
       id: LOCAL_ID,
       label: "Local",
@@ -403,6 +409,18 @@ export class MachineManager {
     }
   }
 
+  /** SSH reachability fetch behind probe(); tests inject probeFetch instead. */
+  private async fetchProbeSnapshot(machine: string, saved: SavedMachine): Promise<SessionSnapshot> {
+    const metadata = loadMachineMetadata(machine);
+    const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
+    const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
+    return fetchSnapshot({
+      api: sshApiConnector(endpoint),
+      client: sshClientConnector(endpoint),
+      label: `ssh:${endpoint.target}`,
+    });
+  }
+
   /** Lightweight reachability probe for machines without a session. */
   private async probe(machine: string): Promise<void> {
     const info = this.infos.get(machine);
@@ -410,17 +428,21 @@ export class MachineManager {
     const saved = this.listSource().find((m) => m.id === machine);
     if (!saved) return;
     try {
-      const metadata = loadMachineMetadata(machine);
-      const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
-      const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
-      const snapshot = await fetchSnapshot({
-        api: sshApiConnector(endpoint),
-        client: sshClientConnector(endpoint),
-        label: `ssh:${endpoint.target}`,
-      });
+      const snapshot = this.probeFetcher
+        ? await this.probeFetcher(machine)
+        : await this.fetchProbeSnapshot(machine, saved);
       // The machine may have been connected, disabled or removed while the
       // probe was in flight; only publish the result if nothing changed.
       if (this.closed || this.infos.get(machine) !== info || this.sessions.has(machine) || !info.enabled) return;
+      // Hand the probed snapshot to clients so workspace/agent lists show
+      // remote state without holding a session (issue #212). Deduped: an
+      // unchanged session would otherwise re-render every client each
+      // refresh interval.
+      const json = JSON.stringify(snapshot);
+      if (this.lastProbeSnapshots.get(machine) !== json) {
+        this.lastProbeSnapshots.set(machine, json);
+        this.send({ type: "snapshot", snapshot, machine, probe: true });
+      }
       const changed = info.status !== "online";
       info.status = "online";
       info.version = snapshot.version;

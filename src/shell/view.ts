@@ -64,12 +64,18 @@ export function useRouteWorkspace(): RouteWorkspace {
   const view = deriveWorkspace(snapshot, routedWorkspace);
   const machineInfo = bridge.machines[machine];
 
-  // A routed machine without a snapshot gets connected + fetched on demand.
+  // A routed machine without a live snapshot gets connected + fetched on
+  // demand. Probe snapshots (issue #212) render the lists but are not a
+  // session — an explicit route still brings the machine up.
   useEffect(() => {
-    if (isWorkspaceRoute && routedMachine && !bridge.snapshots[routedMachine]) {
+    if (
+      isWorkspaceRoute &&
+      routedMachine &&
+      (!bridge.snapshots[routedMachine] || bridge.probeSnapshots[routedMachine])
+    ) {
       void ensureMachine(routedMachine);
     }
-  }, [isWorkspaceRoute, routedMachine, bridge.snapshots]);
+  }, [isWorkspaceRoute, routedMachine, bridge.snapshots, bridge.probeSnapshots]);
 
   return {
     machine,

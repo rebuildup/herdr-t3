@@ -318,7 +318,13 @@ export type ClientFrame =
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
 export type ServerFrame =
   | { type: "ready"; snapshot: SessionSnapshot; machine: string }
-  | { type: "snapshot"; snapshot: SessionSnapshot; machine: string }
+  /**
+   * `probe: true` marks a snapshot fetched by the reachability probe for a
+   * machine with no live bridge session (issue #212): real session data,
+   * but up to the probe interval old and not backed by a subscription.
+   * Clients may display it but must not treat it as a live session.
+   */
+  | { type: "snapshot"; snapshot: SessionSnapshot; machine: string; probe?: boolean }
   | { type: "event"; event: unknown; machine: string }
   | { type: "rpc_result"; id: string; ok: boolean; result?: unknown; error?: { code: string; message: string }; machine?: string }
   /** `data` is base64: terminal output is arbitrary bytes, not necessarily UTF-8. */
