@@ -28,4 +28,8 @@ if missing:
 print("ok      ADR index covers all ADR files")
 PY
 
+printf 'Checking migration registry...\n'
+bun scripts/check-migration-registry.ts
+bun scripts/check-migration-registry.ts --self-test
+
 printf 'All repository checks passed.\n'

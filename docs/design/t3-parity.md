@@ -2,7 +2,11 @@
 
 Canonical mapping of T3 Code's feature surface (checkout pinned at
 `9cc4018c`, see `docs/upstream.md`) onto herdr-t3. Governed by ADR-0009
-and issue #188. Each feature is classified by where its data comes from:
+and issue #188. The machine-readable capability ledger for the GPUI
+migration program lives in `docs/migration/capabilities.json` (issue
+#235); entries there reference this inventory via `parity` and must not
+duplicate its classifications — this file remains the feature-mapping
+source of truth. Each feature is classified by where its data comes from:
 
 - **[herdr]** — herdr already provides the data; client work only.
 - **[cli]** — obtainable via an external CLI/integration (`gh`, agent CLIs).
