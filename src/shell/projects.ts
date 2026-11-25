@@ -4,8 +4,8 @@
  *
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
- * rebuildup/herdr-plugins@3b28349 (release-0-3-0, schema v2 run
- * records — ADR-0015/0019): `list`, `show`,
+ * rebuildup/herdr-plugins@2dcb2abf (release-0-3-0, schema v2 run
+ * records + shell-family fields — ADR-0015/0019/0020): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The
  * `scripts *` commands belong to issue #253 and are not consumed here.
@@ -49,7 +49,11 @@ export type ProjectsCallError =
 /** Stored repo membership (`ProjectRepo` in the contract). */
 export interface ProjectRepo {
   root: string;
-  /** Normalized `host/path` remote identity; null without a remote. */
+  /**
+   * Normalized `host/path` remote identity (#69: host lowercased,
+   * non-default port kept, path case preserved verbatim — consumers
+   * compare it exactly); null without a remote.
+   */
   remote: string | null;
   added_at: string | null;
 }
@@ -78,6 +82,7 @@ export interface ProjectShowResult {
 export interface DiscoveredRepo {
   cwd: string;
   root: string;
+  /** Remote identity, path case preserved verbatim (#69). */
   remote: string | null;
   /** Project id owning this repo root, or null when unregistered. */
   registered_project_id: string | null;
@@ -98,7 +103,13 @@ export interface ProjectsDiscoverResult {
 export interface ProjectRepoLive extends ProjectRepo {
   /** Live branch name; null when the checkout is unreachable. */
   branch: string | null;
+  /** Live dirty flag; null when the checkout is unreachable. */
   dirty: boolean | null;
+  /**
+   * Live submodule probe (#69 tri-state): `true` = submodules present,
+   * `false` = probed and none, `null` = unknown (probe failure or
+   * unreachable checkout) — never reported as `false`.
+   */
   has_submodules: boolean | null;
 }
 
@@ -370,7 +381,7 @@ export function projectMutationFromDoc(
 
 /**
  * Contract `error.kind` values preserved through plugin_call
- * (projects-v1 @3b28349). Includes the git kinds surfaced by repo
+ * (projects-v1 @2dcb2abf). Includes the git kinds surfaced by repo
  * resolution and the script kinds shared with the #253 surface so a
  * future script error is never degraded to a generic failure here.
  */
@@ -400,6 +411,12 @@ const PROJECTS_ERROR_KINDS = new Set([
   "run_not_found",
   "no_running_runs",
   "script_run_error",
+  // Shell-family resolution kinds (#67): pre-injection `scripts run`
+  // aborts plus the `--shell` value error — plugin errors, never run
+  // failures (classified distinctly from `script_run_error`).
+  "shell_unknown",
+  "not_a_shell",
+  "invalid_shell",
   // pane-scoped kinds reachable via scripts run/stop
   "pane_not_found",
   "no_pane_cwd",

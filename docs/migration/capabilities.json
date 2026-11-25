@@ -104,7 +104,7 @@
     },
     {
       "id": "plugin-projects",
-      "version": 2,
+      "version": 3,
       "title": "herdr-plugins.projects/v1 registry and scripts",
       "spec": "docs/migration/contracts/plugin-projects.md",
       "oracle": "conformance",
@@ -1012,7 +1012,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@2",
+        "plugin-projects@3",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1050,7 +1050,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @3b28349"
+          "herdr-plugins.projects/v1 @2dcb2abf"
         ],
         "excluded": false
       },
@@ -1064,7 +1064,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@2",
+        "plugin-projects@3",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1074,6 +1074,7 @@
       "operations": [
         "scripts list resolution layers",
         "scripts run in dedicated herdr pane",
+        "scripts run --shell family override (auto default)",
         "scripts stop recorded panes only",
         "scripts results lazy reconcile",
         "scripts logs bounded tail"
@@ -1081,6 +1082,7 @@
       "errors": [
         "capability-gated per host",
         "repo_ambiguous/unknown_script/run_not_found kind passthrough",
+        "shell_unknown/not_a_shell/invalid_shell pre-injection aborts classified distinctly",
         "auto triggers inert (upstream herdr-plugins#60)"
       ],
       "side_effects": [
@@ -1097,7 +1099,8 @@
         "src/shell/WorkspaceHeader.tsx",
         "docs/migration/contracts/plugin-projects.md",
         "docs/adr/ADR-0014.md",
-        "docs/adr/ADR-0019.md"
+        "docs/adr/ADR-0019.md",
+        "docs/adr/ADR-0020.md"
       ],
       "stage": "current-verified",
       "status": {
@@ -1107,7 +1110,7 @@
         ],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @3b28349",
+          "herdr-plugins.projects/v1 @2dcb2abf",
           "herdr pane execution API",
           "auto triggers: herdr-plugins#60 (upstream gap)"
         ],
