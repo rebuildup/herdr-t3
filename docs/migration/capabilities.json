@@ -109,6 +109,14 @@
       "spec": "docs/migration/contracts/plugin-projects.md",
       "oracle": "conformance",
       "summary": "Project registry CRUD/pin/archive/settings/repos plus scripts list/run/stop/results/logs via plugin_call; auto triggers upstream-gated."
+    },
+    {
+      "id": "plugin-checkpoints",
+      "version": 1,
+      "title": "herdr-plugins.checkpoints/v1 hidden-ref checkpoints",
+      "spec": "docs/migration/contracts/plugin-checkpoints.md",
+      "oracle": "conformance",
+      "summary": "Worktree checkpoints as hidden git refs: capability/create/list/show/diff/delete via plugin_call; restore/auto-capture/GC are v1 non-goals."
     }
   ],
   "capabilities": [
@@ -1095,6 +1103,65 @@
           "herdr-plugins.projects/v1 @c8460283",
           "herdr pane execution API",
           "auto triggers: herdr-plugins#60 (upstream gap)"
+        ],
+        "excluded": false
+      },
+      "parity": "docs/design/t3-parity.md"
+    },
+    {
+      "id": "checkpoints.surface",
+      "title": "Checkpoints surface via herdr-plugins.checkpoints/v1",
+      "area": "plugins",
+      "owner": "plugin:rebuildup.checkpoints",
+      "boundary": "B3",
+      "contracts": [
+        "plugins-boundary@1",
+        "plugin-checkpoints@1",
+        "workspace-pane-ops@1"
+      ],
+      "os": [
+        "macos",
+        "windows-11"
+      ],
+      "operations": [
+        "capability probe per host",
+        "list checkpoints (repo filter, limit)",
+        "show entry + ref probe + bounded stat",
+        "diff checkpoint/HEAD pairs (bounded patch)",
+        "create via --repo PATH or focused pane id, optional label",
+        "delete with confirm (idempotent ref_existed/warnings)"
+      ],
+      "errors": [
+        "capability-gated per host",
+        "not_a_repo/bare_repo/empty_repo/sparse_checkout/unknown_checkpoint/cross_repo/pane_not_found/no_pane_cwd/git_missing/timeout/git_error kind passthrough",
+        "ref.exists:false rendered honestly",
+        "foreign contract rejected"
+      ],
+      "side_effects": [
+        "hidden git refs written under refs/herdr-plugins/checkpoints/ on the host repo",
+        "plugin state index writes on the herdr host",
+        "capture never touches user index/worktree"
+      ],
+      "scenarios": [
+        "src/shell/checkpoints.test.ts"
+      ],
+      "evidence": [
+        "src/shell/checkpoints.ts",
+        "src/components/CheckpointsDialog.tsx",
+        "src/shell/WorkspaceHeader.tsx",
+        "docs/migration/contracts/plugin-checkpoints.md",
+        "docs/adr/ADR-0015.md"
+      ],
+      "stage": "current-verified",
+      "status": {
+        "implemented": true,
+        "known_issues": [
+          "restore/auto-capture/multi-repo orchestration/GC are v1 non-goals (herdr-plugins#73-#75)"
+        ],
+        "os_gaps": [],
+        "upstream_deps": [
+          "herdr-plugins.checkpoints/v1 @4aab1a7",
+          "git + bun on the plugin host"
         ],
         "excluded": false
       },

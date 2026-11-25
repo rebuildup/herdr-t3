@@ -13,6 +13,7 @@ import {
   FolderGit2Icon,
   FolderKanbanIcon,
   GitBranchIcon,
+  HistoryIcon,
   InfoIcon,
   Maximize2,
   MessageSquareTextIcon,
@@ -69,6 +70,7 @@ import { WorktreesDialog } from "~/components/WorktreesDialog";
 import { ProjectScriptsDialog } from "~/components/ProjectScriptsDialog";
 import { ProjectsDialog } from "~/components/ProjectsDialog";
 import { GitDialog } from "~/components/GitDialog";
+import { CheckpointsDialog } from "~/components/CheckpointsDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -112,6 +114,7 @@ export function WorkspaceHeader() {
   const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [projectScriptsOpen, setProjectScriptsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
@@ -624,6 +627,9 @@ export function WorkspaceHeader() {
               <DropdownMenuItem onClick={() => setProjectsOpen(true)}>
                 <FolderKanbanIcon /> Projects…
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCheckpointsOpen(true)}>
+                <HistoryIcon /> Checkpoints…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
               </DropdownMenuItem>
@@ -666,6 +672,13 @@ export function WorkspaceHeader() {
       ) : null}
       {projectsOpen ? (
         <ProjectsDialog machine={machine} onClose={() => setProjectsOpen(false)} />
+      ) : null}
+      {checkpointsOpen ? (
+        <CheckpointsDialog
+          machine={machine}
+          pane={focusedPane ?? null}
+          onClose={() => setCheckpointsOpen(false)}
+        />
       ) : null}
     </>
   );
