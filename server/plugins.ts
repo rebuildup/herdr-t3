@@ -179,7 +179,11 @@ function outcomeToJson(
     const doc = parseJson(outcome.stderr.trim());
     if (isRecord(doc) && isRecord(doc["error"])) {
       const err = doc["error"];
-      const code = typeof err["code"] === "string" ? err["code"] : "plugin_error";
+      // Contracts may carry the real classification in `kind` (git-v1:
+      // not_a_repo/bare_repo/git_missing/…) with a generic `code`; prefer
+      // kind so clients can distinguish repo states (ADR-0011 §4).
+      const kind = typeof err["kind"] === "string" ? err["kind"] : undefined;
+      const code = kind ?? (typeof err["code"] === "string" ? err["code"] : "plugin_error");
       const message = typeof err["message"] === "string" ? err["message"] : outcome.stderr.trim();
       return { error: new HerdrError(code, message) };
     }

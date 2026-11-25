@@ -41,7 +41,7 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [plugin] | `herdr-plugins.git/v1` read-only commands (#220); direct `git` only where the contract lacks coverage |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` Stage 1 status/diff connected (#220, contract pinned @414e87d); file list → #227, mutations → #228, forge → #229 (upstream-gated) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 
@@ -79,9 +79,9 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    rows, hover-card terminal title + agent row, agent-row info hierarchy,
    tooltips, motion/animation parity. No new panels or data sources.
 2. **v0.6.0 — new surfaces:** right-panel host, agent details panel,
-   files/diff surface (git read-only), `gh`-backed issue/PR lists +
-   detail panels, branch/worktree pickers, settings sections that map to
-   existing data.
+   files/diff surface via `herdr-plugins.git` (#220 read-only now;
+   #227/#228/#229 track contract-gated extensions), settings sections
+   that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
    focus-report thread).
