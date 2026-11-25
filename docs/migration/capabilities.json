@@ -579,7 +579,7 @@
       "errors": ["no dropped final position for any-motion", "no unbounded queue growth"],
       "side_effects": ["reduced RPC/render churn during drags"],
       "scenarios": ["scripts/perf-terminal-bench.ts", "issue:213"],
-      "evidence": ["src/components/PaneTerminal.tsx", "src/lib/ghostty/session.ts", "issue:213"],
+      "evidence": ["src/components/PaneTerminal.tsx", "src/lib/ghostty/session.ts", "issue:213", "scripts/perf-baseline.ts", "docs/migration/performance-baseline.md"],
       "stage": "current-verified",
       "status": { "implemented": true, "known_issues": [], "os_gaps": [], "upstream_deps": [], "excluded": false }
     },
