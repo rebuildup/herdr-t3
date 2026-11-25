@@ -11,6 +11,7 @@ import {
   Columns2,
   EllipsisIcon,
   FolderGit2Icon,
+  FolderKanbanIcon,
   GitBranchIcon,
   InfoIcon,
   Maximize2,
@@ -64,6 +65,7 @@ import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
+import { ProjectsDialog } from "~/components/ProjectsDialog";
 import { GitDialog } from "~/components/GitDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
@@ -106,6 +108,7 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
@@ -612,6 +615,9 @@ export function WorkspaceHeader() {
               <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
                 <GitBranchIcon /> Worktrees…
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProjectsOpen(true)}>
+                <FolderKanbanIcon /> Projects…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
               </DropdownMenuItem>
@@ -645,6 +651,9 @@ export function WorkspaceHeader() {
           workspace={workspace}
           onClose={() => setWorktreesOpen(false)}
         />
+      ) : null}
+      {projectsOpen ? (
+        <ProjectsDialog machine={machine} onClose={() => setProjectsOpen(false)} />
       ) : null}
     </>
   );
