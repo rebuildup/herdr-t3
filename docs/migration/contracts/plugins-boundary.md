@@ -20,7 +20,7 @@ CLI implementations.
 ## Ordering and semantics
 
 - Contract versions are pinned per integration (git-v1 @ `d057830`,
-  projects/v1 @ `2dcb2abf`, inbox v0.1.0, checkpoints/v1 @ `4aab1a7`); a
+  projects/v1 @ `2dcb2abf`, inbox v0.1.0, checkpoints/v1 @ `ae4f214`); a
   host running an older plugin build yields capability-gated UI, not
   errors.
 - git-v1 strict parsing (ADR-0018): only documented flags per command,

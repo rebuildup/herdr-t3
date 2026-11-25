@@ -6,10 +6,18 @@ import {
   checkpointDeleteFromDoc,
   checkpointDiffArgs,
   checkpointDiffFromDoc,
+  checkpointGcArgs,
+  checkpointGcFromDoc,
   checkpointPlanArgs,
   checkpointPlanFromDoc,
+  checkpointPruneArgs,
+  checkpointPruneFromDoc,
   checkpointRestoreArgs,
   checkpointRestoreFromDoc,
+  checkpointRestoreGroupArgs,
+  checkpointRestoreGroupFromDoc,
+  checkpointSaveArgs,
+  checkpointSaveFromDoc,
   checkpointsCapabilityFromDoc,
   checkpointsListArgs,
   checkpointsListFromDoc,
@@ -152,6 +160,23 @@ describe("checkpointsListFromDoc (herdr-plugins.checkpoints/v1)", () => {
     expect(checkpointsListFromDoc({ ...LIST_DOC, command: "show" })).toBeNull();
     expect(checkpointsListFromDoc({ ...LIST_DOC, checkpoints: "nope" })).toBeNull();
     expect(checkpointsListFromDoc({ contract: "herdr-plugins.checkpoints/v1" })).toBeNull();
+  });
+
+  test("group filter echoes on the payload; group_id parses on entries", () => {
+    const grouped = {
+      ...LIST_DOC,
+      group: "grp-abc",
+      checkpoints: [{ ...ENTRY, group_id: "grp-abc" }],
+    };
+    const result = checkpointsListFromDoc(grouped);
+    expect(result?.group).toBe("grp-abc");
+    expect(result?.checkpoints[0]?.group_id).toBe("grp-abc");
+    // Entries without group_id (create/auto/pre_restore) stay null.
+    expect(checkpointsListFromDoc(LIST_DOC)?.group).toBeNull();
+    expect(checkpointsListFromDoc(LIST_DOC)?.checkpoints[0]?.group_id).toBeNull();
+    expect(
+      checkpointsListFromDoc({ ...LIST_DOC, group: 42 })?.group,
+    ).toBeNull();
   });
 });
 
@@ -369,16 +394,19 @@ describe("checkpointRestoreFromDoc (contract rev 2, #264)", () => {
 });
 
 describe("checkpoints argv builders", () => {
-  test("list: --repo/--limit flag pairs only", () => {
+  test("list: --repo/--group/--limit flag pairs only", () => {
     expect(checkpointsListArgs()).toEqual([]);
     expect(checkpointsListArgs({ repo: "/abs/repo" })).toEqual(["--repo", "/abs/repo"]);
-    expect(checkpointsListArgs({ repo: "/abs/repo", limit: 50 })).toEqual([
+    expect(checkpointsListArgs({ group: "grp-1" })).toEqual(["--group", "grp-1"]);
+    expect(checkpointsListArgs({ repo: "/abs/repo", group: "grp-1", limit: 50 })).toEqual([
       "--repo",
       "/abs/repo",
+      "--group",
+      "grp-1",
       "--limit",
       "50",
     ]);
-    expect(checkpointsListArgs({ repo: "  ", limit: 0 })).toEqual([]);
+    expect(checkpointsListArgs({ repo: "  ", group: " ", limit: 0 })).toEqual([]);
   });
 
   test("show/diff take ids positionally with optional --max-bytes", () => {
@@ -530,6 +558,11 @@ describe("classifyCheckpointsError", () => {
       "clean_failed",
       "clean_incomplete",
       "restore_verify_failed",
+      // Multi-repo groups + retention kinds (contract rev 3).
+      "unknown_group",
+      "partial_save",
+      "partial_restore",
+      "unreachable_repos",
     ]) {
       expect(classifyCheckpointsError(err(code))).toMatchObject({
         kind: "plugin",
@@ -583,7 +616,417 @@ describe("classifyCheckpointsError", () => {
   });
 });
 
+/* ------------------- rev 3: groups + retention ------------------- */
+
+describe("checkpointSaveArgs / checkpointSaveFromDoc (rev 3, #279)", () => {
+  test("save argv: repeated --repo, --pane, discovery (empty), --label", () => {
+    expect(checkpointSaveArgs({})).toEqual([]);
+    expect(checkpointSaveArgs({}, { label: "snap" })).toEqual(["--label", "snap"]);
+    expect(checkpointSaveArgs({ paneId: "w1:p1" })).toEqual(["--pane", "w1:p1"]);
+    expect(checkpointSaveArgs({ repos: ["/a", " /b ", ""] })).toEqual([
+      "--repo",
+      "/a",
+      "--repo",
+      "/b",
+    ]);
+    expect(
+      checkpointSaveArgs({ repos: ["/a", "/b"] }, { label: "group snap" }),
+    ).toEqual(["--repo", "/a", "--repo", "/b", "--label", "group snap"]);
+    // repos win over paneId if both are somehow supplied.
+    expect(checkpointSaveArgs({ repos: ["/a"], paneId: "w1:p1" })).toEqual([
+      "--repo",
+      "/a",
+    ]);
+  });
+
+  const SAVE_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "save",
+    ok: true,
+    group: "grp-1",
+    total: 2,
+    succeeded: 2,
+    failed: 0,
+    results: [
+      { repo_root: "/a", ok: true, checkpoint: { ...ENTRY, group_id: "grp-1" } },
+      {
+        repo_root: "/b",
+        ok: true,
+        checkpoint: { ...ENTRY, id: "cp-2", repo_root: "/b", group_id: "grp-1" },
+      },
+    ],
+    skipped_panes: [{ pane_id: "w1:p9", reason: "not_a_repo" }],
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("parses a fully successful save with skipped_panes", () => {
+    const result = checkpointSaveFromDoc(SAVE_DOC);
+    expect(result?.ok).toBe(true);
+    expect(result?.group).toBe("grp-1");
+    expect(result?.total).toBe(2);
+    expect(result?.succeeded).toBe(2);
+    expect(result?.failed).toBe(0);
+    expect(result?.results).toHaveLength(2);
+    const first = result?.results[0];
+    expect(first?.ok).toBe(true);
+    if (first?.ok === true) {
+      expect(first.checkpoint.group_id).toBe("grp-1");
+      expect(first.checkpoint.id).toBe(ENTRY.id);
+    }
+    expect(result?.skipped_panes).toEqual([{ pane_id: "w1:p9", reason: "not_a_repo" }]);
+    expect(result?.error).toBeNull();
+  });
+
+  test("partial save keeps per-repo failures + attached error honest", () => {
+    const partial = {
+      ...SAVE_DOC,
+      ok: false,
+      succeeded: 1,
+      failed: 1,
+      results: [
+        SAVE_DOC.results[0],
+        {
+          repo_root: "/b",
+          ok: false,
+          error: { kind: "not_a_repo", message: "no git work tree" },
+        },
+      ],
+      // Bridge-attached stderr summary (partial_save convention).
+      error: {
+        code: "error",
+        kind: "partial_save",
+        message: "save grp-1: 1 of 2 repos failed",
+      },
+    };
+    const result = checkpointSaveFromDoc(partial);
+    expect(result?.ok).toBe(false);
+    expect(result?.failed).toBe(1);
+    expect(result?.error).toEqual({
+      kind: "partial_save",
+      message: "save grp-1: 1 of 2 repos failed",
+    });
+    const failed = result?.results[1];
+    expect(failed?.ok).toBe(false);
+    if (failed?.ok === false) {
+      expect(failed.error.kind).toBe("not_a_repo");
+    }
+  });
+
+  test("rejects foreign contracts, wrong command, missing results", () => {
+    expect(checkpointSaveFromDoc({ ...SAVE_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointSaveFromDoc({ ...SAVE_DOC, command: "create" })).toBeNull();
+    expect(checkpointSaveFromDoc({ ...SAVE_DOC, results: "nope" })).toBeNull();
+  });
+});
+
+describe("checkpointRestoreGroupArgs / checkpointRestoreGroupFromDoc", () => {
+  test("argv: group id positional + optional --force, never --repo", () => {
+    expect(checkpointRestoreGroupArgs("grp-1")).toEqual(["grp-1"]);
+    expect(checkpointRestoreGroupArgs("grp-1", { force: true })).toEqual([
+      "grp-1",
+      "--force",
+    ]);
+    expect(checkpointRestoreGroupArgs("grp-1", { force: false })).toEqual(["grp-1"]);
+  });
+
+  const GROUP_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "restore-group",
+    ok: true,
+    group: "grp-1",
+    total: 2,
+    succeeded: 2,
+    failed: 0,
+    results: [
+      {
+        id: "cp-1",
+        repo_root: "/a",
+        ok: true,
+        checkpoint: { ...ENTRY, group_id: "grp-1" },
+        restored_commit: "feedface",
+        pre_restore: {
+          id: "pre-1",
+          ref: "refs/herdr-plugins/checkpoints/k/pre-1",
+          commit: "precommit",
+          label: "pre-restore:cp-1",
+        },
+        isolation: "single_pane",
+        sharing_panes: ["w1:p1"],
+        clean_passes: 2,
+        warnings: [],
+      },
+      {
+        id: "cp-2",
+        repo_root: "/b",
+        ok: true,
+        checkpoint: { ...ENTRY, id: "cp-2", repo_root: "/b" },
+        restored_commit: "feedface",
+        pre_restore: null,
+        isolation: "forced",
+        sharing_panes: [],
+        clean_passes: 1,
+        warnings: ["forced"],
+      },
+    ],
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("parses per-repo restore results with pre_restore/isolation", () => {
+    const result = checkpointRestoreGroupFromDoc(GROUP_DOC);
+    expect(result?.ok).toBe(true);
+    expect(result?.group).toBe("grp-1");
+    expect(result?.results).toHaveLength(2);
+    const first = result?.results[0];
+    expect(first?.ok).toBe(true);
+    if (first?.ok === true) {
+      expect(first.pre_restore?.id).toBe("pre-1");
+      expect(first.isolation).toBe("single_pane");
+      expect(first.sharing_panes).toEqual(["w1:p1"]);
+      expect(first.clean_passes).toBe(2);
+    }
+    const second = result?.results[1];
+    if (second?.ok === true) expect(second.isolation).toBe("forced");
+  });
+
+  test("partial restore keeps failed repo error + fields + pre_restore", () => {
+    const partial = {
+      ...GROUP_DOC,
+      ok: false,
+      succeeded: 1,
+      failed: 1,
+      results: [
+        GROUP_DOC.results[0],
+        {
+          id: "cp-2",
+          repo_root: "/b",
+          ok: false,
+          error: {
+            kind: "shared_worktree",
+            message: "2 live panes share worktree",
+            panes: ["w2:p1", "w2:p2"],
+            pre_restore_checkpoint_id: "pre-9",
+          },
+          pre_restore: {
+            id: "pre-9",
+            ref: "refs/herdr-plugins/checkpoints/k/pre-9",
+            commit: "pre9",
+            label: null,
+          },
+        },
+      ],
+      error: {
+        code: "error",
+        kind: "partial_restore",
+        message: "restore-group grp-1: 1 of 2 repos failed",
+      },
+    };
+    const result = checkpointRestoreGroupFromDoc(partial);
+    expect(result?.ok).toBe(false);
+    expect(result?.error?.kind).toBe("partial_restore");
+    const failed = result?.results[1];
+    expect(failed?.ok).toBe(false);
+    if (failed?.ok === false) {
+      expect(failed.error.kind).toBe("shared_worktree");
+      expect(failed.error.fields["panes"]).toEqual(["w2:p1", "w2:p2"]);
+      expect(failed.error.fields["pre_restore_checkpoint_id"]).toBe("pre-9");
+      expect(failed.pre_restore?.id).toBe("pre-9");
+    }
+  });
+
+  test("rejects foreign contracts, wrong command, missing results", () => {
+    expect(checkpointRestoreGroupFromDoc({ ...GROUP_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointRestoreGroupFromDoc({ ...GROUP_DOC, command: "restore" })).toBeNull();
+    expect(
+      checkpointRestoreGroupFromDoc({ ...GROUP_DOC, results: undefined }),
+    ).toBeNull();
+  });
+});
+
+describe("checkpointGcArgs / checkpointGcFromDoc (rev 3, #279)", () => {
+  test("gc argv: --repo/--dry-run/policy flags only when set", () => {
+    expect(checkpointGcArgs()).toEqual([]);
+    expect(checkpointGcArgs({ dryRun: true })).toEqual(["--dry-run"]);
+    expect(
+      checkpointGcArgs({
+        repo: "/abs/repo",
+        dryRun: true,
+        maxCount: 50,
+        maxAgeDays: 30,
+        protectDays: 7,
+      }),
+    ).toEqual([
+      "--repo",
+      "/abs/repo",
+      "--dry-run",
+      "--max-count",
+      "50",
+      "--max-age-days",
+      "30",
+      "--protect-days",
+      "7",
+    ]);
+    expect(checkpointGcArgs({ maxCount: 0, maxAgeDays: -1 })).toEqual([]);
+  });
+
+  const GC_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "gc",
+    ok: true,
+    dry_run: true,
+    policy: { max_count: 50, max_age_days: 30, pre_restore_protect_days: 7 },
+    repos: [
+      {
+        repo_root: "/a",
+        evaluated: 3,
+        would_delete: ["old-1"],
+        protected: ["pre-1"],
+        kept: 1,
+      },
+    ],
+    unreachable: [{ repo_root: "/gone", kind: "not_a_repo", message: "missing" }],
+    totals: { evaluated: 3, would_delete: 1, protected: 1, kept: 1, errors: 0 },
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("parses dry-run gc report with policy/unreachable/totals", () => {
+    const result = checkpointGcFromDoc(GC_DOC);
+    expect(result?.ok).toBe(true);
+    expect(result?.dry_run).toBe(true);
+    expect(result?.policy).toEqual({
+      max_count: 50,
+      max_age_days: 30,
+      pre_restore_protect_days: 7,
+    });
+    const repo = result?.repos[0];
+    expect(repo?.would_delete).toEqual(["old-1"]);
+    expect(repo?.deleted).toBeNull();
+    expect(repo?.protected_ids).toEqual(["pre-1"]);
+    expect(repo?.kept).toBe(1);
+    expect(result?.unreachable).toEqual([
+      { repo_root: "/gone", kind: "not_a_repo", message: "missing" },
+    ]);
+    expect(result?.totals.would_delete).toBe(1);
+    expect(result?.totals.deleted).toBeNull();
+  });
+
+  test("execute report uses deleted; ok:false + unreachable_repos attached", () => {
+    const executed = {
+      ...GC_DOC,
+      dry_run: false,
+      repos: [
+        {
+          repo_root: "/a",
+          evaluated: 3,
+          deleted: ["old-1"],
+          protected: [],
+          kept: 2,
+          errors: [{ id: "old-2", message: "ref delete failed" }],
+        },
+      ],
+      unreachable: [{ repo_root: "/gone", kind: "git_error", message: "io" }],
+      totals: { evaluated: 3, deleted: 1, protected: 0, kept: 2, errors: 1 },
+      ok: false,
+      error: { code: "error", kind: "unreachable_repos", message: "no repo evaluable" },
+    };
+    const result = checkpointGcFromDoc(executed);
+    expect(result?.ok).toBe(false);
+    expect(result?.repos[0]?.deleted).toEqual(["old-1"]);
+    expect(result?.repos[0]?.would_delete).toBeNull();
+    expect(result?.repos[0]?.errors).toEqual([
+      { id: "old-2", message: "ref delete failed" },
+    ]);
+    expect(result?.error?.kind).toBe("unreachable_repos");
+    expect(result?.totals.deleted).toBe(1);
+  });
+
+  test("rejects foreign contracts, wrong command, missing repos", () => {
+    expect(checkpointGcFromDoc({ ...GC_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointGcFromDoc({ ...GC_DOC, command: "prune" })).toBeNull();
+    expect(checkpointGcFromDoc({ ...GC_DOC, repos: undefined })).toBeNull();
+  });
+});
+
+describe("checkpointPruneArgs / checkpointPruneFromDoc (rev 3, #279)", () => {
+  test("prune argv: --repo/--dry-run only", () => {
+    expect(checkpointPruneArgs()).toEqual([]);
+    expect(checkpointPruneArgs({ dryRun: true })).toEqual(["--dry-run"]);
+    expect(checkpointPruneArgs({ repo: "/abs/repo", dryRun: true })).toEqual([
+      "--repo",
+      "/abs/repo",
+      "--dry-run",
+    ]);
+  });
+
+  const PRUNE_DOC = {
+    contract: "herdr-plugins.checkpoints/v1",
+    command: "prune",
+    ok: true,
+    dry_run: true,
+    repos: [
+      {
+        repo_root: "/a",
+        scanned: 4,
+        orphans: ["refs/herdr-plugins/checkpoints/k/orphan-1"],
+      },
+    ],
+    unreachable: [],
+    totals: { scanned: 4, orphans: 1, would_delete: 1, errors: 0 },
+    generated_at: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("parses dry-run prune report with orphans/unreachable/totals", () => {
+    const result = checkpointPruneFromDoc(PRUNE_DOC);
+    expect(result?.ok).toBe(true);
+    expect(result?.dry_run).toBe(true);
+    expect(result?.repos[0]?.orphans).toEqual([
+      "refs/herdr-plugins/checkpoints/k/orphan-1",
+    ]);
+    expect(result?.repos[0]?.deleted).toBeNull();
+    expect(result?.totals.orphans).toBe(1);
+    expect(result?.totals.would_delete).toBe(1);
+  });
+
+  test("execute report uses deleted; ok:false keeps unreachable honest", () => {
+    const executed = {
+      ...PRUNE_DOC,
+      dry_run: false,
+      repos: [
+        {
+          repo_root: "/a",
+          scanned: 4,
+          orphans: ["refs/herdr-plugins/checkpoints/k/orphan-1"],
+          deleted: ["refs/herdr-plugins/checkpoints/k/orphan-1"],
+        },
+      ],
+      totals: { scanned: 4, orphans: 1, deleted: 1, errors: 0 },
+    };
+    const result = checkpointPruneFromDoc(executed);
+    expect(result?.repos[0]?.deleted).toEqual([
+      "refs/herdr-plugins/checkpoints/k/orphan-1",
+    ]);
+    expect(result?.totals.deleted).toBe(1);
+    const failed = checkpointPruneFromDoc({
+      ...executed,
+      ok: false,
+      repos: [],
+      unreachable: [{ repo_root: "/gone", kind: "not_a_repo", message: "missing" }],
+      error: { code: "error", kind: "unreachable_repos", message: "none scanned" },
+    });
+    expect(failed?.ok).toBe(false);
+    expect(failed?.error?.kind).toBe("unreachable_repos");
+    expect(failed?.unreachable[0]?.repo_root).toBe("/gone");
+  });
+
+  test("rejects foreign contracts, wrong command, missing repos", () => {
+    expect(checkpointPruneFromDoc({ ...PRUNE_DOC, contract: "x/v1" })).toBeNull();
+    expect(checkpointPruneFromDoc({ ...PRUNE_DOC, command: "gc" })).toBeNull();
+    expect(checkpointPruneFromDoc({ ...PRUNE_DOC, repos: "nope" })).toBeNull();
+  });
+});
+
 // Fetch/mutation wrappers (fetchCheckpointsList, fetchCheckpointShow,
-// fetchCheckpointDiff, createCheckpoint, deleteCheckpoint) are thin
-// pluginCall pass-throughs validated by the parsers and argv builders
-// above; they carry no additional logic to unit-test without a host.
+// fetchCheckpointDiff, createCheckpoint, deleteCheckpoint,
+// saveCheckpoints, restoreCheckpointGroup, fetchCheckpointsGc,
+// fetchCheckpointsPrune) are thin pluginCall pass-throughs validated by
+// the parsers and argv builders above; they carry no additional logic
+// to unit-test without a host.

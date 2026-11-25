@@ -50,7 +50,7 @@ source of truth. Each feature is classified by where its data comes from:
 | PR detail panel | [cli]/[upstream] | needs PR identity |
 | Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @2dcb2abf (ADR-0014/0015/0019/0020): registry UI connected (#252, capability-gated per host); #69 audit semantics (verbatim remote case, `has_submodules` tri-state, wholesale settings rewrite) consumed |
 | Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh; shell-family `--shell` selector + `shell_family`/`shell_source` display per #269/ADR-0020); auto triggers upstream-gated (herdr-plugins#60) |
-| Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @55df8d0a (ADR-0016/0017/0021): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); per-turn capture/GC upstream-gated (herdr-plugins#75+) |
+| Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @ae4f214 (ADR-0016/0017/0021/0024): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); multi-repo save groups + restore-group + bounded gc/prune connected (#279: `group_id` badges/`--group` filter, mandatory dry-run preview, per-repo partial results via the bridge stdout-report convention); per-turn capture remains upstream-gated |
 
 ## Issues / pull requests
 
@@ -91,7 +91,8 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    contract), projects registry + scripts via `herdr-plugins.projects`
    (#252/#253 on the @2dcb2abf pin), checkpoints via
    `herdr-plugins.checkpoints` (#260/#264 on the @c8dc3b3 pin,
-   work-unit auto-capture on the @55df8d0a pin via #268), settings sections
+   work-unit auto-capture on the @55df8d0a pin via #268, save groups +
+   retention on the @ae4f214 pin via #279), settings sections
    that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178

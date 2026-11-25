@@ -28,6 +28,15 @@
  *   granularity is herdr `agent_status` work-units, NOT per-turn.
  *   `create --auto` exists only as an explicit opt-in label; no
  *   agent-driven trigger is fabricated here.
+ * - Since the @ae4f214 re-pin (herdr-plugins #75/#94, ADR-0024)
+ *   `save` captures multi-repo groups under a shared `group_id`
+ *   (explicit repo list, focused pane, or live session discovery with
+ *   `skipped_panes` shown), `list --group` filters and entries badge
+ *   their group, `restore-group` restores every member per-repo with
+ *   per-repo results, and `gc`/`prune` run only after a mandatory
+ *   dry-run preview (`would_delete`/`orphans`/`unreachable`/policy
+ *   shown). Partial group outcomes keep every per-repo
+ *   `ok:false` entry visible — never collapsed into a generic error.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
@@ -43,7 +52,7 @@ import {
   DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
-import { Input, Label } from "./ui/input";
+import { Input, Label, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
 import {
   Select,
@@ -63,13 +72,21 @@ import {
   fetchCheckpointDiff,
   fetchCheckpointPlan,
   fetchCheckpointShow,
+  fetchCheckpointsGc,
   fetchCheckpointsList,
+  fetchCheckpointsPrune,
   restoreCheckpoint,
+  restoreCheckpointGroup,
+  saveCheckpoints,
   type AutoCapturesReport,
   type CheckpointDiffResult,
   type CheckpointEntry,
+  type CheckpointGcResult,
   type CheckpointPlanResult,
+  type CheckpointPruneResult,
+  type CheckpointRestoreGroupResult,
   type CheckpointRestoreResult,
+  type CheckpointSaveResult,
   type CheckpointShowResult,
   type CheckpointsCapability,
   type CheckpointsError,
@@ -105,6 +122,10 @@ const PLUGIN_ERROR_LABELS: Record<string, string> = {
   clean_failed: "untracked-file cleanup failed",
   clean_incomplete: "untracked-file cleanup did not converge",
   restore_verify_failed: "post-restore verification failed",
+  unknown_group: "unknown checkpoint group",
+  partial_save: "partial group save — see per-repo results",
+  partial_restore: "partial group restore — see per-repo results",
+  unreachable_repos: "no repository could be evaluated",
   plugin_error: "checkpoints plugin error",
 };
 
@@ -414,6 +435,195 @@ function CreateForm({
   );
 }
 
+/* ---------------------------- save group ------------------------------- */
+
+/**
+ * `save` — multi-repo checkpoint group. Repo set modes mirror the
+ * contract: live discovery across session pane cwds (default), the
+ * focused pane's repo, or an explicit repo list (one path per line).
+ * Partial captures render every per-repo result — `ok:false` entries
+ * with their plugin error kind — plus `skipped_panes` for cwds that
+ * are not repos; never collapsed into a generic failure.
+ */
+function SaveGroupForm({
+  machine,
+  pane,
+  canSave,
+  onSaved,
+}: {
+  machine: string;
+  pane: PaneInfo | null;
+  canSave: boolean;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<"discover" | "pane" | "repos">("discover");
+  const [reposText, setReposText] = useState("");
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<CheckpointSaveResult | null>(null);
+
+  const effectiveMode = mode === "pane" && pane === null ? "discover" : mode;
+  const repos = reposText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const targetValid = effectiveMode !== "repos" || repos.length > 0;
+
+  const submit = async () => {
+    if (!targetValid) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const target =
+        effectiveMode === "repos"
+          ? { repos }
+          : effectiveMode === "pane" && pane !== null
+            ? { paneId: pane.pane_id }
+            : {};
+      setResult(
+        await saveCheckpoints(machine, target, {
+          label: label.trim() === "" ? undefined : label.trim(),
+        }),
+      );
+      onSaved();
+    } catch (err: unknown) {
+      setError(checkpointsErrorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+      <div className="text-xs font-medium">Save checkpoint group</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+          Repo set
+          <Select
+            value={effectiveMode}
+            onValueChange={(value) =>
+              setMode(value === "repos" ? "repos" : value === "pane" ? "pane" : "discover")
+            }
+          >
+            <SelectTrigger aria-label="Save group repo set">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="discover">
+                All session repos (live discovery)
+              </SelectItem>
+              {pane !== null ? (
+                <SelectItem value="pane">Focused pane ({pane.pane_id})</SelectItem>
+              ) : null}
+              <SelectItem value="repos">Repository list</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        {effectiveMode === "repos" ? (
+          <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+            Repo paths (one per line)
+            <Textarea
+              value={reposText}
+              onChange={(e) => setReposText(e.target.value)}
+              placeholder={"/path/to/repo-a\n/path/to/repo-b"}
+              className="min-h-14"
+              aria-label="Save group repository paths"
+            />
+          </label>
+        ) : effectiveMode === "pane" ? (
+          <div className="flex items-end text-2xs text-muted-foreground">
+            captures the work tree of the pane&apos;s repo only
+          </div>
+        ) : (
+          <div className="flex items-end text-2xs text-muted-foreground">
+            captures every repo resolved from live pane cwds; non-repo
+            cwds are reported as skipped
+          </div>
+        )}
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
+          Label (optional — applied to every captured entry)
+          <Input
+            size="sm"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. release prep"
+          />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={!canSave || busy || !targetValid}
+          onClick={() => void submit()}
+        >
+          {busy ? "Saving…" : "Save group"}
+        </Button>
+        {canSave === false ? (
+          <span className="text-2xs text-muted-foreground">{UNSUPPORTED_TEXT} (save)</span>
+        ) : null}
+      </div>
+      <MutationFeedback error={error} notice={null} />
+      {result !== null ? <SaveGroupReport result={result} /> : null}
+    </div>
+  );
+}
+
+/** Per-repo result list for a `save` payload — partial stays visible. */
+function SaveGroupReport({ result }: { result: CheckpointSaveResult }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">
+          {result.ok
+            ? `saved ${result.succeeded}/${result.total} repos`
+            : `partial save — ${result.succeeded}/${result.total} repos captured`}
+        </span>
+        {result.group !== null ? (
+          <Badge size="sm" variant="secondary">
+            {result.group}
+          </Badge>
+        ) : null}
+      </div>
+      {result.results.map((item) => (
+        <div key={item.repo_root} className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate font-mono">
+            {repoLabel(item.repo_root)}
+          </span>
+          {item.ok ? (
+            <>
+              <span className="font-mono text-muted-foreground">{item.checkpoint.id}</span>
+              {item.checkpoint.kind !== "manual" ? (
+                <KindBadge kind={item.checkpoint.kind} />
+              ) : null}
+            </>
+          ) : (
+            <span className="text-destructive">
+              {pluginErrorLabel(item.error.kind)} — {item.error.message}
+            </span>
+          )}
+        </div>
+      ))}
+      {result.skipped_panes.length > 0 ? (
+        <div className="text-muted-foreground">
+          skipped panes (not repos):{" "}
+          {result.skipped_panes
+            .map((p) => `${p.pane_id} (${p.reason})`)
+            .join(", ")}
+        </div>
+      ) : null}
+      {result.error !== null ? (
+        <div className="text-warning">
+          {pluginErrorLabel(result.error.kind)} — {result.error.message}
+        </div>
+      ) : null}
+      <AutoCapturesNote report={result.auto_captures} />
+    </div>
+  );
+}
+
 /* ------------------------------- list ---------------------------------- */
 
 function CheckpointList({
@@ -449,6 +659,11 @@ function CheckpointList({
                 {entry.branch !== null ? ` · ${entry.branch}` : ""}
               </span>
             </span>
+            {entry.group_id !== null ? (
+              <Badge size="sm" variant="outline" title={entry.group_id}>
+                {entry.group_id}
+              </Badge>
+            ) : null}
             {/* manual is the default provenance — badge only
                 non-default kinds to keep rows quiet; detail shows all. */}
             {entry.kind !== "manual" ? <KindBadge kind={entry.kind} /> : null}
@@ -760,6 +975,255 @@ function RestoreDialog({
   );
 }
 
+/* --------------------------- restore group ----------------------------- */
+
+/** Failure kinds that make `--force` an honest retry option. */
+const GROUP_FORCE_KINDS = new Set(["shared_worktree", "session_unreachable"]);
+
+function groupRestoreErrorFields(
+  fields: Record<string, unknown>,
+  key: string,
+): string[] {
+  const value = fields[key];
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string")
+    : [];
+}
+
+/**
+ * `restore-group` confirm + per-repo result dialog. Every member goes
+ * through the full restore pipeline (isolation check + mandatory
+ * pre-restore checkpoint); partial restores keep each failed repo's
+ * error kind/message/panes visible — never collapsed. `--force` is
+ * offered only when a member failed with `shared_worktree` /
+ * `session_unreachable`, and re-runs the WHOLE group upstream.
+ */
+function RestoreGroupDialog({
+  machine,
+  groupId,
+  members,
+  onClose,
+  onRestored,
+}: {
+  machine: string;
+  groupId: string;
+  /** Known members from the current list — the plugin restores ALL
+   * state entries under the group id, so this may be a subset. */
+  members: CheckpointEntry[];
+  onClose: () => void;
+  onRestored: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<CheckpointRestoreGroupResult | null>(null);
+  const [failure, setFailure] = useState<CheckpointsError | null>(null);
+
+  const run = async (force: boolean) => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      setResult(await restoreCheckpointGroup(machine, groupId, { force }));
+    } catch (err: unknown) {
+      setFailure(classifyCheckpointsError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const memberRepos = useMemo(
+    () => [...new Set(members.map((m) => m.repo_root))],
+    [members],
+  );
+  const canForce =
+    result !== null &&
+    result.results.some(
+      (r) => !r.ok && GROUP_FORCE_KINDS.has(r.error.kind),
+    );
+
+  const close = () => {
+    onClose();
+    if (result !== null) onRestored();
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Restore checkpoint group?</DialogTitle>
+          <DialogDescription>
+            Restores every checkpoint recorded under group{" "}
+            <span className="font-mono">{groupId}</span> — one repo at a
+            time, each through the full restore pipeline. A pre-restore
+            checkpoint is captured per repo before any mutation;
+            untracked files absent from each checkpoint are permanently
+            deleted. The plugin restores all state entries under this
+            group id{members.length > 0 ? ` (${members.length} visible in the current list)` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogPanel>
+          <div className="flex flex-col gap-3">
+            {memberRepos.length > 0 ? (
+              <div className="flex flex-col gap-1">
+                <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Member repos
+                </div>
+                {memberRepos.map((root) => (
+                  <div key={root} className="truncate font-mono text-2xs">
+                    {root}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {failure !== null ? (
+              <div className="text-2xs text-destructive">
+                {failure.kind === "plugin"
+                  ? `${pluginErrorLabel(failure.code)}${failure.detail ? ` — ${failure.detail}` : ""}`
+                  : checkpointsErrorText(failure)}
+              </div>
+            ) : null}
+
+            {result !== null ? (
+              <div className="flex flex-col gap-1.5">
+                <div
+                  className={`text-2xs font-medium ${result.ok ? "text-muted-foreground" : "text-warning"}`}
+                >
+                  {result.ok
+                    ? `restored ${result.succeeded}/${result.total} repos`
+                    : `partial restore — ${result.succeeded}/${result.total} repos restored`}
+                </div>
+                {result.results.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-0.5 rounded-md border border-border p-2 text-2xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono">
+                        {repoLabel(item.repo_root)}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {item.id}
+                      </span>
+                      {item.ok ? (
+                        <Badge size="sm" variant="success">
+                          restored
+                        </Badge>
+                      ) : (
+                        <Badge size="sm" variant="error">
+                          failed
+                        </Badge>
+                      )}
+                    </div>
+                    {item.ok ? (
+                      <div className="text-muted-foreground">
+                        commit{" "}
+                        <span className="font-mono">
+                          {item.restored_commit ?? "—"}
+                        </span>
+                        {item.isolation !== null
+                          ? ` · isolation: ${ISOLATION_LABELS[item.isolation] ?? item.isolation}`
+                          : ""}
+                        {item.pre_restore !== null ? (
+                          <>
+                            {" "}
+                            · pre-restore{" "}
+                            <span className="font-mono">{item.pre_restore.id}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        <div className="text-destructive">
+                          {pluginErrorLabel(item.error.kind)} — {item.error.message}
+                        </div>
+                        {groupRestoreErrorFields(item.error.fields, "panes")
+                          .length > 0 ? (
+                          <div className="text-muted-foreground">
+                            sharing panes:{" "}
+                            <span className="font-mono">
+                              {groupRestoreErrorFields(item.error.fields, "panes").join(
+                                ", ",
+                              )}
+                            </span>
+                          </div>
+                        ) : null}
+                        {typeof item.error.fields["pre_restore_checkpoint_id"] ===
+                        "string" ? (
+                          <div className="text-muted-foreground">
+                            pre-restore checkpoint{" "}
+                            <span className="font-mono">
+                              {String(item.error.fields["pre_restore_checkpoint_id"])}
+                            </span>{" "}
+                            captured before the failure
+                          </div>
+                        ) : item.pre_restore !== null ? (
+                          <div className="text-muted-foreground">
+                            pre-restore checkpoint{" "}
+                            <span className="font-mono">{item.pre_restore.id}</span>{" "}
+                            captured before the failure
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {result.error !== null ? (
+                  <div className="text-2xs text-warning">
+                    {pluginErrorLabel(result.error.kind)} — {result.error.message}
+                  </div>
+                ) : null}
+                <AutoCapturesNote report={result.auto_captures} />
+              </div>
+            ) : null}
+
+            {canForce ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="text-2xs text-warning">
+                  Forcing bypasses the shared-worktree isolation check for
+                  every member — other panes may be editing these worktrees.
+                  Retrying re-runs the whole group, including repos that
+                  already restored.
+                </div>
+                <div>
+                  <Button
+                    size="xs"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() => void run(true)}
+                  >
+                    {busy ? "Restoring…" : "Retry group with --force"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </DialogPanel>
+
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={close}>
+            {result !== null ? "Done" : "Cancel"}
+          </Button>
+          {result === null ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void run(false)}
+            >
+              {busy ? "Restoring…" : "Restore group"}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ------------------------------ detail --------------------------------- */
 
 function CheckpointDetail({
@@ -768,18 +1232,22 @@ function CheckpointDetail({
   canDelete,
   canPlan,
   canRestore,
+  canRestoreGroup,
   onRequestDelete,
   onRestored,
   onSelectCheckpoint,
+  onRestoreGroup,
 }: {
   machine: string;
   entry: CheckpointEntry;
   canDelete: boolean;
   canPlan: boolean;
   canRestore: boolean;
+  canRestoreGroup: boolean;
   onRequestDelete: (entry: CheckpointEntry) => void;
   onRestored: () => void;
   onSelectCheckpoint: (id: string) => void;
+  onRestoreGroup: (entry: CheckpointEntry) => void;
 }) {
   const [show, setShow] = useState<CheckpointShowResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -810,6 +1278,15 @@ function CheckpointDetail({
         {canRestore === true ? (
           <Button size="xs" variant="secondary" onClick={() => setRestoreOpen(true)}>
             Restore…
+          </Button>
+        ) : null}
+        {entry.group_id !== null && canRestoreGroup === true ? (
+          <Button
+            size="xs"
+            variant="secondary"
+            onClick={() => onRestoreGroup(entry)}
+          >
+            Restore group…
           </Button>
         ) : null}
         {canRestore === false ? (
@@ -880,6 +1357,14 @@ function CheckpointDetail({
             <KindBadge kind={entry.kind} />
           </dd>
         </div>
+        {entry.group_id !== null ? (
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 text-muted-foreground">group</dt>
+            <dd className="min-w-0 flex-1">
+              <span className="font-mono">{entry.group_id}</span>
+            </dd>
+          </div>
+        ) : null}
         {entry.label !== null ? (
           <div className="flex gap-2">
             <dt className="w-16 shrink-0 text-muted-foreground">label</dt>
@@ -1070,6 +1555,441 @@ function DiffPane({
 
 /* -------------------------------- dialog -------------------------------- */
 
+/* ----------------------------- maintenance ----------------------------- */
+
+/** Bounded id/ref list render — shows first N entries then a "+M more". */
+function IdList({ ids, mono = true }: { ids: string[]; mono?: boolean }) {
+  if (ids.length === 0) return <span className="text-muted-foreground">none</span>;
+  const shown = ids.slice(0, 8);
+  return (
+    <span className={mono ? "font-mono" : undefined}>
+      {shown.join(", ")}
+      {ids.length > shown.length ? ` … +${ids.length - shown.length} more` : ""}
+    </span>
+  );
+}
+
+function UnreachableRepos({
+  repos,
+}: {
+  repos: { repo_root: string; kind: string; message: string }[];
+}) {
+  if (repos.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
+        Unreachable (state untouched)
+      </div>
+      {repos.map((repo) => (
+        <div key={repo.repo_root} className="text-2xs text-muted-foreground">
+          <span className="font-mono">{repo.repo_root}</span> —{" "}
+          {pluginErrorLabel(repo.kind !== "" ? repo.kind : "git_error")}:{" "}
+          {repo.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GcReportView({ result }: { result: CheckpointGcResult }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
+          {result.dry_run ? "dry-run preview" : "executed"}
+        </Badge>
+        <span className="text-muted-foreground">
+          {result.ok
+            ? "ok"
+            : result.error !== null
+              ? `${pluginErrorLabel(result.error.kind)} — ${result.error.message}`
+              : "not ok"}
+        </span>
+      </div>
+      {result.policy !== null ? (
+        <div className="text-muted-foreground">
+          policy: max-count {result.policy.max_count} · max-age-days{" "}
+          {result.policy.max_age_days} · pre-restore protect-days{" "}
+          {result.policy.pre_restore_protect_days}
+        </div>
+      ) : null}
+      {result.repos.map((repo) => {
+        const evicted = result.dry_run ? repo.would_delete : repo.deleted;
+        return (
+          <div key={repo.repo_root} className="flex flex-col gap-0.5">
+            <div className="font-mono">
+              {repo.repo_root}{" "}
+              <span className="text-muted-foreground">
+                ({repo.evaluated} evaluated · {repo.kept} kept
+                {repo.protected_ids.length > 0
+                  ? ` · ${repo.protected_ids.length} protected`
+                  : ""}
+                {evicted !== null && evicted.length > 0
+                  ? ` · ${evicted.length} ${result.dry_run ? "would delete" : "deleted"}`
+                  : ""}
+                )
+              </span>
+            </div>
+            {evicted !== null && evicted.length > 0 ? (
+              <div className="pl-3 text-muted-foreground">
+                {result.dry_run ? "would delete: " : "deleted: "}
+                <IdList ids={evicted} />
+              </div>
+            ) : null}
+            {repo.errors.length > 0 ? (
+              <div className="pl-3 text-destructive">
+                {repo.errors.map((e) => `${e.id}: ${e.message}`).join("; ")}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      <UnreachableRepos repos={result.unreachable} />
+      <div className="text-muted-foreground">
+        totals: {result.totals.evaluated} evaluated ·{" "}
+        {result.dry_run
+          ? `${result.totals.would_delete ?? 0} would delete`
+          : `${result.totals.deleted ?? 0} deleted`}{" "}
+        · {result.totals.protected} protected · {result.totals.kept} kept ·{" "}
+        {result.totals.errors} errors
+      </div>
+      <AutoCapturesNote report={result.auto_captures} />
+    </div>
+  );
+}
+
+function PruneReportView({ result }: { result: CheckpointPruneResult }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
+          {result.dry_run ? "dry-run preview" : "executed"}
+        </Badge>
+        <span className="text-muted-foreground">
+          {result.ok
+            ? "ok"
+            : result.error !== null
+              ? `${pluginErrorLabel(result.error.kind)} — ${result.error.message}`
+              : "not ok"}
+        </span>
+      </div>
+      {result.repos.map((repo) => (
+        <div key={repo.repo_root} className="flex flex-col gap-0.5">
+          <div className="font-mono">
+            {repo.repo_root}{" "}
+            <span className="text-muted-foreground">
+              ({repo.scanned} refs scanned · {repo.orphans.length} orphans
+              {repo.deleted !== null ? ` · ${repo.deleted.length} deleted` : ""})
+            </span>
+          </div>
+          {repo.orphans.length > 0 ? (
+            <div className="pl-3 text-muted-foreground">
+              {result.dry_run ? "orphan refs: " : "deleted refs: "}
+              <IdList ids={result.dry_run ? repo.orphans : (repo.deleted ?? [])} />
+            </div>
+          ) : null}
+          {repo.errors.length > 0 ? (
+            <div className="pl-3 text-destructive">
+              {repo.errors.map((e) => `${e.ref}: ${e.message}`).join("; ")}
+            </div>
+          ) : null}
+        </div>
+      ))}
+      <UnreachableRepos repos={result.unreachable} />
+      <div className="text-muted-foreground">
+        totals: {result.totals.scanned} scanned · {result.totals.orphans} orphans
+        · {result.dry_run
+          ? `${result.totals.would_delete ?? 0} would delete`
+          : `${result.totals.deleted ?? 0} deleted`}{" "}
+        · {result.totals.errors} errors
+      </div>
+      <AutoCapturesNote report={result.auto_captures} />
+    </div>
+  );
+}
+
+/** Parse a positive-integer policy field; undefined = unset. */
+function policyInt(raw: string): number | undefined | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  const value = Number(trimmed);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * `gc` section — bounded retention. Execution is gated on a fresh
+ * dry-run preview of the SAME parameters: the execute button stays
+ * disabled until "Preview" runs, and any parameter edit invalidates
+ * the preview (params are compared, not assumed).
+ */
+function GcSection({ machine }: { machine: string }) {
+  const [repo, setRepo] = useState("");
+  const [maxCount, setMaxCount] = useState("");
+  const [maxAgeDays, setMaxAgeDays] = useState("");
+  const [protectDays, setProtectDays] = useState("");
+  const [busy, setBusy] = useState<"preview" | "run" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<CheckpointGcResult | null>(null);
+  const [previewParams, setPreviewParams] = useState<string | null>(null);
+  const [executed, setExecuted] = useState<CheckpointGcResult | null>(null);
+
+  const parsed = {
+    repo: repo.trim() === "" ? undefined : repo.trim(),
+    maxCount: policyInt(maxCount),
+    maxAgeDays: policyInt(maxAgeDays),
+    protectDays: policyInt(protectDays),
+  };
+  const paramsValid =
+    parsed.maxCount !== null &&
+    parsed.maxAgeDays !== null &&
+    parsed.protectDays !== null;
+  const paramsKey = JSON.stringify(parsed);
+  const canRun = preview !== null && previewParams === paramsKey;
+
+  const run = async (dryRun: boolean) => {
+    if (!paramsValid) return;
+    setBusy(dryRun ? "preview" : "run");
+    setError(null);
+    try {
+      const result = await fetchCheckpointsGc(machine, {
+        repo: parsed.repo,
+        dryRun,
+        maxCount: parsed.maxCount ?? undefined,
+        maxAgeDays: parsed.maxAgeDays ?? undefined,
+        protectDays: parsed.protectDays ?? undefined,
+      });
+      if (dryRun) {
+        setPreview(result);
+        setPreviewParams(paramsKey);
+      } else {
+        setExecuted(result);
+        // Executed — the preview is consumed; a new preview is required
+        // before another run.
+        setPreview(null);
+        setPreviewParams(null);
+      }
+    } catch (err: unknown) {
+      setError(checkpointsErrorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+      <div className="text-xs font-medium">Retention GC</div>
+      <div className="text-2xs text-muted-foreground">
+        Evicts entries beyond max-count (newest first) and older than
+        max-age-days; recent pre-restore entries stay protected. Empty
+        fields use plugin defaults (50 / 30d / 7d).
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
+          Repo scope (optional — empty = every repo known to state)
+          <Input
+            size="sm"
+            font="mono"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            placeholder="/path/inside/repo"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+          Max count
+          <Input
+            size="sm"
+            inputMode="numeric"
+            value={maxCount}
+            onChange={(e) => setMaxCount(e.target.value)}
+            placeholder="50"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+          Max age (days)
+          <Input
+            size="sm"
+            inputMode="numeric"
+            value={maxAgeDays}
+            onChange={(e) => setMaxAgeDays(e.target.value)}
+            placeholder="30"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
+          Pre-restore protect (days)
+          <Input
+            size="sm"
+            inputMode="numeric"
+            value={protectDays}
+            onChange={(e) => setProtectDays(e.target.value)}
+            placeholder="7"
+          />
+        </label>
+      </div>
+      {!paramsValid ? (
+        <div className="text-2xs text-destructive">
+          policy values must be positive integers
+        </div>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={busy !== null || !paramsValid}
+          onClick={() => void run(true)}
+        >
+          {busy === "preview" ? "Previewing…" : "Preview (dry-run)"}
+        </Button>
+        <Button
+          size="xs"
+          variant="destructive"
+          disabled={busy !== null || !paramsValid || !canRun}
+          onClick={() => void run(false)}
+        >
+          {busy === "run" ? "Running…" : "Run gc"}
+        </Button>
+        {preview === null && executed === null ? (
+          <span className="text-2xs text-muted-foreground">
+            a dry-run preview is required before gc can run
+          </span>
+        ) : null}
+      </div>
+      <MutationFeedback error={error} notice={null} />
+      {preview !== null ? <GcReportView result={preview} /> : null}
+      {executed !== null ? <GcReportView result={executed} /> : null}
+    </div>
+  );
+}
+
+/**
+ * `prune` section — deletes hidden refs no state entry references.
+ * Same mandatory dry-run gate as gc.
+ */
+function PruneSection({ machine }: { machine: string }) {
+  const [repo, setRepo] = useState("");
+  const [busy, setBusy] = useState<"preview" | "run" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<CheckpointPruneResult | null>(null);
+  const [previewParams, setPreviewParams] = useState<string | null>(null);
+  const [executed, setExecuted] = useState<CheckpointPruneResult | null>(null);
+
+  const repoArg = repo.trim() === "" ? undefined : repo.trim();
+  const paramsKey = JSON.stringify({ repo: repoArg ?? null });
+  const canRun = preview !== null && previewParams === paramsKey;
+
+  const run = async (dryRun: boolean) => {
+    setBusy(dryRun ? "preview" : "run");
+    setError(null);
+    try {
+      const result = await fetchCheckpointsPrune(machine, {
+        repo: repoArg,
+        dryRun,
+      });
+      if (dryRun) {
+        setPreview(result);
+        setPreviewParams(paramsKey);
+      } else {
+        setExecuted(result);
+        setPreview(null);
+        setPreviewParams(null);
+      }
+    } catch (err: unknown) {
+      setError(checkpointsErrorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+      <div className="text-xs font-medium">Orphan ref prune</div>
+      <div className="text-2xs text-muted-foreground">
+        Deletes hidden checkpoint refs that no state entry references.
+        Empty repo scope scans every repo known to state.
+      </div>
+      <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+        Repo scope (optional)
+        <Input
+          size="sm"
+          font="mono"
+          value={repo}
+          onChange={(e) => setRepo(e.target.value)}
+          placeholder="/path/inside/repo"
+        />
+      </label>
+      <div className="flex items-center gap-2">
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={busy !== null}
+          onClick={() => void run(true)}
+        >
+          {busy === "preview" ? "Previewing…" : "Preview (dry-run)"}
+        </Button>
+        <Button
+          size="xs"
+          variant="destructive"
+          disabled={busy !== null || !canRun}
+          onClick={() => void run(false)}
+        >
+          {busy === "run" ? "Running…" : "Run prune"}
+        </Button>
+        {preview === null && executed === null ? (
+          <span className="text-2xs text-muted-foreground">
+            a dry-run preview is required before prune can run
+          </span>
+        ) : null}
+      </div>
+      <MutationFeedback error={error} notice={null} />
+      {preview !== null ? <PruneReportView result={preview} /> : null}
+      {executed !== null ? <PruneReportView result={executed} /> : null}
+    </div>
+  );
+}
+
+/** gc/prune maintenance surface — both gated on capability + dry-run. */
+function MaintenanceDialog({
+  machine,
+  canGc,
+  canPrune,
+  onClose,
+}: {
+  machine: string;
+  canGc: boolean;
+  canPrune: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Checkpoint maintenance</DialogTitle>
+          <DialogDescription>
+            Bounded retention and orphan-ref cleanup from the
+            rebuildup.checkpoints plugin. Every destructive run requires
+            a fresh dry-run preview of the same parameters first.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <div className="flex flex-col gap-3">
+            {canGc ? <GcSection machine={machine} /> : null}
+            {canPrune ? <PruneSection machine={machine} /> : null}
+            {!canGc && !canPrune ? (
+              <SectionMessage>
+                {UNSUPPORTED_TEXT} (gc/prune)
+              </SectionMessage>
+            ) : null}
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const LIMIT_OPTIONS = [50, 100, 200, 500];
 
 export function CheckpointsDialog({
@@ -1089,6 +2009,8 @@ export function CheckpointsDialog({
   const [cap, setCap] = useState<CheckpointsCapability | null | undefined>(undefined);
   const [repoDraft, setRepoDraft] = useState("");
   const [repoFilter, setRepoFilter] = useState("");
+  const [groupDraft, setGroupDraft] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
   const [limit, setLimit] = useState(100);
   const [listResult, setListResult] = useState<CheckpointsListResult | null>(null);
   const [listLoading, setListLoading] = useState(false);
@@ -1096,6 +2018,11 @@ export function CheckpointsDialog({
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CheckpointEntry | null>(null);
+  const [restoreGroup, setRestoreGroup] = useState<{
+    groupId: string;
+    members: CheckpointEntry[];
+  } | null>(null);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
@@ -1112,8 +2039,12 @@ export function CheckpointsDialog({
 
   const listSupported = supports(cap, "list");
   const canCreate = supportsMutation(cap, "create");
+  const canSave = supportsMutation(cap, "save");
   const canDelete = supportsMutation(cap, "delete");
   const canRestore = supportsMutation(cap, "restore");
+  const canRestoreGroup = supportsMutation(cap, "restore-group");
+  const canGc = supportsMutation(cap, "gc");
+  const canPrune = supportsMutation(cap, "prune");
   const canPlan = supports(cap, "plan");
 
   const loadList = useCallback(() => {
@@ -1121,6 +2052,7 @@ export function CheckpointsDialog({
     setListError(null);
     fetchCheckpointsList(machine, {
       repo: repoFilter.trim() === "" ? undefined : repoFilter.trim(),
+      group: groupFilter.trim() === "" ? undefined : groupFilter.trim(),
       limit,
     })
       .then(setListResult)
@@ -1129,9 +2061,9 @@ export function CheckpointsDialog({
         setListError(checkpointsErrorText(err));
       })
       .finally(() => setListLoading(false));
-    // repoFilter/limit are applied values; refreshKey forces a reload.
+    // repoFilter/groupFilter/limit are applied values; refreshKey forces a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machine, repoFilter, limit, refreshKey]);
+  }, [machine, repoFilter, groupFilter, limit, refreshKey]);
 
   useEffect(() => {
     if (listSupported === true) loadList();
@@ -1207,6 +2139,12 @@ export function CheckpointsDialog({
                   canCreate={canCreate === true}
                   onCreated={refreshAll}
                 />
+                <SaveGroupForm
+                  machine={machine}
+                  pane={pane ?? null}
+                  canSave={canSave === true}
+                  onSaved={refreshAll}
+                />
 
                 <div className="flex items-center gap-2">
                   <Input
@@ -1222,6 +2160,21 @@ export function CheckpointsDialog({
                     placeholder="Filter by repo path (empty = all)"
                     font="mono"
                     aria-label="Filter checkpoints by repo path"
+                  />
+                  <Input
+                    size="sm"
+                    value={groupDraft}
+                    onChange={(e) => setGroupDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setGroupFilter(groupDraft);
+                        setRefreshKey((k) => k + 1);
+                      }
+                    }}
+                    placeholder="Filter by group id (empty = all)"
+                    font="mono"
+                    aria-label="Filter checkpoints by group id"
+                    className="w-36"
                   />
                   <Select
                     value={String(limit)}
@@ -1246,6 +2199,7 @@ export function CheckpointsDialog({
                     variant="ghost"
                     onClick={() => {
                       setRepoFilter(repoDraft);
+                      setGroupFilter(groupDraft);
                       setRefreshKey((k) => k + 1);
                     }}
                     disabled={listLoading}
@@ -1282,11 +2236,22 @@ export function CheckpointsDialog({
                     canDelete={canDelete === true}
                     canPlan={canPlan === true}
                     canRestore={canRestore === true}
+                    canRestoreGroup={canRestoreGroup === true}
                     onRequestDelete={setConfirmDelete}
                     onRestored={refreshAll}
                     onSelectCheckpoint={(id) => {
                       refreshAll();
                       setSelectedId(id);
+                    }}
+                    onRestoreGroup={(entry) => {
+                      if (entry.group_id === null) return;
+                      setRestoreGroup({
+                        groupId: entry.group_id,
+                        members:
+                          listResult?.checkpoints.filter(
+                            (e) => e.group_id === entry.group_id,
+                          ) ?? [entry],
+                      });
                     }}
                   />
                 ) : (
@@ -1305,11 +2270,40 @@ export function CheckpointsDialog({
         </DialogPanel>
 
         <DialogFooter>
+          {(canGc === true || canPrune === true) && cap !== null ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mr-auto"
+              onClick={() => setMaintenanceOpen(true)}
+            >
+              Maintenance…
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" onClick={requestClose}>
             Close
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {maintenanceOpen ? (
+        <MaintenanceDialog
+          machine={machine}
+          canGc={canGc === true}
+          canPrune={canPrune === true}
+          onClose={() => setMaintenanceOpen(false)}
+        />
+      ) : null}
+
+      {restoreGroup !== null ? (
+        <RestoreGroupDialog
+          machine={machine}
+          groupId={restoreGroup.groupId}
+          members={restoreGroup.members}
+          onClose={() => setRestoreGroup(null)}
+          onRestored={refreshAll}
+        />
+      ) : null}
 
       {/* Delete confirm: removes the state entry always and the hidden
           ref when it still exists — the plugin reports which happened. */}

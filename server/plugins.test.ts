@@ -504,6 +504,75 @@ describe("PluginService.call", () => {
     expect(failure?.fields).toBeUndefined();
   });
 
+  test("partial-failure convention: stdout report + stderr error + exit 1 returns the report doc", async () => {
+    // checkpoints-v1 save/restore-group/gc/prune print the full per-repo
+    // report on stdout, a {kind:"partial_*"|"unreachable_repos"} summary
+    // on stderr and exit 1. The bridge must not collapse that into a
+    // bare HerdrError — the report doc comes back with `error` attached.
+    const report = {
+      contract: "herdr-plugins.checkpoints/v1",
+      command: "save",
+      ok: false,
+      group: "grp-1",
+      total: 2,
+      succeeded: 1,
+      failed: 1,
+      results: [
+        { repo_root: "/a", ok: true, checkpoint: { id: "cp-1" } },
+        { repo_root: "/b", ok: false, error: { kind: "not_a_repo", message: "no git" } },
+      ],
+    };
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: {
+          code: 1,
+          stdout: JSON.stringify(report),
+          stderr: JSON.stringify({
+            contract: "herdr-plugins.checkpoints/v1",
+            ok: false,
+            error: {
+              code: "error",
+              kind: "partial_save",
+              message: "save grp-1: 1 of 2 repos failed",
+            },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    const doc = await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "settle",
+      args: ["w1:p1"],
+    });
+    expect(doc["ok"]).toBe(false);
+    expect(doc["group"]).toBe("grp-1");
+    expect((doc["results"] as unknown[]).length).toBe(2);
+    expect(doc["error"]).toMatchObject({ kind: "partial_save" });
+  });
+
+  test("non-zero exit with stdout doc that is NOT ok:false still throws", async () => {
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: {
+          code: 1,
+          stdout: JSON.stringify({ contract: "x/v1", ok: true, command: "settle" }),
+          stderr: JSON.stringify({
+            contract: "x/v1",
+            ok: false,
+            error: { code: "error", kind: "usage", message: "bad args" },
+          }),
+          timedOut: false,
+        },
+      },
+    ]);
+    await expect(
+      serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] }),
+    ).rejects.toMatchObject({ code: "usage" });
+  });
+
   test("non-JSON stderr failures never produce fields", async () => {
     const host = inboxHost([
       {

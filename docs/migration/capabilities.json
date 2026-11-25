@@ -112,11 +112,11 @@
     },
     {
       "id": "plugin-checkpoints",
-      "version": 3,
+      "version": 4,
       "title": "herdr-plugins.checkpoints/v1 hidden-ref checkpoints",
       "spec": "docs/migration/contracts/plugin-checkpoints.md",
       "oracle": "conformance",
-      "summary": "Worktree checkpoints as hidden git refs: capability/create/list/show/diff/plan/restore/delete via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; work-unit auto-capture (kind/auto_captures/create --auto) consumed @55df8d0a; GC and per-turn capture are non-goals."
+      "summary": "Worktree checkpoints as hidden git refs: capability/create/save/list/show/diff/plan/restore/restore-group/delete/gc/prune via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; multi-repo save groups + bounded retention consumed @ae4f214; work-unit auto-capture (kind/auto_captures/create --auto) consumed @55df8d0a; per-turn capture is a non-goal."
     }
   ],
   "capabilities": [
@@ -1134,7 +1134,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-checkpoints@3",
+        "plugin-checkpoints@4",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1143,11 +1143,15 @@
       ],
       "operations": [
         "capability probe per host",
-        "list checkpoints (repo filter, limit)",
+        "list checkpoints (repo/group filters, limit)",
         "show entry + ref probe + bounded stat",
         "diff checkpoint/HEAD pairs (bounded patch)",
         "plan restore preview (files_to_change/untracked_to_delete/already_matches)",
         "restore with plan gate, same-repo --repo override, shared-worktree/session isolation, explicit --force only, pre_restore recovery",
+        "save multi-repo checkpoint groups (explicit --repo list / focused pane / live discovery with skipped_panes) under shared group_id",
+        "list --group filter + group_id badges; restore-group per-repo flow with per-repo results and labelled whole-group --force retry",
+        "gc bounded retention + prune orphan refs, both gated on a mandatory dry-run preview of identical parameters (would_delete/orphans/unreachable/policy shown)",
+        "partial group outcomes rendered per-repo via bridge stdout-report+stderr-error convention (error attached under doc.error)",
         "create via --repo PATH or focused pane id, optional label, explicit --auto (kind:auto)",
         "kind badge (manual/auto/pre_restore) on list/detail",
         "auto_captures drain outcomes surfaced on every command result (captured/skipped/session_unreachable)",
@@ -1155,7 +1159,7 @@
       ],
       "errors": [
         "capability-gated per host",
-        "not_a_repo/bare_repo/empty_repo/sparse_checkout/unknown_checkpoint/cross_repo/pane_not_found/no_pane_cwd/repo_mismatch/checkpoint_ref_missing/shared_worktree/session_unreachable/restore_failed/clean_failed/clean_incomplete/restore_verify_failed/git_missing/timeout/git_error kind passthrough",
+        "not_a_repo/bare_repo/empty_repo/sparse_checkout/unknown_checkpoint/cross_repo/pane_not_found/no_pane_cwd/repo_mismatch/checkpoint_ref_missing/shared_worktree/session_unreachable/restore_failed/clean_failed/clean_incomplete/restore_verify_failed/unknown_group/partial_save/partial_restore/unreachable_repos/git_missing/timeout/git_error kind passthrough",
         "error.panes and pre_restore_* extras forwarded via allowlisted error fields",
         "ref.exists:false rendered honestly",
         "foreign contract rejected"
@@ -1177,7 +1181,8 @@
         "docs/migration/contracts/plugin-checkpoints.md",
         "docs/adr/ADR-0016.md",
         "docs/adr/ADR-0017.md",
-        "docs/adr/ADR-0021.md"
+        "docs/adr/ADR-0021.md",
+        "docs/adr/ADR-0024.md"
       ],
       "stage": "current-verified",
       "status": {
