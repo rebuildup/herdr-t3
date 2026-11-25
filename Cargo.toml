@@ -4,6 +4,7 @@ members = [
     "crates/diff-adapter",
     "crates/protocol-codec",
     "crates/state-projections",
+    "crates/terminal-core",
     "crates/ui-test-host",
 ]
 

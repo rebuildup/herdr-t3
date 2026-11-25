@@ -14,3 +14,4 @@ release/
 # Evidence: raw captures stay local; only optimized WebP + manifest are committed.
 docs/design/evidence/**/*.png
 !docs/design/evidence/**/manifest.json
+native/

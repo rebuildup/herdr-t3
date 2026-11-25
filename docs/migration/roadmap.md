@@ -17,7 +17,7 @@ evidence is collected at RC freeze — see below).
 
 | Gate | Verdict | Note |
 |---|---|---|
-| contracts-registry | PASS | 55 capabilities, 12 contracts, validator + self-test in CI |
+| contracts-registry | PASS | 56 capabilities, 12 contracts, validator + self-test in CI |
 | differential-harness | PASS | codec/terminal/projection scenarios; TS + Rust adapters parity (attach-codec reference + product protocol.codec) |
 | persistence-compat | PASS | format rules frozen; fault-injection contract tests; live-profile OS evidence → RC |
 | performance-baseline | PASS | reproducible bench + gate + first baseline; comprehensive suite → RC |
@@ -47,11 +47,19 @@ report.
    spot-check recorded on the ticket PR (derive ~300–490 ns/op,
    collect+partition ~3.4–11 µs/op TS vs Rust — clone overhead noted,
    revisit with the consumer if it matters).
-3. **terminal engine/frame** (`terminal.*`, B5): libghostty-vt port is
-   the heavy lift; `terminal-session@1` contract + terminal scenarios
-   (screen/modes/input/scrollback/resize) are the oracle. Exit:
-   cell-level differential scenarios incl. grapheme/wide-char/IME
-   cases + input-to-paint perf within threshold.
+3. **terminal engine/frame** (`terminal.*`, B5): **landed** (#286).
+   `crates/terminal-core` ports `shared/ghostty/engine.ts` +
+   `src/lib/ghostty/session.ts` onto the native libghostty-vt C API
+   (pinned commit, zig 0.17.1, runtime-independent — no Electron/DOM
+   deps). All `terminal.*` differential scenarios pass on TS + Rust,
+   incl. callbacks-and-scroll (CPR/bell/OSC52/sync-hold/win32-input)
+   and wide-chars (ZWJ grapheme clusters, combining marks, CJK wide
+   cells, edge wrap). New registry entry `terminal.engine` at
+   `rust-implemented`; the UI-facing `terminal.*` capabilities stay
+   `current-verified` until their renderer/bridge surfaces port.
+   Perf: #231 bench workload on Rust/native is at parity-or-better
+   vs TS/WASM (see #286). Exit-criteria remainder: `switched` awaits
+   a Rust consumer (boundary 4).
 4. **streaming/render pipeline** (B5/B6): depends on 3; needs UI
    conformance adapter to exist first for render assertions.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS

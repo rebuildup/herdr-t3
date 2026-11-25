@@ -1,0 +1,1852 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.callbacks-and-scroll",
+  "capability": "terminal.render",
+  "contract": "terminal-session@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "session_new",
+      "input": {
+        "cols": 20,
+        "rows": 4,
+        "scrollback": 100,
+        "cellW": 8,
+        "cellH": 16
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "s1"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "line1\nline2\nline3\nline4\nline5\nline6\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scroll",
+      "input": {
+        "handle": "s1",
+        "rows": 2
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "3",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "4",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scroll",
+      "input": {
+        "handle": "s1",
+        "rows": 0
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b357e"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "drain_replies",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "replies": []
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b366e"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "drain_replies",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "replies": [
+            "1b5b343b313052"
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "\u0007"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "drain_effects",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "bell"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5d35323b633b6141414161411b5c"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "drain_effects",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "clipboardWrite",
+              "location": "standard",
+              "mime": [
+                "text/plain"
+              ],
+              "data_hex": [
+                "68000068"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b3f3230323668"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": true,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "held"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b3f323032366c"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "screen",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rows": [
+            {
+              "y": 0,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 1,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "5",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 2,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "i",
+                      "wide": false
+                    },
+                    {
+                      "text": "n",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "6",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            },
+            {
+              "y": 3,
+              "runs": [
+                {
+                  "x": 0,
+                  "cells": [
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": "h",
+                      "wide": false
+                    },
+                    {
+                      "text": "e",
+                      "wide": false
+                    },
+                    {
+                      "text": "l",
+                      "wide": false
+                    },
+                    {
+                      "text": "d",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    },
+                    {
+                      "text": " ",
+                      "wide": false
+                    }
+                  ],
+                  "fg": null,
+                  "bg": null,
+                  "flags": 0
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b3f3930303168"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "none",
+          "mouseFormat": "x10",
+          "bracketedPaste": false,
+          "kittyFlags": 0,
+          "focusReports": false,
+          "syncOutput": false,
+          "appCursor": false,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": true
+        }
+      }
+    },
+    {
+      "op": "encode_key",
+      "input": {
+        "handle": "s1",
+        "key": {
+          "key": "C",
+          "mods": {
+            "ctrl": true
+          },
+          "text": "\u0003",
+          "unshifted": "c"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "03"
+        }
+      }
+    },
+    {
+      "op": "dispose",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}
