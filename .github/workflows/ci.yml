@@ -15,10 +15,19 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.17.1
+      # native/ holds a CPU-specific artifact (zig builds for the host CPU),
+      # so the cache key must include a CPU fingerprint — otherwise a
+      # heterogeneous runner pool restores a binary with instructions the
+      # current CPU lacks (SIGILL in terminal-core tests, issue #296).
+      - name: Fingerprint runner CPU for the native-artifact cache key
+        id: cpu
+        run: |
+          fp="$( { grep -m1 -E 'model name|CPU part|CPU implementer|Hardware' /proc/cpuinfo || true; grep -m1 '^flags' /proc/cpuinfo || true; grep -m1 '^Features' /proc/cpuinfo || true; } | tr -d '\n' | md5sum | cut -d' ' -f1)"
+          echo "key=${fp:-unknown}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: native
-          key: ghostty-vt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ghostty-vt/build-native.sh') }}
+          key: ghostty-vt-${{ runner.os }}-${{ runner.arch }}-${{ steps.cpu.outputs.key }}-${{ hashFiles('scripts/ghostty-vt/build-native.sh') }}
       - run: bun install --frozen-lockfile
       - run: ./scripts/ci.sh
       - run: bun run build

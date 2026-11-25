@@ -8,6 +8,9 @@
 #
 # Output: native/libghostty-vt.{a,dylib,so} under the repo root (gitignored)
 # plus native/BUILD_INFO.txt recording commit + zig version + target.
+# The artifact embeds host-CPU instructions (no -Dtarget override), so it is
+# only valid on the machine/CPU that built it — CI caches it under a
+# CPU-fingerprinted key (issue #296).
 set -euo pipefail
 GHOSTTY_COMMIT=e95bed63330cc921f3cf2fe3d14e024396b09d43
 here="$(cd "$(dirname "$0")" && pwd)"
