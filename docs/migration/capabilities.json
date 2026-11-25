@@ -104,7 +104,7 @@
     },
     {
       "id": "plugin-projects",
-      "version": 1,
+      "version": 2,
       "title": "herdr-plugins.projects/v1 registry and scripts",
       "spec": "docs/migration/contracts/plugin-projects.md",
       "oracle": "conformance",
@@ -1003,7 +1003,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@1",
+        "plugin-projects@2",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1041,7 +1041,7 @@
         "known_issues": [],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @c8460283"
+          "herdr-plugins.projects/v1 @b0c8c60"
         ],
         "excluded": false
       },
@@ -1055,7 +1055,7 @@
       "boundary": "B3",
       "contracts": [
         "plugins-boundary@1",
-        "plugin-projects@1",
+        "plugin-projects@2",
         "workspace-pane-ops@1"
       ],
       "os": [
@@ -1097,7 +1097,7 @@
         ],
         "os_gaps": [],
         "upstream_deps": [
-          "herdr-plugins.projects/v1 @c8460283",
+          "herdr-plugins.projects/v1 @b0c8c60",
           "herdr pane execution API",
           "auto triggers: herdr-plugins#60 (upstream gap)"
         ],

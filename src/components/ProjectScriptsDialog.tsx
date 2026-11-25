@@ -7,6 +7,11 @@
  * Honest-state rules:
  * - `running` does not mean the process is alive; records render exactly
  *   as the plugin returns them and are never upgraded to `success`.
+ * - `stopping`/`stop_unconfirmed` are in-flight stop confirmation
+ *   states (schema v2, ADR-0015): warning badges, never success or a
+ *   plain failure; `results`/`logs` may still promote them to
+ *   `stopped`. `stale_pane` stop outcomes are labelled distinctly —
+ *   ownership re-validation failed and no pane was touched.
  * - `runOnWorktreeCreate`/`runOnSettle`/`stopOnSettle` have no upstream
  *   execution mapping (herdr-plugins#60): shown as inert "not wired"
  *   metadata, never as active triggers.
@@ -42,6 +47,7 @@ import {
   fetchProjectScriptsList,
   fetchScriptLogs,
   fetchScriptResults,
+  isActiveScriptRunResult,
   projectScriptsCapability,
   repoAmbiguousRepoRoots,
   runProjectScript,
@@ -155,12 +161,29 @@ function resultBadgeVariant(result: string): "success" | "error" | "warning" | "
     case "failed":
       return "error";
     case "running":
+    case "stopping":
+    case "stop_unconfirmed":
+      // In-flight states (active or awaiting stop confirmation) —
+      // never rendered as success or as a terminal failure.
       return "warning";
     default:
       // stopped / unknown / anything unrecognized stays neutral — never
       // presented as success.
       return "secondary";
   }
+}
+
+/** Human labels for `scripts stop` outcome actions (schema v2). */
+const STOP_ACTION_LABELS: Record<string, string> = {
+  stopped: "stopped",
+  already_finished: "already finished",
+  pane_gone: "pane already gone",
+  stale_pane: "stale pane — not owned, untouched",
+  stop_unconfirmed: "stop unconfirmed",
+};
+
+function stopActionLabel(action: string): string {
+  return STOP_ACTION_LABELS[action] ?? action;
 }
 
 const SCRIPT_SOURCE_LABELS: Record<string, string> = {
@@ -425,7 +448,7 @@ function RunDetail({
         {run.exit_code !== null ? (
           <span className="text-2xs text-muted-foreground">exit {run.exit_code}</span>
         ) : null}
-        {run.result === "running" && canStop ? (
+        {isActiveScriptRunResult(run.result) && canStop ? (
           <Button
             size="xs"
             variant="secondary"
@@ -436,6 +459,16 @@ function RunDetail({
           </Button>
         ) : null}
       </div>
+      {run.result === "stopping" || run.result === "stop_unconfirmed" ? (
+        <div className="text-2xs text-muted-foreground">
+          {run.result === "stopping"
+            ? "stop requested — awaiting exit confirmation"
+            : "stop requested but exit could not be confirmed — still reconciling"}
+          {run.stop_requested_at !== null
+            ? ` (since ${formatTime(run.stop_requested_at)})`
+            : ""}
+        </div>
+      ) : null}
       <dl className="flex flex-col gap-0.5 text-2xs">
         <div className="flex gap-2">
           <dt className="w-16 shrink-0 text-muted-foreground">script</dt>
@@ -453,6 +486,21 @@ function RunDetail({
           <dt className="w-16 shrink-0 text-muted-foreground">finished</dt>
           <dd className="min-w-0 flex-1">{formatTime(run.finished_at)}</dd>
         </div>
+        {run.stop_requested_at !== null ? (
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 text-muted-foreground">stop req.</dt>
+            <dd className="min-w-0 flex-1">{formatTime(run.stop_requested_at)}</dd>
+          </div>
+        ) : null}
+        {run.host !== null || run.session_key !== null ? (
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 text-muted-foreground">host</dt>
+            <dd className="min-w-0 flex-1 truncate font-mono">
+              {run.host ?? "—"}
+              {run.session_key !== null ? ` · ${run.session_key}` : ""}
+            </dd>
+          </div>
+        ) : null}
         {run.error !== null ? (
           <div className="flex gap-2">
             <dt className="w-16 shrink-0 text-muted-foreground">error</dt>
@@ -688,7 +736,7 @@ export function ProjectScriptsDialog({
       try {
         const result = await stopProjectScripts(machine, runId);
         const summary = result.outcomes
-          .map((o: ScriptRunOutcome) => `${o.run.run_id}: ${o.action}`)
+          .map((o: ScriptRunOutcome) => `${o.run.run_id}: ${stopActionLabel(o.action)}`)
           .join(", ");
         setStopNotice(summary === "" ? "stop requested" : summary);
         loadRuns();

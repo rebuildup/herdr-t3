@@ -1,10 +1,11 @@
 /*
- * Plugin-backed Projects store (ADR-0011 boundary, ADR-0014 pin;
+ * Plugin-backed Projects store (ADR-0011 boundary, ADR-0014/0015 pin;
  * issue #252).
  *
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
- * rebuildup/herdr-plugins@c8460283 (release-0-3-0): `list`, `show`,
+ * rebuildup/herdr-plugins@b0c8c60 (release-0-3-0, schema v2 run
+ * records — ADR-0015): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The
  * `scripts *` commands belong to issue #253 and are not consumed here.
@@ -369,7 +370,7 @@ export function projectMutationFromDoc(
 
 /**
  * Contract `error.kind` values preserved through plugin_call
- * (projects-v1 @c8460283). Includes the git kinds surfaced by repo
+ * (projects-v1 @b0c8c60). Includes the git kinds surfaced by repo
  * resolution and the script kinds shared with the #253 surface so a
  * future script error is never degraded to a generic failure here.
  */
