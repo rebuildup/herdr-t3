@@ -15,3 +15,4 @@
 | [ADR-0011](./ADR-0011.md) | Accepted | herdr-plugins contract consumption boundary; organize-state ownership and #173 migration |
 | [ADR-0012](./ADR-0012.md) | Accepted | Source Control surface: git-v1 contract pin @62309b9c and per-host capability gating |
 | [ADR-0013](./ADR-0013.md) | Accepted | GPUI staged migration: contract-first foundation and Electron removal gates |
+| [ADR-0014](./ADR-0014.md) | Accepted | Projects/Scripts surface: projects-v1 contract pin @c8460283 and scope (auto triggers upstream-gated) |
