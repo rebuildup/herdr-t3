@@ -39,7 +39,7 @@ const PROJECT = {
   updated_at: "2026-11-21T00:00:00.000Z",
 };
 
-describe("projects argv builders (herdr-plugins.projects/v1 @c8460283)", () => {
+describe("projects argv builders (herdr-plugins.projects/v1 @b0c8c60)", () => {
   test("list/show/discover argv", () => {
     expect(projectsListArgs()).toEqual([]);
     expect(projectsListArgs({ all: true })).toEqual(["--all"]);
