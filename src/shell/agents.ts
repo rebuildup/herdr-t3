@@ -38,14 +38,16 @@ export type AgentSection =
   | "snoozed"
   | "settled";
 
-// T3 sidebar order (Sidebar.logic.ts SidebarSection): the always-visible
-// list first, then the working/snoozed/settled shelves stacked at the
-// bottom — all collapsed by default.
+// Shelf order top->bottom (issue #211): Attention first, then descending
+// attention-worthiness — counted from the bottom it reads Idle, Working,
+// Done, Attention, the reverse of herdr's status_priority. Every section
+// is a collapsible shelf docked at the sidebar bottom; there is no
+// always-visible flat list.
 export const AGENT_SECTIONS: readonly AgentSection[] = [
   "attention",
   "done",
-  "idle",
   "working",
+  "idle",
   "snoozed",
   "settled",
 ];
@@ -60,21 +62,12 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
 };
 
 /**
- * Sections that render as collapsible bottom shelves. Attention, Done and
- * Idle are the always-visible list (T3's active region has no collapse).
+ * Sections that render as collapsible bottom shelves. Since issue #211
+ * every section is one — the whole Agents region is the bottom dock, so
+ * the set equals AGENT_SECTIONS. Kept as a named list so the default
+ * expansion rule and tests have one place to read it from.
  */
-export const COLLAPSIBLE_AGENT_SECTIONS = [
-  "working",
-  "snoozed",
-  "settled",
-] as const;
-export type CollapsibleAgentSection = (typeof COLLAPSIBLE_AGENT_SECTIONS)[number];
-
-export function isCollapsibleAgentSection(
-  section: AgentSection,
-): section is CollapsibleAgentSection {
-  return (COLLAPSIBLE_AGENT_SECTIONS as readonly AgentSection[]).includes(section);
-}
+export const COLLAPSIBLE_AGENT_SECTIONS: readonly AgentSection[] = AGENT_SECTIONS;
 
 export function agentSection(status: AgentStatus): AgentSection {
   switch (status) {

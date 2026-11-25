@@ -131,24 +131,31 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
 
 | herdr `agent_status` | セクション | 根拠 |
 | --- | --- | --- |
-| `blocked` | **Attention** (最上位、常時展開・折りたたみ不可) | T3 の「人間の応答待ち」= inbox の最優先。herdr の status_priority でも最上位 |
-| `done` | **Done** (常時展開・折りたたみ不可) | T3 の active list の一部 — エージェント完了はユーザー整理状態ではないため棚に畳まない |
-| `idle` / `unknown` / 未知の status | **Idle** (常時展開・折りたたみ不可) | 同上。要対応でない残りも active list に含める |
-| `working` | **Working** (下部 shelf、折りたたみ可、既定は折りたたみ) | T3 の working shelf と同じ位置・既定値 |
+| `blocked` | **Attention** (最上位の棚、既定は展開) | T3 の「人間の応答待ち」= inbox の最優先。herdr の status_priority でも最上位 |
+| `done` | **Done** (棚、既定は折りたたみ) | 要対応ではない完了通知 — ユーザーが畳んでおける |
+| `working` | **Working** (棚、既定は折りたたみ) | T3 の working shelf と同じ既定値 |
+| `idle` / `unknown` / 未知の status | **Idle** (棚、既定は折りたたみ) | 要対応でない残り |
+| (ユーザー操作) | **Snoozed** / **Settled** (棚、既定は折りたたみ) | 後述のユーザー整理状態 |
 
-- セクション順は T3 の SidebarSection と同じ構造: 常時表示リスト
-  (Attention → Done → Idle) が先、working → snoozed → settled の
-  折りたたみ shelf が下部に積まれる。T3 の active list に相当する
-  Done/Idle は collapse を持たない (T3 の active section に
-  disclosure がないのと同じ)。
+- **全セクションが折りたたみ棚** (issue #211): Agents 領域全体を
+  サイドバー下部のドックに置き、上から `Attention → Done → Working →
+  Idle → Snoozed → Settled` の順に棚を積む。下から数えると
+  `Idle → Working → Done → Attention` で、herdr `status_priority` の
+  逆順 — 注意度の低いものが下、要対応が上。常時展開のフラットな
+  一覧は持たない。md 未満の狭い画面では従来どおりスクロール領域末尾に
+  インライン描画する。
+- 棚の展開状態は T3 の shelf expansion と同様に localStorage
+  (`herdr-t3:sidebar:agents:<section>`) へ永続化する。**既定は
+  Attention のみ展開**、他の5棚は折りたたみ (T3 の
+  `useLocalStorage(..., false)` と同じ)。空セクションは header ごと表示しない。
 - セクション内ソート: herdr `AgentPanelSortConfig::Priority` と同じ
   `agent_status` 優先度 + `state_change_seq` 降順 (同順位は新しい状態変化が上、
   `state_change_seq` 欠落時は `revision` で代替、最後は `pane_id` で安定化)。
   T3 inbox の「return 順」は `state_change_seq` の新しい順で近似する —
   herdr に return timestamp はないため独自時刻状態を持たない。
-- Working/Snoozed/Settled の折りたたみ状態は T3 の shelf expansion と同様に
-  localStorage へ永続化し、**3棚とも既定は折りたたみ** (T3 の
-  `useLocalStorage(..., false)` と同じ)。空セクションは header ごと表示しない。
+- 全棚の折りたたみ状態は localStorage へ永続化する (issue #211 で
+  Attention/Done/Idle も棚化)。既定は Attention のみ展開、他は
+  折りたたみ。空セクションは header ごと表示しない。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage
@@ -175,9 +182,8 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   テキスト (現 status の label) と行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に
   限定する (§4 と同じ規則)。
-- Attention セクション header は常時展開のため chevron を持たないが、
-  collapsible shelf の count と桁位置を揃えるため chevron 相当の幅を
-  予約し、header 自体を warning 色で強調する (issue #165)。
+- Attention 棚の header は他棚と同じ disclosure 付きだが、warning 色の
+  tone で強調する (issue #165 の注意喚起を棚化後も維持、issue #211)。
 
 ### 6.3 操作
 
