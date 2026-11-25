@@ -482,16 +482,25 @@ export function remoteArgvCommand(
 ): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
-    // POSIX-portable scrub: `env -u` is GNU-only (absent on macOS/BSD), so
-    // blank the variables instead — plugin CLIs treat empty as unset.
-    const scrub = envRemove.map((name) => `${name}=''`).join(" ");
-    const command = scrub ? `${scrub} ${parts}` : parts;
-    return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
+    // POSIX-portable removal: `env -u` is GNU-only (absent on
+    // macOS/BSD) and `VAR=''` still counts as *set* for presence-checking
+    // consumers — the herdr CLI treats an empty HERDR_SOCKET_PATH as an
+    // explicit socket override — so unset the variables in the remote
+    // shell instead (issue #270). Names are validated before
+    // interpolation; they come from PLUGIN_ENV_SCRUB.
+    const names = envRemove.filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+    const scrub = names.length > 0 ? `unset ${names.join(" ")}; ` : "";
+    const command = `${scrub}${parts}`;
+    return cwd ? `${scrub}cd ${shellQuote(cwd)} && ${parts}` : command;
   }
-  // PowerShell has no env-assignment scrub; clear the variables in the
-  // session before invoking the command (issue #228 — plugin CLIs resolve
-  // pane from env).
-  const scrub = envRemove.map((name) => `$env:${name}=$null; `).join("");
+  // PowerShell has no env-assignment removal; `$env:X=$null` deletes the
+  // variable from the process environment (not an empty-string set),
+  // which runs before invoking the command (issues #228/#270 — plugin
+  // CLIs resolve socket/session/pane from env).
+  const scrub = envRemove
+    .filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .map((name) => `$env:${name}=$null; `)
+    .join("");
   const invoke = argv.map(quotePowerShellArg).join(" ");
   const script = scrub + (cwd
     ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`

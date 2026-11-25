@@ -33,12 +33,16 @@ export interface PluginExecOptions {
   cwd?: string;
   timeoutMs: number;
   /**
-   * Environment variable names stripped from the child environment.
-   * Plugin CLIs resolve their target pane from HERDR_PANE_ID /
-   * HERDR_PLUGIN_CONTEXT_JSON when no positional is given — and for
-   * `branch`/`upstream` env takes precedence over positionals — so a
-   * herdr-t3 server running inside a herdr pane must not leak those
-   * variables into plugin processes (ADR-0011, issue #228).
+   * Environment variable names removed from the child environment.
+   * Plugin CLIs resolve their target socket/session from
+   * HERDR_SOCKET_PATH / HERDR_SESSION (env beats `--session`) and the
+   * target pane from HERDR_PANE_ID / HERDR_PLUGIN_CONTEXT_JSON when no
+   * positional is given — and for `branch`/`upstream` env takes
+   * precedence over positionals — so a herdr-t3 server running inside a
+   * herdr pane must not leak those variables into plugin processes
+   * (ADR-0011/ADR-0022, issues #228/#270). Names are *removed*, not
+   * blanked: the `herdr` binary treats a present-but-empty
+   * HERDR_SOCKET_PATH as an explicit override.
    */
   envRemove?: string[];
 }
@@ -142,12 +146,45 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 120_000;
 
 /**
- * Env vars a herdr-t3 server may carry from its own herdr pane. Plugin
- * CLIs resolve the target pane from them, and for `branch`/`upstream`
- * env beats the positional pane — always scrub them from contract calls
- * so the explicit pane positional is authoritative (issue #228).
+ * Env vars that can redirect a plugin/herdr CLI to a different herdr
+ * session, socket or pane. A herdr-t3 server launched inside a herdr
+ * pane (or a plugin runtime) inherits all of them; plugin CLIs resolve
+ * the socket as `HERDR_SOCKET_PATH` > `--session`/`HERDR_SESSION` >
+ * default, so an ambient `HERDR_SOCKET_PATH` would silently override the
+ * explicit `--session` appended for named sessions and point mutations
+ * at a foreign Host/Session/Pane (upstream herdr-plugins#83, issue
+ * #270). The list mirrors herdr's own `scrub_herdr_runtime_env` for
+ * plugin-spawned commands (src/cli/plugin.rs).
+ *
+ * Scrub semantics are *removal*, not blanking: plugin CLIs treat an
+ * empty value as unset, but the `herdr` binary itself treats a present
+ * `HERDR_SOCKET_PATH` (even empty) as an explicit override — local
+ * spawn deletes the keys and the SSH path unsets them remotely.
  */
-const PLUGIN_ENV_SCRUB = ["HERDR_PANE_ID", "HERDR_PLUGIN_CONTEXT_JSON"];
+export const PLUGIN_ENV_SCRUB = [
+  // Socket/session targeting.
+  "HERDR_SOCKET_PATH",
+  "HERDR_CLIENT_SOCKET_PATH",
+  "HERDR_SESSION",
+  // Pane identity injected into herdr panes and plugin runtimes.
+  "HERDR_PANE_ID",
+  "HERDR_WORKSPACE_ID",
+  "HERDR_TAB_ID",
+  "HERDR_PLUGIN_CONTEXT_JSON",
+  // Runtime markers and the plugin-runtime injection set.
+  "HERDR_BIN_PATH",
+  "HERDR_ENV",
+  "HERDR_PLUGIN_ID",
+  "HERDR_PLUGIN_ROOT",
+  "HERDR_PLUGIN_CONFIG_DIR",
+  "HERDR_PLUGIN_STATE_DIR",
+  "HERDR_PLUGIN_ENTRYPOINT_ID",
+  "HERDR_PLUGIN_ACTION_ID",
+  "HERDR_PLUGIN_EVENT",
+  "HERDR_PLUGIN_EVENT_JSON",
+  "HERDR_PLUGIN_CLICKED_URL",
+  "HERDR_PLUGIN_LINK_HANDLER_ID",
+];
 
 export interface PluginCallRequest {
   plugin: string;
@@ -375,6 +412,9 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const outcome = await host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
       timeoutMs: DEFAULT_TIMEOUT_MS,
+      // `herdr plugin list` itself resolves its socket through the same
+      // env precedence — scrub or discovery could read a foreign session.
+      envRemove: PLUGIN_ENV_SCRUB,
     });
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
@@ -466,6 +506,7 @@ export class PluginService {
     const outcome = await host.exec(["bun", "run", "src/cli.ts", "capability"], {
       cwd: pluginRoot,
       timeoutMs: DEFAULT_TIMEOUT_MS,
+      envRemove: PLUGIN_ENV_SCRUB,
     });
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
     const entry: CapabilityCacheEntry =

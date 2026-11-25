@@ -454,19 +454,23 @@
         "non-JSON stdout"
       ],
       "side_effects": [
-        "spawns plugin CLI on local or SSH host"
+        "spawns plugin CLI on local or SSH host",
+        "ambient HERDR_* targeting env removed from every exec (ADR-0022, issue #270)"
       ],
       "scenarios": [
         "server/plugins.test.ts",
+        "server/machines.test.ts",
         "shared/protocol.test.ts",
         "src/shell/projectScripts.test.ts"
       ],
       "evidence": [
         "server/plugins.ts",
+        "server/ssh.ts",
         "shared/protocol.ts",
         "src/lib/api.ts",
         "docs/adr/ADR-0011.md",
-        "docs/adr/ADR-0012.md"
+        "docs/adr/ADR-0012.md",
+        "docs/adr/ADR-0022.md"
       ],
       "stage": "current-verified",
       "status": {
