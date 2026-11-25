@@ -367,7 +367,7 @@ const layouts = new Map<string, TypeLayout>();
 export function readTypeLayout(exports: Pick<GhosttyExports, "memory" | "ghostty_type_json">): TypeLayout {
   const ptr = exports.ghostty_type_json();
   const bytes = new Uint8Array(exports.memory.buffer, ptr);
-  const text = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
+  const text = textDecoder.decode(bytes.subarray(0, bytes.indexOf(0)));
   let layout = layouts.get(text);
   if (!layout) {
     layout = frozen(JSON.parse(text) as TypeLayout);
@@ -520,6 +520,7 @@ export class GhosttyModule {
   }
 }
 
+const textDecoder = new TextDecoder();
 const hex = (r: number, g: number, b: number): string => `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 
 /**
@@ -554,6 +555,9 @@ export class GhosttyEngine {
   private userdata: number | null = null;
   private input = 0;
   private inputCap = 0;
+  /** view()'s DataView, rebuilt only when the module's memory grows and hands back a new buffer */
+  private dv: DataView | null = null;
+  private dvBuffer: ArrayBuffer | null = null;
   private placementsGeneration = -1;
   /** the cursor the last frame() saw: libghostty marks no row dirty when only the cursor moves */
   private lastCursor = "";
@@ -682,7 +686,12 @@ export class GhosttyEngine {
   }
 
   private view(): DataView {
-    return new DataView(this.x.memory.buffer);
+    const buffer = this.x.memory.buffer;
+    if (this.dv === null || this.dvBuffer !== buffer) {
+      this.dv = new DataView(buffer);
+      this.dvBuffer = buffer;
+    }
+    return this.dv;
   }
 
   /** runs one public call: refuses on a trapped module, records a screen engine's trap, and throws what a callback threw */
@@ -727,7 +736,7 @@ export class GhosttyEngine {
       new Uint8Array(this.x.memory.buffer, dv.getUint32(at + string.ptr, true), dv.getUint32(at + string.len, true)).slice();
     const contents = Array.from({ length: count }, (_, index) => {
       const item = list + index * this.module.sizes.GhosttyClipboardContent;
-      return { mime: new TextDecoder().decode(bytes(item + content.mime)), data: bytes(item + content.data) };
+      return { mime: textDecoder.decode(bytes(item + content.mime)), data: bytes(item + content.data) };
     });
     return { type: "clipboardWrite", location: where === location.SELECTION ? "selection" : where === location.PRIMARY ? "primary" : "standard", contents };
   }
@@ -1165,14 +1174,14 @@ export class GhosttyEngine {
         dv.setUint32(out + lenAt, 0, true);
         if (x.ghostty_render_state_row_cells_get(this.cells, graphemes, out) !== 0) return " ";
         const n = this.view().getUint32(out + lenAt, true);
-        return new TextDecoder().decode(new Uint8Array(this.x.memory.buffer, big, n).slice()) || " ";
+        return textDecoder.decode(new Uint8Array(this.x.memory.buffer, big, n).slice()) || " ";
       } finally {
         x.ghostty_wasm_free(big, need);
       }
     }
     dv = this.view();
     const n = dv.getUint32(out + lenAt, true);
-    return new TextDecoder().decode(new Uint8Array(this.x.memory.buffer, buf, n)) || " ";
+    return textDecoder.decode(new Uint8Array(this.x.memory.buffer, buf, n)) || " ";
   }
 
   private getU8(key: number): number {
@@ -1281,7 +1290,7 @@ export class GhosttyEngine {
    * keeps the encoder's own form.
    */
   private legacyControl(bytes: Uint8Array): Uint8Array {
-    const match = /^\x1b\[(\d+);5u$/.exec(new TextDecoder().decode(bytes));
+    const match = /^\x1b\[(\d+);5u$/.exec(textDecoder.decode(bytes));
     if (!match) return bytes;
     const codepoint = Number(match[1]);
     if (codepoint < 0x40 || codepoint > 0x7e) return bytes;
@@ -1410,7 +1419,7 @@ export class GhosttyEngine {
       dv.setUint32(outLen, 0, true);
       this.check(x.ghostty_terminal_selection_format_alloc(this.terminal, 0, options, outPtr, outLen), "selection format");
       const ptr = this.view().getUint32(outPtr, true), len = this.view().getUint32(outLen, true);
-      const text = new TextDecoder().decode(new Uint8Array(x.memory.buffer, ptr, len));
+      const text = textDecoder.decode(new Uint8Array(x.memory.buffer, ptr, len));
       x.ghostty_free(0, ptr, len);
       return text;
     });
