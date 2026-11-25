@@ -6,8 +6,9 @@ the capability registry (`capabilities.json`), behavioral contracts
 compatibility (`persistence-compatibility.md`), and performance baseline
 (`performance-baseline.md`). Ordering follows dependency order and
 evidence readiness — not enthusiasm. Product porting does not start
-until the Readiness Gate passes; the gate currently reports **BLOCKED**
-(see below).
+until the Readiness Gate passes; the gate currently reports
+**READY-PENDING-RC** (all non-deferred gates PASS; `os-real-device`
+evidence is collected at RC freeze — see below).
 
 ## Readiness gate status (machine-checked)
 
@@ -16,25 +17,27 @@ until the Readiness Gate passes; the gate currently reports **BLOCKED**
 
 | Gate | Verdict | Note |
 |---|---|---|
-| contracts-registry | PASS | 52 capabilities, 10 contracts, validator + self-test in CI |
-| differential-harness | PASS | codec/terminal/projection scenarios; TS + Rust reference adapter parity on codec ops |
+| contracts-registry | PASS | 55 capabilities, 12 contracts, validator + self-test in CI |
+| differential-harness | PASS | codec/terminal/projection scenarios; TS + Rust adapters parity (attach-codec reference + product protocol.codec) |
 | persistence-compat | PASS | format rules frozen; fault-injection contract tests; live-profile OS evidence → RC |
 | performance-baseline | PASS | reproducible bench + gate + first baseline; comprehensive suite → RC |
-| ui-conformance | **BLOCKED** | scenario format exists; no Electron driver, no GPUI test host — GPUI both-OS capability unproven |
+| ui-conformance | PASS | real Electron (CDP) + GPUI test-host adapters run the same scenarios; fault-injection FAIL evidence recorded under `harness/ui/evidence/` |
 | os-real-device | DEFERRED | real-device/IME/clipboard/packaged evidence at RC freeze on same SHA |
 
-A BLOCKED gate is a correct state, not a failure — it means the
-corresponding boundary must not be ported yet. `--strict`-style gating
-(product port tickets must cite gate PASS evidence) is enforced by
-review + this report, since port tickets do not exist yet.
+A BLOCKED/DEFERRED gate is a correct state, not a failure — it means
+the corresponding boundary must not be ported yet (or that its OS
+evidence is owed at freeze). `--strict`-style gating (product port
+tickets must cite gate PASS evidence) is enforced by review + this
+report.
 
 ## Candidate boundaries (dependency order)
 
-1. **protocol.codec → wire decode** (`protocol.codec`, B1): pure codec,
-   already differential-tested TS vs Rust. Lowest risk; the Rust
-   `diff-adapter` proves the pattern. Exit: all `protocol-frames@1`
-   scenarios pass on the Rust implementation intended for product use
-   (not the reference adapter), plus protocol.fuzz/property coverage.
+1. **protocol.codec → wire decode** (`protocol.codec`, B1): **landed**
+   (#275, #277). `crates/protocol-codec` is the product-intended codec;
+   `codec.json-frames` scenarios pass on TS + Rust, property tests cover
+   guard/snapshot/decode totality. Registry stage `rust-implemented`;
+   remaining exit work is `switched` (a Rust bridge consumer) — a later
+   boundary ticket, not this one.
 2. **state projections** (`agent.projection`, workspace derive, B3):
    pure functions over SessionSnapshot; harness `projection.*`
    scenarios exist. Exit: same scenarios on Rust impl + perf baseline
@@ -46,8 +49,9 @@ review + this report, since port tickets do not exist yet.
    cases + input-to-paint perf within threshold.
 4. **streaming/render pipeline** (B5/B6): depends on 3; needs UI
    conformance adapter to exist first for render assertions.
-5. **pane/UI/settings shell** (B6): blocked on ui-conformance gate —
-   GPUI host spike must produce same-scenario evidence first.
+5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
+   (Electron + GPUI host evidence recorded); remaining prerequisite is
+   the terminal/render pipeline (boundary 4) it renders.
 6. **native shell/OS/distribution** (B7/B8): last; depends on
    persistence-compat migration plan execution + pc-setup coordination
    (upstream dependency, explicit Issue required before any pc-setup

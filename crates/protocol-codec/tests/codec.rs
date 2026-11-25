@@ -245,3 +245,159 @@ fn server_frame_rpc_result_error_fields() {
         _ => panic!("expected rpc_result"),
     }
 }
+
+/* ------------------------- property tests (#277) ------------------------ */
+
+mod prop {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::collection::hash_map;
+    use proptest::sample::select;
+
+    /// Bounded arbitrary JSON value (depth-capped to keep runs fast).
+    fn json_value() -> impl Strategy<Value = Value> {
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::from),
+            any::<i64>().prop_map(|n| json!(n)),
+            "[a-zA-Z0-9_ .:-]{0,12}".prop_map(|s| json!(s)),
+        ];
+        leaf.prop_recursive(4, 24, 6, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+                hash_map("[a-z_]{1,5}", inner, 0..4)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    proptest! {
+        /// The guard is total: any JSON value yields a decision, never a panic.
+        #[test]
+        fn guard_is_total(v in json_value()) {
+            let _ = is_client_frame(&v);
+        }
+
+        /// Typed snapshot parse is total over arbitrary JSON.
+        #[test]
+        fn snapshot_parse_is_total(v in json_value()) {
+            if let Ok(snap) = parse_session_snapshot(&v) {
+                let wire = serde_json::to_value(&snap).expect("encode");
+                prop_assert!(wire.is_object());
+            }
+        }
+
+        /// Server-frame decode is total over arbitrary text.
+        #[test]
+        fn server_frame_decode_is_total(s in "[ -~]{0,200}") {
+            let _ = decode_server_frame(&s);
+        }
+
+        /// RPC allow-list lookup is total.
+        #[test]
+        fn rpc_method_lookup_is_total(s in "[a-z_.]{0,40}") {
+            let _ = is_rpc_method(&s);
+        }
+    }
+
+    /* ---- valid-frame generation: encode→guard→decode round-trips ---- */
+
+    fn bounded_machine() -> impl Strategy<Value = String> {
+        (1usize..=128).prop_map(|n| "m".repeat(n))
+    }
+
+    fn extras() -> impl Strategy<Value = serde_json::Map<String, Value>> {
+        hash_map("[a-z_]{1,6}", json_value(), 0..3)
+            .prop_map(|m| m.into_iter().collect())
+    }
+
+    /// Merge extra fields first, then required fields on top, so generated
+    /// frames always satisfy the guard (extras may not collide with the
+    /// discriminant or required keys).
+    fn frame_with(base: serde_json::Map<String, Value>, required: serde_json::Map<String, Value>) -> Value {
+        let mut m = base;
+        for (k, v) in required { m.insert(k, v); }
+        Value::Object(m)
+    }
+
+    fn valid_frame() -> impl Strategy<Value = Value> {
+        let rpc = (
+            any::<u8>().prop_map(|n| json!(format!("c{n}"))),
+            select(&protocol_codec::RPC_METHODS[..]).prop_map(|m| json!(m)),
+            bounded_machine().prop_map(|m| json!(m)),
+        ).prop_flat_map(|(id, method, machine)| {
+            extras().prop_map(move |ex| {
+                frame_with(ex, serde_json::Map::from_iter([
+                    ("type".into(), json!("rpc")),
+                    ("id".into(), id.clone()),
+                    ("method".into(), method.clone()),
+                    ("machine".into(), machine.clone()),
+                ]))
+            })
+        });
+        let scroll = (
+            "[a-z0-9:]{1,8}".prop_map(|s| json!(s)),
+            select(&["up", "down"]).prop_map(|d| json!(d)),
+            any::<u8>().prop_map(|n| json!(n)),
+        ).prop_flat_map(|(pane, dir, lines)| {
+            extras().prop_map(move |ex| {
+                frame_with(ex, serde_json::Map::from_iter([
+                    ("type".into(), json!("terminal_scroll")),
+                    ("paneId".into(), pane.clone()),
+                    ("direction".into(), dir.clone()),
+                    ("lines".into(), lines.clone()),
+                ]))
+            })
+        });
+        let subscribe = (
+            "[a-z0-9:]{1,8}".prop_map(|s| json!(s)),
+            any::<bool>().prop_map(|b| json!(b)),
+        ).prop_flat_map(|(pane, takeover)| {
+            extras().prop_map(move |ex| {
+                frame_with(ex, serde_json::Map::from_iter([
+                    ("type".into(), json!("subscribe_terminal")),
+                    ("paneId".into(), pane.clone()),
+                    ("takeover".into(), takeover.clone()),
+                ]))
+            })
+        });
+        let machine_connect = bounded_machine().prop_flat_map(|m| {
+            extras().prop_map(move |ex| {
+                frame_with(ex, serde_json::Map::from_iter([
+                    ("type".into(), json!("machine_connect")),
+                    ("machine".into(), json!(m.clone())),
+                ]))
+            })
+        });
+        let plugin_call = (
+            "[a-z.]{1,10}".prop_map(|s| json!(s)),
+            "[a-z]{1,10}".prop_map(|s| json!(s)),
+        ).prop_flat_map(|(plugin, command)| {
+            extras().prop_map(move |ex| {
+                frame_with(ex, serde_json::Map::from_iter([
+                    ("type".into(), json!("plugin_call")),
+                    ("id".into(), json!("p1")),
+                    ("plugin".into(), plugin.clone()),
+                    ("command".into(), command.clone()),
+                ]))
+            })
+        });
+        prop_oneof![rpc, scroll, subscribe, machine_connect, plugin_call]
+    }
+
+    proptest! {
+        /// Every generated guard-valid frame decodes, re-encodes, and the
+        /// re-encoded frame still passes the guard — codec stability.
+        #[test]
+        fn valid_frames_round_trip_stably(v in valid_frame()) {
+            prop_assert!(is_client_frame(&v), "generated frame rejected by guard: {v}");
+            let typed = decode_client_frame(&v).expect("guard-valid frame must decode");
+            let wire = encode_client_frame(&typed).expect("encode");
+            prop_assert!(is_client_frame(&wire), "re-encoded frame rejected: {wire}");
+            // Second round-trip is a fixed point.
+            let typed2 = decode_client_frame(&wire).expect("re-decode");
+            let wire2 = encode_client_frame(&typed2).expect("re-encode");
+            prop_assert_eq!(wire, wire2);
+        }
+    }
+}
