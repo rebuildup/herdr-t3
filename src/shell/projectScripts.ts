@@ -40,7 +40,7 @@ export type ProjectsUnavailableReason =
  */
 export type ProjectsError =
   | { kind: "unavailable"; reason: ProjectsUnavailableReason; detail: string }
-  | { kind: "plugin"; code: string; detail: string };
+  | { kind: "plugin"; code: string; detail: string; fields?: Record<string, unknown> };
 
 /** Plugin `error.kind` values from the projects-v1 contract. */
 const PROJECTS_ERROR_KINDS = new Set([
@@ -80,6 +80,10 @@ const PROJECTS_ERROR_KINDS = new Set([
 export function classifyProjectScriptsError(error: unknown): ProjectsError {
   const code = (error as { code?: string })?.code ?? "";
   const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257); absent
+  // on older plugin revisions and non-plugin failures.
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields = isRecord(rawFields) ? rawFields : undefined;
   switch (code) {
     case "plugin_not_installed":
       return { kind: "unavailable", reason: "not_installed", detail };
@@ -96,10 +100,29 @@ export function classifyProjectScriptsError(error: unknown): ProjectsError {
       return { kind: "unavailable", reason: "unreachable", detail };
     default:
       if (PROJECTS_ERROR_KINDS.has(code)) {
-        return { kind: "plugin", code, detail };
+        return fields === undefined
+          ? { kind: "plugin", code, detail }
+          : { kind: "plugin", code, detail, fields };
       }
-      return { kind: "plugin", code: "plugin_error", detail };
+      return fields === undefined
+        ? { kind: "plugin", code: "plugin_error", detail }
+        : { kind: "plugin", code: "plugin_error", detail, fields };
   }
+}
+
+/**
+ * Repo roots a `repo_ambiguous` contract error carries in
+ * `fields.repos` (issue #257). Returns null when the error has no
+ * usable `repos` list — older plugin revisions emit kind+message only,
+ * so callers keep their `list`-derived candidates as the fallback.
+ */
+export function repoAmbiguousRepoRoots(error: unknown): string[] | null {
+  const fields = (error as { fields?: unknown })?.fields;
+  if (!isRecord(fields)) return null;
+  const repos = fields["repos"];
+  if (!Array.isArray(repos)) return null;
+  const roots = repos.filter((r): r is string => typeof r === "string" && r !== "");
+  return roots.length > 0 ? roots : null;
 }
 
 /* ------------------------------ capability ---------------------------- */

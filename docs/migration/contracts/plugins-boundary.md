@@ -12,7 +12,7 @@ CLI implementations.
   `capability.commands`, `mutation_commands`, enabled state.
 - `plugin_call(plugin, command, args[])` → the contract's JSON document
   on `rpc_result`; failures carry the plugin's own `error.kind` as the
-  code.
+  code plus optional bounded `error.fields` extras (issue #257).
 - Consumers gate every operation on the host's advertised
   `capability.commands`/`mutation_commands` — an unadvertised command
   is never offered.
@@ -34,6 +34,13 @@ CLI implementations.
   `unsupported_command`, `incompatible` (missing contract), plugin
   `error.kind` passthrough (e.g. git repo-state kinds), transport
   timeout, non-JSON stdout.
+- `rpc_result.error.fields` (issue #257): contract errors may flatten
+  non-secret extras (`repos`, `key`, `run_id`, `project_id`, …) into the
+  plugin's `error` object; the bridge forwards only an allowlisted,
+  bounded subset — ≤24 keys, key ≤64 chars, strings truncated at 2048,
+  values depth/size-capped — so env vars, config/state contents and
+  unbounded strings can never cross. Older plugins emit kind+message
+  only and simply produce no `fields`.
 - Timeout and non-JSON output are contract failures, never empty
   results.
 
@@ -50,6 +57,9 @@ CLI implementations.
 ## Evidence today
 
 `server/plugins.test.ts` (envelope parsing, error-kind preservation,
-capability gating), `src/shell/git.test.ts`, `src/shell/agents.test.ts`
-(organize overlay), `src/shell/inbox.ts`. Live plugin hosts are RC
-verification.
+error-field passthrough/caps, capability gating),
+`shared/protocol.test.ts` (rpc_result error fields schema),
+`src/shell/git.test.ts`, `src/shell/projects.test.ts`,
+`src/shell/projectScripts.test.ts` (classifier field passthrough),
+`src/shell/agents.test.ts` (organize overlay), `src/shell/inbox.ts`.
+Live plugin hosts are RC verification.

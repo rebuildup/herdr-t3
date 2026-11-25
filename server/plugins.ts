@@ -181,6 +181,112 @@ function parseJson(text: string): unknown {
   }
 }
 
+/* -------------------- plugin error field boundary (issue #257) --------- */
+
+/**
+ * Contract errors flatten their extra fields into `error` as siblings of
+ * `code`/`message`/`kind` (upstream `fail(message, code, kind, extra)`
+ * does `Object.assign(error, extra)`). Only documented non-secret keys
+ * may cross the bridge; everything else is dropped.
+ */
+const ERROR_FIELD_RESERVED = new Set(["code", "message", "kind", "contract", "ok", "type"]);
+/** Documented contract extras (projects-v1 "Errors may carry extra fields"). */
+const ERROR_FIELD_ALLOWLIST = new Set([
+  "project_id",
+  "key",
+  "root",
+  "repos",
+  "name",
+  "matches",
+  "run_id",
+  "target",
+  "path",
+  "reason",
+  "layer",
+  // Adjacent identifiers other contracts may attach; still non-secret.
+  "id",
+  "repo",
+  "cwd",
+  "pane_id",
+  "branch",
+  "remote",
+]);
+const ERROR_FIELD_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+const MAX_ERROR_FIELDS = 24;
+const MAX_ERROR_STRING = 2048;
+const MAX_ERROR_ARRAY = 64;
+const MAX_ERROR_OBJECT_KEYS = 32;
+const MAX_ERROR_DEPTH = 4;
+/** Per-field serialized ceiling; oversized values are dropped, not sent. */
+const MAX_ERROR_VALUE_BYTES = 8 * 1024;
+/** Whole-fields ceiling across all forwarded keys. */
+const MAX_ERROR_FIELDS_BYTES = 16 * 1024;
+
+/**
+ * Bound one JSON-ish value: finite numbers, truncated strings, capped
+ * arrays/objects, depth-limited. Returns undefined for anything that is
+ * not safely forwardable (functions, bigint, cycles are impossible in a
+ * parsed JSON document but tolerated anyway).
+ */
+function boundErrorValue(value: unknown, depth: number): unknown {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") {
+    return value.length > MAX_ERROR_STRING ? value.slice(0, MAX_ERROR_STRING) : value;
+  }
+  if (depth >= MAX_ERROR_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    for (const item of value.slice(0, MAX_ERROR_ARRAY)) {
+      const bounded = boundErrorValue(item, depth + 1);
+      if (bounded !== undefined) out.push(bounded);
+    }
+    return out;
+  }
+  if (isRecord(value)) {
+    const out: Record<string, unknown> = {};
+    let count = 0;
+    for (const [k, v] of Object.entries(value)) {
+      if (count >= MAX_ERROR_OBJECT_KEYS) break;
+      if (!ERROR_FIELD_KEY_RE.test(k)) continue;
+      const bounded = boundErrorValue(v, depth + 1);
+      if (bounded === undefined) continue;
+      out[k] = bounded;
+      count += 1;
+    }
+    return out;
+  }
+  return undefined;
+}
+
+/**
+ * Extract the bounded, allowlisted extras from a parsed contract `error`
+ * object. Returns undefined when nothing survives — the common case for
+ * older plugin revisions that emit only code/message(/kind).
+ */
+function pluginErrorFields(error: Record<string, unknown>): Record<string, unknown> | undefined {
+  const fields: Record<string, unknown> = {};
+  let total = 0;
+  let count = 0;
+  for (const [key, raw] of Object.entries(error)) {
+    if (count >= MAX_ERROR_FIELDS || total >= MAX_ERROR_FIELDS_BYTES) break;
+    if (ERROR_FIELD_RESERVED.has(key) || !ERROR_FIELD_ALLOWLIST.has(key)) continue;
+    const bounded = boundErrorValue(raw, 0);
+    if (bounded === undefined) continue;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(bounded);
+    } catch {
+      continue;
+    }
+    if (serialized === undefined || serialized.length > MAX_ERROR_VALUE_BYTES) continue;
+    fields[key] = bounded;
+    total += serialized.length;
+    count += 1;
+  }
+  return count > 0 ? fields : undefined;
+}
+
 /** Map an exec outcome to either a parsed JSON document or a HerdrError. */
 function outcomeToJson(
   outcome: PluginExecOutcome,
@@ -210,7 +316,10 @@ function outcomeToJson(
       const kind = typeof err["kind"] === "string" ? err["kind"] : undefined;
       const code = kind ?? (typeof err["code"] === "string" ? err["code"] : "plugin_error");
       const message = typeof err["message"] === "string" ? err["message"] : outcome.stderr.trim();
-      return { error: new HerdrError(code, message) };
+      // Contract extras (repos/key/run_id/…) are flattened into `error`;
+      // forward only the bounded, allowlisted subset (issue #257).
+      const fields = pluginErrorFields(err);
+      return { error: new HerdrError(code, message, fields) };
     }
     const tail = outcome.stderr.trim() || outcome.stdout.trim();
     return {

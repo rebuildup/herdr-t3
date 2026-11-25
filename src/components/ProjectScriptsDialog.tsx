@@ -43,6 +43,7 @@ import {
   fetchScriptLogs,
   fetchScriptResults,
   projectScriptsCapability,
+  repoAmbiguousRepoRoots,
   runProjectScript,
   stopProjectScripts,
   type ProjectScript,
@@ -266,7 +267,16 @@ function ScriptsPane({
       onRan();
       load();
     } catch (err: unknown) {
-      setRunError(projectsErrorText(err));
+      let text = projectsErrorText(err);
+      const classified = classifyProjectScriptsError(err);
+      if (classified.kind === "plugin" && classified.code === "repo_ambiguous") {
+        // Issue #257: the contract error carries `repos` itself; only fall
+        // back to the project list's registered members when the plugin
+        // revision predates error fields.
+        const candidates = repoAmbiguousRepoRoots(err) ?? project.repos.map((r) => r.root);
+        if (candidates.length > 0) text += ` — candidates: ${candidates.join(", ")}`;
+      }
+      setRunError(text);
     } finally {
       setBusyName(null);
     }

@@ -21,10 +21,16 @@ const LARGE_REPLY_METHODS = new Set(["pane.read", "pane.selection.read", "sessio
 
 export class HerdrError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  /**
+   * Bounded structured extras (plugin contract error fields, issue #257).
+   * Already sanitized/capped at the boundary that produced them.
+   */
+  readonly fields?: Record<string, unknown>;
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "HerdrError";
     this.code = code;
+    if (fields !== undefined) this.fields = fields;
   }
 }
 

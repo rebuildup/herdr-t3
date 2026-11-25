@@ -441,6 +441,7 @@
         "unsupported_command",
         "incompatible",
         "plugin error.kind passthrough",
+        "bounded error.fields extras (issue #257)",
         "timeout",
         "non-JSON stdout"
       ],
@@ -448,10 +449,14 @@
         "spawns plugin CLI on local or SSH host"
       ],
       "scenarios": [
-        "server/plugins.test.ts"
+        "server/plugins.test.ts",
+        "shared/protocol.test.ts",
+        "src/shell/projectScripts.test.ts"
       ],
       "evidence": [
         "server/plugins.ts",
+        "shared/protocol.ts",
+        "src/lib/api.ts",
         "docs/adr/ADR-0011.md",
         "docs/adr/ADR-0012.md"
       ],

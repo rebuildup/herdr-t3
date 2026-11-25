@@ -56,7 +56,9 @@ Scripts:
   `invalid_script_list`, `unknown_script`, `ambiguous_script`,
   `no_repos`, `repo_ambiguous`, `ambiguous_run`, `run_not_found`,
   `no_running_runs`, `script_run_error`, plus git kinds
-  (`not_a_repo`, `bare_repo`, `git_missing`, `timeout`).
+  (`not_a_repo`, `bare_repo`, `git_missing`, `timeout`). Contract
+  extras (`repos`, `key`, `run_id`, `project_id`, …) reach the client
+  as bounded `rpc_result.error.fields` (issue #257).
 
 ## Negative cases
 
