@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointsPath, loadMachineMetadata, loadSavedMachines } from "./machines.ts";
 import { isClientFrame } from "../shared/protocol.ts";
-import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, remotePluginArgv, sshArgs, sshPluginHost } from "./ssh.ts";
+import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, remotePluginArgv, sshArgs, sshPluginHost, stripRemoteOutputPreamble } from "./ssh.ts";
 import { PLUGIN_ENV_SCRUB } from "./plugins.ts";
 
 const dirs: string[] = [];
@@ -315,5 +315,33 @@ describe("remotePluginArgv remote bun resolution (issue #339)", () => {
       "-c",
       "bun --version",
     ]);
+  });
+});
+
+describe("stripRemoteOutputPreamble (issue #353)", () => {
+  const win = { id: "w", target: "h", session: "default", remoteHerdr: "C:\\herdr.exe", os: "windows" };
+  const posix = { id: "p", target: "h", session: "default", remoteHerdr: "/usr/bin/herdr" };
+
+  test("windows exec stdout loses the blank line and ready marker, keeps the payload", () => {
+    // Exact shape produced by windowsPowerShellEncodedScript: WriteLine()
+    // blank line, WriteLine(marker), then the command's own output.
+    const raw = "\r\nherdr-remote-output-ready:1\r\n{\"id\":\"cli:plugin\",\"result\":{\"plugins\":[]}}\r\n";
+    expect(stripRemoteOutputPreamble(win, raw)).toBe('{"id":"cli:plugin","result":{"plugins":[]}}\r\n');
+    expect(JSON.parse(stripRemoteOutputPreamble(win, raw))).toEqual({ id: "cli:plugin", result: { plugins: [] } });
+  });
+
+  test("windows exec stdout without the marker is returned unchanged", () => {
+    const raw = "powershell.exe : command failed\r\n";
+    expect(stripRemoteOutputPreamble(win, raw)).toBe(raw);
+  });
+
+  test("windows exec stdout ending at the marker yields empty payload", () => {
+    expect(stripRemoteOutputPreamble(win, "\r\nherdr-remote-output-ready:1\r\n")).toBe("");
+    expect(stripRemoteOutputPreamble(win, "herdr-remote-output-ready:1")).toBe("");
+  });
+
+  test("posix endpoints are never rewritten", () => {
+    const raw = "\nherdr-remote-output-ready:1\n{\"a\":1}\n";
+    expect(stripRemoteOutputPreamble(posix, raw)).toBe(raw);
   });
 });
