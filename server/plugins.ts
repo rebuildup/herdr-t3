@@ -52,6 +52,15 @@ export interface PluginExecOptions {
    * is its only explicit socket override (issue #289).
    */
   envSet?: Record<string, string>;
+  /**
+   * Payload written to the child's stdin, then stdin is closed (issue
+   * #458): contracts like textgen-v1 `generate` read their JSON input
+   * from stdin and have no remote file-write channel for `--input
+   * FILE`. Always ended — even when undefined — so a CLI that reads
+   * stdin sees EOF instead of hanging. Bounded upstream by the
+   * `plugin_call` frame validator (256 KiB).
+   */
+  stdin?: string;
 }
 
 /** Executes argv on the host owning the herdr session. */
@@ -146,7 +155,10 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
       }
       const spawnOptions: SpawnOptions = {
         cwd: options.cwd,
-        stdio: ["ignore", "pipe", "pipe"],
+        // stdin is a pipe (not "ignore") so contract payloads can be
+        // written; it is always ended immediately after the write so
+        // stdin-reading CLIs see EOF (issue #458).
+        stdio: ["pipe", "pipe", "pipe"],
       };
       if (env !== undefined) spawnOptions.env = env;
       let child: ReturnType<typeof spawn>;
@@ -161,6 +173,9 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
           error: error instanceof Error ? error.message : String(error),
         });
       }
+      // EPIPE when the child exits before consuming stdin is benign.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options.stdin ?? "");
       return collect(child, options.timeoutMs);
     },
   };
@@ -173,7 +188,10 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
 const DISCOVERY_TTL_MS = 30_000;
 const CAPABILITY_TTL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_TIMEOUT_MS = 120_000;
+// textgen-v1 agent-path tasks default to 120–600s internally
+// (review_guide 600s, issue #458); the cap must cover the largest
+// per-task default or long generations die as plugin_timeout.
+const MAX_TIMEOUT_MS = 600_000;
 
 /**
  * Env vars that can redirect a plugin/herdr CLI to a different herdr
@@ -273,6 +291,8 @@ export interface PluginCallRequest {
   plugin: string;
   command: string;
   args?: string[] | undefined;
+  /** Written to the plugin CLI's stdin, then closed (issue #458). */
+  stdin?: string | undefined;
   timeoutMs?: number | undefined;
 }
 
@@ -613,6 +633,7 @@ export class PluginService {
       cwd: entry.plugin_root,
       timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
       envRemove: PLUGIN_ENV_SCRUB,
+      ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
     });
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;

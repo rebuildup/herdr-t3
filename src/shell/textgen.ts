@@ -11,20 +11,28 @@
  * candidate text and adopting it (git, forge, composer) is always the
  * caller's job — this surface NEVER auto-applies a result.
  *
- * Consumed read commands: `capability` (the eager per-machine read —
+ * Consumed commands: `capability` (the eager per-machine read —
  * task×path matrix, agent/api provider matrix, guards, git-integration
- * status, redacted config, config warnings) and `git-context`
+ * status, redacted config, config warnings), `git-context`
  * (read-only preview of the repository input the git adapter would
- * feed a task — no provider is invoked). The contract's full command
- * list is `capability`/`generate`/`git-context`/`watch-next-prompt`/
- * `config`; there are NO list/history/result commands — generation
- * results are not persisted plugin-side, so there is no history to
- * render. `generate` and `watch-next-prompt` are mutations (they
- * drive herdr agent panes and record pane metadata) and the `config`
- * subcommands write config.json — `TEXTGEN_MUTATION_COMMANDS` is an
- * intentionally empty allowlist so `textgenSupportsMutation` can never
- * return true. Generation stays a separate ticket; this surface is a
- * read-only registry/preview.
+ * feed a task — no provider is invoked), and `generate` (issue #458 —
+ * the mutation that actually produces text). The contract's full
+ * command list is `capability`/`generate`/`git-context`/
+ * `watch-next-prompt`/`config`; there are NO list/history/result
+ * commands — generation results are returned to the caller and never
+ * persisted plugin-side, so the surface shows the latest result
+ * transiently and labels it "not retained" (retention gap recorded
+ * upstream as rebuildup/herdr-plugins#249). `generate` is a mutation
+ * (it drives herdr agent panes); `watch-next-prompt` and the `config`
+ * write subcommands stay gated off — `TEXTGEN_MUTATION_COMMANDS`
+ * allows `generate` only. Generation stays separated from execution:
+ * adopting a result is always the caller's explicit action, never
+ * automatic.
+ *
+ * `generate` input travels on the plugin CLI's stdin (the `plugin_call`
+ * `stdin` field added for this ticket): the contract reads a JSON
+ * object from stdin/`--input`, and `--input FILE` has no remote write
+ * channel, so stdin is the only portable payload path.
  *
  * Freshness mirrors `artifacts.ts`/`usage.ts`: the capability document
  * refetches on session-snapshot pushes (debounced), when a machine
@@ -44,13 +52,14 @@ const REQUIRED_COMMANDS = ["capability"] as const;
  * Mutation commands this surface may invoke. textgen-v1 DOES
  * advertise `mutation_commands` (`generate`, `watch-next-prompt`,
  * `config set-default-provider`, `config set-default-model`,
- * `config add-api-generator`, `config remove-api-generator`), but
- * this ticket ships the read surface only — the local allowlist is
- * intentionally empty so every mutation fails closed. A future ticket
- * that adds e.g. `generate` must extend the allowlist deliberately
- * (same gating shape as artifacts.ts/conversations.ts).
+ * `config add-api-generator`, `config remove-api-generator`); issue
+ * #458 adds `generate` only — it is confirm-gated in the surface and
+ * its result is displayed transiently (never auto-applied).
+ * `watch-next-prompt` (long-running watcher) and the `config` writes
+ * stay unofferable until their own tickets extend the allowlist
+ * deliberately (same gating shape as artifacts.ts/conversations.ts).
  */
-export const TEXTGEN_MUTATION_COMMANDS = [] as const;
+export const TEXTGEN_MUTATION_COMMANDS = ["generate"] as const;
 export type TextgenMutationCommand = (typeof TEXTGEN_MUTATION_COMMANDS)[number];
 
 /** Boundary-level unavailability (ADR-0011 §10). */
@@ -356,6 +365,154 @@ export function textgenGitContextFromDoc(
   };
 }
 
+/* --------------------------- generate (mutation) --------------------- */
+
+/**
+ * `generate` success document. `result` stays `unknown` — its shape is
+ * per-task (`text` string, `text_list` string[], `pr_content`
+ * {title,body}); the surface renders it against `task.output`.
+ * Everything else is verbatim plugin output.
+ */
+export interface TextgenGenerateResult {
+  task: string | null;
+  provider: string | null;
+  path: string | null;
+  model: string | null;
+  result: unknown;
+  elapsedMs: number | null;
+  warnings: string[];
+  /** Present when `--git-pane` collection fed the input. */
+  gitContext: {
+    paneId: string | null;
+    repoRoot: string | null;
+    branch: string | null;
+    sources: string[];
+  } | null;
+}
+
+/** `generate` document; null on a foreign contract or failure envelope. */
+export function textgenGenerateFromDoc(
+  doc: Record<string, unknown>,
+): TextgenGenerateResult | null {
+  const contract = doc["contract"];
+  if (typeof contract !== "string" || !contract.startsWith(TEXTGEN_CONTRACT_PREFIX)) {
+    return null;
+  }
+  if (doc["command"] !== "generate" || doc["ok"] !== true) return null;
+  if (!("result" in doc)) return null;
+  const gitRaw = isRecord(doc["git_context"]) ? doc["git_context"] : null;
+  return {
+    task: str(doc["task"]),
+    provider: str(doc["provider"]),
+    path: str(doc["path"]),
+    model: str(doc["model"]),
+    result: doc["result"],
+    elapsedMs: num(doc["elapsed_ms"]),
+    warnings: strArray(doc["warnings"]),
+    gitContext:
+      gitRaw === null
+        ? null
+        : {
+            paneId: str(gitRaw["pane_id"]),
+            repoRoot: str(gitRaw["repo_root"]),
+            branch: str(gitRaw["branch"]),
+            sources: strArray(gitRaw["sources"]),
+          },
+  };
+}
+
+/**
+ * `generate --task <kind> [--provider <id>] [--model <m>]
+ *   [--timeout MS] [--cwd DIR] [--git-pane <pane>] [--git-root <dir>]
+ *   [--allow-expensive]` — mutation; confirm-gated by the surface.
+ * The task input JSON is NOT argv: it travels on the plugin CLI's
+ * stdin via the `plugin_call` `stdin` field (cli.ts reads stdin when
+ * it is not a TTY; `--input FILE` has no remote write channel).
+ * `--raw` is never passed — the JSON envelope carries warnings and
+ * git_context the surface renders. Session/socket targeting stays
+ * CallOptions-level (`pluginTargetArgs`), never argv.
+ */
+export interface TextgenGenerateOptions {
+  task: string;
+  /** Task input fields (contract allowlist); serialized to stdin JSON. */
+  input: Record<string, unknown>;
+  provider?: string | undefined;
+  model?: string | undefined;
+  /** git tasks only: collect repository context through rebuildup.git. */
+  paneId?: string | undefined;
+  gitRoot?: string | undefined;
+  cwd?: string | undefined;
+  timeoutMs?: number | undefined;
+  allowExpensive?: boolean | undefined;
+}
+
+export function textgenGenerateArgs(
+  options: TextgenGenerateOptions,
+): string[] {
+  const args = ["--task", options.task];
+  if (options.provider !== undefined && options.provider !== "") {
+    args.push("--provider", options.provider);
+  }
+  if (options.model !== undefined && options.model !== "") {
+    args.push("--model", options.model);
+  }
+  if (options.timeoutMs !== undefined) {
+    args.push("--timeout", String(Math.floor(options.timeoutMs)));
+  }
+  if (options.cwd !== undefined && options.cwd !== "") {
+    args.push("--cwd", options.cwd);
+  }
+  if (options.paneId !== undefined && options.paneId !== "") {
+    args.push("--git-pane", options.paneId);
+  }
+  if (options.gitRoot !== undefined && options.gitRoot !== "") {
+    args.push("--git-root", options.gitRoot);
+  }
+  if (options.allowExpensive === true) {
+    args.push("--allow-expensive");
+  }
+  return args;
+}
+
+/**
+ * `generate` — mutation. The plugin may drive a dedicated herdr agent
+ * pane for minutes (per-task defaults run to 600s for review_guide),
+ * so the exec timeout is generous: an explicit `--timeout` gets a
+ * 90s overhead buffer for pane setup/teardown; otherwise the call
+ * allows the maximum per-task window. Input JSON goes on stdin.
+ */
+export async function runTextgenGenerate(
+  machine: string,
+  options: TextgenGenerateOptions,
+): Promise<TextgenGenerateResult> {
+  const args = textgenGenerateArgs(options);
+  const timeoutMs =
+    options.timeoutMs !== undefined
+      ? Math.min(Math.floor(options.timeoutMs) + 90_000, 600_000)
+      : 600_000;
+  // Input fields are strings except `candidates` (number, 1–5); empty
+  // strings are dropped client-side so the plugin's "optional fields
+  // must be non-empty when present" rule never trips on blank input.
+  const input: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(options.input)) {
+    if (typeof value === "string") {
+      if (value.trim() !== "") input[key] = value;
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      input[key] = value;
+    }
+  }
+  const doc = await callTextgen(
+    machine,
+    "generate",
+    args,
+    timeoutMs,
+    JSON.stringify(input),
+  );
+  const result = textgenGenerateFromDoc(doc);
+  if (result === null) throw badOutput("generate");
+  return result;
+}
+
 /* ------------------------------ errors -------------------------------- */
 
 /**
@@ -436,11 +593,13 @@ async function callTextgen(
   command: string,
   args: string[] = [],
   timeoutMs?: number,
+  stdin?: string,
 ): Promise<Record<string, unknown>> {
   return pluginCall(machine, {
     plugin: TEXTGEN_PLUGIN_ID,
     command,
     args,
+    ...(stdin !== undefined ? { stdin } : {}),
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
   });
 }
@@ -526,11 +685,11 @@ export function textgenSupports(
 }
 
 /**
- * Mutation gating. textgen-v1 advertises `mutation_commands`
- * (`generate`/`watch-next-prompt`/`config` writes), but the local
- * TEXTGEN_MUTATION_COMMANDS allowlist is empty — this surface is
- * read-only, so every mutation fails closed until a dedicated ticket
- * extends the allowlist. `null` cap = still probing.
+ * Mutation gating. textgen-v1 advertises `mutation_commands`;
+ * `generate` is allowlisted (issue #458) and additionally requires the
+ * plugin to advertise it in both `commands` and `mutation_commands`.
+ * `watch-next-prompt`/`config` writes are not allowlisted and fail
+ * closed. `null` cap = still probing.
  */
 export function textgenSupportsMutation(
   cap: TextgenCapability | null | undefined,

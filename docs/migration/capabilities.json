@@ -192,11 +192,11 @@
   },
   {
    "id": "plugin-textgen",
-   "version": 1,
-   "title": "herdr-plugins.textgen/v1 structured text generation read surface",
+   "version": 2,
+   "title": "herdr-plugins.textgen/v1 structured text generation surface",
    "spec": "docs/migration/contracts/plugin-textgen.md",
    "oracle": "conformance",
-   "summary": "Read-only textgen surface via plugin_call: capability/git-context consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; contract has no list/history/result commands so no generation history exists to render; advertised mutation_commands (generate/watch-next-prompt/config writes) gated off by an empty local allowlist; results are never auto-applied."
+   "summary": "Textgen surface via plugin_call: capability/git-context/generate consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; generate (confirm-gated mutation, input via plugin_call stdin, transient result display) since #458; contract has no list/history/result commands so results are shown once and labeled not-retained (retention gap: herdr-plugins#249); watch-next-prompt/config writes gated off; results are never auto-applied."
   },
   {
    "id": "plugin-secrets",
@@ -1752,7 +1752,7 @@
    "boundary": "B3",
    "contracts": [
     "plugins-boundary@1",
-    "plugin-textgen@1",
+    "plugin-textgen@2",
     "workspace-pane-ops@1"
    ],
    "os": [
@@ -1762,6 +1762,8 @@
    "operations": [
     "capability probe per host (tasks×paths matrix, agent/api provider matrix, guards, integrations.git, redacted config, config_warnings) fetched eagerly",
     "git-context read-only preview (collected task input + repo_root/branch + sources + warnings) on submit — no provider invoked",
+    "generate on demand behind confirm dialog: task select, per-task input form from input_fields/required_input, provider/model overrides, --git-pane collection for git tasks, optional cwd/timeout, --allow-expensive for requires_opt_in tasks; input JSON sent via plugin_call stdin",
+    "transient result display (string/text_list/pr_content shapes) with copy affordance and explicit not-retained label; plugin-side kinds (task_not_opted_in/quota_exceeded/provider_*/output_*/input_*) render verbatim",
     "task rows: kind/description/paths/input_fields/required_input/output shape/max_output_chars/requires_opt_in verbatim",
     "provider rows: agent availability (manifest|not_in_manifests|unverified) + warnings, api enabled + credential_configured booleans (never key material), cli unsupported status",
     "guards section: expensiveTaskOptIn, quota check enabled/max_used_percent/provider, agent_manifests reachability",
@@ -1777,7 +1779,7 @@
     "capability failure retains last-good document; unavailable states are honest"
    ],
    "side_effects": [
-    "plugin_call reads only — mutation_commands (generate/watch-next-prompt/config writes) are advertised but gated off by the empty local TEXTGEN_MUTATION_COMMANDS allowlist; generation results are never auto-applied"
+    "generate is the one allowlisted mutation (drives dedicated herdr agent panes / opt-in API calls, may spend provider quota) — confirm-gated; input travels on plugin CLI stdin via plugin_call.stdin; watch-next-prompt and config writes stay gated off by TEXTGEN_MUTATION_COMMANDS; generation results are never auto-applied and never persisted plugin-side"
    ],
    "scenarios": [
     "src/shell/textgen.test.ts",
@@ -1795,8 +1797,8 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "contract has no list/history/result commands — generation results are not persisted plugin-side, so no history surface exists; a generation ticket must design its own result retention/review flow",
-     "generate/watch-next-prompt (agent-pane mutations) and config writes are gated off — separate ticket",
+     "contract has no list/history/result commands — generation results are not persisted plugin-side, so the surface shows the latest result transiently with a not-retained label; retention gap recorded as herdr-plugins#249",
+     "watch-next-prompt (long-running agent-pane watcher) and config writes remain gated off — separate tickets",
      "next_prompt composer presentation is a separate concern (watch path records pane metadata upstream)"
     ],
     "os_gaps": [],

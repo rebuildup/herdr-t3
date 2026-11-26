@@ -580,6 +580,7 @@ export class MachineManager {
               plugin: frame.plugin,
               command: frame.command,
               args: frame.args,
+              stdin: frame.stdin,
               timeoutMs: frame.timeout_ms,
             });
       this.send({ type: "rpc_result", id: frame.id, ok: true, result, machine });

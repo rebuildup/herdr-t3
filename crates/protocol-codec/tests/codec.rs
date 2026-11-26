@@ -57,15 +57,21 @@ fn plugin_frames_match_ts_cases() {
     assert!(frame(base.clone()));
     assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.inbox","command":"list","args":["w1:p1","--until","+1h"]})));
     assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.inbox","command":"list","timeout_ms":30000})));
+    // Issue #458: bounded stdin payload + the 600s ceiling for
+    // agent-path generation (textgen-v1 review_guide defaultTimeoutMs).
+    assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.textgen","command":"generate","stdin":"{}"})));
+    assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":600000})));
     for bad in [
         json!({"type":"plugin_call","id":"1","plugin":"","command":"list"}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":""}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":"x"}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":["ok",1]}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":100}),
-        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":200000}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":700000}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":500.5}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":["a\u{0}b"]}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","stdin":42}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","stdin":"x".repeat(262145)}),
     ] {
         assert!(!frame(bad.clone()), "should reject {bad}");
     }

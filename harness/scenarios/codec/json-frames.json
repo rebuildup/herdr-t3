@@ -728,11 +728,69 @@
           "timeout_ms": 120000
         }
       },
-      "note": "plugin_call timeout upper bound accepted",
+      "note": "plugin_call timeout within ceiling accepted",
       "expect": {
         "ok": true,
         "value": {
           "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "rebuildup.textgen",
+          "command": "generate",
+          "stdin": "{\"task\":\"commit_message\"}",
+          "timeout_ms": 600000
+        }
+      },
+      "note": "plugin_call stdin payload + 600s ceiling accepted (issue #458)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "stdin": 42
+        }
+      },
+      "note": "plugin_call non-string stdin rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "timeout_ms": 700000
+        }
+      },
+      "note": "plugin_call timeout above 600s rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
         }
       }
     },

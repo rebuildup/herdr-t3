@@ -417,7 +417,13 @@ export function pluginList(machine: string): Promise<PluginListResult> {
 /** One plugin contract command on one host; result is the plugin's JSON document. */
 export function pluginCall(
   machine: string,
-  request: { plugin: string; command: string; args?: string[]; timeout_ms?: number },
+  request: {
+    plugin: string;
+    command: string;
+    args?: string[];
+    stdin?: string;
+    timeout_ms?: number;
+  },
 ): Promise<PluginCallResult> {
   return machineCommand({
     type: "plugin_call",
@@ -426,6 +432,7 @@ export function pluginCall(
     plugin: request.plugin,
     command: request.command,
     ...(request.args !== undefined ? { args: request.args } : {}),
+    ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
     ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
   }) as Promise<PluginCallResult>;
 }
