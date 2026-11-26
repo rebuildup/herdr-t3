@@ -87,7 +87,7 @@ real TUI can prove.
 | 10 | アニメーション: 一覧の追加/移動/消失 FLIP・shelf 開閉・menu/tooltip 出現・agent 状態遷移の色変化 | ☐ | ☐ | |
 | 11 | `prefers-reduced-motion`: 上記すべてが即時切替 (アニメーションなし) | ☐ | ☐ | OS 設定で reduce を有効化 |
 | 12 | ホバー詳細: agent 行ホバーカード・workspace/tab の tooltip | ☐ | ☐ | |
-| 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant。macOS 自動化: `bun scripts/verify-reconnect-draft.ts --session <isolated>` (CDP、bridge kill→再起動で draft 残存・outage 入力の不達・明示 Enter での送信を検証。Windows レグは未実施) |
+| 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant。`bun scripts/verify-reconnect-draft.ts --session <isolated>` (CDP、bridge kill→再起動で draft 残存・outage 入力の不達・明示 Enter での送信を検証)。Windows レグ自動化 PASS (6/6): `docs/design/evidence/rc-v060/section-n-windows.md` |
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
 | 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
 
