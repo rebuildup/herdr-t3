@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpus, totalmem, platform, arch, hostname } from "node:os";
+import { cpus, totalmem, platform, arch, hostname, loadavg } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -27,6 +27,8 @@ export interface BenchRun {
   iterations: number;
   totals_ms: number[];
   cells_decoded_total: number;
+  /** paint ops emitted, scene bench only (issue #354) */
+  ops_total?: number;
   p50_ms: number;
   p95_ms: number;
   min_ms: number;
@@ -55,6 +57,19 @@ export interface PerfReport {
     note: string;
   };
   bench: BenchRun;
+  /**
+   * Scene/paint-path bench (issue #354): SurfaceCore.tick + GhosttyScene
+   * collect/render op emission under the same output storm plus scroll
+   * jumps. Absent in baselines recorded before #354 — `check` skips the
+   * comparison then rather than failing.
+   */
+  scene?: BenchRun & { workload: { ticks: number; note: string } };
+  /** machine load at record time — evidence for leg comparability, not a gate */
+  condition?: {
+    loadavg_1m: number;
+    loadavg_5m: number;
+    loadavg_15m: number;
+  };
 }
 
 export function percentile(sorted: number[], p: number): number {
@@ -100,9 +115,15 @@ export function checkRegression(
   baseline: PerfReport,
   current: PerfReport,
   thresholdPct: number,
+  benchKey: "bench" | "scene" = "bench",
 ): RegressionVerdict {
-  const b = baseline.bench.p50_ms;
-  const c = current.bench.p50_ms;
+  const baselineBench = benchKey === "scene" ? baseline.scene : baseline.bench;
+  const currentBench = benchKey === "scene" ? current.scene : current.bench;
+  if (!baselineBench || !currentBench) {
+    throw new Error(`no ${benchKey} measurements to compare`);
+  }
+  const b = baselineBench.p50_ms;
+  const c = currentBench.p50_ms;
   const deltaPct = ((c - b) / b) * 100;
   const ok = deltaPct <= thresholdPct;
   return {
@@ -130,6 +151,7 @@ export function checkHostMatch(baseline: PerfReport, current: PerfReport): strin
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const BENCH = join(REPO_ROOT, "scripts/perf-terminal-bench.ts");
+const SCENE_BENCH = join(REPO_ROOT, "scripts/perf-scene-bench.ts");
 
 function gitSha(): string {
   try {
@@ -139,24 +161,27 @@ function gitSha(): string {
   }
 }
 
-/** Parse `total=NNNms` (and rows/cells) out of one bench run's stdout. */
-export function parseBenchOutput(stdout: string): { total_ms: number; cells: number } {
+/** Parse `total=NNNms` (and rows/cells/ops) out of one bench run's stdout. */
+export function parseBenchOutput(stdout: string): { total_ms: number; cells: number; ops: number } {
   const m = /total=([\d.]+)ms/.exec(stdout);
   const c = /cellsDecoded=(\d+)/.exec(stdout);
+  const o = /ops=(\d+)/.exec(stdout);
   if (!m) throw new Error(`bench output missing total: ${stdout.slice(0, 200)}`);
-  return { total_ms: Number(m[1]), cells: c ? Number(c[1]) : 0 };
+  return { total_ms: Number(m[1]), cells: c ? Number(c[1]) : 0, ops: o ? Number(o[1]) : 0 };
 }
 
-function collect(iterations: number): { totals: number[]; cells: number } {
+function collect(iterations: number, bench: string): { totals: number[]; cells: number; ops: number } {
   const totals: number[] = [];
   let cells = 0;
+  let ops = 0;
   for (let i = 0; i < iterations; i++) {
-    const out = execFileSync(process.execPath, [BENCH], { cwd: REPO_ROOT, encoding: "utf8" });
+    const out = execFileSync(process.execPath, [bench], { cwd: REPO_ROOT, encoding: "utf8" });
     const parsed = parseBenchOutput(out);
     totals.push(parsed.total_ms);
     cells = parsed.cells;
+    ops = parsed.ops;
   }
-  return { totals, cells };
+  return { totals, cells, ops };
 }
 
 function env(): PerfReport["host"] & { bun: string } {
@@ -172,6 +197,11 @@ function env(): PerfReport["host"] & { bun: string } {
   };
 }
 
+function condition(): NonNullable<PerfReport["condition"]> {
+  const [l1, l5, l15] = loadavg();
+  return { loadavg_1m: l1, loadavg_5m: l5, loadavg_15m: l15 };
+}
+
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
   const arg = (name: string, dflt: string) => {
@@ -182,10 +212,12 @@ async function main(): Promise<number> {
   if (cmd === "record") {
     const iterations = Number(arg("--iterations", "7"));
     const out = arg("--out", join(REPO_ROOT, "perf-reports", `baseline-${gitSha().slice(0, 8)}.json`));
-    const { totals, cells } = collect(iterations);
+    const { totals, cells } = collect(iterations, BENCH);
+    const sceneRun = collect(iterations, SCENE_BENCH);
     const e = env();
     const stats = summarizeRuns(totals);
     stats.cells_decoded_total = cells;
+    const sceneStats = { ...summarizeRuns(sceneRun.totals), ops_total: sceneRun.ops };
     const report: PerfReport = {
       format: REPORT_FORMAT,
       version: REPORT_VERSION,
@@ -211,12 +243,26 @@ async function main(): Promise<number> {
         iterations,
         ...stats,
       },
+      scene: {
+        command: `bun ${SCENE_BENCH}`,
+        iterations,
+        ...sceneStats,
+        workload: {
+          ticks: 200,
+          note: "SurfaceCore.tick + GhosttyScene collect/render op emission, output storm + scroll jumps; Canvas2D rasterization excluded (DOM-bound)",
+        },
+      },
+      condition: condition(),
     };
     const { writeFileSync, mkdirSync } = await import("node:fs");
     mkdirSync(join(out, ".."), { recursive: true });
     writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
     console.log(`wrote ${out}`);
     console.log(`p50=${report.bench.p50_ms.toFixed(1)}ms p95=${report.bench.p95_ms.toFixed(1)}ms cv=${(report.bench.cv * 100).toFixed(1)}%`);
+    if (report.scene) {
+      console.log(`scene p50=${report.scene.p50_ms.toFixed(1)}ms p95=${report.scene.p95_ms.toFixed(1)}ms cv=${(report.scene.cv * 100).toFixed(1)}% ops=${report.scene.ops_total ?? 0}`);
+    }
+    console.log(`condition loadavg=${report.condition?.loadavg_1m.toFixed(2)}/${report.condition?.loadavg_5m.toFixed(2)}/${report.condition?.loadavg_15m.toFixed(2)}`);
     return 0;
   }
 
@@ -229,7 +275,11 @@ async function main(): Promise<number> {
     const threshold = Number(arg("--threshold-pct", "20"));
     const { readFileSync } = await import("node:fs");
     const baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as PerfReport;
-    const { totals, cells } = collect(Number(arg("--iterations", "7")));
+    const iterations = Number(arg("--iterations", "7"));
+    const { totals, cells } = collect(iterations, BENCH);
+    // The scene bench runs only when the baseline has a scene section —
+    // reports recorded before #354 compare decode-only.
+    const sceneCollected = baseline.scene ? collect(iterations, SCENE_BENCH) : null;
     const e = env();
     const stats = summarizeRuns(totals);
     stats.cells_decoded_total = cells;
@@ -245,16 +295,38 @@ async function main(): Promise<number> {
       bun_version: e.bun,
       workload: baseline.workload,
       bench: { command: `bun ${BENCH}`, iterations: totals.length, ...stats },
+      condition: condition(),
     };
+    // The scene bench exists only in reports recorded after #354; when the
+    // baseline lacks it the comparison is decode-only (documented, not a
+    // silent pass — the verdict line says which benches ran).
+    if (baseline.scene && sceneCollected) {
+      current.scene = {
+        command: `bun ${SCENE_BENCH}`,
+        iterations: sceneCollected.totals.length,
+        ...summarizeRuns(sceneCollected.totals),
+        ops_total: sceneCollected.ops,
+        workload: baseline.scene.workload,
+      };
+    }
     const hostIssue = checkHostMatch(baseline, current);
     if (hostIssue) {
       console.error(`cannot compare: ${hostIssue}`);
       return 2;
     }
     const verdict = checkRegression(baseline, current, threshold);
-    console.log(`${verdict.ok ? "PASS" : "FAIL"}  ${verdict.reason}`);
+    console.log(`${verdict.ok ? "PASS" : "FAIL"}  decode/frame ${verdict.reason}`);
     console.log(`  baseline p50=${verdict.baseline_p50_ms.toFixed(1)}ms  current p50=${verdict.current_p50_ms.toFixed(1)}ms  delta=${verdict.delta_pct.toFixed(1)}%`);
-    return verdict.ok ? 0 : 1;
+    let ok = verdict.ok;
+    if (current.scene && baseline.scene) {
+      const sceneVerdict = checkRegression(baseline, current, threshold, "scene");
+      console.log(`${sceneVerdict.ok ? "PASS" : "FAIL"}  scene/paint ${sceneVerdict.reason}`);
+      console.log(`  baseline p50=${sceneVerdict.baseline_p50_ms.toFixed(1)}ms  current p50=${sceneVerdict.current_p50_ms.toFixed(1)}ms  delta=${sceneVerdict.delta_pct.toFixed(1)}%`);
+      ok = ok && sceneVerdict.ok;
+    } else {
+      console.log("scene/paint: skipped (baseline has no scene section)");
+    }
+    return ok ? 0 : 1;
   }
 
   console.error("usage: perf-baseline.ts record|check ...");
