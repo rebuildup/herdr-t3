@@ -196,7 +196,12 @@ export function WorkspaceHeader() {
             scrolls internally; the surrounding header space stays draggable.
             The new-tab action sits outside the scroller so it never slides
             out of view on narrow widths. */}
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        {/* min-w-11 floors the strip at its fixed chrome (hairline +
+            gap + the size-8/size-7 new-tab button ≈ 41/37px): without it
+            flex-1 + min-w-0 let the container collapse to ~0 and the
+            shrink-0 "+" overflowed rightward onto the pane-summary text
+            (issue #417). The scroller still scrolls internally. */}
+        <div className="flex min-w-11 flex-1 items-center gap-1">
           {/* Hairline separating the workspace breadcrumb from the tab
               strip — at narrow widths the two read as one run without it
               (issue #130). */}
@@ -421,12 +426,16 @@ export function WorkspaceHeader() {
         </div>
 
         {/* Focused pane summary + actions. Shrinks (label truncates) before
-            the tab strip does, so narrow widths keep tabs readable. */}
+            the tab strip does, so narrow widths keep tabs readable. The
+            summary is capped so its "title · agent" text gives up width
+            (agent metadata truncates first — it is the tail of the single
+            truncating node) before the workspace breadcrumb does
+            (issue #417). */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
           <Tooltip>
             <TooltipTrigger
               render={
-                <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+                <div className="flex min-w-0 max-w-48 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
               }
             >
               <span className="flex min-w-0 items-center gap-1.5">

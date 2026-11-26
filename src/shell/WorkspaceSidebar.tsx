@@ -196,13 +196,18 @@ function WorkspaceRow({
         inFolder
           ? "ps-7 pe-[var(--sidebar-row-content-inset)]"
           : "px-[var(--sidebar-row-content-inset)]",
-        "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        // T3 keeps the hover fill off the active row so the selected
+        // surface does not flicker under the pointer (SidebarThreadRow).
+        !isActive && "hover:bg-sidebar-row-hover",
+        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         isActive &&
-          // Tinted neutral fill, no ring: a white bordered card on the
-          // zinc-50 sidebar read as a floating box in light mode, and a
-          // bare accent tint was too faint — foreground/6% keeps figure-
-          // ground separation in both themes (issue #128).
-          "bg-foreground/[0.06] font-medium text-sidebar-foreground",
+          // T3's active thread row treatment (SidebarThreadRow): the
+          // sidebar-row-active token stays clearly distinct from
+          // row-hover in both themes — the old foreground/6% fill sat
+          // between the dark hover (8%) and selected (7%) tints and read
+          // as the same fill (issue #417). The light ring keeps the
+          // white active surface from floating on zinc-50 (issue #128).
+          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
       )}
     >
       <span className="flex w-full min-w-0 items-center gap-2.5">
@@ -470,8 +475,10 @@ function AgentRow({
       onClick={focusAgent}
       className={cn(
         "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-left outline-none transition-colors",
-        "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        agent.focused && "bg-foreground/[0.06] font-medium text-sidebar-foreground",
+        !agent.focused && "hover:bg-sidebar-row-hover",
+        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        agent.focused &&
+          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
       )}
     >
       <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">

@@ -544,11 +544,14 @@ export function ConversationsSurface({ machine }: { machine: string }) {
         <SearchPanel machine={machine} />
 
         {state.status.kind === "loading" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
+          // Left-aligned row text, not a centered hero line — under the
+          // search divider a lone centered message read as orphaned
+          // (issue #417).
+          <p className="px-2 py-2 text-2xs text-muted-foreground">
             loading conversations…
           </p>
         ) : state.status.kind === "unavailable" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
+          <p className="px-2 py-2 text-2xs text-muted-foreground">
             {UNAVAILABLE_LABELS[state.status.reason]}
             {state.status.detail ? ` — ${state.status.detail}` : ""}
             {state.sessions.length > 0 ? " (showing last known sessions)" : ""}
@@ -556,7 +559,7 @@ export function ConversationsSurface({ machine }: { machine: string }) {
         ) : null}
 
         {state.status.kind === "ready" && state.sessions.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
+          <p className="px-2 py-2 text-2xs text-muted-foreground">
             no indexed sessions — run Index now to scan provider transcripts
           </p>
         ) : null}

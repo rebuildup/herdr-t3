@@ -64,7 +64,7 @@ import {
 } from "~/components/ui/menu";
 import { statusIcon } from "~/components/statusIcons";
 import { AgentProviderIcon } from "~/components/agentIcons";
-import { agentStatusLabel } from "~/components/AgentStatusBadge";
+import { agentStatusLabel, isKnownAgentStatus } from "~/components/AgentStatusBadge";
 import { ShowMoreButton } from "~/components/ui/show-more-button";
 import type { AgentInfo, PaneInfo, WorkspaceInfo } from "../../shared/protocol";
 import {
@@ -595,7 +595,9 @@ function CardBody({
   const wsTitle = workspace ? workspaceTitle(workspace, branch) : null;
 
   return (
-    <div data-density={density} className="flex flex-col">
+    // group/details-items: the footer customize row keys its visibility
+    // off the last non-empty <section> (T3's details-items group).
+    <div data-density={density} className="group/details-items flex flex-col">
       {/* Workspace: identity rows only (T3's heading-less first
           section). Internal IDs never render as rows. */}
       {show.workspace ? (
@@ -605,7 +607,12 @@ function CardBody({
           separated={false}
           showHeading={false}
         >
-          {agent || pane.agent ? (
+          {/* A pane-level agent kind with an unmapped status ("unknown",
+              or a status herdr adds later) rendered a bare "Unknown"
+              row on plain shell panes — noise, not information
+              (issue #417). Agent records still render via agentStateLabel
+              (unknown → "idle", matching the TUI). */}
+          {agent || (pane.agent && isKnownAgentStatus(pane.agent_status)) ? (
             <InfoRow icon={statusIcon(pane.agent_status)}>
               {stateLabel}
               {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
@@ -641,7 +648,8 @@ function CardBody({
           {workspace ? (
             <InfoRow icon={null}>
               <span className="text-muted-foreground">
-                {workspace.tab_count} tabs · {workspace.pane_count} panes
+                {workspace.tab_count} tab{workspace.tab_count === 1 ? "" : "s"} ·{" "}
+                {workspace.pane_count} pane{workspace.pane_count === 1 ? "" : "s"}
               </span>
             </InfoRow>
           ) : null}
@@ -969,8 +977,12 @@ function CardBody({
         ) : null}
       </CardSection>
 
-      {/* "Choose what to show" (T3 ThreadDetailsPanel footer). */}
-      <div className="px-2 pt-1 pb-2">
+      {/* "Choose what to show" (T3 ThreadDetailsPanel footer): shown only
+          when every section above collapsed empty, so an emptied card
+          can be refilled — a permanently visible row read as a stray
+          disabled control (issue #417). Right-clicking the card opens
+          the same items menu. */}
+      <div className="group-has-[>section>:last-child:not(:empty)]/details-items:hidden px-2 pt-1 pb-2">
         <ActionRow
           icon={<SlidersHorizontalIcon />}
           label="Choose what to show"
