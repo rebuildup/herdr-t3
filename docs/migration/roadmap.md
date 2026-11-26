@@ -71,9 +71,14 @@ report.
    `terminal.scene` at `rust-implemented`. `terminal.input` likewise
    landed (#304): `crates/terminal-input` ports `inputPolicy.ts` +
    `keys.ts` under contract `terminal-input@1`.
-   Remaining: the `surface.ts` orchestration layer (selection/scroll/
-   IME coalescing) — #301 open — then a Rust surface consumer and the
-   ui-conformance render assertions.
+   #301 landed the `surface.ts` remainder: `surfaceCore.ts` is the
+   DOM-free state machine (contract `terminal-surface@1`) and
+   `crates/terminal-surface` mirrors it in Rust; the `terminal/surface`
+   + `terminal/surface-fresh` scenarios pass differentially (54+11
+   steps covering scroll/selection/click-widening/mouse+wheel reports/
+   keys/IME/readOnly/dispose) with 9 Rust integration tests.
+   Remaining: a Rust surface consumer (GPUI view) and the
+   ui-conformance render assertions — tracked under #305+.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
    (Electron + GPUI host evidence recorded); remaining prerequisite is
    the terminal/render pipeline (boundary 4) it renders.
@@ -97,6 +102,7 @@ remaining work before old-path removal:
 | terminal.engine | #286 | needs Rust consumer | shared/ghostty engine/session TS path |
 | terminal.scene | #298 | needs Rust consumer | renderer.ts Canvas2D path |
 | terminal.input | #304 | needs Rust consumer | inputPolicy.ts/keys.ts call sites |
+| terminal.surface | #301 | needs Rust consumer | surfaceCore.ts/surface.ts product path |
 
 `equivalence-verified` additionally requires consumer-path
 differential evidence; `switched` flips the product path; removal

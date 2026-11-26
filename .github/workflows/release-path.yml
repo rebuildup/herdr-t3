@@ -1,0 +1,62 @@
+name: release-path
+
+# Mechanical enforcement of the release-driven integration model
+# (organization/profiles/release-driven-solo.md, issue #312):
+#
+#   - PRs into `main`            -> head must be `release-*` (the release PR;
+#                                   its merge still requires explicit user
+#                                   authorization — this check only validates
+#                                   the *shape* of the path, not approval)
+#   - PRs into `release-*`       -> head must be a ticket/feature branch,
+#                                   never another `release-*`
+#   - PRs into anything else     -> rejected; there is no third trunk
+#
+# The `integration-path` job below is the required status check on `main`
+# (repo ruleset). A ticket PR aimed at `main` fails here and cannot merge.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-path:
+    name: integration-path
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration path
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          echo "base=$BASE head=$HEAD"
+          case "$BASE" in
+            main)
+              case "$HEAD" in
+                release-*)
+                  echo "OK: release PR ($HEAD -> main); merge still needs explicit authorization"
+                  ;;
+                *)
+                  echo "FAIL: only release-* branches may target main; ticket work must go through the current release branch"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            release-*)
+              case "$HEAD" in
+                release-*)
+                  echo "FAIL: release branches do not merge into each other; target main for the release PR"
+                  exit 1
+                  ;;
+                *)
+                  echo "OK: ticket PR ($HEAD -> $BASE)"
+                  ;;
+              esac
+              ;;
+            *)
+              echo "FAIL: unsupported base branch '$BASE'; ticket PRs target the current release-* branch, release PRs target main"
+              exit 1
+              ;;
+          esac

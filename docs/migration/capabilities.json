@@ -84,6 +84,14 @@
    "summary": "Keydown bypass decisions, IME composition lifecycle with commit dedupe, focus reports, pointer/wheel mouse-report mapping, KeyboardEvent->EngineKey."
   },
   {
+   "id": "terminal-surface",
+   "version": 1,
+   "title": "Terminal surface state machine (DOM-free effects)",
+   "spec": "docs/migration/contracts/terminal-surface.md",
+   "oracle": "differential",
+   "summary": "Scroll/selection/search/pointer-coalescing/IME/blink state machine emitting an ordered SurfaceEffect list; DOM shell and Rust port both consume the contract."
+  },
+  {
    "id": "settings-persistence",
    "version": 1,
    "title": "Settings and persistence",
@@ -1371,6 +1379,62 @@
     "crates/terminal-input/tests/input.rs",
     "harness/scenarios/terminal/input-policy.json",
     "docs/migration/contracts/terminal-input.md"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.surface",
+   "title": "Runtime-independent terminal surface state machine (DOM-free effects)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-surface@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "scroll offset/jump-carry with scrollback clamps",
+    "selection drag, click-widening (word/line), search highlight/step",
+    "hover/drag motion coalescing flushed before release",
+    "mouse/wheel report routing per app tracking mode and host callbacks",
+    "key/paste routing through input policy with readOnly gating",
+    "IME composition anchor/view/commit effects",
+    "cursor blink phase, focus reports, measure/resize, theme/font/background setters",
+    "ordered SurfaceEffect list consumed by the DOM shell"
+   ],
+   "errors": [
+    "dead engine surfaces a dead effect instead of throwing",
+    "disposed core is inert; ops return empty effects"
+   ],
+   "side_effects": [],
+   "scenarios": [
+    "src/lib/ghostty/surfaceCore.ts",
+    "crates/terminal-surface/tests/surface.rs",
+    "harness/scenarios/terminal/surface.json",
+    "harness/scenarios/terminal/surface-fresh.json"
+   ],
+   "evidence": [
+    "src/lib/ghostty/surfaceCore.ts",
+    "src/lib/ghostty/surface.ts",
+    "crates/terminal-surface/src/lib.rs",
+    "crates/terminal-surface/src/bin/terminal-surface-adapter.rs",
+    "crates/terminal-surface/tests/surface.rs",
+    "harness/scenarios/terminal/surface.json",
+    "harness/scenarios/terminal/surface-fresh.json",
+    "docs/migration/contracts/terminal-surface.md"
    ],
    "stage": "rust-implemented",
    "status": {
