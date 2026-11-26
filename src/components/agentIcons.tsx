@@ -1,79 +1,50 @@
 /*
- * Agent harness brand icon for sidebar rows and hover cards (issue #198).
- * Renders the T3 Code provider artwork vendored in agentIconData.ts; harnesses
- * without a brand asset get an initials tile, the same fallback T3 uses for
- * custom provider endpoints.
+ * Agent harness brand icon for sidebar rows and hover cards (issues #198,
+ * #311). Resolution order: T3 Code provider artwork vendored in
+ * agentIconData.ts, then official ACP Registry SVGs bundled in
+ * agent-icons/ (agentIconUrls.ts), then a generic agent glyph — the
+ * initials tile fallback is gone (issue #311: icon-only display).
  */
-import { useId } from "react";
+import { Bot } from "lucide-react";
+import { useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { AGENT_ICON_DATA, type AgentIconSpec } from "./agentIconData";
+import { acpAgentIconUrl } from "./agentIconUrls";
 
 export function agentIconSpec(agent: string | null | undefined): AgentIconSpec | null {
   const key = agent?.trim().toLowerCase();
   return key ? (AGENT_ICON_DATA[key] ?? null) : null;
 }
 
-// Port of T3 `providerInstanceInitials`
-// (packages/client-runtime/src/state/providerInstanceDisplay.ts):
-// punctuation separates words, interior apostrophes stay, a lone
-// camel-case word splits at its humps, one word yields its first two
-// letters, several yield one letter each.
-export function agentInitials(label: string): string {
-  const toWords = (text: string) =>
-    text
-      .split(/\s+/u)
-      .map((word) => word.replace(/^['’]+|['’]+$/gu, ""))
-      .filter(Boolean);
-  let words = toWords(label.replace(/[^\P{P}'’]+/gu, " "));
-  if (words.length === 1) words = toWords(words[0]!.replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2"));
-  if (words.length === 0) return "";
-  if (words.length === 1) return Array.from(words[0]!).slice(0, 2).join("").toUpperCase();
-  return words
-    .slice(0, 2)
-    .map((word) => Array.from(word)[0]?.toUpperCase() ?? "")
-    .join("");
+/**
+ * Whether the agent kind resolves to a brand mark (T3 artwork or a
+ * vendored ACP Registry icon) rather than the generic glyph. The sidebar
+ * uses this to decide whether repeating the harness id as row meta is
+ * redundant (issue #204 review).
+ */
+export function hasAgentBrandIcon(agent: string | null | undefined): boolean {
+  return agentIconSpec(agent) !== null || acpAgentIconUrl(agent) !== null;
 }
 
-export function AgentProviderIcon({
-  agent,
-  name,
-  className = "size-3.5",
+function GenericAgentIcon({ className }: { className: string | undefined }) {
+  return <Bot className={cn("shrink-0 text-muted-foreground", className)} aria-hidden />;
+}
+
+function T3BrandIcon({
+  spec,
+  className,
 }: {
-  agent: string | null | undefined;
-  name: string;
-  className?: string;
+  spec: AgentIconSpec;
+  className: string | undefined;
 }) {
-  const spec = agentIconSpec(agent);
   const gradientId = useId();
-  if (!spec) {
-    // No brand asset: render the T3 initials fallback as a micro monogram
-    // badge so it carries the same visual weight and footprint as the SVG
-    // marks instead of reading as stray gray text (issue #204 review).
-    // The badge is an auto-width pill — a fixed size-3 box wrapped "DE"
-    // onto two lines inside the hover card's icon slot.
-    const boxClass = className
-      ?.split(" ")
-      .filter((token) => !token.startsWith("size-"))
-      .join(" ");
-    return (
-      <span
-        className={cn(
-          "inline-flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-sm border border-border/70 bg-muted/60 px-0.5 font-semibold leading-none text-foreground/75 whitespace-nowrap text-4xs",
-          boxClass,
-        )}
-        aria-hidden
-      >
-        {agentInitials(name)}
-      </span>
-    );
-  }
   return (
     <svg
       viewBox={spec.viewBox}
       preserveAspectRatio="xMidYMid meet"
       fill="none"
-      className={`shrink-0 fill-(--icon-light) dark:fill-(--icon-dark) ${className}`}
+      className={`shrink-0 fill-(--icon-light) dark:fill-(--icon-dark) ${className ?? ""}`}
       style={
         {
           "--icon-light": spec.fill.light,
@@ -126,4 +97,57 @@ export function AgentProviderIcon({
       ))}
     </svg>
   );
+}
+
+// ACP Registry glyphs are monochrome `currentColor` SVGs; rendered through
+// an <img> they cannot inherit the page color, so a local SVG filter
+// recolors every painted pixel to currentColor — the same trick T3's
+// AcpRegistryAgentIcon uses (AcpRegistryIcon.tsx @ 9cc4018c). The filter
+// id is per-instance because filter ids are document-global.
+function AcpRegistryIcon({
+  url,
+  className,
+}: {
+  url: string;
+  className: string | undefined;
+}) {
+  const filterId = useId();
+  const [failed, setFailed] = useState(false);
+  if (failed) return <GenericAgentIcon className={className} />;
+  return (
+    <span className="relative inline-flex shrink-0 items-center justify-center">
+      <svg aria-hidden className="pointer-events-none absolute size-0" focusable="false">
+        <defs>
+          <filter id={filterId} colorInterpolationFilters="sRGB">
+            <feFlood floodColor="currentColor" />
+            <feComposite in2="SourceAlpha" operator="in" />
+          </filter>
+        </defs>
+      </svg>
+      <img
+        src={url}
+        alt=""
+        aria-hidden
+        draggable={false}
+        decoding="async"
+        className={cn("shrink-0", className)}
+        style={{ filter: `url(#${filterId})` }}
+        onError={() => setFailed(true)}
+      />
+    </span>
+  );
+}
+
+export function AgentProviderIcon({
+  agent,
+  className = "size-3.5",
+}: {
+  agent: string | null | undefined;
+  className?: string;
+}) {
+  const spec = agentIconSpec(agent);
+  if (spec) return <T3BrandIcon spec={spec} className={className} />;
+  const acpUrl = acpAgentIconUrl(agent);
+  if (acpUrl) return <AcpRegistryIcon url={acpUrl} className={className} />;
+  return <GenericAgentIcon className={className} />;
 }

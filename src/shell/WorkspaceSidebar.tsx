@@ -55,7 +55,7 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentProviderIcon, agentIconSpec } from "~/components/agentIcons";
+import { AgentProviderIcon, hasAgentBrandIcon } from "~/components/agentIcons";
 import {
   Dialog,
   DialogContent,
@@ -434,9 +434,7 @@ function AgentRow({
   // renders at the row's trailing edge, repeating it as meta is noise —
   // drop it and give the title back the width (issue #204 review).
   const nameIsRedundantHarness =
-    !!agent.agent &&
-    displayName === agent.agent &&
-    agentIconSpec(agent.agent) !== null;
+    !!agent.agent && displayName === agent.agent && hasAgentBrandIcon(agent.agent);
   const metaParts = [
     workTarget !== null && workTarget !== displayName && !nameIsRedundantHarness
       ? displayName
@@ -500,7 +498,7 @@ function AgentRow({
             {auxLabels.join(" · ")}
           </span>
         ) : null}
-        <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
+        <AgentProviderIcon agent={agent.agent} className="size-3" />
       </span>
     </button>
   );
