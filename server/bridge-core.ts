@@ -6,6 +6,7 @@
  */
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isRpcMethod } from "../shared/protocol.ts";
+import { protocolCodecWasm } from "../shared/protocolWasm.ts";
 import {
   HerdrError,
   herdrRpc,
@@ -262,7 +263,7 @@ function releaseTerminal(state: SessionState, paneId: string): void {
 function handleClientFrame(state: SessionState, frame: ClientFrame): void {
   switch (frame.type) {
     case "rpc": {
-      if (!isRpcMethod(frame.method)) {
+      if (!(protocolCodecWasm?.isRpcMethod(frame.method) ?? isRpcMethod(frame.method))) {
         state.send({ type: "rpc_result", id: frame.id, ok: false, error: { code: "method_not_allowed", message: frame.method }, machine: state.machine });
         return;
       }

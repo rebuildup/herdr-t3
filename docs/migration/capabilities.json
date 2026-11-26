@@ -172,19 +172,27 @@
    ],
    "scenarios": [
     "shared/protocol.test.ts",
-    "server/client-link.test.ts"
+    "server/client-link.test.ts",
+    "shared/protocolWasm.test.ts"
    ],
    "evidence": [
     "shared/protocol.ts",
     "server/client-link.ts",
     "crates/protocol-codec/src/lib.rs",
     "crates/protocol-codec/tests/codec.rs",
-    "harness/scenarios/codec/json-frames.json"
+    "harness/scenarios/codec/json-frames.json",
+    "shared/protocolWasm.ts",
+    "shared/protocol-codec.wasm",
+    "scripts/protocol-codec/build-wasm.sh",
+    "shared/protocolWasm.test.ts",
+    "docs/adr/ADR-0025.md"
    ],
-   "stage": "rust-implemented",
+   "stage": "switched",
    "status": {
     "implemented": true,
-    "known_issues": [],
+    "known_issues": [
+     "product codec surface is the ingress guards only (isClientFrame/isRpcMethod); encode/decode/parse_snapshot ops have no product call sites — api.ts uses raw JSON. wasm guard ~4.4us/call vs ~0.3us TS (JSON text boundary + serde parse); negligible at ingress rates. wasm consumer is transitional per ADR-0025."
+    ],
     "os_gaps": [],
     "upstream_deps": [],
     "excluded": false

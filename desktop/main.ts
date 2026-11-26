@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isClientFrame } from "../shared/protocol.ts";
+import { protocolCodecWasm } from "../shared/protocolWasm.ts";
 import { fetchSnapshot } from "../server/bridge-core.ts";
 import { MachineManager } from "../server/machine-manager.ts";
 import { GhosttyThemeWatcher, ghosttyImageDataUrl } from "../server/ghostty.ts";
@@ -285,7 +286,13 @@ app.whenReady().then(() => {
     // before touching win.webContents — the getter throws on a destroyed
     // window.
     if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
-    if (!isClientFrame(frame)) return;
+    if (protocolCodecWasm) {
+      // wasm ingress guard (issue #315): the IPC payload is already an
+      // object, so it crosses as JSON text — same verdict as isClientFrame.
+      if (!protocolCodecWasm.isClientFrame(JSON.stringify(frame))) return;
+    } else if (!isClientFrame(frame)) {
+      return;
+    }
     manager?.handleFrame(frame as ClientFrame);
   });
 

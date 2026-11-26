@@ -12,3 +12,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 
 [dev-dependencies]
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+
+# rlib for the native harness adapter/tests; cdylib is the wasm32 consumer
+# artifact the product ingress guards load (ADR-0025, issue #315).
+[lib]
+crate-type = ["rlib", "cdylib"]
