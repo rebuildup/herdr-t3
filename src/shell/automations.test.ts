@@ -2,16 +2,22 @@ import { describe, expect, test } from "bun:test";
 
 import {
   AUTOMATIONS_CONTRACT_PREFIX,
+  AUTOMATIONS_MUTATION_COMMANDS,
   AUTOMATIONS_PLUGIN_ID,
   automationsCapabilityFromDoc,
+  automationsDeleteArgs,
   automationsGetArgs,
   automationsGetFromDoc,
   automationsListArgs,
   automationsListFromDoc,
+  automationsReconcileArgs,
+  automationsRunNowArgs,
   automationsRunsArgs,
   automationsRunsFromDoc,
   automationsScheduleSummary,
+  automationsSetEnabledArgs,
   automationsSupports,
+  automationsSupportsMutation,
   automationsTaskFromDoc,
   classifyAutomationsError,
 } from "./automations";
@@ -93,6 +99,25 @@ describe("automations argv builders (herdr-plugins.automations/v1 @6c1cfa5)", ()
       "--stored-only",
     ]);
     expect(automationsRunsArgs({ status: "failed" })).toEqual(["--status", "failed"]);
+  });
+
+  test("mutation argv (set-enabled/run-now/delete/reconcile)", () => {
+    // herdr-plugins plugins/automations/src/cli.ts @6c1cfa5:
+    //   set-enabled <task_id> <true|false>
+    //   run-now <task_id>
+    //   delete <task_id>
+    //   reconcile [--task <task_id>]
+    expect(automationsSetEnabledArgs("task_01J", true)).toEqual(["task_01J", "true"]);
+    expect(automationsSetEnabledArgs("task_01J", false)).toEqual(["task_01J", "false"]);
+    expect(automationsRunNowArgs("task_01J")).toEqual(["task_01J"]);
+    expect(automationsDeleteArgs("task_01J")).toEqual(["task_01J"]);
+    expect(automationsReconcileArgs()).toEqual([]);
+    expect(automationsReconcileArgs({})).toEqual([]);
+    expect(automationsReconcileArgs({ taskId: "task_01J" })).toEqual([
+      "--task",
+      "task_01J",
+    ]);
+    expect(automationsReconcileArgs({ taskId: "" })).toEqual([]);
   });
 });
 
@@ -273,6 +298,35 @@ describe("automations capability", () => {
     const noCommands = automationsCapabilityFromDoc({ contract: CONTRACT, commands: "list" });
     expect(noCommands?.commands.size).toBe(0);
     expect(automationsSupports(noCommands, "list")).toBe(false);
+  });
+
+  test("mutation gating uses the local allowlist + advertised commands", () => {
+    // The v1 capability document has NO `mutation_commands` field, so
+    // gating intersects AUTOMATIONS_MUTATION_COMMANDS with the flat
+    // `commands` list (contract gap — see plugin-automations.md).
+    const cap = automationsCapabilityFromDoc(CAPABILITY);
+    expect(cap).not.toBeNull();
+    for (const command of AUTOMATIONS_MUTATION_COMMANDS) {
+      expect(automationsSupportsMutation(cap, command)).toBe(true);
+    }
+    // Non-allowlisted commands are never treated as mutations even when
+    // advertised: create/update stay out of scope and driver commands
+    // are long-running executions.
+    for (const command of ["create", "update", "fire", "tick", "watch", "schedule", "capability"]) {
+      expect(automationsSupportsMutation(cap, command)).toBe(false);
+    }
+    // Allowlisted but unadvertised (older/partial plugin build) → false.
+    const partial = automationsCapabilityFromDoc({
+      contract: CONTRACT,
+      commands: ["capability", "list", "get", "runs", "set-enabled"],
+    });
+    expect(automationsSupportsMutation(partial, "set-enabled")).toBe(true);
+    expect(automationsSupportsMutation(partial, "run-now")).toBe(false);
+    expect(automationsSupportsMutation(partial, "delete")).toBe(false);
+    expect(automationsSupportsMutation(partial, "reconcile")).toBe(false);
+    // Probe states mirror automationsSupports: undefined = probing.
+    expect(automationsSupportsMutation(undefined, "delete")).toBeNull();
+    expect(automationsSupportsMutation(null, "delete")).toBe(false);
   });
 });
 

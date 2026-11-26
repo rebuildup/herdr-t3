@@ -1,30 +1,63 @@
 /*
- * Automations surface (issue #361, ADR-0011 boundary): the host's
+ * Automations surface (issues #361/#362, ADR-0011 boundary): the host's
  * `rebuildup.automations` plugin (`herdr-plugins.automations/v1` pinned
  * at rebuildup/herdr-plugins@6c1cfa5, v0.7.0) owns scheduled and
- * event-triggered agent tasks. This is the READ surface — task rows
- * with schedule/enabled/driver/missed state plus lazily fetched run
- * history. Mutations (`set-enabled`/`run-now`/`delete`/`reconcile`) and
- * driver commands (`watch`/`tick`/`schedule`) are intentionally absent.
+ * event-triggered agent tasks. Task rows carry schedule/enabled/driver/
+ * missed state plus lazily fetched run history, and the lifecycle
+ * mutations `set-enabled`/`run-now`/`delete`/`reconcile` are offered
+ * per host capability. Driver commands (`watch`/`tick`/`schedule`)
+ * stay absent — they are long-running or execute prompts outside the
+ * `plugin_call` envelope.
+ *
+ * Mutation gating: the v1 capability document has no
+ * `mutation_commands` field, so `automationsSupportsMutation` requires
+ * the command in the local AUTOMATIONS_MUTATION_COMMANDS allowlist AND
+ * in the advertised flat `commands` list. Destructive mutations
+ * (`set-enabled false`, `run-now`, `delete`) confirm through the shared
+ * Dialog primitive first; every mutation refreshes the store and
+ * surfaces `error.kind`/detail verbatim on failure.
  *
  * Derived `missed` run entries arrive with `run_id: null` and
  * `derived: true`; they are labelled as derived, never shown as
  * executed runs (contract §Run record).
  */
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClockIcon, ChevronDownIcon, RefreshCwIcon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  ChevronDownIcon,
+  HistoryIcon,
+  PlayIcon,
+  PowerIcon,
+  RefreshCwIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { DialogPanel } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { cn } from "~/lib/utils";
 import {
+  automationsCapability,
   automationsScheduleSummary,
+  automationsSupportsMutation,
   classifyAutomationsError,
+  deleteAutomationsTask,
   fetchAutomationsRuns,
+  reconcileAutomations,
   refreshAutomations,
+  runAutomationsTaskNow,
+  setAutomationsTaskEnabled,
   useAutomationsState,
+  type AutomationsCapability,
   type AutomationsRun,
   type AutomationsTask,
   type AutomationsUnavailableReason,
@@ -37,6 +70,12 @@ const UNAVAILABLE_LABELS: Record<AutomationsUnavailableReason, string> = {
   unreachable: "automations host unreachable",
   error: "automations unavailable",
 };
+
+/** Honest mutation failure text: classified reason + plugin detail verbatim. */
+function mutationErrorText(error: unknown): string {
+  const classified = classifyAutomationsError(error);
+  return `${classified.reason}${classified.detail ? ` — ${classified.detail}` : ""}`;
+}
 
 function formatTime(iso: string | null): string {
   if (iso === null) return "—";
@@ -160,9 +199,208 @@ function TaskRuns({ machine, task }: { machine: string; task: AutomationsTask })
   );
 }
 
+/* ------------------------- task mutations ------------------------------ */
+
+type PendingMutation = "disable" | "run-now" | "delete";
+
+const PENDING_COPY: Record<
+  PendingMutation,
+  { title: string; description: (task: AutomationsTask) => string; confirm: string }
+> = {
+  disable: {
+    title: "Disable task?",
+    description: (task) =>
+      `"${task.name}" stops firing. Owed missed occurrences are materialized as missed runs before the enabled window closes — they will not silently forgive.`,
+    confirm: "Disable",
+  },
+  "run-now": {
+    title: "Run task now?",
+    description: (task) =>
+      `Creates a manual run of "${task.name}" and delivers its prompt to ${destinationSummary(task)} immediately, outside the schedule.`,
+    confirm: "Run now",
+  },
+  delete: {
+    title: "Delete task?",
+    description: (task) =>
+      `"${task.name}" and all of its run records are removed permanently. This cannot be undone.`,
+    confirm: "Delete",
+  },
+};
+
+function TaskActions({
+  machine,
+  task,
+  cap,
+}: {
+  machine: string;
+  task: AutomationsTask;
+  cap: AutomationsCapability | null | undefined;
+}) {
+  const canSetEnabled = automationsSupportsMutation(cap, "set-enabled");
+  const canRunNow = automationsSupportsMutation(cap, "run-now");
+  const canDelete = automationsSupportsMutation(cap, "delete");
+  const [pending, setPending] = useState<PendingMutation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const runMutation = useCallback(
+    async (action: () => Promise<unknown>, done: string) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await action();
+        setNotice(done);
+        // The plugin resolves derived fields at read time; a refresh can
+        // never show stale next_run_at/driver/missed state.
+        await refreshAutomations(machine);
+      } catch (e: unknown) {
+        setError(mutationErrorText(e));
+      } finally {
+        setBusy(false);
+        setPending(null);
+      }
+    },
+    [machine],
+  );
+
+  // `cap === undefined` means the probe is still in flight; `null` means
+  // the plugin is unavailable — in both cases no mutation control renders.
+  if (cap === undefined || cap === null) return null;
+  if (canSetEnabled !== true && canRunNow !== true && canDelete !== true) {
+    return null;
+  }
+
+  const confirmPending = () => {
+    if (pending === null) return;
+    const taskId = task.task_id;
+    switch (pending) {
+      case "disable":
+        void runMutation(
+          () => setAutomationsTaskEnabled(machine, taskId, false),
+          "task disabled",
+        );
+        break;
+      case "run-now":
+        void runMutation(() => runAutomationsTaskNow(machine, taskId), "manual run recorded");
+        break;
+      case "delete":
+        void runMutation(() => deleteAutomationsTask(machine, taskId), "task deleted");
+        break;
+    }
+  };
+
+  const copy = pending !== null ? PENDING_COPY[pending] : null;
+
+  return (
+    <div className="flex flex-col gap-1 px-2 pb-1.5">
+      <div className="flex items-center gap-1">
+        {canSetEnabled === true ? (
+          task.enabled ? (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              disabled={busy}
+              onClick={() => setPending("disable")}
+            >
+              <PowerIcon />
+              Disable
+            </Button>
+          ) : (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              disabled={busy}
+              onClick={() =>
+                void runMutation(
+                  () => setAutomationsTaskEnabled(machine, task.task_id, true),
+                  "task enabled",
+                )
+              }
+            >
+              <PowerIcon />
+              Enable
+            </Button>
+          )
+        ) : null}
+        {canRunNow === true ? (
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            disabled={busy}
+            onClick={() => setPending("run-now")}
+          >
+            <PlayIcon />
+            Run now
+          </Button>
+        ) : null}
+        {canDelete === true ? (
+          <Button
+            size="xs"
+            variant="ghost-destructive"
+            disabled={busy}
+            onClick={() => setPending("delete")}
+          >
+            <Trash2Icon />
+            Delete
+          </Button>
+        ) : null}
+        {busy ? <span className="text-2xs text-muted-foreground">working…</span> : null}
+        {notice !== null ? (
+          <span className="text-2xs text-muted-foreground">{notice}</span>
+        ) : null}
+      </div>
+      {error !== null ? (
+        <p className="text-2xs text-destructive">mutation failed: {error}</p>
+      ) : null}
+
+      <Dialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setPending(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{copy?.title}</DialogTitle>
+            <DialogDescription>{copy?.description(task)}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setPending(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant={pending === "delete" ? "destructive" : "default"}
+              disabled={busy || pending === null}
+              onClick={confirmPending}
+            >
+              {busy ? "Working…" : copy?.confirm}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 /* ------------------------------ task row ------------------------------- */
 
-function TaskRow({ machine, task }: { machine: string; task: AutomationsTask }) {
+function TaskRow({
+  machine,
+  task,
+  cap,
+}: {
+  machine: string;
+  task: AutomationsTask;
+  cap: AutomationsCapability | null | undefined;
+}) {
   const [expanded, setExpanded] = useState(false);
   const schedule = automationsScheduleSummary(task.schedule);
   return (
@@ -221,6 +459,7 @@ function TaskRow({ machine, task }: { machine: string; task: AutomationsTask }) 
           </TooltipPopup>
         </Tooltip>
       ) : null}
+      <TaskActions machine={machine} task={task} cap={cap} />
       {expanded ? <TaskRuns machine={machine} task={task} /> : null}
     </div>
   );
@@ -230,11 +469,48 @@ function TaskRow({ machine, task }: { machine: string; task: AutomationsTask }) 
 
 export function AutomationsSurface({ machine }: { machine: string }) {
   const state = useAutomationsState(machine);
+  const [cap, setCap] = useState<AutomationsCapability | null | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+  const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
+
+  const canReconcile = automationsSupportsMutation(cap, "reconcile");
+
+  useEffect(() => {
+    let cancelled = false;
+    setCap(undefined);
+    automationsCapability(machine).then((next) => {
+      if (!cancelled) setCap(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [machine]);
 
   const refresh = useCallback(() => {
     setRefreshing(true);
     void refreshAutomations(machine).finally(() => setRefreshing(false));
+  }, [machine]);
+
+  const reconcile = useCallback(() => {
+    setReconcileBusy(true);
+    setReconcileError(null);
+    setReconcileNotice(null);
+    void reconcileAutomations(machine)
+      .then(async (materialized) => {
+        // Plugin-reported count only — never an invented number.
+        setReconcileNotice(
+          materialized === 0
+            ? "reconcile: no missed runs to materialize"
+            : `reconcile: ${materialized} missed run${materialized === 1 ? "" : "s"} materialized`,
+        );
+        await refreshAutomations(machine);
+      })
+      .catch((e: unknown) => {
+        setReconcileError(mutationErrorText(e));
+      })
+      .finally(() => setReconcileBusy(false));
   }, [machine]);
 
   // The store refreshes on bridge traffic; a manual refresh covers the
@@ -249,20 +525,41 @@ export function AutomationsSurface({ machine }: { machine: string }) {
         <div className="flex items-start justify-between gap-2">
           <p className="text-2xs text-muted-foreground">
             Scheduled and event-triggered agent tasks from the
-            rebuildup.automations plugin — read-only view; drivers
-            (OS scheduler/watch) run on the host.
+            rebuildup.automations plugin. Lifecycle actions go through
+            plugin_call; drivers (OS scheduler/watch) run on the host.
           </p>
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={refresh}
-            disabled={refreshing}
-            aria-label="Refresh automations"
-          >
-            <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
-            Refresh
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            {canReconcile === true ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={reconcile}
+                disabled={reconcileBusy}
+                title="Materialize derived missed occurrences into run records"
+                aria-label="Reconcile missed runs"
+              >
+                <HistoryIcon className={reconcileBusy ? "animate-pulse" : undefined} />
+                Reconcile
+              </Button>
+            ) : null}
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={refresh}
+              disabled={refreshing}
+              aria-label="Refresh automations"
+            >
+              <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+              Refresh
+            </Button>
+          </div>
         </div>
+        {reconcileError !== null ? (
+          <p className="text-2xs text-destructive">reconcile failed: {reconcileError}</p>
+        ) : null}
+        {reconcileNotice !== null ? (
+          <p className="text-2xs text-muted-foreground">{reconcileNotice}</p>
+        ) : null}
 
         {state.status.kind === "loading" ? (
           <p className="py-4 text-center text-xs text-muted-foreground">
@@ -287,7 +584,7 @@ export function AutomationsSurface({ machine }: { machine: string }) {
         {state.tasks.length > 0 ? (
           <div className="flex flex-col gap-1">
             {state.tasks.map((task) => (
-              <TaskRow key={task.task_id} machine={machine} task={task} />
+              <TaskRow key={task.task_id} machine={machine} task={task} cap={cap} />
             ))}
           </div>
         ) : null}
