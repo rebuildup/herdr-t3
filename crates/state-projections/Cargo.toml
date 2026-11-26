@@ -14,7 +14,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 [dev-dependencies]
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 
-# rlib for the native harness adapter/tests; cdylib is the wasm32 consumer
-# artifact the product view-model path loads (ADR-0025, issue #316).
+# rlib for the native harness adapter/tests and the future GPUI
+# consumer (the view-model ops are the shared Electron/GPUI contract,
+# ADR-0025 issue #316 — no wasm consumer was retained: state-scale
+# payloads exceeded the small-data criterion).
 [lib]
-crate-type = ["rlib", "cdylib"]
