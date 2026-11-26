@@ -5847,6 +5847,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui-kit"
+version = "0.0.0"
+dependencies = [
+ "gpui",
+]
+
+[[package]]
 name = "ui-test-host"
 version = "0.0.0"
 dependencies = [
@@ -5854,6 +5861,7 @@ dependencies = [
  "protocol-codec",
  "serde_json",
  "state-projections",
+ "ui-kit",
 ]
 
 [[package]]

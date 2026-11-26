@@ -28,6 +28,7 @@ use gpui::{
 use protocol_codec::{MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
 use state_projections::{build_goto_rows, filter_goto_rows, GotoRow};
+use ui_kit::{primitives::{Badge, BadgeVariant, Button, ButtonVariant, Input, Kbd, Separator}, tokens};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
 
@@ -77,6 +78,11 @@ struct HostState {
     goto_entries: Vec<GotoEntry>,
     last_goto_jump: Option<Value>,
     focused_pane: Option<String>,
+    /// ui-kit primitives panel (issue #322): open flag + click ledger
+    /// so conformance can assert semantic actions, not pixels.
+    primitives_open: bool,
+    primitives_clicks: Vec<String>,
+    primitives_disabled_clicks: u32,
 }
 
 fn fixture_state(fixture: Option<&str>) -> HostState {
@@ -97,9 +103,15 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
         goto_entries: Vec::new(),
         last_goto_jump: None,
         focused_pane: None,
+        primitives_open: false,
+        primitives_clicks: Vec::new(),
+        primitives_disabled_clicks: 0,
     };
     match fixture {
         Some("single-workspace") => {}
+        Some("ui-primitives") => {
+            state.primitives_open = true;
+        }
         Some("goto-picker") => {
             // Mirrors the Electron conformance seed (scripts/ui-electron.sh):
             // two workspaces labeled ui-a/ui-b, each with one tab and one
@@ -603,7 +615,49 @@ impl Render for HostView {
             );
         }
 
-        root.child(main)
+                // ---- ui-kit primitives panel (issue #322) -------------------
+        if self.state.primitives_open {
+            let theme = tokens::light();
+            let weak = cx.weak_entity();
+            let mut panel = gpui::div()
+                .flex()
+                .flex_col()
+                .gap(gpui::px(10.0))
+                .p(gpui::px(12.0));
+            let specs: Vec<(&'static str, Button)> = vec![
+                ("primary", Button::new("b1", "Save").variant(ButtonVariant::Default)),
+                ("secondary", Button::new("b2", "Cancel").variant(ButtonVariant::Secondary).size(ui_kit::primitives::ButtonSize::Sm)),
+                ("outline", Button::new("b3", "Details").variant(ButtonVariant::Outline)),
+                ("ghost", Button::new("b4", "More").variant(ButtonVariant::Ghost)),
+                ("destructive", Button::new("b5", "Delete").variant(ButtonVariant::Destructive)),
+                ("disabled", Button::new("b6", "Disabled").variant(ButtonVariant::Default).disabled(true)),
+            ];
+            for (key, mut btn) in specs {
+                let w = weak.clone();
+                let k = key;
+                btn = btn
+                    .selector(format!("ui.button.{k}"))
+                    .on_click(move |_, _, cx| {
+                        let _ = w.update(cx, |v, _| {
+                            v.state.primitives_clicks.push(k.to_string());
+                        });
+                    });
+                panel = panel.child(btn.render(&theme, false, false));
+            }
+            panel = panel
+                .child(
+                    gpui::div().flex().flex_row().items_center().gap(gpui::px(6.0)).children([
+                        Badge::new("badge1", "agent").variant(BadgeVariant::Success).render(&theme),
+                        Badge::new("badge2", "3").variant(BadgeVariant::Outline).render(&theme),
+                        Kbd::new("kbd1", "⌘K").render(&theme),
+                    ]),
+                )
+                .child(Separator::new("sep1").render(&theme))
+                .child(Input::new("input1").placeholder("Filter…").render(&theme));
+            main = main.child(panel);
+        }
+
+root.child(main)
     }
 }
 
@@ -650,6 +704,9 @@ fn state_of(vcx: &mut VisualTestContext, view: &Entity<HostView>) -> HostState {
         goto_entries: v.state.goto_entries.clone(),
         last_goto_jump: v.state.last_goto_jump.clone(),
         focused_pane: v.state.focused_pane.clone(),
+        primitives_open: v.state.primitives_open,
+        primitives_clicks: v.state.primitives_clicks.clone(),
+        primitives_disabled_clicks: v.state.primitives_disabled_clicks,
     })
 }
 
@@ -759,6 +816,10 @@ fn handle(
                     .collect(),
                 "pane" => mounted_pane_ids(&state),
                 "mode" => vec!["system".into(), "light".into(), "dark".into()],
+                "ui.button" => vec![
+                    "primary".into(), "secondary".into(), "outline".into(),
+                    "ghost".into(), "destructive".into(), "disabled".into(),
+                ],
                 "goto.row" => view
                     .read_with(&vcx.cx, |v, _| {
                         v.goto_rows().iter().map(|r| r.id.clone()).collect()
@@ -835,6 +896,10 @@ fn act(
         ("activate", Some("nav.settings-appearance")) => {
             click_selector(vcx, "nav.settings-appearance")
         }
+        ("activate", Some("ui.button")) => {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+            click_selector(vcx, &format!("ui.button.{id}"))
+        }
         ("terminal.scroll", Some("terminal.pane")) => {
             let id = params.get("id").and_then(Value::as_str).unwrap_or("");
             let rows = params.get("rows").and_then(Value::as_i64).unwrap_or(0);
@@ -895,6 +960,8 @@ fn observe(
         "state.goto_jump" => Ok(state.last_goto_jump.clone().unwrap_or(Value::Null)),
         "state.focused_pane" => Ok(state.focused_pane.clone().map(Value::String).unwrap_or(Value::Null)),
         "state.focused_target" => Ok(json!("none")),
+        "state.primitives_open" => Ok(json!(state.primitives_open)),
+        "state.primitives_clicks" => Ok(json!(state.primitives_clicks)),
         "terminal.scroll_offset" => {
             let id = params.get("id").and_then(Value::as_str).unwrap_or("");
             let mounted = mounted_pane_ids(&state);
