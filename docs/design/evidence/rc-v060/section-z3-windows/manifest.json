@@ -1,0 +1,116 @@
+[
+ {
+  "file": "z3-00-main.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 99498
+ },
+ {
+  "file": "z3-01-unicode-term.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 33962
+ },
+ {
+  "file": "z3-02-usage.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 77962
+ },
+ {
+  "file": "z3-03-context-card.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 72210
+ },
+ {
+  "file": "z3-04-shelf-collapsed.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 94414
+ },
+ {
+  "file": "z3-05-light-main.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 134058
+ },
+ {
+  "file": "z3-10-projects.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 101358
+ },
+ {
+  "file": "z3-10-source-control.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 98160
+ },
+ {
+  "file": "z3-10-usage.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 111444
+ },
+ {
+  "file": "z3-11-checkpoints.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 114892
+ },
+ {
+  "file": "z3-11-project-scripts.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 102100
+ },
+ {
+  "file": "z3-11-worktrees.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 99304
+ },
+ {
+  "file": "z3-13-conv-auto.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 111294
+ },
+ {
+  "file": "z3-14b-hover.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 130430
+ },
+ {
+  "file": "z3-15-narrow.webp",
+  "width": 960,
+  "height": 892,
+  "bytes": 110978
+ },
+ {
+  "file": "z3-16-tabstrip.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 21876
+ },
+ {
+  "file": "z3-17-shelf-showmore.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 139350
+ },
+ {
+  "file": "z3-18-block-cursor.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 139346
+ },
+ {
+  "file": "z3-19-final-dark.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 17366
+ }
+]

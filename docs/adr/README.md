@@ -30,3 +30,5 @@
 | [ADR-0026](./ADR-0026.md) | Accepted | Automations surface: automations-v1 contract pin @6c1cfa5 and read-only adoption |
 | [ADR-0027](./ADR-0027.md) | Accepted | Conversations surface: conversations-v1 contract pin @d23205af and read + index adoption |
 | [ADR-0028](./ADR-0028.md) | Accepted | Usage surface: usage-v1 contract pin @d23205af and read-only adoption |
+| [ADR-0029](./ADR-0029.md) | Accepted | Artifacts surface: artifacts-v1 contract pin @d23205af and read-surface adoption |
+| [ADR-0030](./ADR-0030.md) | Accepted | Handoffs surface: handoff-v1 contract pin @d23205af and read-only adoption (mutations incl. top-level commands gated off) |

@@ -171,13 +171,22 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   たたんでも、route 選択中の agent 行 (route workspace の active
   tab で focus されている pane の agent) だけは描画し続ける —
   T3 が折りたたみ shelf に route thread を残すのと同じ。展開した
-  棚は Attention を除き初期 `AGENT_SHELF_INITIAL_VISIBLE` (10) 件
-  まで表示し、超過分は末尾の「Show N more」行で
-  `AGENT_SHELF_PAGE` (25) 件ずつ段階的に開く。route 行は cap を
-  超えても常に表示対象に含め、開示で隠さない。開示件数は
-  セッション内 state (T3 `settledTail` と同じく永続化しない)。
-  pane-id disambiguator の signature 集計は棚 membership 全体で
-  行い、ページングで行内容が変わらないようにする。
+  棚は Attention を除き初期件数まで表示し、超過分は末尾の
+  「Show N more」行でページ分ずつ段階的に開く。初期件数とページは
+  `agentShelfInitialLimit` / `agentShelfPage` が棚ごとに決める:
+  Working は 4 件初期・4 件ずつ (issue #418 — 高回転棚を小さく
+  保つ)、その他の棚は 10 件初期・25 件ずつ (T3 settled tail と同値)。
+  route 行は cap を超えても常に表示対象に含め、開示で隠さない。
+  開示件数はセッション内 state (T3 `settledTail` と同じく永続化
+  しない)。pane-id disambiguator の signature 集計は棚 membership
+  全体で行い、ページングで行内容が変わらないようにする。
+- **棚ヘッダーと行スクロールの分離 (issue #418)**: md+ の pinned
+  dock では、各棚の disclosure header は行一覧のスクロール
+  コンテナの外に置き、展開棚の行 `<ul>` が個別に
+  `overflow-y-auto` で dock の `max-h` を分け合う。Working の行を
+  スクロールしても Working のトグルは流れず、複数棚の展開時も全
+  トグルへ常に到達できる。md 未満の inline 表示は従来どおり
+  sidebar 全体のスクロールに従う (issue #211 の狭幅 sheet 契約)。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage

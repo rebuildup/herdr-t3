@@ -21,7 +21,7 @@ import type {
   TabInfo,
   WorkspaceInfo,
 } from "../../shared/protocol";
-import { paneTitle, workspaceTitle } from "../lib/workspace";
+import { workspaceTitle } from "../lib/workspace";
 
 export type GotoKind = "workspace" | "tab" | "pane";
 

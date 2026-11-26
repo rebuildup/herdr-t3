@@ -100,6 +100,7 @@ import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
   THREAD_DETAILS_PANEL_ROW_CLASS,
+  THREAD_DETAILS_PANEL_TEXT_CLASS,
 } from "../components/paneContextCardStyles";
 import { relatedAgents, useContextCardData } from "./useContextCardData";
 import { runProjectScript, type ProjectScript } from "./projectScripts";
@@ -121,7 +122,7 @@ const SCRIPT_PREVIEW_COUNT = 6;
 
 function InfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex h-8 min-w-0 w-full items-center gap-2.5 px-2.5 text-[13px] text-foreground/80">
+    <div className={cn("flex h-8 min-w-0 w-full items-center gap-2.5 px-2.5", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}>
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
         {icon}
       </span>
@@ -143,7 +144,7 @@ function TaskInfoRow({
   trailing?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-8 w-full items-center gap-2.5 rounded-lg px-2.5 py-1 text-[13px]">
+    <div className={cn("flex min-h-8 w-full items-center gap-2.5 rounded-lg px-2.5 py-1", THREAD_DETAILS_PANEL_TEXT_CLASS)}>
       <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
         {icon}
       </span>
@@ -173,7 +174,7 @@ function LinkRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-8 min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-foreground/80 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]"
+      className={cn("flex h-8 min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
         {icon}
@@ -733,7 +734,7 @@ function CardBody({
           ).map((script) => (
             <div
               key={script.id}
-              className="flex h-8 min-w-0 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-foreground/80"
+              className={cn("flex h-8 min-w-0 w-full items-center gap-2.5 rounded-lg px-2.5", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}
             >
               <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
                 <PlayIcon />

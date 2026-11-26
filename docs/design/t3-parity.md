@@ -28,6 +28,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
 | Progressive disclosure: collapsed shelf keeps route row; "Show N more" paging | [herdr] | #389 — T3 `routeThreadOnly` + settled tail / `ThreadDetailsMoreButton` port |
+| Shelf structure: per-section disclosure headers outside per-shelf scroll containers | [herdr] | #418 — dock shelves scroll independently so toggles never scroll away |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
 | Archived threads | [excluded] | thread lifecycle is orchestration state |
 
@@ -55,6 +56,8 @@ source of truth. Each feature is classified by where its data comes from:
 | Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @ae4f214 (ADR-0016/0017/0021/0024): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); multi-repo save groups + restore-group + bounded gc/prune connected (#279: `group_id` badges/`--group` filter, mandatory dry-run preview, per-repo partial results via the bridge stdout-report convention); per-turn capture remains upstream-gated |
 | Conversations (indexed transcript sessions/history/search) | [plugin] | `herdr-plugins.conversations/v1` pinned @d23205af (ADR-0027): sessions list + expandable paged event history + search surface connected (#374, capability-gated per host; opaque `next_cursor` paging verbatim, stale/missing verdicts rendered as the plugin reports them); explicit `index` mutation gated on `mutation_commands`; `show` remains a separate ticket, `usage` aggregation is consumed via `herdr-plugins.usage` (#375) |
 | Automations (scheduled/event tasks) | [plugin] | `herdr-plugins.automations/v1` pinned @6c1cfa5 (ADR-0026): task/run surface connected (#361 read + #362 lifecycle mutations); driver commands remain out of scope |
+| Artifacts (generated-file registry: html/image/pdf/file/other) | [plugin] | `herdr-plugins.artifacts/v1` pinned @d23205af (ADR-0029): export/search/verify read surface connected (#396, capability-gated per host; `missing_ref`/`owner_stale`/`oversize`/`orphans`/`corrupt` rendered verbatim, empty registry is an honest empty state); `resolved_path` is text+copy only — no inline render, no shell-open bridge; mutations (`register`/`delete`/`deliver`/`gc`) gated off, separate ticket |
+| Handoffs / delegation records | [plugin] | `herdr-plugins.handoff/v1` pinned @d23205af (ADR-0030): list/status/resume-info read surface connected (#404 — record list with relationship kind, derived children, `transfer_check` staleness, execution target; on-demand `status` detail with `--no-reconcile` and owner-CLI payload-ref resolution, `resume-info` provider native-resume table); mutations (`create`/`execute`/`delegate`/`merge-back`) and `status --remote` remain separate tickets |
 
 > **Container rule (maintainer directive, #333):** plugin surfaces are docked
 > right-panel tabs in the T3 `ChatRightPanel`/`RightPanelTabs` pattern — a
@@ -114,8 +117,13 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    sessions/history/search reads plus the explicit `index` mutation;
    `show` remains a separate ticket), usage surface via
    `herdr-plugins.usage` (#375 on the @d23205af pin — quota/usage/
-   cost/divergence reads; read-only contract, no mutations),
-   settings sections that map to existing data.
+   cost/divergence reads; read-only contract, no mutations), artifacts
+   surface via `herdr-plugins.artifacts` (#396 on the @d23205af pin —
+   export/search/verify reads; advertised mutations gated off),
+   handoffs surface via `herdr-plugins.handoff` (#404 on the
+   @d23205af pin — list/status/resume-info reads; mutations are
+   top-level commands gated off, separate ticket), settings sections
+   that map to existing data.
 3. **upstream-gated (any release):** issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
    focus-report thread).

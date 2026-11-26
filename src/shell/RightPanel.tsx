@@ -23,6 +23,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
+  ArrowLeftRightIcon,
   CalendarClockIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
@@ -30,6 +31,7 @@ import {
   HistoryIcon,
   GaugeIcon,
   MessagesSquareIcon,
+  PackageIcon,
   PanelLeftCloseIcon,
   PlusIcon,
   SquarePlayIcon,
@@ -59,6 +61,8 @@ import { WorktreesSurface } from "~/components/WorktreesSurface";
 import { AutomationsSurface } from "~/components/AutomationsSurface";
 import { ConversationsSurface } from "~/components/ConversationsSurface";
 import { UsageSurface } from "~/components/UsageSurface";
+import { ArtifactsSurface } from "~/components/ArtifactsSurface";
+import { HandoffsSurface } from "~/components/HandoffsSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -105,6 +109,8 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   automations: CalendarClockIcon,
   conversations: MessagesSquareIcon,
   usage: GaugeIcon,
+  artifacts: PackageIcon,
+  handoffs: ArrowLeftRightIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -116,6 +122,8 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   automations: "Automations",
   conversations: "Conversations",
   usage: "Usage",
+  artifacts: "Artifacts",
+  handoffs: "Handoffs",
 };
 
 function surfaceTitle(
@@ -166,6 +174,10 @@ function SurfaceContent({
       return <ConversationsSurface machine={machine} />;
     case "usage":
       return <UsageSurface machine={machine} />;
+    case "artifacts":
+      return <ArtifactsSurface machine={machine} />;
+    case "handoffs":
+      return <HandoffsSurface machine={machine} />;
   }
 }
 
@@ -211,7 +223,7 @@ function PanelFrame({
   return (
     <>
       {/* Tab bar — T3's RightPanelTabs header strip at topbar height. */}
-      <div className="flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
+      <div className="flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {surfaces.map((surface, index) => {
             const Icon = SURFACE_ICONS[surface.kind];
@@ -256,7 +268,7 @@ function PanelFrame({
                 className={cn(
                   "group relative flex min-w-0 shrink-0 items-center rounded-md text-sm",
                   active
-                    ? "bg-accent text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                    ? "bg-accent text-foreground inset-ring-1 inset-ring-border"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   dragId === surface.id && "opacity-50",
                 )}
@@ -515,6 +527,16 @@ export function RightPanel() {
       label: "Usage",
       icon: GaugeIcon,
       run: () => openSurface(scope, { id: "usage", kind: "usage" }),
+    },
+    {
+      label: "Artifacts",
+      icon: PackageIcon,
+      run: () => openSurface(scope, { id: "artifacts", kind: "artifacts" }),
+    },
+    {
+      label: "Handoffs",
+      icon: ArrowLeftRightIcon,
+      run: () => openSurface(scope, { id: "handoffs", kind: "handoffs" }),
     },
   ];
   const frame = (

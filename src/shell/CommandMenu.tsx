@@ -5,6 +5,7 @@
  * action is a whitelisted herdr RPC or shell navigation.
  */
 import {
+  ArrowLeftRightIcon,
   CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
@@ -15,6 +16,7 @@ import {
   Maximize2Icon,
   MessagesSquareIcon,
   MonitorIcon,
+  PackageIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
@@ -255,6 +257,22 @@ export function CommandMenu({
           icon: <GaugeIcon className="size-4" />,
           keywords: "usage quota cost tokens divergence estimates plugin",
           run: panelSurface({ id: "usage", kind: "usage" }),
+        },
+        {
+          id: "panel-artifacts",
+          label: "Artifacts",
+          group: "Actions",
+          icon: <PackageIcon className="size-4" />,
+          keywords: "artifacts registry files html pdf images deliver verify plugin",
+          run: panelSurface({ id: "artifacts", kind: "artifacts" }),
+        },
+        {
+          id: "panel-handoffs",
+          label: "Handoffs",
+          group: "Actions",
+          icon: <ArrowLeftRightIcon className="size-4" />,
+          keywords: "handoffs delegation transfer records resume lineage plugin",
+          run: panelSurface({ id: "handoffs", kind: "handoffs" }),
         },
       );
       list.push(
