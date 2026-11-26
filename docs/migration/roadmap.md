@@ -97,7 +97,7 @@ remaining work before old-path removal:
 
 | Capability | rust-implemented | switched (product consumer) | old impl removal |
 |---|---|---|---|
-| protocol.codec | #275/#277 | wasm consumer in runtime (ADR-0025) — #315 | shared/protocol.ts codec path |
+| protocol.codec | #275/#277 + #315 (**switched**: ingress guards → protocol-codec.wasm via shared/protocolWasm.ts; encode/decode ops have no product call sites) | old impl removal — #359 | shared/protocol.ts codec path |
 | agent.projection | #281 (+#287 perf, #288 conformance) | wasm consumer in runtime (ADR-0025) — #316 | src/lib/workspace.ts, src/shell/agents.ts |
 | terminal.engine | #286 | no transitional consumer — switches with GPUI surface (ADR-0025) — #317 re-scoped | shared/ghostty engine/session TS path |
 | terminal.scene | #298 | no transitional consumer — switches with GPUI surface (ADR-0025) — #318 re-scoped | renderer.ts Canvas2D path |

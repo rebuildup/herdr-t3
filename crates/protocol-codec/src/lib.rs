@@ -975,3 +975,58 @@ pub fn parse_session_snapshot_json(json: &str) -> CodecResult<SessionSnapshot> {
         serde_json::from_str(json).map_err(|e| format!("snapshot json: {e}"))?;
     parse_session_snapshot(&value)
 }
+
+/// wasm32 consumer surface (ADR-0025, issue #315).
+///
+/// The product ingress guards (`isClientFrame`, `isRpcMethod`) consume this
+/// crate through these exports: JSON text in, verdict out — no output
+/// serialization, matching the guards' actual product shape (callers parse
+/// the payload themselves only after it passes). Buffers are caller-owned
+/// via `protocol_codec_alloc`/`protocol_codec_dealloc`.
+#[cfg(target_arch = "wasm32")]
+pub mod wasm {
+    use super::{is_client_frame, is_rpc_method};
+    use std::slice;
+    use std::str;
+
+    #[no_mangle]
+    pub extern "C" fn protocol_codec_alloc(len: usize) -> *mut u8 {
+        if len == 0 {
+            return std::ptr::null_mut();
+        }
+        // Safety contract: caller passes the same `len` to dealloc; layout
+        // is (len, align 1).
+        unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(len, 1)) }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn protocol_codec_dealloc(ptr: *mut u8, len: usize) {
+        if !ptr.is_null() && len > 0 {
+            unsafe {
+                std::alloc::dealloc(ptr, std::alloc::Layout::from_size_align_unchecked(len, 1));
+            }
+        }
+    }
+
+    /// 1 when the JSON text parses to a value `isClientFrame` accepts,
+    /// 0 otherwise (including malformed JSON — the guard rejects it too).
+    #[no_mangle]
+    pub extern "C" fn protocol_codec_is_client_frame(ptr: *const u8, len: usize) -> i32 {
+        let bytes = unsafe { slice::from_raw_parts(ptr, len) };
+        match serde_json::from_slice::<serde_json::Value>(bytes) {
+            Ok(value) if is_client_frame(&value) => 1,
+            _ => 0,
+        }
+    }
+
+    /// 1 when `method` (UTF-8, not NUL-terminated — length-bounded) is in
+    /// the RPC_METHODS allow-list, else 0.
+    #[no_mangle]
+    pub extern "C" fn protocol_codec_is_rpc_method(ptr: *const u8, len: usize) -> i32 {
+        let bytes = unsafe { slice::from_raw_parts(ptr, len) };
+        match str::from_utf8(bytes) {
+            Ok(method) if is_rpc_method(method) => 1,
+            _ => 0,
+        }
+    }
+}

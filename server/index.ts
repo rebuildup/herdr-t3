@@ -10,6 +10,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isClientFrame } from "../shared/protocol.ts";
+import { protocolCodecWasm } from "../shared/protocolWasm.ts";
 import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
 import { fetchSnapshot } from "./bridge-core.ts";
@@ -125,9 +126,17 @@ Bun.serve({
     message(ws, message) {
       const manager = (ws as unknown as { __manager?: MachineManager }).__manager;
       if (!manager) return;
+      const raw = String(message);
+      if (protocolCodecWasm) {
+        // wasm ingress guard (issue #315): validates the raw JSON text;
+        // a pass guarantees JSON.parse below cannot throw.
+        if (!protocolCodecWasm.isClientFrame(raw)) return;
+        manager.handleFrame(JSON.parse(raw));
+        return;
+      }
       let frame: unknown;
       try {
-        frame = JSON.parse(String(message));
+        frame = JSON.parse(raw);
       } catch {
         return;
       }
