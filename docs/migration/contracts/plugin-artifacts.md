@@ -1,20 +1,23 @@
-# Contract: artifacts read surface — export/search/verify (B3)
+# Contract: artifacts surface — reads + mutations (B3)
 
-Version: 1. Scope: consuming `herdr-plugins.artifacts/v1` through
-`plugin_call` (ADR-0011 boundary, pinned at
+Version: 2 (was 1 — mutation surface added, issue #455). Scope:
+consuming `herdr-plugins.artifacts/v1` through `plugin_call`
+(ADR-0011 boundary, pinned at
 `rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as usage-v1/conversations-v1). The plugin owns
 the artifact registry — register/validate/index references to
 generated files (HTML pages, images, PDFs, generic files) — and this
-client renders its read surfaces (issue #396). Upstream spec:
+client renders its read surfaces (issue #396) plus the mutation
+surface (issue #455). Upstream spec:
 `herdr-plugins/docs/contracts/artifacts-v1.md` (STABLE since
 herdr-plugins v0.7.0; plugin `rebuildup.artifacts` v0.2.0+).
 
 The contract advertises mutations (`read_only: false`,
 `mutation_commands: ["register", "delete", "deliver", "gc"]`). This
-client consumes the READ surface only — no mutation is ever offered,
-and the local `ARTIFACTS_MUTATION_COMMANDS` allowlist stays empty so
-every mutation fails closed until a dedicated ticket reviews it.
+client consumes all four, gated by the local
+`ARTIFACTS_MUTATION_COMMANDS` allowlist ∩ advertised
+`mutation_commands` ∩ `commands` — a command missing from any of the
+three fails closed.
 
 ## Operations consumed
 
@@ -53,6 +56,43 @@ the bare discovery document without the `ok` envelope):
   it re-hashes every payload plugin-side, so it is never polled. With
   no id the whole index is verified.
 
+### Mutations (issue #455)
+
+All four advertised `mutation_commands` are consumed; each runs only
+behind a confirmation dialog naming the exact target (artifact id,
+kind, resolved path, deliver pane, gc cutoff) and renders the plugin's
+result document verbatim. A successful mutation bumps a registry
+refresh nonce and re-fetches `export` — the surface never assumes the
+post-mutation index. Failures surface `error.kind`/detail verbatim
+(`referenced`, `missing_ref`, `target_not_found`, `agent_not_found`,
+`delivery_failed` + `rpc_code`, `too_large`, `session_unreachable`,
+`state_corrupt`, `lock_timeout`, `usage`, …).
+
+- `register --path FILE [--kind KIND] [--storage MODE] [--title T]
+  [--pane PANE] [--created-by C] [--ref REF ...]` → `{artifact}`.
+  `--stdin` is deliberately never sent (payload bytes cannot cross
+  `plugin_call`); kind/storage/created-by/refs are optional and unset
+  values are inferred/defaulted plugin-side. Refs are entered one per
+  line.
+- `delete <artifact_id> [--force]` → `{artifact_id, storage_mode,
+  removed_payload}`. Records with non-empty `refs` refuse without
+  `--force` (`referenced`); the dialog shows the refs and requires an
+  explicit force opt-in. `path_ref` external files are never removed —
+  `removed_payload:false` says so honestly.
+- `deliver <artifact_id> --agent PANE | --pane PANE [--note TEXT]` →
+  `{target:{kind,pane_id}, method, message, artifact}`. `--agent`
+  sends via `agent.prompt` (preferred for agent panes); `--pane` sends
+  literal text via `pane.send_text` — the dialog warns that embedded
+  newlines reach the PTY as Enter (contract caveat). The exact `message`
+  sent is rendered verbatim on success.
+- `gc --older-than ISO [--dry-run]` → `{policy, dry_run, evaluated,
+  expired, entries[], totals{…}, orphans, corrupt}`. The dialog defaults
+  to dry-run (full evaluation, zero mutation); entries keep verbatim
+  `action` (`deleted`/`would_delete`/`skipped`) and `reason`
+  (`referenced`/`invalid_created_at`/`delete_failed`) plus per-entry
+  `error`s and `totals.errors`. `gc` is pure plugin-state work and
+  needs no live session.
+
 ### Artifact record (annotated)
 
 Every `artifacts[]` entry is the contract record plus read-time
@@ -65,10 +105,6 @@ records as the render-isolation notice.
 
 ## Operations NOT consumed
 
-- `register`, `delete`, `deliver`, `gc` — advertised in
-  `mutation_commands` but gated off by the empty local allowlist.
-  `deliver` (path-in-prompt attachment), retention `gc`, and
-  registration stay plugin-side until a dedicated mutation ticket.
 - `list` and `get` — not separately consumed: `export` carries the
   identical annotated record shape and is the stable client read
   surface per the contract.
