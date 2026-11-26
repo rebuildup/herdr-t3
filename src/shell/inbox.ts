@@ -72,6 +72,15 @@ const migrated = new Set<string>();
 const listeners = new Set<() => void>();
 let started = false;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Snapshot pushes are a polling heartbeat, not a per-event signal: plugin
+ * data moves on plugin/human timescales while every refresh spawns
+ * `bun run src/cli.ts` on the host. Cap snapshot-triggered refreshes per
+ * machine so continuous herdr activity cannot become a spawn storm
+ * (issue #422; amplification chain in #416).
+ */
+const SNAPSHOT_REFRESH_MIN_MS = 15_000;
+const lastRefreshAt = new Map<string, number>();
 let statesVersion = 0;
 let mergedCache: { version: number; map: AgentOrganizeMap } | null = null;
 let statesSnapshot: ReadonlyMap<string, InboxMachineState> = new Map();
@@ -211,6 +220,7 @@ function capabilityOk(doc: PluginCallResult): { contract: string; version: strin
 async function refreshInbox(machine: string): Promise<void> {
   const running = inflight.get(machine);
   if (running) return running;
+  lastRefreshAt.set(machine, Date.now());
   const previous = states.get(machine);
   if (previous?.status.kind !== "ready") {
     setState(machine, { status: { kind: "loading" }, organize: {} });
@@ -371,9 +381,14 @@ function scheduleRefresh() {
   if (snapshotTimer) return;
   snapshotTimer = setTimeout(() => {
     snapshotTimer = null;
-    // Refresh every machine that has ever resolved — snapshot pushes are
-    // per-machine but organize state can change host-side at any time.
-    for (const id of states.keys()) void refreshInbox(id);
+    // No mounted consumer → no reason to spawn plugin CLIs; and each
+    // machine refreshes at most once per SNAPSHOT_REFRESH_MIN_MS.
+    if (listeners.size === 0) return;
+    const now = Date.now();
+    for (const id of states.keys()) {
+      if (now - (lastRefreshAt.get(id) ?? 0) < SNAPSHOT_REFRESH_MIN_MS) continue;
+      void refreshInbox(id);
+    }
   }, 800);
 }
 
@@ -386,6 +401,7 @@ export function initInbox(): void {
     if (machine.status === "online") void refreshInbox(machine.id);
     else if (machine.status === "offline" || machine.status === "disabled") {
       states.delete(machine.id);
+      lastRefreshAt.delete(machine.id);
       emit();
     }
   });
@@ -394,6 +410,7 @@ export function initInbox(): void {
     for (const id of [...states.keys()]) {
       if (!known.has(id)) {
         states.delete(id);
+        lastRefreshAt.delete(id);
         emit();
       }
     }
