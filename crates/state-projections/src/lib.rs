@@ -1423,3 +1423,205 @@ pub fn goto_eval(input: &Map<String, Value>) -> Result<Value, String> {
         "rows": rows.iter().map(goto_row_json).collect::<Vec<_>>(),
     }))
 }
+
+/* ------------------- product ViewModel ops (issue #316) ------------------ */
+//
+// The Electron/GPUI-shared boundary: ONE call per snapshot-set produces the
+// whole derived view-model as JSON. Each row embeds the *raw* protocol
+// objects (machine/agent/workspace/pane) alongside the precomputed display
+// fields, so the consumer needs no rehydration lookups and no per-row
+// boundary calls — the serialize+copy cost is paid once per update, never
+// per rendered row.
+
+fn raw_find<'a>(arr: Option<&'a Vec<Value>>, key: &str, id: Option<&str>) -> Option<&'a Value> {
+    let id = id?;
+    arr?.iter()
+        .find(|v| v.get(key).and_then(Value::as_str) == Some(id))
+}
+
+/// VM row for `agent_view_model`: summarize_entry fields plus the ids
+/// the consumer needs to resolve deduplicated `records` entries. Raw
+/// protocol objects are NOT embedded per row — `records` carries each
+/// object once (issue #316: per-row embedding duplicated the whole
+/// snapshot into the output and cost ~90us/row in serde Value clones).
+fn vm_row(entry: &AgentListEntry<'_>) -> Value {
+    let mut m = match summarize_entry(entry) {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    m.insert(
+        "workspace_id".into(),
+        entry
+            .agent
+            .workspace_id
+            .as_deref()
+            .map(|v| Value::String(v.to_string()))
+            .unwrap_or(Value::Null),
+    );
+    m.insert(
+        "tab_id".into(),
+        entry
+            .agent
+            .tab_id
+            .as_deref()
+            .map(|v| Value::String(v.to_string()))
+            .unwrap_or(Value::Null),
+    );
+    Value::Object(m)
+}
+
+fn vm_sections(sections: &AgentSections<'_>) -> Value {
+    let section = |v: &[AgentListEntry<'_>]| {
+        Value::Array(v.iter().map(vm_row).collect())
+    };
+    let mut m = Map::new();
+    for s in AGENT_SECTIONS_ORDER_FOR_OUTPUT {
+        let list = match s {
+            AgentSection::Attention => &sections.attention,
+            AgentSection::Done => &sections.done,
+            AgentSection::Working => &sections.working,
+            AgentSection::Idle => &sections.idle,
+            AgentSection::Snoozed => &sections.snoozed,
+            AgentSection::Settled => &sections.settled,
+        };
+        m.insert(s.as_str().to_string(), section(list));
+    }
+    Value::Object(m)
+}
+
+/// `agent_view_model` — the whole sidebar agents projection in one call.
+/// Input mirrors the `agent_partition` op's collect inputs plus `organize`
+/// and `unresolved_machines`; output `{sections, records, organize}` —
+/// rows carry summary+display fields and the ids the consumer uses to
+/// rehydrate live object refs from state it already holds (issue #316 —
+/// no raw objects cross the boundary per row).
+pub fn agent_view_model(input: &Map<String, Value>) -> Result<Value, String> {
+    let machines = parse_machines(input.get("machines"))?;
+    let snapshots = parse_snapshots(input.get("snapshots"))?;
+    let stale = parse_stale(input.get("stale"))?;
+    let branch_index = parse_branch_index(input.get("branch_index"))?;
+    let organize = parse_organize(input.get("organize"))?;
+    let unresolved = parse_unresolved(input.get("unresolved_machines"))?;
+    let entries = collect_agent_entries(&machines, &snapshots, &stale, &branch_index);
+    let result = partition_agents(entries, &organize, unresolved.as_ref())?;
+    Ok(serde_json::json!({
+        "sections": vm_sections(&result.sections),
+        "organize": Value::Object(result.organize),
+    }))
+}
+
+/// `workspace_view_model` — derive_workspace with raw passthrough so the
+/// consumer gets live-shaped objects, not id summaries.
+pub fn workspace_view_model(input: &Map<String, Value>) -> Result<Value, String> {
+    let snapshot_raw = input.get("snapshot");
+    let snapshot = parse_snapshot_opt(snapshot_raw)?;
+    let workspace_id = input.get("workspace_id").and_then(Value::as_str);
+    let view = derive_workspace(snapshot.as_ref(), workspace_id);
+    let snap_obj = snapshot_raw.and_then(Value::as_object);
+    let arr = |key: &str| snap_obj.and_then(|s| s.get(key)).and_then(Value::as_array);
+    // Raw lookups by the ids the typed view resolved.
+    let ws_id = view.workspace.as_ref().and_then(|w| w.workspace_id.as_deref());
+    let tab_id = view.active_tab.as_ref().and_then(|t| t.tab_id.as_deref());
+    Ok(serde_json::json!({
+        "workspace": raw_find(arr("workspaces"), "workspace_id", ws_id).cloned().unwrap_or(Value::Null),
+        // TS: `workspace ? tabs.filter(...) : []` — no workspace means no tabs.
+        "tabs": Value::Array(match ws_id {
+            Some(id) => arr("tabs").map(|tabs| {
+                tabs.iter()
+                    .filter(|t| t.get("workspace_id").and_then(Value::as_str) == Some(id))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }).unwrap_or_default(),
+            None => Vec::new(),
+        }),
+        "activeTab": raw_find(arr("tabs"), "tab_id", tab_id).cloned().unwrap_or(Value::Null),
+        "tabPanes": Value::Array(arr("panes").map(|panes| {
+            panes.iter()
+                .filter(|p| p.get("tab_id").and_then(Value::as_str) == tab_id)
+                .cloned()
+                .collect::<Vec<_>>()
+        }).unwrap_or_default()),
+        "layout": raw_find(arr("layouts"), "tab_id", tab_id).cloned().unwrap_or(Value::Null),
+        "focusedPane": view
+            .focused_pane
+            .and_then(|p| p.pane_id.as_deref())
+            .and_then(|id| raw_find(arr("panes"), "pane_id", Some(id)))
+            .cloned()
+            .unwrap_or(Value::Null),
+    }))
+}
+
+/// wasm32 consumer surface (ADR-0025, issue #316).
+///
+/// Product view-model ops cross as JSON in/JSON out — the boundary IS the
+/// view-model shape shared by Electron and GPUI, paid once per snapshot
+/// update. Ops: `workspace_view_model`, `agent_view_model`, `goto_eval`.
+#[cfg(target_arch = "wasm32")]
+pub mod wasm {
+    use super::{agent_view_model, goto_eval, workspace_view_model};
+    use serde_json::{json, Value};
+    use std::cell::RefCell;
+    use std::slice;
+
+    thread_local! {
+        static RESULT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+
+    #[no_mangle]
+    pub extern "C" fn state_projections_alloc(len: usize) -> *mut u8 {
+        if len == 0 {
+            return std::ptr::null_mut();
+        }
+        // Safety contract: caller passes the same `len` to dealloc; layout
+        // is (len, align 1).
+        unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(len, 1)) }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn state_projections_dealloc(ptr: *mut u8, len: usize) {
+        if !ptr.is_null() && len > 0 {
+            unsafe {
+                std::alloc::dealloc(ptr, std::alloc::Layout::from_size_align_unchecked(len, 1));
+            }
+        }
+    }
+
+    /// Evaluates `{"op","input"}` -> `{"ok","value"|"error"}`; result bytes
+    /// readable at `state_projections_result_ptr()` for the returned len.
+    #[no_mangle]
+    pub extern "C" fn state_projections_eval(ptr: *const u8, len: usize) -> usize {
+        let request = unsafe { slice::from_raw_parts(ptr, len) };
+        let output = (|| -> String {
+            let parsed: Result<Value, _> = serde_json::from_slice(request);
+            match parsed {
+                Ok(Value::Object(mut map)) => {
+                    let op = map.remove("op").and_then(|v| v.as_str().map(str::to_string));
+                    let input = map
+                        .remove("input")
+                        .and_then(|v| v.as_object().cloned())
+                        .unwrap_or_default();
+                    let result = match op.as_deref() {
+                        Some("workspace_view_model") => workspace_view_model(&input),
+                        Some("agent_view_model") => agent_view_model(&input),
+                        Some("goto_eval") => goto_eval(&input),
+                        other => Err(format!("unknown op \"{other:?}\"")),
+                    };
+                    match result {
+                        Ok(value) => json!({ "ok": true, "value": value }).to_string(),
+                        Err(error) => json!({ "ok": false, "error": error }).to_string(),
+                    }
+                }
+                _ => json!({ "ok": false, "error": "request must be a JSON object" }).to_string(),
+            }
+        })();
+        RESULT.with(|r| {
+            *r.borrow_mut() = output.into_bytes();
+            r.borrow().len()
+        })
+    }
+
+    #[no_mangle]
+    pub extern "C" fn state_projections_result_ptr() -> *const u8 {
+        RESULT.with(|r| r.borrow().as_ptr())
+    }
+}
