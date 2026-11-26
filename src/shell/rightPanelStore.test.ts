@@ -198,6 +198,17 @@ describe("rightPanelStore", () => {
     expect(getPanelState(scope).surfaces).toHaveLength(0);
   });
 
+  test("controls surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:controls`;
+    openSurface(scope, { id: "controls", kind: "controls" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["controls"]);
+    expect(state.activeSurfaceId).toBe("controls");
+    toggleSurface(scope, { id: "controls", kind: "controls" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
   test("scopes are independent", () => {
     const a = `${SCOPE}:a`;
     const b = `${SCOPE}:b`;

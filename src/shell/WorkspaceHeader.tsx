@@ -7,6 +7,7 @@
  */
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -683,6 +684,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "handoffs", kind: "handoffs" })}
               >
                 <ArrowLeftRightIcon /> Handoffs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "controls", kind: "controls" })}
+              >
+                <BotIcon /> Controls
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab

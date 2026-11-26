@@ -6,6 +6,7 @@
  */
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
@@ -266,6 +267,14 @@ export function CommandMenu({
           icon: <ArrowLeftRightIcon className="size-4" />,
           keywords: "handoffs delegation transfer records resume lineage plugin",
           run: panelSurface({ id: "handoffs", kind: "handoffs" }),
+        },
+        {
+          id: "panel-controls",
+          label: "Controls",
+          group: "Actions",
+          icon: <BotIcon className="size-4" />,
+          keywords: "controls agent command slash interrupt wait start launch plugin",
+          run: panelSurface({ id: "controls", kind: "controls" }),
         },
       );
       list.push(

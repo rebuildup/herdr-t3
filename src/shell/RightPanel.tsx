@@ -24,6 +24,7 @@ import {
 } from "react";
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
@@ -63,6 +64,7 @@ import { ConversationsSurface } from "~/components/ConversationsSurface";
 import { UsageSurface } from "~/components/UsageSurface";
 import { ArtifactsSurface } from "~/components/ArtifactsSurface";
 import { HandoffsSurface } from "~/components/HandoffsSurface";
+import { ControlsSurface } from "~/components/ControlsSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -111,6 +113,7 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   usage: GaugeIcon,
   artifacts: PackageIcon,
   handoffs: ArrowLeftRightIcon,
+  controls: BotIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -124,6 +127,7 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   usage: "Usage",
   artifacts: "Artifacts",
   handoffs: "Handoffs",
+  controls: "Controls",
 };
 
 function surfaceTitle(
@@ -178,6 +182,8 @@ function SurfaceContent({
       return <ArtifactsSurface machine={machine} />;
     case "handoffs":
       return <HandoffsSurface machine={machine} />;
+    case "controls":
+      return <ControlsSurface machine={machine} />;
   }
 }
 
@@ -537,6 +543,11 @@ export function RightPanel() {
       label: "Handoffs",
       icon: ArrowLeftRightIcon,
       run: () => openSurface(scope, { id: "handoffs", kind: "handoffs" }),
+    },
+    {
+      label: "Controls",
+      icon: BotIcon,
+      run: () => openSurface(scope, { id: "controls", kind: "controls" }),
     },
   ];
   const frame = (
