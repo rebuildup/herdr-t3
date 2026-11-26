@@ -81,12 +81,20 @@ export function PaneTerminal({
   const mouseCaptureRef = useRef<boolean | null>(null);
   const sizeRef = useRef({ cols: 80, rows: 24 });
   // ResizeObserver fires per frame during a window drag; the engine grid
-  // follows immediately but the committed grid (which drives re-subscribe)
-  // and the pty resize are only updated on a short trailing delay
-  // (issue #213) — without it every drag frame tore down and re-attached
-  // the terminal. The last size always sends.
+  // follows immediately, the pty resize rides the live link on the next
+  // frame, and the committed grid (which drives re-subscribe) is only
+  // updated on a short trailing delay (issue #213) — without it every
+  // drag frame tore down and re-attached the terminal. The last size
+  // always sends.
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
+  // The pty resize rides the live attach link, so it only needs frame
+  // coalescing — not the 120ms re-subscribe debounce. Sending it with the
+  // debounce left the engine wrapping at the new width while the program
+  // still laid out for the old one (mid-token wraps, staggered row
+  // backgrounds on split/dock drags — issue #417 Windows leg).
+  const resizeFrame = useRef(0);
+  const pendingPtyResize = useRef<{ cols: number; rows: number } | null>(null);
   const gridCommitted = useRef(false);
   // Wheel events coalesce to one AttachScroll per animation frame with the
   // net line count (issue #213); inertial scrolling emits far more events
@@ -256,8 +264,18 @@ export function PaneTerminal({
               setGrid((prev) =>
                 prev && prev.cols === size.cols && prev.rows === size.rows ? prev : size,
               );
-              terminalResize(machine, paneId, size.cols, size.rows);
             }, 120);
+            // Resize the pty on the next frame through the existing attach
+            // link; the re-attach above still waits out the debounce.
+            pendingPtyResize.current = { cols, rows };
+            if (resizeFrame.current === 0) {
+              resizeFrame.current = requestAnimationFrame(() => {
+                resizeFrame.current = 0;
+                const size = pendingPtyResize.current;
+                pendingPtyResize.current = null;
+                if (size) terminalResize(machine, paneId, size.cols, size.rows);
+              });
+            }
           },
           onDead: (error) => {
             setEngineError(error instanceof Error ? error.message : String(error));
@@ -509,6 +527,8 @@ export function PaneTerminal({
       surfaceRef.current?.setLinkHover(false);
       if (bellTimer.current) clearTimeout(bellTimer.current);
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      if (resizeFrame.current !== 0) cancelAnimationFrame(resizeFrame.current);
+      pendingPtyResize.current = null;
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
       unregisterProbe?.();

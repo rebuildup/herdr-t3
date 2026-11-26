@@ -157,6 +157,16 @@ export function WorktreesSurface({
   };
 
   const repoName = result?.source.repo_name ?? workspace?.worktree?.repo_name;
+  // `worktree.create` resolves the same repo `worktree.list` does: with
+  // no resolvable repo (listParams null) or a failed list, the form can
+  // only fail — disable it instead of offering an enabled-but-dead
+  // action next to the error (issue #417 Windows leg). Mutation errors
+  // keep `result` non-null, so they do not trip this.
+  const createDisabled =
+    busy !== null ||
+    !sourceWorkspaceId ||
+    listParams === null ||
+    (result === null && error !== null);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -271,7 +281,7 @@ export function WorktreesSurface({
           </label>
           <Button
             size="sm"
-            disabled={busy !== null || !sourceWorkspaceId}
+            disabled={createDisabled}
             onClick={createWorktree}
           >
             <PlusIcon /> New worktree

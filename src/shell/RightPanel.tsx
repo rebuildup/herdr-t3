@@ -25,6 +25,8 @@ import {
 import {
   ArrowLeftRightIcon,
   CalendarClockIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
   GitBranchIcon,
@@ -50,6 +52,7 @@ import {
   MenuPopup,
   MenuTrigger,
 } from "~/components/ui/menu";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { Sheet, SheetHeader, SheetPopup, SheetTitle } from "~/components/ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { paneTitle } from "~/lib/workspace";
@@ -80,6 +83,19 @@ import {
 
 /* Same narrow-layout breakpoint as T3 (rightPanelLayout.ts). */
 const NARROW_QUERY = "(max-width: 980px)";
+
+/* T3 RightPanelTabs tab-strip scrolling (issue #417 Windows leg): the
+   active tab can sit outside the scrolled strip with no affordance, so
+   track overflow edges, scroll the active tab into view, and show
+   chevron buttons while the strip overflows. */
+const TAB_SCROLL_EDGE_TOLERANCE = 1;
+
+function tabScrollViewport(root: HTMLElement | null): HTMLElement | null {
+  return (
+    root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ??
+    null
+  );
+}
 
 const WIDTH_STORAGE_KEY = "herdr-t3:right-panel-width";
 const DEFAULT_WIDTH = 540;
@@ -215,6 +231,89 @@ function PanelFrame({
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const surfaces = state.surfaces;
   const activeIndex = surfaces.findIndex((s) => s.id === state.activeSurfaceId);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const [tabScrollState, setTabScrollState] = useState({
+    hasOverflow: false,
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
+
+  const updateTabScrollState = (viewport: HTMLElement) => {
+    const hasOverflow =
+      viewport.scrollWidth - viewport.clientWidth > TAB_SCROLL_EDGE_TOLERANCE;
+    const canScrollLeft =
+      hasOverflow && viewport.scrollLeft > TAB_SCROLL_EDGE_TOLERANCE;
+    const canScrollRight =
+      hasOverflow &&
+      viewport.scrollLeft + viewport.clientWidth <
+        viewport.scrollWidth - TAB_SCROLL_EDGE_TOLERANCE;
+    setTabScrollState((current) =>
+      current.hasOverflow === hasOverflow &&
+      current.canScrollLeft === canScrollLeft &&
+      current.canScrollRight === canScrollRight
+        ? current
+        : { hasOverflow, canScrollLeft, canScrollRight },
+    );
+  };
+
+  const scrollTabs = (direction: -1 | 1) => {
+    const viewport = tabScrollViewport(tabListRef.current);
+    if (!viewport) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    viewport.scrollBy({
+      left: direction * Math.max(120, viewport.clientWidth * 0.75),
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+  };
+
+  // T3 attachTabList: observe scroll + resize, translate vertical wheel
+  // into horizontal strip scroll.
+  const attachTabList = (root: HTMLDivElement | null) => {
+    tabListRef.current = root;
+    const viewport = tabScrollViewport(root);
+    if (!viewport) return;
+
+    const update = () => updateTabScrollState(viewport);
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY))
+        return;
+      let delta = event.deltaY;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE)
+        delta *= viewport.clientWidth;
+      const previousScrollLeft = viewport.scrollLeft;
+      viewport.scrollLeft += delta;
+      if (viewport.scrollLeft === previousScrollLeft) return;
+      event.preventDefault();
+      update();
+    };
+
+    const content = viewport.firstElementChild;
+    const stopObserving = observeResize(
+      content ? [viewport, content as HTMLElement] : viewport,
+      update,
+    );
+    viewport.addEventListener("scroll", update, { passive: true });
+    viewport.addEventListener("wheel", handleWheel, { passive: false });
+    update();
+
+    return () => {
+      tabListRef.current = null;
+      stopObserving();
+      viewport.removeEventListener("scroll", update);
+      viewport.removeEventListener("wheel", handleWheel);
+    };
+  };
+
+  // A newly active tab, or tabs that start overflowing, can sit outside
+  // the scrolled strip — keep the active tab visible (T3 parity).
+  useEffect(() => {
+    if (!state.activeSurfaceId || !tabScrollState.hasOverflow) return;
+    const activeTab = tabListRef.current?.querySelector<HTMLElement>(
+      "[data-active-tab='true']",
+    );
+    activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [state.activeSurfaceId, tabScrollState.hasOverflow]);
 
   const dropInsertFor = (targetIndex: number, e: DragEvent): number => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -230,7 +329,15 @@ function PanelFrame({
     <>
       {/* Tab bar — T3's RightPanelTabs header strip at topbar height. */}
       <div className="flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* T3 RightPanelTabs: ScrollArea + scrollFade gives the overflow
+            edge fade; chevrons appear while the strip overflows. */}
+        <ScrollArea
+          ref={attachTabList}
+          hideScrollbars
+          scrollFade
+          className="min-w-0 flex-1"
+        >
+          <div className="flex h-full w-max min-w-full items-center gap-1">
           {surfaces.map((surface, index) => {
             const Icon = SURFACE_ICONS[surface.kind];
             const active = surface.id === state.activeSurfaceId;
@@ -278,6 +385,7 @@ function PanelFrame({
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   dragId === surface.id && "opacity-50",
                 )}
+                data-active-tab={active || undefined}
               >
                 {/* oxlint-disable-next-line herdr-t3/no-raw-control -- composite tab row (icon + label + close), same pattern as the workspace tab strip */}
                 <button
@@ -317,7 +425,52 @@ function PanelFrame({
               </div>
             );
           })}
-        </div>
+          </div>
+        </ScrollArea>
+        {tabScrollState.hasOverflow ? (
+          <div
+            className="flex shrink-0 items-center gap-0.5"
+            role="group"
+            aria-label="Scroll panel tabs"
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <Button
+                      aria-label="Scroll tabs left"
+                      disabled={!tabScrollState.canScrollLeft}
+                      onClick={() => scrollTabs(-1)}
+                      size="icon-xs"
+                      variant="ghost"
+                    >
+                      <ChevronLeftIcon />
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipPopup>Scroll tabs left</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <Button
+                      aria-label="Scroll tabs right"
+                      disabled={!tabScrollState.canScrollRight}
+                      onClick={() => scrollTabs(1)}
+                      size="icon-xs"
+                      variant="ghost"
+                    >
+                      <ChevronRightIcon />
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipPopup>Scroll tabs right</TooltipPopup>
+            </Tooltip>
+          </div>
+        ) : null}
         <Menu>
           <MenuTrigger
             render={
