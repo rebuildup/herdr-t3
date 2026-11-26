@@ -18,7 +18,7 @@ the UI renders (`src/shell/*`, `src/lib/workspace.ts`).
   activate`.
 - Agent: `agent.get/prompt/rename/start/read/explain` — prompt answers
   only via the prompt API.
-- Worktree: `worktree.list/create/open/remove` (UI: WorktreesDialog).
+- Worktree: `worktree.list/create/open/remove` (UI: WorktreesSurface).
 
 ## Ordering and semantics
 

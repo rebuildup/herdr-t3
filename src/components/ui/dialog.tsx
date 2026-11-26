@@ -248,10 +248,16 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 function DialogPanel({
   className,
   scrollFade = true,
+  scrollAreaClassName,
   ...props
-}: React.ComponentProps<"div"> & { scrollFade?: boolean }) {
+}: React.ComponentProps<"div"> & {
+  scrollFade?: boolean;
+  /** Extra classes for the ScrollArea root — panel surfaces use this to
+      flex-fill a bounded-height host instead of the dialog's size-full. */
+  scrollAreaClassName?: string;
+}) {
   return (
-    <ScrollArea scrollFade={scrollFade}>
+    <ScrollArea scrollFade={scrollFade} className={scrollAreaClassName}>
       <div
         className={cn(
           "space-y-4 p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-1 in-[[data-slot=dialog-popup]:has([data-slot=dialog-footer]:not(.border-t))]:pb-1",

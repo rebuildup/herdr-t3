@@ -6,12 +6,16 @@
  */
 import {
   Columns2,
+  FolderGit2Icon,
+  FolderKanbanIcon,
   GitBranchIcon,
+  HistoryIcon,
   Maximize2Icon,
   MonitorIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
+  SquarePlayIcon,
   SquareTerminalIcon,
   SunIcon,
   SquarePenIcon,
@@ -49,7 +53,7 @@ import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
 import { GotoDialog } from "./GotoDialog";
 import { focusPaneTerminal } from "~/lib/paneFocus";
-import { WorktreesDialog } from "~/components/WorktreesDialog";
+import { openSurface, type RightPanelSurface } from "./rightPanelStore";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
 import {
@@ -109,7 +113,6 @@ export function CommandMenu({
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
   const [gotoOpen, setGotoOpen] = useState(false);
-  const [worktreesOpen, setWorktreesOpen] = useState(false);
 
   // Explicit Escape fallback: the footer advertises "Esc Close", so closing
   // must not depend solely on the dialog primitive's dismissal path (issue #94).
@@ -162,15 +165,64 @@ export function CommandMenu({
       },
     ];
     if (workspace) {
-      list.push({
-        id: "worktrees",
-        label: "Worktrees…",
-        group: "Actions",
-        icon: <GitBranchIcon className="size-4" />,
-        keywords: "git worktree branch checkout repo",
-        drillIn: true,
-        run: () => setWorktreesOpen(true),
-      });
+      // Plugin surfaces open as docked right-panel tabs (issue #333);
+      // Source Control targets the focused pane's repo.
+      const panelScope = `${machine}\n${workspace.workspace_id}`;
+      const panelSurface = (surface: RightPanelSurface) => () =>
+        openSurface(panelScope, surface);
+      const gitSurface: RightPanelSurface | null = focusedPane
+        ? {
+            id: `git:${focusedPane.pane_id}`,
+            kind: "git",
+            paneId: focusedPane.pane_id,
+          }
+        : null;
+      list.push(
+        {
+          id: "panel-git",
+          label: "Source Control",
+          group: "Actions",
+          icon: <FolderGit2Icon className="size-4" />,
+          keywords: "git source control diff status pane repo",
+          run: () => gitSurface && openSurface(panelScope, gitSurface),
+        },
+        {
+          id: "panel-projects",
+          label: "Projects",
+          group: "Actions",
+          icon: <FolderKanbanIcon className="size-4" />,
+          keywords: "projects registry plugin",
+          run: panelSurface({ id: "projects", kind: "projects" }),
+        },
+        {
+          id: "panel-scripts",
+          label: "Project Scripts",
+          group: "Actions",
+          icon: <SquarePlayIcon className="size-4" />,
+          keywords: "scripts run project plugin",
+          run: panelSurface({ id: "scripts", kind: "scripts" }),
+        },
+        {
+          id: "panel-checkpoints",
+          label: "Checkpoints",
+          group: "Actions",
+          icon: <HistoryIcon className="size-4" />,
+          keywords: "checkpoints snapshot restore git plugin",
+          run: panelSurface({
+            id: "checkpoints",
+            kind: "checkpoints",
+            paneId: focusedPane?.pane_id ?? null,
+          }),
+        },
+        {
+          id: "panel-worktrees",
+          label: "Worktrees",
+          group: "Actions",
+          icon: <GitBranchIcon className="size-4" />,
+          keywords: "git worktree branch checkout repo",
+          run: panelSurface({ id: "worktrees", kind: "worktrees" }),
+        },
+      );
       list.push(
         {
           id: "new-tab",
@@ -475,13 +527,6 @@ export function CommandMenu({
       </CommandDialogPopup>
     </CommandDialog>
     <GotoDialog open={gotoOpen} onOpenChange={setGotoOpen} />
-    {worktreesOpen && workspace ? (
-      <WorktreesDialog
-        machine={machine}
-        workspace={workspace}
-        onClose={() => setWorktreesOpen(false)}
-      />
-    ) : null}
     </>
   );
 }

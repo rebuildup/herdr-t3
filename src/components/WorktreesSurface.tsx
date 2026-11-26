@@ -4,12 +4,15 @@
  * the current workspace's repo and drives `worktree.open` /
  * `worktree.create` / `worktree.remove`. Distinct from Worktrunk UI,
  * which stays out of scope. Naming and git operations are delegated to
- * herdr — this dialog only collects the optional branch/base/label.
+ * herdr — this surface only collects the optional branch/base/label.
  *
  * `worktree.remove` is workspace-scoped in herdr: it requires the
  * workspace opened on that linked worktree, so Remove only appears for
  * entries with `open_workspace_id` + `is_linked_worktree`, behind an
  * inline confirm with a force toggle for dirty checkouts.
+ *
+ * Issue #333: docked right-panel surface (was WorktreesDialog); the
+ * remove confirm stays a real modal dialog.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranchIcon, PlusIcon } from "lucide-react";
@@ -27,7 +30,6 @@ import {
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { rpc } from "../lib/api";
-import { focusPaneTerminal } from "../lib/paneFocus";
 import type {
   RpcMethod,
   SessionSnapshot,
@@ -47,19 +49,13 @@ function entryTitle(entry: WorktreeListEntry): string {
   return entry.label?.trim() || entry.branch?.trim() || entry.path;
 }
 
-export function WorktreesDialog({
+export function WorktreesSurface({
   machine,
   workspace,
-  onClose,
 }: {
   machine: string;
   workspace: WorkspaceInfo | null;
-  onClose: () => void;
 }) {
-  const requestClose = () => {
-    onClose();
-    setTimeout(() => focusPaneTerminal(), 0);
-  };
   const bridge = useBridgeState();
   const snapshot = bridge.snapshots[machine] as SessionSnapshot | undefined;
 
@@ -163,18 +159,13 @@ export function WorktreesDialog({
   const repoName = result?.source.repo_name ?? workspace?.worktree?.repo_name;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && requestClose()}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Worktrees{repoName ? ` — ${repoName}` : ""}</DialogTitle>
-          <DialogDescription>
-            Git worktrees herdr knows for this repository. Open creates or
-            focuses a workspace; remove deletes the checkout.
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogPanel>
-          <div className="flex flex-col gap-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+        <p className="text-2xs text-muted-foreground">
+          Git worktrees herdr knows for {repoName ?? "this repository"} — Open
+          creates or focuses a workspace; remove deletes the checkout.
+        </p>
+        <div className="flex flex-col gap-1">
           {loading ? (
             <p className="py-4 text-center text-xs text-muted-foreground">
               Loading worktrees…
@@ -286,14 +277,7 @@ export function WorktreesDialog({
             <PlusIcon /> New worktree
           </Button>
           </div>
-        </DialogPanel>
-
-        <DialogFooter>
-          <Button size="sm" variant="ghost" onClick={requestClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+      </DialogPanel>
 
       {/* Remove confirm: destructive and workspace-scoped — herdr deletes
           the checkout and closes its workspace, so spell that out. */}
@@ -346,6 +330,6 @@ export function WorktreesDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Dialog>
+    </div>
   );
 }

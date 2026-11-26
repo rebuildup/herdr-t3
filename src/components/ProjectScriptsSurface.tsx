@@ -1,5 +1,5 @@
 /*
- * Project Scripts dialog (issue #253, ADR-0014): consumes
+ * Project Scripts surface (issue #253, ADR-0014): consumes
  * `herdr-plugins.projects/v1` through `plugin_call` only — the plugin
  * owns the registry, script resolution, and run records; this surface
  * lists definitions, runs/stops explicitly, and shows results/logs.
@@ -23,15 +23,7 @@ import { RefreshCwIcon } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogTitle,
-} from "./ui/dialog";
+import { DialogPanel } from "./ui/dialog";
 import {
   Select,
   SelectContent,
@@ -40,7 +32,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { focusPaneTerminal } from "../lib/paneFocus";
 import {
   classifyProjectScriptsError,
   fetchProjectsList,
@@ -638,7 +629,7 @@ function RunsPane({
           {runs?.map((run) => {
             const selected = run.run_id === selectedRunId;
             return (
-              // oxlint-disable-next-line herdr-t3/no-raw-control -- composite run row (selection + badges), same pattern as GitDialog file rows
+              // oxlint-disable-next-line herdr-t3/no-raw-control -- composite run row (selection + badges), same pattern as GitSurface file rows
               <button
                 key={run.run_id}
                 type="button"
@@ -684,20 +675,14 @@ function RunsPane({
   );
 }
 
-/* -------------------------------- dialog -------------------------------- */
+/* -------------------------------- surface ------------------------------- */
 
-export function ProjectScriptsDialog({
+/** Issue #333: docked right-panel surface (was ProjectScriptsDialog). */
+export function ProjectScriptsSurface({
   machine,
-  onClose,
 }: {
   machine: string;
-  onClose: () => void;
 }) {
-  const requestClose = () => {
-    onClose();
-    setTimeout(() => focusPaneTerminal(), 0);
-  };
-
   const [cap, setCap] = useState<ProjectsCapability | null | undefined>(undefined);
   const [projects, setProjects] = useState<ProjectsListResult | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
@@ -805,18 +790,13 @@ export function ProjectScriptsDialog({
   );
 
   return (
-    <Dialog open onOpenChange={(open) => !open && requestClose()}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Project Scripts</DialogTitle>
-          <DialogDescription>
-            Project-defined scripts from the rebuildup.projects plugin.
-            Runs execute in dedicated herdr workspaces; results and logs are
-            reported as the plugin records them.
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogPanel>
+    <div className="flex h-full min-h-0 flex-col">
+      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+        <p className="text-2xs text-muted-foreground">
+          Project-defined scripts from the rebuildup.projects plugin. Runs
+          execute in dedicated herdr workspaces; results and logs are
+          reported as the plugin records them.
+        </p>
           {cap === null ? (
             <SectionMessage>
               projects plugin unavailable on this host — install or enable
@@ -849,7 +829,7 @@ export function ProjectScriptsDialog({
                     {projects?.projects.map((project) => {
                       const selected = project.id === selectedProjectId;
                       return (
-                        // oxlint-disable-next-line herdr-t3/no-raw-control -- composite picker row (selection + metadata), same pattern as GitDialog file rows
+                        // oxlint-disable-next-line herdr-t3/no-raw-control -- composite picker row (selection + metadata), same pattern as GitSurface file rows
                         <button
                           key={project.id}
                           type="button"
@@ -917,14 +897,7 @@ export function ProjectScriptsDialog({
           ) : null}
 
           <MutationFeedback error={stopError} notice={stopNotice} />
-        </DialogPanel>
-
-        <DialogFooter>
-          <Button size="sm" variant="ghost" onClick={requestClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </DialogPanel>
+    </div>
   );
 }

@@ -176,7 +176,7 @@ work-unit auto-capture) + `docs/adr/ADR-0024.md` (re-pin @ae4f214 +
 save/restore-group/gc/prune + partial-report bridge convention).
 Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
-`src/components/CheckpointsDialog.tsx`, menu wiring in
+`src/components/CheckpointsSurface.tsx`, menu wiring in
 `src/shell/WorkspaceHeader.tsx`, error-field allowlist in
 `server/plugins.ts` + `server/plugins.test.ts`. Live plugin hosts are
 RC verification.

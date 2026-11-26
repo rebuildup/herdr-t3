@@ -18,6 +18,7 @@ import { syncDocumentElectronPlatformClasses, syncDocumentWindowControlsOverlayC
 import { AppShell } from "./shell/AppShell";
 import { WorkspaceHeader } from "./shell/WorkspaceHeader";
 import { WorkspaceCanvas } from "./shell/WorkspaceCanvas";
+import { RightPanel } from "./shell/RightPanel";
 import { SettingsModal } from "./shell/SettingsModal";
 import { CommandMenu } from "./shell/CommandMenu";
 import { NoticeToasts } from "./shell/NoticeToasts";
@@ -93,9 +94,15 @@ export default function App() {
     <TooltipProvider>
       <AppShell>
         <SidebarInset className="h-dvh min-h-0">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <WorkspaceHeader />
-            <WorkspaceCanvas />
+          {/* Issue #333: the right panel docks beside the whole content
+              column (header + canvas), T3 ChatView layout — surfaces are
+              tabs, never modal, so the terminal stays live. */}
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <WorkspaceHeader />
+              <WorkspaceCanvas />
+            </div>
+            <RightPanel />
           </div>
         </SidebarInset>
         {isSettingsOpen ? <SettingsModal /> : null}

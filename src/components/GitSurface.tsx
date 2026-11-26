@@ -12,16 +12,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogTitle,
-} from "./ui/dialog";
-import { focusPaneTerminal } from "../lib/paneFocus";
+import { DialogPanel } from "./ui/dialog";
 import {
   classifyForgeError,
   classifyGitError,
@@ -1921,19 +1912,13 @@ const SECTIONS: { id: Section; label: string }[] = [
  * `mutation_commands`; Stage-1 plugins simply hide the mutation
  * controls — nothing here pretends they exist.
  */
-export function GitDialog({
+export function GitSurface({
   pane,
   machine,
-  onClose,
 }: {
   pane: PaneInfo | null;
   machine: string;
-  onClose: () => void;
 }) {
-  const requestClose = () => {
-    onClose();
-    setTimeout(() => focusPaneTerminal(), 0);
-  };
   const paneId = pane?.pane_id ?? null;
   const [refreshKey, setRefreshKey] = useState(0);
   const [section, setSection] = useState<Section>("changes");
@@ -1952,16 +1937,14 @@ export function GitDialog({
   }, [machine]);
 
   return (
-    <Dialog open={pane !== null} onOpenChange={(open) => !open && requestClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Source Control</DialogTitle>
-          <DialogDescription>
-            Git status and history for {pane?.pane_id ?? ""} via the host's git plugin.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="flex h-full min-h-0 flex-col">
+      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+        <p className="text-2xs text-muted-foreground">
+          Git status and history for {pane?.pane_id ?? ""} via the host's git
+          plugin.
+        </p>
         {pane && paneId !== null ? (
-          <DialogPanel>
+          <>
             <section className="flex items-start justify-between gap-2">
               <StatusBody state={status} />
               <Button
@@ -2028,14 +2011,14 @@ export function GitDialog({
                 />
               ) : null}
             </section>
-          </DialogPanel>
-        ) : null}
-        <DialogFooter>
-          <Button size="sm" variant="ghost" onClick={requestClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </>
+        ) : (
+          <SectionMessage>
+            the pane this surface was opened for is closed — close the tab and
+            reopen Source Control from another pane
+          </SectionMessage>
+        )}
+      </DialogPanel>
+    </div>
   );
 }
