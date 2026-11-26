@@ -8,10 +8,13 @@
  * rebuildup/herdr-plugins@d23205af (v0.9.0,
  * docs/contracts/artifacts-v1.md, plugin v0.2.0+). The contract
  * advertises mutations (`mutation_commands: ["register", "delete",
- * "deliver", "gc"]`, `read_only: false`), but this surface is READ-ONLY:
- * `ARTIFACTS_MUTATION_COMMANDS` is an intentionally empty allowlist so
- * `artifactsSupportsMutation` can never return true — deliver/gc/
- * register/delete stay out until a dedicated ticket reviews them.
+ * "deliver", "gc"]`, `read_only: false`). This surface consumes the
+ * read commands plus those four mutations (issue #455), gated by
+ * `ARTIFACTS_MUTATION_COMMANDS` ∩ advertised `mutation_commands` ∩
+ * `commands`. `register` is path-only here — `--stdin` bytes cannot
+ * cross the `plugin_call` envelope. `delete`/`deliver`/`gc` results
+ * are parsed into verbatim result documents; every mutation is
+ * confirmed dialog-side before it is sent.
  *
  * Consumed read commands: `export` (the contract-designated client
  * read surface — the same annotated records as `list` plus
@@ -46,14 +49,20 @@ export const ARTIFACTS_CONTRACT_PREFIX = "herdr-plugins.artifacts/";
 const REQUIRED_COMMANDS = ["export", "search", "verify"] as const;
 
 /**
- * Mutation commands this surface may invoke. artifacts-v1 DOES
- * advertise `mutation_commands` (`register`/`delete`/`deliver`/`gc`),
- * but this ticket ships the read surface only — the local allowlist is
- * intentionally empty so every mutation fails closed. A future ticket
- * that adds e.g. `deliver` must extend the allowlist deliberately
- * (same gating shape as conversations.ts).
+ * Mutation commands this surface may invoke (issue #455). artifacts-v1
+ * advertises `mutation_commands` (`register`/`delete`/`deliver`/`gc`)
+ * since plugin v0.2.0, so gating is this explicit allowlist
+ * intersected with the advertised `mutation_commands` AND `commands`
+ * lists — a command the plugin does not advertise fails closed.
+ * `export` is never a mutation; `list`/`get`/`search`/`verify`/
+ * `capability`/`help` stay reads.
  */
-export const ARTIFACTS_MUTATION_COMMANDS = [] as const;
+export const ARTIFACTS_MUTATION_COMMANDS = [
+  "register",
+  "delete",
+  "deliver",
+  "gc",
+] as const;
 export type ArtifactsMutationCommand = (typeof ARTIFACTS_MUTATION_COMMANDS)[number];
 
 /** Boundary-level unavailability (ADR-0011 §10). */
@@ -536,6 +545,238 @@ export function artifactsVerifyArgs(artifactId?: string): string[] {
   return artifactId !== undefined && artifactId !== "" ? [artifactId] : [];
 }
 
+/* ----------------------------- mutations ------------------------------ */
+
+/**
+ * `register --path FILE [--kind KIND] [--storage state_copy|path_ref]
+ * [--title TEXT] [--pane PANE] [--created-by CREATED_BY] [--ref REF ...]`.
+ * `--stdin` is deliberately unsupported: payload bytes cannot cross
+ * the `plugin_call` envelope, so this client only registers existing
+ * host paths. `--ref` is repeatable; each non-empty entry emits one
+ * flag. An empty `path` yields `[]` — callers gate the form on it and
+ * the plugin would usage-fail anyway.
+ */
+export interface ArtifactsRegisterOptions {
+  path: string;
+  kind?: string | undefined;
+  storage?: string | undefined;
+  title?: string | undefined;
+  paneId?: string | undefined;
+  createdBy?: string | undefined;
+  refs?: readonly string[] | undefined;
+}
+
+export function artifactsRegisterArgs(options: ArtifactsRegisterOptions): string[] {
+  const path = options.path.trim();
+  if (path === "") return [];
+  const args = ["--path", path];
+  if (options.kind !== undefined && options.kind !== "") {
+    args.push("--kind", options.kind);
+  }
+  if (options.storage !== undefined && options.storage !== "") {
+    args.push("--storage", options.storage);
+  }
+  if (options.title !== undefined && options.title.trim() !== "") {
+    args.push("--title", options.title.trim());
+  }
+  if (options.paneId !== undefined && options.paneId.trim() !== "") {
+    args.push("--pane", options.paneId.trim());
+  }
+  if (options.createdBy !== undefined && options.createdBy !== "") {
+    args.push("--created-by", options.createdBy);
+  }
+  for (const ref of options.refs ?? []) {
+    const trimmed = ref.trim();
+    if (trimmed !== "") args.push("--ref", trimmed);
+  }
+  return args;
+}
+
+/**
+ * `delete <artifact_id> [--force]`. Records with non-empty `refs`
+ * refuse without `--force` (`referenced`) — the surface only sends
+ * `--force` after an explicit user opt-in in the confirmation dialog.
+ */
+export function artifactsDeleteArgs(artifactId: string, force = false): string[] {
+  return force ? [artifactId, "--force"] : [artifactId];
+}
+
+/**
+ * `deliver <artifact_id> --pane PANE | --agent PANE [--note TEXT]`.
+ * Exactly one target flag is emitted; `--agent` takes the pane hosting
+ * a live agent (`agent.prompt`), `--pane` sends literal text via
+ * `pane.send_text` (embedded newlines reach the PTY as Enter — the
+ * contract caveat, surfaced in the dialog copy).
+ */
+export type ArtifactsDeliverTargetKind = "pane" | "agent";
+
+export interface ArtifactsDeliverOptions {
+  artifactId: string;
+  targetKind: ArtifactsDeliverTargetKind;
+  paneId: string;
+  note?: string | undefined;
+}
+
+export function artifactsDeliverArgs(options: ArtifactsDeliverOptions): string[] {
+  const args = [
+    options.artifactId,
+    options.targetKind === "agent" ? "--agent" : "--pane",
+    options.paneId.trim(),
+  ];
+  if (options.note !== undefined && options.note.trim() !== "") {
+    args.push("--note", options.note.trim());
+  }
+  return args;
+}
+
+/**
+ * `gc --older-than ISO [--dry-run]`. `--older-than` is required
+ * upstream; `--dry-run` performs the full evaluation with zero
+ * mutation and is the safe first step the dialog defaults to.
+ */
+export interface ArtifactsGcOptions {
+  olderThan: string;
+  dryRun?: boolean | undefined;
+}
+
+export function artifactsGcArgs(options: ArtifactsGcOptions): string[] {
+  const args = ["--older-than", options.olderThan];
+  if (options.dryRun === true) args.push("--dry-run");
+  return args;
+}
+
+/* ------------------------- mutation results ---------------------------- */
+
+/** `delete` success body: `{artifact_id, storage_mode, removed_payload}`. */
+export interface ArtifactsDeleteResult {
+  artifact_id: string | null;
+  storage_mode: string | null;
+  removed_payload: boolean | null;
+}
+
+export function artifactsDeleteFromDoc(
+  doc: Record<string, unknown>,
+): ArtifactsDeleteResult | null {
+  if (!contractAllowed(doc)) return null;
+  return {
+    artifact_id: str(doc["artifact_id"]),
+    storage_mode: str(doc["storage_mode"]),
+    removed_payload: bool(doc["removed_payload"]),
+  };
+}
+
+/**
+ * `deliver` success body: `{target:{kind,pane_id}, method, message,
+ * artifact}`. `message` is the exact text sent — rendered verbatim so
+ * the user sees what landed in the pane/agent.
+ */
+export interface ArtifactsDeliverResult {
+  artifact_id: string | null;
+  target: { kind: string | null; pane_id: string | null };
+  method: string | null;
+  message: string | null;
+  artifact: ArtifactRecord | null;
+}
+
+export function artifactsDeliverFromDoc(
+  doc: Record<string, unknown>,
+): ArtifactsDeliverResult | null {
+  if (!contractAllowed(doc)) return null;
+  const targetRaw = isRecord(doc["target"]) ? doc["target"] : {};
+  return {
+    artifact_id: str(doc["artifact_id"]),
+    target: {
+      kind: str(targetRaw["kind"]),
+      pane_id: str(targetRaw["pane_id"]),
+    },
+    method: str(doc["method"]),
+    message: str(doc["message"]),
+    artifact: artifactRecordFromDoc(doc["artifact"]),
+  };
+}
+
+/** One `gc` entry — `action`/`reason` stay verbatim contract words. */
+export interface ArtifactsGcEntry {
+  artifact_id: string;
+  /** `deleted` | `would_delete` | `skipped` (verbatim). */
+  action: string | null;
+  /** `referenced` | `invalid_created_at` | `delete_failed` (verbatim). */
+  reason: string | null;
+  storage_mode: string | null;
+  removed_payload: boolean | null;
+  error: string | null;
+}
+
+/** `gc` report: policy echo + per-entry actions + totals + honesty fields. */
+export interface ArtifactsGcReport {
+  olderThan: string | null;
+  dryRun: boolean | null;
+  evaluated: number | null;
+  expired: number | null;
+  entries: ArtifactsGcEntry[];
+  totals: {
+    evaluated: number | null;
+    expired: number | null;
+    deleted: number | null;
+    would_delete: number | null;
+    skipped_referenced: number | null;
+    skipped_other: number | null;
+    kept: number | null;
+    errors: number | null;
+  };
+  orphans: string[];
+  corrupt: string[];
+}
+
+function gcEntryFromDoc(raw: unknown): ArtifactsGcEntry | null {
+  if (!isRecord(raw)) return null;
+  const artifactId = str(raw["artifact_id"]);
+  if (artifactId === null || artifactId === "") return null;
+  return {
+    artifact_id: artifactId,
+    action: str(raw["action"]),
+    reason: str(raw["reason"]),
+    storage_mode: str(raw["storage_mode"]),
+    removed_payload: bool(raw["removed_payload"]),
+    error: str(raw["error"]),
+  };
+}
+
+/** `gc` document; null on a foreign contract or missing `entries`. */
+export function artifactsGcFromDoc(
+  doc: Record<string, unknown>,
+): ArtifactsGcReport | null {
+  if (!contractAllowed(doc)) return null;
+  const entriesRaw = doc["entries"];
+  if (!Array.isArray(entriesRaw)) return null;
+  const entries: ArtifactsGcEntry[] = [];
+  for (const raw of entriesRaw) {
+    const entry = gcEntryFromDoc(raw);
+    if (entry !== null) entries.push(entry);
+  }
+  const policyRaw = isRecord(doc["policy"]) ? doc["policy"] : {};
+  const totalsRaw = isRecord(doc["totals"]) ? doc["totals"] : {};
+  return {
+    olderThan: str(policyRaw["older_than"]),
+    dryRun: bool(doc["dry_run"]),
+    evaluated: num(doc["evaluated"]),
+    expired: num(doc["expired"]),
+    entries,
+    totals: {
+      evaluated: num(totalsRaw["evaluated"]),
+      expired: num(totalsRaw["expired"]),
+      deleted: num(totalsRaw["deleted"]),
+      would_delete: num(totalsRaw["would_delete"]),
+      skipped_referenced: num(totalsRaw["skipped_referenced"]),
+      skipped_other: num(totalsRaw["skipped_other"]),
+      kept: num(totalsRaw["kept"]),
+      errors: num(totalsRaw["errors"]),
+    },
+    orphans: strArray(doc["orphans"]),
+    corrupt: strArray(doc["corrupt"]),
+  };
+}
+
 /* -------------------------------- reads -------------------------------- */
 
 async function callArtifacts(
@@ -595,6 +836,101 @@ export async function fetchArtifactsVerify(
   return report;
 }
 
+/**
+ * Mutations can hash payloads (`register`), walk the index (`gc`), or
+ * round-trip a herdr RPC (`deliver`); give them a wider envelope than
+ * the read calls.
+ */
+const MUTATION_TIMEOUT_MS = 60_000;
+
+/**
+ * `register` — registers an existing host path (`--path` only;
+ * `--stdin` bytes cannot cross `plugin_call`). Returns the annotated
+ * record the plugin persisted. Kind/storage/created-by left unset are
+ * inferred plugin-side; the surface never fabricates them.
+ */
+export async function registerArtifact(
+  machine: string,
+  options: ArtifactsRegisterOptions,
+): Promise<ArtifactRecord> {
+  const args = artifactsRegisterArgs(options);
+  if (args.length === 0) {
+    const error = new Error("register requires a non-empty --path");
+    (error as { code?: string }).code = "usage";
+    throw error;
+  }
+  const doc = await callArtifacts(machine, "register", args, MUTATION_TIMEOUT_MS);
+  const artifact = artifactRecordFromDoc(doc["artifact"]);
+  if (artifact === null) throw badOutput("register");
+  return artifact;
+}
+
+/**
+ * `delete <id> [--force]` — removes the index record and (for
+ * `state_copy`) the payload. `path_ref` external files are NEVER
+ * removed plugin-side; `removed_payload` reports what actually
+ * happened. Referenced records refuse without `force` (`referenced`).
+ */
+export async function deleteArtifact(
+  machine: string,
+  artifactId: string,
+  force = false,
+): Promise<ArtifactsDeleteResult> {
+  const doc = await callArtifacts(
+    machine,
+    "delete",
+    artifactsDeleteArgs(artifactId, force),
+    MUTATION_TIMEOUT_MS,
+  );
+  const result = artifactsDeleteFromDoc(doc);
+  if (result === null) throw badOutput("delete");
+  return result;
+}
+
+/**
+ * `deliver <id> --pane|--agent PANE [--note]` — sends the artifact's
+ * stable `resolved_path` inside `agent.prompt`/`pane.send_text` text.
+ * Refusals (`missing_ref`, `target_not_found`, `agent_not_found`,
+ * `delivery_failed` with upstream `rpc_code`) surface as structured
+ * plugin errors, never relabelled here.
+ */
+export async function deliverArtifact(
+  machine: string,
+  options: ArtifactsDeliverOptions,
+): Promise<ArtifactsDeliverResult> {
+  const doc = await callArtifacts(
+    machine,
+    "deliver",
+    artifactsDeliverArgs(options),
+    MUTATION_TIMEOUT_MS,
+  );
+  const result = artifactsDeliverFromDoc(doc);
+  if (result === null) throw badOutput("deliver");
+  return result;
+}
+
+/**
+ * `gc --older-than ISO [--dry-run]` — pure plugin-state work (no live
+ * session needed). Returns the full per-entry report: `deleted` /
+ * `would_delete` / `skipped` with verbatim `reason`s and per-entry
+ * `error`s — one failed deletion never aborts the rest, and
+ * `totals.errors` counts them honestly.
+ */
+export async function gcArtifacts(
+  machine: string,
+  options: ArtifactsGcOptions,
+): Promise<ArtifactsGcReport> {
+  const doc = await callArtifacts(
+    machine,
+    "gc",
+    artifactsGcArgs(options),
+    MUTATION_TIMEOUT_MS,
+  );
+  const report = artifactsGcFromDoc(doc);
+  if (report === null) throw badOutput("gc");
+  return report;
+}
+
 /* ---------------------------- capability ------------------------------ */
 
 const CAPABILITY_TTL_MS = 30_000;
@@ -648,11 +984,12 @@ export function artifactsSupports(
 }
 
 /**
- * Mutation gating. artifacts-v1 advertises `mutation_commands`
- * (`register`/`delete`/`deliver`/`gc`), but the local
- * ARTIFACTS_MUTATION_COMMANDS allowlist is empty — this surface is
- * read-only, so every mutation fails closed until a dedicated ticket
- * extends the allowlist. `null` cap = still probing.
+ * Mutation gating (issue #455). artifacts-v1 advertises
+ * `mutation_commands` (`register`/`delete`/`deliver`/`gc`) since
+ * plugin v0.2.0, so a command is offerable only when it is in the
+ * local ARTIFACTS_MUTATION_COMMANDS allowlist AND advertised in BOTH
+ * `mutation_commands` and the flat `commands` list — an older or
+ * partial plugin build fails closed. `null` cap = still probing.
  */
 export function artifactsSupportsMutation(
   cap: ArtifactsCapability | null | undefined,

@@ -6,8 +6,15 @@ import {
   ARTIFACTS_PLUGIN_ID,
   artifactRecordFromDoc,
   artifactsCapabilityFromDoc,
+  artifactsDeleteArgs,
+  artifactsDeleteFromDoc,
+  artifactsDeliverArgs,
+  artifactsDeliverFromDoc,
   artifactsExportFromDoc,
+  artifactsGcArgs,
+  artifactsGcFromDoc,
   artifactsReadArgs,
+  artifactsRegisterArgs,
   artifactsSearchArgs,
   artifactsSearchFromDoc,
   artifactsSupports,
@@ -202,15 +209,124 @@ describe("artifacts argv builders (herdr-plugins.artifacts/v1 @d23205af)", () =>
     expect(artifactsVerifyArgs("art-abc123")).toEqual(["art-abc123"]);
     expect(artifactsVerifyArgs("")).toEqual([]);
   });
+
+  test("register argv emits --path plus optional flags and repeated --ref", () => {
+    // plugins/artifacts/src/cli.ts @d23205af:
+    //   register --path FILE [--kind KIND] [--storage MODE] [--title T]
+    //     [--pane PANE] [--created-by C] [--ref REF ...] | --stdin
+    // --stdin is never emitted: payload bytes cannot cross plugin_call.
+    expect(artifactsRegisterArgs({ path: "" })).toEqual([]);
+    expect(artifactsRegisterArgs({ path: "  " })).toEqual([]);
+    expect(artifactsRegisterArgs({ path: "/tmp/report.html" })).toEqual([
+      "--path",
+      "/tmp/report.html",
+    ]);
+    expect(
+      artifactsRegisterArgs({
+        path: " /tmp/a.png ",
+        kind: "image",
+        storage: "path_ref",
+        title: "  screenshot  ",
+        paneId: " w1:p1 ",
+        createdBy: "agent",
+        refs: [" conversations:event/evt-1 ", "", "handoff:record/h-1"],
+      }),
+    ).toEqual([
+      "--path",
+      "/tmp/a.png",
+      "--kind",
+      "image",
+      "--storage",
+      "path_ref",
+      "--title",
+      "screenshot",
+      "--pane",
+      "w1:p1",
+      "--created-by",
+      "agent",
+      "--ref",
+      "conversations:event/evt-1",
+      "--ref",
+      "handoff:record/h-1",
+    ]);
+    // Empty optionals never emit flags.
+    expect(
+      artifactsRegisterArgs({
+        path: "/tmp/f.bin",
+        kind: "",
+        storage: "",
+        title: "   ",
+        paneId: "",
+        createdBy: "",
+        refs: ["", "   "],
+      }),
+    ).toEqual(["--path", "/tmp/f.bin"]);
+  });
+
+  test("delete argv is the id positional plus optional --force", () => {
+    // delete <artifact_id> [--force]
+    expect(artifactsDeleteArgs("art-abc123")).toEqual(["art-abc123"]);
+    expect(artifactsDeleteArgs("art-abc123", false)).toEqual(["art-abc123"]);
+    expect(artifactsDeleteArgs("art-abc123", true)).toEqual([
+      "art-abc123",
+      "--force",
+    ]);
+  });
+
+  test("deliver argv picks exactly one of --agent/--pane plus optional --note", () => {
+    // deliver <artifact_id> --pane PANE|--agent PANE [--note TEXT]
+    expect(
+      artifactsDeliverArgs({
+        artifactId: "art-abc123",
+        targetKind: "agent",
+        paneId: "w1:p1",
+      }),
+    ).toEqual(["art-abc123", "--agent", "w1:p1"]);
+    expect(
+      artifactsDeliverArgs({
+        artifactId: "art-abc123",
+        targetKind: "pane",
+        paneId: " w2:p3 ",
+        note: "  see attached  ",
+      }),
+    ).toEqual(["art-abc123", "--pane", "w2:p3", "--note", "see attached"]);
+    expect(
+      artifactsDeliverArgs({
+        artifactId: "art-abc123",
+        targetKind: "pane",
+        paneId: "w2:p3",
+        note: "  ",
+      }),
+    ).toEqual(["art-abc123", "--pane", "w2:p3"]);
+  });
+
+  test("gc argv requires --older-than and adds --dry-run", () => {
+    // gc --older-than ISO [--dry-run]
+    expect(artifactsGcArgs({ olderThan: "2026-01-01T00:00:00.000Z" })).toEqual([
+      "--older-than",
+      "2026-01-01T00:00:00.000Z",
+    ]);
+    expect(
+      artifactsGcArgs({ olderThan: "2026-01-01T00:00:00.000Z", dryRun: true }),
+    ).toEqual(["--older-than", "2026-01-01T00:00:00.000Z", "--dry-run"]);
+    expect(
+      artifactsGcArgs({ olderThan: "2026-01-01T00:00:00.000Z", dryRun: false }),
+    ).toEqual(["--older-than", "2026-01-01T00:00:00.000Z"]);
+  });
 });
 
 describe("artifacts doc parsers", () => {
   test("constants match the pinned contract", () => {
     expect(ARTIFACTS_PLUGIN_ID).toBe("rebuildup.artifacts");
     expect(ARTIFACTS_CONTRACT_PREFIX).toBe("herdr-plugins.artifacts/");
-    // Read surface only: the local allowlist stays empty even though
-    // the contract advertises register/delete/deliver/gc mutations.
-    expect(ARTIFACTS_MUTATION_COMMANDS).toHaveLength(0);
+    // Issue #455: the local allowlist now covers exactly the four
+    // mutation_commands the contract advertises — nothing more.
+    expect([...ARTIFACTS_MUTATION_COMMANDS]).toEqual([
+      "register",
+      "delete",
+      "deliver",
+      "gc",
+    ]);
   });
 
   test("artifact record parses annotations verbatim", () => {
@@ -332,6 +448,124 @@ describe("artifacts doc parsers", () => {
   });
 });
 
+describe("artifacts mutation result parsers", () => {
+  test("delete parses storage_mode/removed_payload verbatim", () => {
+    const result = artifactsDeleteFromDoc({
+      contract: CONTRACT,
+      ok: true,
+      command: "delete",
+      artifact_id: "art-abc123",
+      storage_mode: "state_copy",
+      removed_payload: true,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.artifact_id).toBe("art-abc123");
+    expect(result?.storage_mode).toBe("state_copy");
+    expect(result?.removed_payload).toBe(true);
+    // path_ref deletes keep the external file — removed_payload false.
+    const pathRef = artifactsDeleteFromDoc({
+      contract: CONTRACT,
+      artifact_id: "art-def456",
+      storage_mode: "path_ref",
+      removed_payload: false,
+    });
+    expect(pathRef?.removed_payload).toBe(false);
+    expect(artifactsDeleteFromDoc({ contract: "other/v9" })).toBeNull();
+    // Tolerant: missing fields stay null, never fabricated.
+    const sparse = artifactsDeleteFromDoc({ contract: CONTRACT });
+    expect(sparse?.artifact_id).toBeNull();
+    expect(sparse?.removed_payload).toBeNull();
+  });
+
+  test("deliver parses target/method/message and the annotated record", () => {
+    const doc = {
+      contract: CONTRACT,
+      ok: true,
+      command: "deliver",
+      artifact_id: "art-abc123",
+      target: { kind: "agent", pane_id: "w1:p1" },
+      method: "agent.prompt",
+      message: "[artifacts] art-abc123 — html artifact\npath: /x",
+      artifact: ARTIFACT_HTML,
+    };
+    const result = artifactsDeliverFromDoc(doc);
+    expect(result).not.toBeNull();
+    expect(result?.artifact_id).toBe("art-abc123");
+    expect(result?.target).toEqual({ kind: "agent", pane_id: "w1:p1" });
+    expect(result?.method).toBe("agent.prompt");
+    expect(result?.message).toContain("[artifacts] art-abc123");
+    expect(result?.artifact?.artifact_id).toBe("art-abc123");
+    expect(result?.artifact?.meta?.render?.policy).toBe("client");
+    // Missing target/artifact degrade to null, not fabricated values.
+    const sparse = artifactsDeliverFromDoc({ contract: CONTRACT });
+    expect(sparse?.target).toEqual({ kind: null, pane_id: null });
+    expect(sparse?.artifact).toBeNull();
+    expect(artifactsDeliverFromDoc({ contract: "other/v9" })).toBeNull();
+  });
+
+  test("gc parses policy/dry_run/evaluated/entries/totals verbatim", () => {
+    const doc = {
+      contract: CONTRACT,
+      ok: true,
+      command: "gc",
+      policy: { older_than: "2026-01-01T00:00:00.000Z" },
+      dry_run: false,
+      evaluated: 4,
+      expired: 2,
+      entries: [
+        {
+          artifact_id: "art-old1",
+          action: "deleted",
+          storage_mode: "state_copy",
+          removed_payload: true,
+        },
+        {
+          artifact_id: "art-old2",
+          action: "skipped",
+          reason: "referenced",
+          storage_mode: "path_ref",
+        },
+        { junk: true },
+      ],
+      totals: {
+        evaluated: 4,
+        expired: 2,
+        deleted: 1,
+        would_delete: 0,
+        skipped_referenced: 1,
+        skipped_other: 0,
+        kept: 2,
+        errors: 0,
+      },
+      orphans: ["art-orphan"],
+      corrupt: [],
+    };
+    const report = artifactsGcFromDoc(doc);
+    expect(report).not.toBeNull();
+    expect(report?.olderThan).toBe("2026-01-01T00:00:00.000Z");
+    expect(report?.dryRun).toBe(false);
+    expect(report?.evaluated).toBe(4);
+    expect(report?.expired).toBe(2);
+    // The malformed entry is dropped; ids stay plugin-reported.
+    expect(report?.entries).toHaveLength(2);
+    expect(report?.entries[0]?.action).toBe("deleted");
+    expect(report?.entries[0]?.removed_payload).toBe(true);
+    expect(report?.entries[1]?.action).toBe("skipped");
+    expect(report?.entries[1]?.reason).toBe("referenced");
+    expect(report?.totals.deleted).toBe(1);
+    expect(report?.totals.skipped_referenced).toBe(1);
+    expect(report?.totals.errors).toBe(0);
+    expect(report?.orphans).toEqual(["art-orphan"]);
+    // dry_run echoes verbatim; missing entries array rejects.
+    expect(
+      artifactsGcFromDoc({ contract: CONTRACT, entries: [], dry_run: true })
+        ?.dryRun,
+    ).toBe(true);
+    expect(artifactsGcFromDoc({ contract: CONTRACT })).toBeNull();
+    expect(artifactsGcFromDoc({ contract: "other/v9", entries: [] })).toBeNull();
+  });
+});
+
 describe("artifacts capability", () => {
   const CAPABILITY = {
     contract: CONTRACT,
@@ -384,25 +618,47 @@ describe("artifacts capability", () => {
     expect(artifactsSupports(noCommands, "export")).toBe(false);
   });
 
-  test("mutation gating fails closed despite advertised mutation_commands", () => {
+  test("mutation gating requires allowlist + mutation_commands + commands", () => {
     const cap = artifactsCapabilityFromDoc(CAPABILITY);
     expect(cap).not.toBeNull();
-    // The contract DOES advertise mutations, but the empty local
-    // allowlist keeps every command unofferable on this surface.
+    // Issue #455: all four advertised mutations are now offerable.
+    for (const command of ARTIFACTS_MUTATION_COMMANDS) {
+      expect(artifactsSupportsMutation(cap, command)).toBe(true);
+    }
+    // Reads and non-allowlisted commands are never mutations.
     for (const command of [
-      "register",
-      "delete",
-      "deliver",
-      "gc",
       "export",
       "search",
       "verify",
+      "list",
+      "get",
+      "capability",
+      "help",
     ]) {
       expect(artifactsSupportsMutation(cap, command)).toBe(false);
     }
+    // Advertised in commands but NOT in mutation_commands → false
+    // (an older/partial plugin build fails closed).
+    const noMutationField = artifactsCapabilityFromDoc({
+      contract: CONTRACT,
+      commands: ["capability", "register", "delete", "deliver", "gc", "export"],
+    });
+    for (const command of ARTIFACTS_MUTATION_COMMANDS) {
+      expect(artifactsSupportsMutation(noMutationField, command)).toBe(false);
+    }
+    // In mutation_commands but missing from commands → false.
+    const partial = artifactsCapabilityFromDoc({
+      contract: CONTRACT,
+      mutation_commands: ["register", "delete", "deliver", "gc"],
+      commands: ["capability", "export", "search", "verify", "delete"],
+    });
+    expect(artifactsSupportsMutation(partial, "delete")).toBe(true);
+    expect(artifactsSupportsMutation(partial, "register")).toBe(false);
+    expect(artifactsSupportsMutation(partial, "deliver")).toBe(false);
+    expect(artifactsSupportsMutation(partial, "gc")).toBe(false);
     // Probe states mirror artifactsSupports: undefined = probing.
-    expect(artifactsSupportsMutation(undefined, "export")).toBeNull();
-    expect(artifactsSupportsMutation(null, "export")).toBe(false);
+    expect(artifactsSupportsMutation(undefined, "delete")).toBeNull();
+    expect(artifactsSupportsMutation(null, "delete")).toBe(false);
   });
 });
 
