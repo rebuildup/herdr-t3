@@ -448,7 +448,7 @@
                 "h": 16
               },
               "color": "#ffffff",
-              "alpha": 0.35
+              "alpha": 1
             }
           ]
         }
@@ -492,7 +492,7 @@
                 "h": 16
               },
               "color": "#ffffff",
-              "alpha": 0.35
+              "alpha": 1
             }
           ]
         }
@@ -805,7 +805,7 @@
                 "h": 16
               },
               "color": "#ffffff",
-              "alpha": 0.35
+              "alpha": 1
             }
           ]
         }
@@ -883,7 +883,7 @@
                 "h": 16
               },
               "color": "#ffffff",
-              "alpha": 0.35
+              "alpha": 1
             }
           ]
         }

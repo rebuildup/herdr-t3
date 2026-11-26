@@ -362,6 +362,9 @@ export function createTerminalAdapter(): Adapter {
                 foreground: opt("foreground", "#d4d4d4"),
                 background: opt("background", "#1e1e1e"),
                 cursor: opt("cursor", "#ffffff"),
+                ...(typeof options["cursorText"] === "string"
+                  ? { cursorText: options["cursorText"] as string }
+                  : {}),
                 ...(typeof options["selection"] === "string"
                   ? { selection: options["selection"] as string }
                   : {}),
@@ -427,6 +430,7 @@ export function createTerminalAdapter(): Adapter {
                 ...own("foreground"),
                 ...own("background"),
                 ...own("cursor"),
+                ...own("cursorText"),
                 ...own("selection"),
                 ...own("search"),
               });
@@ -582,6 +586,9 @@ export function createTerminalAdapter(): Adapter {
                 foreground: str(colors, "foreground"),
                 background: str(colors, "background"),
                 cursor: str(colors, "cursor"),
+                ...(typeof colors["cursorText"] === "string"
+                  ? { cursorText: colors["cursorText"] as string }
+                  : {}),
                 ansi,
               },
               fontFamily: optStr("font_family") ?? "monospace",
@@ -659,6 +666,9 @@ export function createTerminalAdapter(): Adapter {
               foreground: str(colors, "foreground"),
               background: str(colors, "background"),
               cursor: str(colors, "cursor"),
+              ...(typeof colors["cursorText"] === "string"
+                ? { cursorText: colors["cursorText"] as string }
+                : {}),
               ansi,
             });
             return ok({ effects: r.effects, value: r.value ?? null });

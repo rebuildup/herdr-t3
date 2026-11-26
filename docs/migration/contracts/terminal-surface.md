@@ -69,7 +69,7 @@ in order; the Rust port emits the identical list.
 `render_set_highlights{ranges}` · `render_set_cursor_visible{visible}` ·
 `render_invalidate` · `render_set_metrics{metrics}` ·
 `render_set_font{fontFamily?,fontSize?}` ·
-`render_set_colors{foreground,background,cursor}` ·
+`render_set_colors{foreground,background,cursor,cursorText?}` ·
 `render_set_background_opacity{alpha}` · `render_collect` ·
 `render_frame` · `ime_anchor{rect|null}` · `ime_view{...}` ·
 `ime_view_hide` · `focus` · `pointer_capture` · `prevent_default`.

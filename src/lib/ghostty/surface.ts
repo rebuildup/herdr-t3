@@ -128,6 +128,7 @@ export class GhosttySurface {
       foreground: options.colors.foreground,
       background: options.colors.background,
       cursor: options.colors.cursor,
+      cursorText: options.colors.cursorText,
     });
     this.input = document.createElement("textarea");
     this.input.className = "ghostty-input";
@@ -164,6 +165,7 @@ export class GhosttySurface {
       foreground: options.colors.foreground,
       background: options.colors.background,
       cursor: options.colors.cursor,
+      cursorText: options.colors.cursorText,
     });
     if (this.core.isDead && this.core.deadError !== null) {
       options.onDead?.(new Error(this.core.deadError));
@@ -417,6 +419,7 @@ export class GhosttySurface {
             foreground: effect.foreground,
             background: effect.background,
             cursor: effect.cursor,
+            cursorText: effect.cursorText,
           });
           break;
         case "render_set_background_opacity":

@@ -110,6 +110,7 @@ export type SurfaceEffect =
       foreground: string;
       background: string;
       cursor: string;
+      cursorText?: string | undefined;
     }
   /** renderer: background opacity */
   | { type: "render_set_background_opacity"; alpha: number }
@@ -552,6 +553,7 @@ export class SurfaceCore {
       foreground: colors.foreground,
       background: colors.background,
       cursor: colors.cursor,
+      ...(colors.cursorText !== undefined ? { cursorText: colors.cursorText } : {}),
     });
     this.schedule(effects);
     return ok(effects, undefined);

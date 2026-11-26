@@ -226,6 +226,8 @@ export function getTerminalSurfaceColors(): GhosttyThemeColors {
     foreground: theme?.foreground || resolvedColor("--terminal-foreground"),
     background: theme?.background || resolvedColor("--terminal-background"),
     cursor: theme?.cursor || resolvedColor("--terminal-cursor"),
+    // `cursor-text` is render-only (issue #382): the engine never sees it.
+    cursorText: theme?.cursorAccent || undefined,
     ansi,
   };
 }
