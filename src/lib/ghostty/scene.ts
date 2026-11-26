@@ -108,6 +108,15 @@ export class GhosttyScene {
   private metrics: SceneMetrics | null = null;
   private selection: ScreenRange | null = null;
   private highlights: ScreenRange[] = [];
+  /**
+   * Rows the host's authoritative viewport sits above the engine's
+   * bottom-anchored `viewportTop` (server-side scroll, issue #436). The
+   * attach blit repaints screen rows without moving `viewportTop`, so
+   * selection/search ranges — stored in engine history coordinates —
+   * project against `viewportTop - viewportShift` to stay on their
+   * characters.
+   */
+  private viewportShift = 0;
   private cursorOn = true;
   private bgImage: SceneBackgroundImage | null = null;
   private bgOpacity = 1;
@@ -144,6 +153,10 @@ export class GhosttyScene {
 
   setHighlights(ranges: ScreenRange[]): void {
     this.highlights = ranges;
+  }
+
+  setViewportShift(shift: number): void {
+    this.viewportShift = shift;
   }
 
   setCursorVisible(visible: boolean): void {
@@ -449,7 +462,7 @@ export class GhosttyScene {
   /** selection and search washes, then the cursor, on the overlay layer */
   private paintOverlay(out: PaintOp[], m: SceneMetrics): void {
     out.push({ op: "clear", rect: { x: 0, y: 0, w: m.cols * m.cellW, h: m.rows * m.cellH } });
-    const viewportTop = this.session.history().viewportTop;
+    const viewportTop = this.session.history().viewportTop - this.viewportShift;
     const wash = (range: ScreenRange, color: string | undefined): void => {
       if (!color) return;
       this.eachCell(range, viewportTop, m, (x, y, w, h) =>

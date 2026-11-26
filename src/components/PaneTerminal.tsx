@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  onHerdrEvent,
   onTerminalClosed,
   onTerminalData,
   onTerminalMouseCapture,
@@ -97,6 +98,12 @@ export function PaneTerminal({
     modifiers: number;
   } | null>(null);
   const wheelFrame = useRef(0);
+  // Server-authoritative scroll offset for this pane (issues #433/#436):
+  // `pane.scroll_changed` events and `pane.scroll` replies keep it fresh;
+  // selection edge auto-scroll turns `scroll_request` into absolute
+  // `offset_from_bottom` targets through it.
+  const scrollInfo = useRef({ offset: 0, max: 0 });
+  const gridRef = useRef({ cols: 0, rows: 0 });
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -204,8 +211,34 @@ export function PaneTerminal({
               });
             }
           },
+          onScrollRequest: (direction, lines) => {
+            // Selection edge auto-scroll (issue #433): move the server's
+            // authoritative viewport via `pane.scroll` — never the wheel
+            // path, which the server would arbitrate into TUI mouse reports.
+            const info = scrollInfo.current;
+            const delta = direction === "up" ? lines : -lines;
+            const target = Math.max(0, info.offset + delta);
+            if (target === info.offset) return;
+            void rpc<{ pane?: { scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null } }>(
+              "pane.scroll",
+              { pane_id: paneId, offset_from_bottom: target },
+              machine,
+            )
+              .then((res) => {
+                const scroll = res?.pane?.scroll;
+                if (!scroll) return;
+                if (typeof scroll.offset_from_bottom === "number") {
+                  scrollInfo.current.offset = scroll.offset_from_bottom;
+                }
+                if (typeof scroll.max_offset_from_bottom === "number") {
+                  scrollInfo.current.max = scroll.max_offset_from_bottom;
+                }
+              })
+              .catch(() => {});
+          },
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
+            gridRef.current = { cols, rows };
             if (!gridCommitted.current) {
               // First measurement: commit at once so the initial subscribe
               // carries the real size — no resize RPC is needed yet.
@@ -263,6 +296,52 @@ export function PaneTerminal({
       if (m !== machine || id !== paneId) return;
       setClosedReason(reason ?? "closed");
     });
+    // `pane.scroll_changed` (issue #436): the server's viewport moved —
+    // wheel, `pane.scroll`, or another client — so the surface re-projects
+    // selection/search highlights onto the rows the blit actually shows.
+    const scrollEventOff = onHerdrEvent((frame, m) => {
+      if (m !== machine || frame.event !== "pane.scroll_changed") return;
+      const data = frame.data as
+        | { pane_id?: string; scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number; viewport_rows?: number } }
+        | undefined;
+      if (data?.pane_id !== paneId || !data.scroll) return;
+      const scroll = data.scroll;
+      if (typeof scroll.offset_from_bottom === "number") {
+        scrollInfo.current.offset = scroll.offset_from_bottom;
+      }
+      if (typeof scroll.max_offset_from_bottom === "number") {
+        scrollInfo.current.max = scroll.max_offset_from_bottom;
+      }
+      const viewportRows =
+        typeof scroll.viewport_rows === "number" ? scroll.viewport_rows : gridRef.current.rows;
+      // viewportRows is part of the invalidation contract — never feed a
+      // guess of 0, that would drop selection on every event.
+      if (viewportRows <= 0) return;
+      surfaceRef.current?.hostScrollChanged({
+        offsetFromBottom: scroll.offset_from_bottom ?? scrollInfo.current.offset,
+        maxOffsetFromBottom: scroll.max_offset_from_bottom ?? scrollInfo.current.max,
+        viewportRows,
+      });
+    });
+    // Seed the scroll offset once so the first auto-scroll request targets
+    // the real position instead of assuming the bottom.
+    void rpc<{ snapshot?: { panes?: { pane_id: string; scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null }[] } }>(
+      "session.snapshot",
+      {},
+      machine,
+    )
+      .then((res) => {
+        const pane = res?.snapshot?.panes?.find((p) => p.pane_id === paneId);
+        const scroll = pane?.scroll;
+        if (!scroll) return;
+        if (typeof scroll.offset_from_bottom === "number") {
+          scrollInfo.current.offset = scroll.offset_from_bottom;
+        }
+        if (typeof scroll.max_offset_from_bottom === "number") {
+          scrollInfo.current.max = scroll.max_offset_from_bottom;
+        }
+      })
+      .catch(() => {});
     // Theme changes (appearance mode, Ghostty config edits, OS light/dark)
     // update the live terminal in place — scrollback and input state survive.
     const applyTheme = () => {
@@ -418,6 +497,7 @@ export function PaneTerminal({
       dataOff();
       mouseCaptureOff();
       closedOff();
+      scrollEventOff();
       themeOff();
       settingsOff();
       host.removeEventListener("keydown", onFindKey, true);

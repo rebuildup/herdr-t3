@@ -109,6 +109,11 @@ export class GhosttyRenderer {
     this.scene.setHighlights(ranges);
   }
 
+  /** rows the host viewport sits above the engine's bottom-anchored view (server-side scroll) */
+  setViewportShift(shift: number): void {
+    this.scene.setViewportShift(shift);
+  }
+
   setCursorVisible(visible: boolean): void {
     this.scene.setCursorVisible(visible);
   }

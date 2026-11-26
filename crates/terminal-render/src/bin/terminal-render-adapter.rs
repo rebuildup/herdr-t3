@@ -229,6 +229,9 @@ fn run_op(
             if let Some(v) = input.get("cursorVisible").and_then(Value::as_bool) {
                 s.scene.set_cursor_visible(v);
             }
+            if let Some(shift) = input.get("viewportShift").and_then(Value::as_i64) {
+                s.scene.set_viewport_shift(shift);
+            }
             if let Some(colors) = input.get("colors").and_then(Value::as_object) {
                 let own = |k: &str| colors.get(k).and_then(Value::as_str).map(str::to_string);
                 s.scene.set_colors(
