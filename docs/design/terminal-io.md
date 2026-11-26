@@ -208,6 +208,20 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   意味論であり、client 側で改行を除去/置換して見かけ上安全化は
   しない (issue #434 要求)。mode on の TUI/agent pane では
   一括 paste として配送される。
+- **暫定経路と本来契約の差異・移行条件 (issue #434)**: 現行は
+  `pane.send_text` RPC 経由で、attach `Input` ストリームとは別
+  チャネルのため、paste 直後のキー入力との配送順序は server 側の
+  処理順に依存する (同一 pane への連続操作では実害は稀だが、
+  厳密な順序保証はない)。本来契約は attach ストリーム上の
+  `encodePaste` で、兄弟のキー/マウス入力と同じ順序列を保つ。
+  差異は3点: (1)配送チャネルと順序、(2) mode off 時の改行変換
+  (engine は LF→CR、send_text は LF のまま — readline ではどちらも
+  accept-line になり得るため実害は同等)、(3) body の制御文字処理
+  (engine は C0 を空白化、暫定経路は ESC のみ空白化)。
+  移行条件: herdrdev/herdr#6215 (attach への pane mode-state
+  push、MouseCapture variant 8 と同型) が採用された時点で
+  `onPasteText` 配線を外し `encodePaste` へ戻す。それまでは
+  `pane.send_text` が mode の正本を持つため機能差はない。
 - OSC 52 等の clipboard write は `onClipboardWrite` →
   `navigator.clipboard.writeText` (現行維持)。
 
