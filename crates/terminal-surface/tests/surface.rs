@@ -173,6 +173,40 @@ fn shift_drag_selects_and_reports_text() {
 }
 
 #[test]
+fn reverse_drag_keeps_the_gesture_anchor() {
+    // issue #427: dragging upward must keep the pointer-down cell as the
+    // anchor across several moves — the normalized selection start is the
+    // moving end, not the anchor.
+    let mut c = core(false, true, true);
+    c.write(b"l0\r\nl1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7\r\nl8\r\nl9");
+    c.write(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h");
+    measure(&mut c);
+    let mut p = pointer(0, 10.0, 65.0, 2000.0);
+    p.shift_key = true;
+    c.pointer_down(&p, rect());
+    p.client_x = 10.0;
+    p.client_y = 25.0;
+    p.at = 2050.0;
+    c.pointer_move(&p, rect());
+    p.client_x = 2.0;
+    p.client_y = 5.0;
+    p.at = 2100.0;
+    c.pointer_move(&p, rect());
+    p.at = 2150.0;
+    let up = c.pointer_up(&p, rect());
+    let text = up
+        .effects
+        .iter()
+        .find_map(|e| match e {
+            SurfaceEffect::SelectionChange { text } => text.clone(),
+            _ => None,
+        })
+        .expect("selection_change");
+    // anchor row 7 -> end row 4: the whole span survives the upward drag
+    assert_eq!(text, "l4\nl5\nl6\nl7");
+}
+
+#[test]
 fn read_only_suppresses_input_but_not_selection() {
     let mut c = core(true, false, false);
     measure(&mut c);

@@ -977,6 +977,14 @@ impl SurfaceCore {
                                 range: Some(range_json(s)),
                             });
                         }
+                        // an in-flight drag anchor tracks the same content
+                        // (issue #427)
+                        if let Some(d) = self.drag.as_mut() {
+                            d.anchor = ScreenPoint {
+                                x: d.anchor.x,
+                                y: (d.anchor.y as i64 + delta).max(0) as u32,
+                            };
+                        }
                     }
                 }
             }
@@ -1442,8 +1450,10 @@ impl SurfaceCore {
                 self.schedule(&mut effects);
             }
         }
-        let anchor = self.selection.map(|s| s.start).unwrap_or(drag.anchor);
-        let range = ordered(anchor, cell);
+        // the gesture anchor is fixed at pointer-down; the normalized
+        // selection start is the moving end and must not become the anchor
+        // (issue #427 — upward drags lost their anchor)
+        let range = ordered(drag.anchor, cell);
         self.selection = Some(range);
         let empty = range.start.x == range.end.x && range.start.y == range.end.y;
         effects.push(SurfaceEffect::RenderSetSelection {

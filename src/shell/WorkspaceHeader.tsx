@@ -22,6 +22,7 @@ import {
   MessageSquareTextIcon,
   Minimize2,
   MousePointerClickIcon,
+  PackageIcon,
   PencilIcon,
   PlusIcon,
   Rows2,
@@ -32,6 +33,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { observeResize } from "~/lib/observeResize";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -65,11 +67,11 @@ import { moveInsertIndex } from "~/lib/reorder";
 import { nextPaneInReadingOrder } from "~/lib/paneOrder";
 import type { PaneInfo, RpcMethod, TabInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
-import { callRpc, machineListOf, useBridgeState } from "./bridge";
+import { callRpc } from "./bridge";
 import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
-import { PaneContextCard } from "./PaneContextCard";
+import { ContextCardTrigger } from "./PaneContextCard";
 import { openSurface, type RightPanelSurface } from "./rightPanelStore";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
@@ -106,7 +108,7 @@ function HeaderIconButton({
 }
 
 export function WorkspaceHeader() {
-  const { machine, machineInfo, snapshot, view } = useRouteWorkspace();
+  const { machine, machineInfo, view } = useRouteWorkspace();
   const { workspace, tabs, activeTab, tabPanes, layout, focusedPane } = view;
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
@@ -127,17 +129,9 @@ export function WorkspaceHeader() {
     if (!el) return;
     const check = () => setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
     check();
-    const observer = new ResizeObserver(check);
-    observer.observe(el);
-    return () => observer.disconnect();
+    return observeResize(el, check);
   }, [tabs]);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
-  const machines = machineListOf(useBridgeState());
-  // The context card (issue #390) shows the focused pane's agent record —
-  // same snapshot source the sidebar shelves read.
-  const focusedAgent = focusedPane
-    ? snapshot?.agents.find((a) => a.pane_id === focusedPane.pane_id)
-    : undefined;
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
     callRpc(machine, method, params);
@@ -148,7 +142,7 @@ export function WorkspaceHeader() {
     openSurface(panelScope, surface);
 
   const headerClass = cn(
-    "relative flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3",
+    "relative flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-3",
     isElectron
       ? "drag-region bg-background px-3 sm:px-5 wco:pr-(--workspace-native-controls-inset)"
       : "pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
@@ -281,7 +275,7 @@ export function WorkspaceHeader() {
                       ? // The inset ring keeps the active pill distinct from
                         // an hovered inactive tab — both share bg-accent, so
                         // fill alone cannot carry selection (issue #204).
-                        "bg-accent font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                        "bg-accent font-medium text-foreground inset-ring-1 inset-ring-border"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
@@ -501,23 +495,12 @@ export function WorkspaceHeader() {
               <Rows2 className="size-4" />
             </HeaderIconButton>
           </div>
-          {/* Context card (issue #390): T3's ThreadDetailsPanel port —
-              glanceable pane context + related actions, separate from the
-              docked RightPanel plugin surfaces. */}
-          <PaneContextCard
-            machine={machine}
-            machineLabel={machineInfo?.label ?? machine}
-            showMachine={machines.length > 1}
-            pane={focusedPane ?? null}
-            agent={focusedAgent}
-            workspace={workspace}
-            branch={branch}
-            onPrompt={
-              focusedPane?.agent
-                ? () => setMessagePane(focusedPane)
-                : undefined
-            }
-            onDetails={() => focusedPane && setDetailsPane(focusedPane)}
+          {/* Context card trigger (issue #390): T3's ThreadDetailsPanel
+              toggle — the card itself renders inside the workspace
+              canvas (inline) or as a popover anchored to this button. */}
+          <ContextCardTrigger
+            scope={`${machine}\n${workspace?.workspace_id ?? ""}`}
+            disabled={!focusedPane}
           />
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -689,6 +672,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "usage", kind: "usage" })}
               >
                 <GaugeIcon /> Usage
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "artifacts", kind: "artifacts" })}
+              >
+                <PackageIcon /> Artifacts
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab

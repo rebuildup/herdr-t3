@@ -141,6 +141,14 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   モードでのみ有効 (現行維持)。
 - テキスト選択のコピーは `copy` event 経路 (Cmd/Ctrl+C) で DOM selection
   ではなく engine の `textOf(selection)` を使う (現行維持)。
+- ドラッグ選択のアンカーは pointer-down 時点のセルに固定し、移動端点と
+  独立して保持する。表示・コピー時のみ `ordered()` で正規化する
+  (issue #427 — 正規化済み start を次のアンカーに再利用すると逆方向
+  ドラッグで開始点が失われる)。viewportTop の追従 (selection carry)
+  が走るときは進行中ドラッグのアンカーも同じ delta で移し、出力追記で
+  アンカーが取り残されないようにする。TS `surfaceCore` と Rust
+  `terminal-surface` および differential scenario
+  `terminal.surface-select-reverse` がこの契約を共有する。
 
 ### 5.3 GUI が握り潰してはいけないもの
 
@@ -191,8 +199,37 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
 
 ## 6. Paste / clipboard
 
-- `paste` event → `session.encodePaste` (mode 2004 bracketed paste を
-  pane が要求していれば bracket で包む)。
+- `paste` event → `onPasteText` → herdr `pane.send_text` (issue #434)。
+  TerminalAnsi attach ストリームは pane の画面を再エンコードした blit
+  であり DECSET 系列を一切含まないため、クライアント engine の
+  mode 2004 は常に off で `encodePaste` は絶対に bracket しない
+  (改行が CR 化され行ごとに実行される不具合の根因)。herdr 側は
+  `pane.send_text` が pane runtime の `bracketed_paste_enabled()` を
+  見て `\x1b[200~…\x1b[201~` で包むため、mode の正本は server に
+  残る。`sanitizePasteText` が body 中の ESC を空白化し、server 側
+  wrapper を早期終了させる注入を防ぐ (libghostty encoder と同じ
+  最小規則)。attach プロトコルが paste mode を push するように
+  なれば (herdrdev/herdr#6215)、engine `encodePaste` 経路へ戻せる。
+- mode off (pane が 2004 を要求していない) の複数行 paste は
+  bracket なしの生バイトとして届き、readline 系では改行が
+  accept-line として働き得る — これは標準端末の unbracketed paste
+  意味論であり、client 側で改行を除去/置換して見かけ上安全化は
+  しない (issue #434 要求)。mode on の TUI/agent pane では
+  一括 paste として配送される。
+- **暫定経路と本来契約の差異・移行条件 (issue #434)**: 現行は
+  `pane.send_text` RPC 経由で、attach `Input` ストリームとは別
+  チャネルのため、paste 直後のキー入力との配送順序は server 側の
+  処理順に依存する (同一 pane への連続操作では実害は稀だが、
+  厳密な順序保証はない)。本来契約は attach ストリーム上の
+  `encodePaste` で、兄弟のキー/マウス入力と同じ順序列を保つ。
+  差異は3点: (1)配送チャネルと順序、(2) mode off 時の改行変換
+  (engine は LF→CR、send_text は LF のまま — readline ではどちらも
+  accept-line になり得るため実害は同等)、(3) body の制御文字処理
+  (engine は C0 を空白化、暫定経路は ESC のみ空白化)。
+  移行条件: herdrdev/herdr#6215 (attach への pane mode-state
+  push、MouseCapture variant 8 と同型) が採用された時点で
+  `onPasteText` 配線を外し `encodePaste` へ戻す。それまでは
+  `pane.send_text` が mode の正本を持つため機能差はない。
 - OSC 52 等の clipboard write は `onClipboardWrite` →
   `navigator.clipboard.writeText` (現行維持)。
 

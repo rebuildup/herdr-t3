@@ -13,13 +13,40 @@
     "lint-plugin/**"
   ],
   "categories": {
-    "correctness": "off"
+    "correctness": "warn",
+    "suspicious": "warn",
+    "perf": "warn"
   },
   "rules": {
     "herdr-t3/no-native-title-tooltip": "error",
     "herdr-t3/no-raw-control": "error",
+    "herdr-t3/no-raw-resize-observer": "error",
     "herdr-t3/no-static-inline-style": "error",
-    "herdr-t3/require-suppression-reason": "error"
+    "herdr-t3/require-suppression-reason": "error",
+    "oxc/no-accumulating-spread": "error",
+    "oxc/no-map-spread": "off",
+    "react/no-object-type-as-default-prop": "off",
+    "react/jsx-no-constructed-context-values": "off",
+    "react-in-jsx-scope": "off",
+    "react-hooks/exhaustive-deps": "off",
+    "typescript/no-this-alias": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-duplicate-type-constituents": "off",
+    "typescript/no-floating-promises": "off",
+    "typescript/no-implied-eval": "off",
+    "typescript/no-meaningless-void-operator": "off",
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-unnecessary-boolean-literal-compare": "off",
+    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/await-thenable": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/unbound-method": "off"
   },
   "overrides": [
     {
@@ -36,23 +63,43 @@
       "rules": {
         "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
         "shadcn/require-static-classes": "error",
-        "shadcn/no-arbitrary-values": "error",
+        "shadcn/no-arbitrary-values": [
+          "error",
+          {
+            "allow": [
+              "layout",
+              "transition",
+              "rounded-[inherit]",
+              "gap-[0.33em]",
+              "gap-[0.2em]",
+              "leading-[normal]",
+              "underline-offset-[0.2em]",
+              "rounded-[25%]",
+              "text-[length:80cqh]",
+              "bg-[Highlight]",
+              "fill-[#26251E]",
+              "fill-[#EDECEC]",
+              "fill-[#0F0F0F]",
+              "fill-[#F5F5F5]",
+              "fill-[#d97757]",
+              "text-[#d97757]"
+            ]
+          }
+        ],
         "shadcn/no-raw-colors": "error",
         "shadcn/no-unknown-classes": "error"
       }
     },
     {
-      // T3 Code app-shell ports keep upstream geometry verbatim; the
-      // --workspace-*/--sidebar-*/--control-* custom properties are
-      // tokens defined in index.css, so var()-valued utilities are the
-      // sanctioned expression of token geometry here (issue #83, ADR-0008).
+      // observeResize is React-coupled (flushSync); the ghostty engine and
+      // the helper itself are framework-free and keep raw observers.
       "files": [
-        "src/shell/**",
-        "src/components/WorkspaceBreadcrumb.tsx",
-        "src/components/ThemeModeTiles.tsx"
+        "src/lib/ghostty/**",
+        "src/lib/observeResize.ts",
+        "src/**/*.test.{ts,tsx}"
       ],
       "rules": {
-        "shadcn/no-arbitrary-values": "off"
+        "herdr-t3/no-raw-resize-observer": "off"
       }
     },
     {
@@ -60,7 +107,29 @@
       "rules": {
         "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
         "shadcn/require-static-classes": "error",
-        "shadcn/no-arbitrary-values": "error",
+        "shadcn/no-arbitrary-values": [
+          "error",
+          {
+            "allow": [
+              "layout",
+              "transition",
+              "rounded-[inherit]",
+              "gap-[0.33em]",
+              "gap-[0.2em]",
+              "leading-[normal]",
+              "underline-offset-[0.2em]",
+              "rounded-[25%]",
+              "text-[length:80cqh]",
+              "bg-[Highlight]",
+              "fill-[#26251E]",
+              "fill-[#EDECEC]",
+              "fill-[#0F0F0F]",
+              "fill-[#F5F5F5]",
+              "fill-[#d97757]",
+              "text-[#d97757]"
+            ]
+          }
+        ],
         "shadcn/no-raw-colors": "error",
         "shadcn/no-unknown-classes": "error"
       }

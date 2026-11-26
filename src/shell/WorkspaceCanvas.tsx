@@ -4,11 +4,12 @@
  * PaneLayoutSnapshot) with Ghostty PaneTerminal surfaces; focus and zoom
  * come from the snapshot, never local guesses. M1's fixture grid is gone.
  */
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { cn } from "~/lib/utils";
 import { isEditableTarget, isMacPlatform } from "~/lib/shortcuts";
 import { PaneTerminal } from "~/components/PaneTerminal";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -20,7 +21,9 @@ import { paneTitle } from "~/lib/workspace";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
-import { callRpc, useBridgeState } from "./bridge";
+import { callRpc, machineListOf, useBridgeState } from "./bridge";
+import { useWorkspaceBranch } from "./worktrees";
+import { WorkspaceContextCard } from "./PaneContextCard";
 import {
   Columns2,
   Info,
@@ -38,6 +41,7 @@ function PaneSurface({
   area,
   focused,
   zoomed,
+  hasSiblings,
   onFocus,
   onDetails,
   dnd,
@@ -49,6 +53,8 @@ function PaneSurface({
   area: { width: number; height: number };
   focused: boolean;
   zoomed: boolean;
+  /** another pane shares the canvas — only then does the hairline split divider show (issue #432) */
+  hasSiblings: boolean;
   onFocus: () => void;
   onDetails: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
@@ -77,10 +83,16 @@ function PaneSurface({
       <ContextMenuTrigger className="contents">
         <div
           className={cn(
-            "absolute overflow-hidden border transition-colors",
-            // Focus treatment follows interaction.md: neutral emphasis, never a
-            // full blue frame (issue #112).
-            focused ? "border-foreground/25 dark:border-foreground/45" : "border-border/50",
+            "absolute overflow-hidden transition-colors",
+            // Split boundaries read as a hairline divider, not a card frame
+            // (interaction.md §1, issue #432): single-pane and zoomed layouts
+            // get no border at all; focused panes get a slightly stronger
+            // hairline, never a full blue frame (issue #112).
+            zoomed || !hasSiblings
+              ? "border-0"
+              : focused
+                ? "border border-foreground/15 dark:border-foreground/30"
+                : "border border-border/40",
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
           )}
           style={style}
@@ -182,6 +194,12 @@ export function WorkspaceCanvas() {
   const [paneDragId, setPaneDragId] = useState<string | null>(null);
   const [paneDropId, setPaneDropId] = useState<string | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  // Context card (issue #390): the inline card positions inside this
+  // container; the popover fallback anchors to the header trigger.
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
+  const machines = machineListOf(bridge);
   const focusedPaneId = focusedPane?.pane_id ?? layout?.focused_pane_id ?? null;
 
   // Keyboard pane navigation (issue #113): ⌘+Arrow on macOS,
@@ -296,9 +314,13 @@ export function WorkspaceCanvas() {
         }
       : undefined;
 
+  const focusedAgent = focusedPane
+    ? snapshot?.agents.find((a) => a.pane_id === focusedPane.pane_id)
+    : undefined;
+
   return (
-    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
-      <div className="relative h-full w-full">
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-2">
+      <div ref={canvasAreaRef} className="relative h-full w-full">
         {visiblePanes.map((pane) => (
           <PaneSurface
             key={pane.pane_id}
@@ -313,16 +335,39 @@ export function WorkspaceCanvas() {
                 : pane.focused
             }
             zoomed={zoomed}
+            hasSiblings={visiblePanes.length > 1}
             onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
             onDetails={() => setDetailsPane(pane)}
             dnd={paneDnd(pane)}
           />
         ))}
+        {focusedPane ? (
+          <WorkspaceContextCard
+            machine={machine}
+            machineLabel={machineInfo?.label ?? machine}
+            showMachine={machines.length > 1}
+            pane={focusedPane}
+            agent={focusedAgent}
+            workspace={workspace}
+            branch={branch}
+            agents={snapshot?.agents ?? []}
+            containerRef={canvasAreaRef}
+            onPrompt={
+              focusedPane.agent ? () => setMessagePane(focusedPane) : undefined
+            }
+            onDetails={() => setDetailsPane(focusedPane)}
+          />
+        ) : null}
       </div>
       <PaneDetailsDialog
         pane={detailsPane}
         machine={machine}
         onClose={() => setDetailsPane(null)}
+      />
+      <PaneMessageDialog
+        pane={messagePane}
+        machine={machine}
+        onClose={() => setMessagePane(null)}
       />
     </div>
   );

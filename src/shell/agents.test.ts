@@ -18,6 +18,8 @@ import {
   agentRowSignature,
   agentSection,
   agentShelfEntryKey,
+  agentShelfInitialLimit,
+  agentShelfPage,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
@@ -451,18 +453,6 @@ describe("partitionAgents organize overlay (issue #173)", () => {
   });
 });
 
-function visibleAgentPanes(
-  sections: ReturnType<typeof partitionAgents>["sections"],
-): string[] {
-  return [
-    ...sections.attention,
-    ...sections.working,
-    ...sections.done,
-    ...sections.idle,
-    ...sections.snoozed,
-    ...sections.settled,
-  ].map((e) => e.agent.pane_id);
-}
 
 describe("agentRowSignature / shortPaneId", () => {
   test("identical rendered rows share a signature; pane id alone does not split it", () => {
@@ -537,5 +527,24 @@ describe("shelfRows (issue #389)", () => {
     expect(AGENT_SHELF_INITIAL_VISIBLE).toBe(10);
     expect(AGENT_SHELF_PAGE).toBe(25);
     expect(UNCAPPED_AGENT_SECTIONS).toEqual(["attention"]);
+  });
+
+  test("working shelf opens smaller and pages by 4 (issue #418)", () => {
+    expect(agentShelfInitialLimit("working")).toBe(4);
+    expect(agentShelfPage("working")).toBe(4);
+    for (const section of ["attention", "done", "idle", "snoozed", "settled"] as const) {
+      expect(agentShelfInitialLimit(section)).toBe(AGENT_SHELF_INITIAL_VISIBLE);
+      expect(agentShelfPage(section)).toBe(AGENT_SHELF_PAGE);
+    }
+    // The route row still survives beyond the smaller Working cap.
+    const { visible, hidden } = shelfRows(
+      list,
+      true,
+      agentShelfInitialLimit("working"),
+      routeKey,
+    );
+    expect(visible).toHaveLength(5);
+    expect(visible.at(-1)).toBe(list[35]);
+    expect(hidden).toBe(35);
   });
 });

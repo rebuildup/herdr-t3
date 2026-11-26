@@ -1,0 +1,29 @@
+{
+  "note": "plugin_call rebuildup.inbox list issued through the packaged app's own IPC (window.herdrT3.sendFrame) to a self-ssh saved machine whose endpoint os=windows (target device-windows, port 22222 user sshd). Exercises the #392 windowsPowerShellEncodedScript preamble path end-to-end. Machine entry was added for the test and removed afterwards; herdr machine list is back to the 3 saved machines.",
+  "frame": {
+    "type": "plugin_call",
+    "id": "z3probe",
+    "machine": "43932c0a8c60cfb34f91bef7dbe740b66e07c24d5d62448a4f7b688a21a0525d",
+    "plugin": "rebuildup.inbox",
+    "command": "list"
+  },
+  "rpc_result": {
+    "type": "rpc_result",
+    "id": "z3probe",
+    "ok": true,
+    "result": {
+      "contract": "herdr-plugins.inbox/v1",
+      "generated_at": "2026-11-26T16:57:14.671Z",
+      "session": { "name": null, "socket": null },
+      "state_file": "C:\\Users\\rebui\\AppData\\Local\\herdr\\plugins\\rebuildup.inbox\\state.json",
+      "counts": { "total": 3, "inbox": 3, "attention": 0, "organized": 0 },
+      "items": [
+        { "pane_id": "wR:p3", "workspace_id": "wR", "tab_id": "wR:t3", "title": "devin.exe: Restro PVの制作を再開してくだ", "cwd": "C:\\Users\\rebui\\Desktop\\restro-pv", "agent_status": "working", "state_change_seq": 13, "agent_session": { "agent": "devin", "kind": "id", "value": "turquoise-marmoset" }, "attention": false, "in_inbox": true },
+        { "pane_id": "wY:p1", "workspace_id": "wY", "tab_id": "wY:t1", "cwd": "C:\\Users\\rebui", "agent_session": null, "attention": false, "in_inbox": true },
+        { "pane_id": "wZ:p1", "workspace_id": "wZ", "tab_id": "wZ:t1", "title": "devin.exe: Windowsで前面にコマンド実行の", "cwd": "C:\\Users\\rebui", "agent_status": "working", "state_change_seq": 17, "agent_session": { "agent": "devin", "kind": "id", "value": "salt-airboat" }, "attention": false, "in_inbox": true }
+      ]
+    },
+    "machine": "43932c0a8c60cfb34f91bef7dbe740b66e07c24d5d62448a4f7b688a21a0525d"
+  },
+  "plugin_list_result": "ok:true with all 7 plugins (automations 0.7.0, checkpoints 0.4.0, conversations 0.5.0, git 0.2.0, inbox 0.1.0, projects 0.3.0, usage 0.5.0) — real plugin_root paths under C:\\Users\\rebui\\AppData\\Roaming\\herdr\\plugins\\github-installations\\. Before the fix this path reported plugin_bad_output for every Windows endpoint (issue #353, section-z Z-7)."
+}

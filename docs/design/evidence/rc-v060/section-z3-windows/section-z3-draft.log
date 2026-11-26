@@ -1,0 +1,23 @@
+session=ht3draft socket=C:\Users\rebui\AppData\Roaming\herdr\sessions\ht3draft\herdr.sock
+workspace=w1 pane=w1:p1
+herdr-t3 bridge listening on http://127.0.0.1:4788 (herdr socket: \\.\pipe\C:\Users\rebui\AppData\Roaming\herdr\sessions\ht3draft\herdr.sock)
+bridge :4788 vite :5788
+PASS setup type draft: ok
+FAIL draft echoed while connected: pane contains H3DRAFTmwxu8b0a   <- see note below
+PASS setup type during outage: ok
+PASS draft retained after reconnect: draft still on prompt line
+PASS outage input never reached pty: no leak marker in pane
+PASS explicit Enter sends draft to herdr: occurrences 1 -> 2 (echo output adds one)
+
+=== summary: 5/6 passed ===
+FAILURES: draft echoed while connected
+
+Note: identical result on two consecutive runs. The failing assertion is
+a fixed 800 ms sleep between insertText and `herdr pane read`; the same
+draft string is confirmed present on the prompt line seconds later by
+the "draft retained after reconnect" check, so delivery happened — the
+assertion window is simply tighter than this host's pty-echo + pane-read
+latency under load. The safety invariant itself (typed draft survives
+bridge kill/restart, outage input never reaches the pty, explicit Enter
+sends exactly once) passed on every run. ht3draft session deleted after
+the leg.

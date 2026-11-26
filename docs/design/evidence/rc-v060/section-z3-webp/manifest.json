@@ -1,0 +1,135 @@
+[
+ {
+  "file": "z3-01-main-dark.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 73326,
+  "source": "z3-01-main-dark.png"
+ },
+ {
+  "file": "z3-02-light.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 75734,
+  "source": "z3-02-light.png"
+ },
+ {
+  "file": "z3-08-narrow.webp",
+  "width": 960,
+  "height": 1600,
+  "bytes": 83514,
+  "source": "z3-08-narrow.png"
+ },
+ {
+  "file": "z3-09-narrow-sheet.webp",
+  "width": 960,
+  "height": 1600,
+  "bytes": 37540,
+  "source": "z3-09-narrow-sheet.png"
+ },
+ {
+  "file": "z3-10-blockcursor-ws.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 187464,
+  "source": "z3-10-blockcursor-ws.png"
+ },
+ {
+  "file": "z3-11-blockcursor-clip.webp",
+  "width": 1602,
+  "height": 560,
+  "bytes": 1732,
+  "source": "z3-11-blockcursor-clip.png"
+ },
+ {
+  "file": "z3-agent-hover.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 335800,
+  "source": "z3-agent-hover.png"
+ },
+ {
+  "file": "z3-context-card.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 128792,
+  "source": "z3-context-card.png"
+ },
+ {
+  "file": "z3-io-term.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 138448,
+  "source": "z3-io-term.png"
+ },
+ {
+  "file": "z3-panel-all.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 37362,
+  "source": "z3-panel-all.png"
+ },
+ {
+  "file": "z3-panel-git.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 34824,
+  "source": "z3-panel-git.png"
+ },
+ {
+  "file": "z3-surface-automations.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 32514,
+  "source": "z3-surface-automations.png"
+ },
+ {
+  "file": "z3-surface-checkpoints.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 36904,
+  "source": "z3-surface-checkpoints.png"
+ },
+ {
+  "file": "z3-surface-conversations.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 33152,
+  "source": "z3-surface-conversations.png"
+ },
+ {
+  "file": "z3-surface-git.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 37818,
+  "source": "z3-surface-git.png"
+ },
+ {
+  "file": "z3-surface-projects.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 33412,
+  "source": "z3-surface-projects.png"
+ },
+ {
+  "file": "z3-surface-scripts.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 34358,
+  "source": "z3-surface-scripts.png"
+ },
+ {
+  "file": "z3-surface-usage.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 37126,
+  "source": "z3-surface-usage.png"
+ },
+ {
+  "file": "z3-surface-worktrees.webp",
+  "width": 2880,
+  "height": 1800,
+  "bytes": 33018,
+  "source": "z3-surface-worktrees.png"
+ }
+]
