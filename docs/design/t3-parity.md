@@ -27,6 +27,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Settle / Snooze / settled shelf | [plugin] | `rebuildup.inbox` v1 owns organize state (#219, ADR-0011); #173 localStorage migrated |
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
+| Progressive disclosure: collapsed shelf keeps route row; "Show N more" paging | [herdr] | #389 — T3 `routeThreadOnly` + settled tail / `ThreadDetailsMoreButton` port |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
 | Archived threads | [excluded] | thread lifecycle is orchestration state |
 

@@ -164,6 +164,18 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
 - 全棚の折りたたみ状態は localStorage へ永続化する (issue #211 で
   Attention/Done/Idle も棚化)。既定は Attention のみ展開、他は
   折りたたみ。空セクションは header ごと表示しない。
+- **段階的開示 (issue #389, T3 `Sidebar.tsx` settled tail +
+  `routeThreadOnly` + `ThreadDetailsMoreButton` 準拠)**: 棚を折り
+  たたんでも、route 選択中の agent 行 (route workspace の active
+  tab で focus されている pane の agent) だけは描画し続ける —
+  T3 が折りたたみ shelf に route thread を残すのと同じ。展開した
+  棚は Attention を除き初期 `AGENT_SHELF_INITIAL_VISIBLE` (10) 件
+  まで表示し、超過分は末尾の「Show N more」行で
+  `AGENT_SHELF_PAGE` (25) 件ずつ段階的に開く。route 行は cap を
+  超えても常に表示対象に含め、開示で隠さない。開示件数は
+  セッション内 state (T3 `settledTail` と同じく永続化しない)。
+  pane-id disambiguator の signature 集計は棚 membership 全体で
+  行い、ページングで行内容が変わらないようにする。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage
@@ -197,6 +209,9 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
 ### 6.3 操作
 
 - 行クリック: workspace 選択 + `pane.focus` (既存動作を維持)。
+- 棚末尾の「Show N more」行: 次ページ分の行を開示 (issue #389)。
+  棚 header の折りたたみとは独立した操作で、再度畳むには棚を
+  collapse する。
 - context menu: Focus / Details (既存 `PaneDetailsDialog` — `agent.read`
   要約・process info・内部 ID) / Copy pane ID / Copy workspace ID。
   三点メニュー・直接操作との役割分担は app-shell.md §4 に従う。
