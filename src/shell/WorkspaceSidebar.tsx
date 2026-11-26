@@ -55,7 +55,8 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
-import { AgentProviderIcon, hasAgentBrandIcon } from "~/components/agentIcons";
+import { isAgentKindName } from "~/components/agentKind";
+import { AgentProviderIcon } from "~/components/agentIcons";
 import {
   Dialog,
   DialogContent,
@@ -430,13 +431,14 @@ function AgentRow({
   // Line 2 leads with the work target; the agent name joins the meta
   // only when it adds information beyond the title.
   const rowTitle = workTarget ?? displayName;
-  // When the display name is just the harness id and a brand mark already
-  // renders at the row's trailing edge, repeating it as meta is noise —
-  // drop it and give the title back the width (issue #204 review).
-  const nameIsRedundantHarness =
-    !!agent.agent && displayName === agent.agent && hasAgentBrandIcon(agent.agent);
+  // When the display name is just the agent kind (any spelling of it),
+  // the trailing icon already carries that identity — repeating the
+  // label as meta is noise, so drop it and give the title back the
+  // width (issue #204 review, generalized in #335: independent of which
+  // icon family renders, including the generic glyph and unknown kinds).
+  const nameIsAgentKind = isAgentKindName(displayName, agent.agent);
   const metaParts = [
-    workTarget !== null && workTarget !== displayName && !nameIsRedundantHarness
+    workTarget !== null && workTarget !== displayName && !nameIsAgentKind
       ? displayName
       : null,
     showPaneId ? shortPaneId(agent.pane_id) : null,

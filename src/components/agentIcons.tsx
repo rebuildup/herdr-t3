@@ -1,30 +1,29 @@
 /*
  * Agent harness brand icon for sidebar rows and hover cards (issues #198,
- * #311). Resolution order: T3 Code provider artwork vendored in
- * agentIconData.ts, then official ACP Registry SVGs bundled in
- * agent-icons/ (agentIconUrls.ts), then a generic agent glyph — the
- * initials tile fallback is gone (issue #311: icon-only display).
+ * #311, #335). Resolution order comes from shared/agent-icons.json via
+ * agentKind.ts: T3 Code provider artwork (agentIconData.ts), then bundled
+ * official SVGs (agent-icons/ — ACP Registry plus per-vendor assets), then
+ * a generic agent glyph. The initials tile fallback is gone (#311:
+ * icon-only display); the kind label itself is suppressed as row meta by
+ * isAgentKindName regardless of which icon family renders (#335).
  */
 import { Bot } from "lucide-react";
 import { useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { AGENT_ICON_DATA, type AgentIconSpec } from "./agentIconData";
-import { acpAgentIconUrl } from "./agentIconUrls";
+import {
+  agentIconSource,
+  bundledAgentIconUrl,
+  canonicalAgentKind,
+} from "./agentKind";
 
 export function agentIconSpec(agent: string | null | undefined): AgentIconSpec | null {
   const key = agent?.trim().toLowerCase();
-  return key ? (AGENT_ICON_DATA[key] ?? null) : null;
-}
-
-/**
- * Whether the agent kind resolves to a brand mark (T3 artwork or a
- * vendored ACP Registry icon) rather than the generic glyph. The sidebar
- * uses this to decide whether repeating the harness id as row meta is
- * redundant (issue #204 review).
- */
-export function hasAgentBrandIcon(agent: string | null | undefined): boolean {
-  return agentIconSpec(agent) !== null || acpAgentIconUrl(agent) !== null;
+  // Own-property lookup only: agent labels are arbitrary strings and a
+  // plain index would resolve inherited members like `constructor`.
+  if (!key || !Object.hasOwn(AGENT_ICON_DATA, key)) return null;
+  return AGENT_ICON_DATA[key] ?? null;
 }
 
 function GenericAgentIcon({ className }: { className: string | undefined }) {
@@ -99,12 +98,17 @@ function T3BrandIcon({
   );
 }
 
-// ACP Registry glyphs are monochrome `currentColor` SVGs; rendered through
-// an <img> they cannot inherit the page color, so a local SVG filter
-// recolors every painted pixel to currentColor — the same trick T3's
-// AcpRegistryAgentIcon uses (AcpRegistryIcon.tsx @ 9cc4018c). The filter
-// id is per-instance because filter ids are document-global.
-function AcpRegistryIcon({
+// Bundled glyphs are recolored to the surrounding text color through an
+// SVG filter: rendered through an <img> they cannot inherit currentColor
+// (ACP Registry assets are monochrome `currentColor`; the oh-my-pi mark
+// uses fixed fills — the filter flattens either to a currentColor
+// silhouette). This mirrors T3's AcpRegistryAgentIcon (AcpRegistryIcon.tsx
+// @ 9cc4018c), including its container + `size-full object-contain`
+// sizing so non-square viewBoxes letterbox instead of distorting. The
+// failed state is keyed by URL so an agent change never inherits a
+// previous image's load failure, and the filter id is per-instance
+// because filter ids are document-global.
+function SvgAssetIcon({
   url,
   className,
 }: {
@@ -112,10 +116,10 @@ function AcpRegistryIcon({
   className: string | undefined;
 }) {
   const filterId = useId();
-  const [failed, setFailed] = useState(false);
-  if (failed) return <GenericAgentIcon className={className} />;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (failedUrl === url) return <GenericAgentIcon className={className} />;
   return (
-    <span className="relative inline-flex shrink-0 items-center justify-center">
+    <span className={cn("inline-flex shrink-0 items-center justify-center", className)}>
       <svg aria-hidden className="pointer-events-none absolute size-0" focusable="false">
         <defs>
           <filter id={filterId} colorInterpolationFilters="sRGB">
@@ -130,9 +134,9 @@ function AcpRegistryIcon({
         aria-hidden
         draggable={false}
         decoding="async"
-        className={cn("shrink-0", className)}
+        className="size-full object-contain"
         style={{ filter: `url(#${filterId})` }}
-        onError={() => setFailed(true)}
+        onError={() => setFailedUrl(url)}
       />
     </span>
   );
@@ -145,9 +149,13 @@ export function AgentProviderIcon({
   agent: string | null | undefined;
   className?: string;
 }) {
-  const spec = agentIconSpec(agent);
-  if (spec) return <T3BrandIcon spec={spec} className={className} />;
-  const acpUrl = acpAgentIconUrl(agent);
-  if (acpUrl) return <AcpRegistryIcon url={acpUrl} className={className} />;
+  const source = agentIconSource(agent);
+  if (source === "t3") {
+    const kind = canonicalAgentKind(agent);
+    const spec = kind === null ? null : agentIconSpec(kind);
+    if (spec) return <T3BrandIcon spec={spec} className={className} />;
+  }
+  const svgUrl = bundledAgentIconUrl(agent);
+  if (svgUrl) return <SvgAssetIcon url={svgUrl} className={className} />;
   return <GenericAgentIcon className={className} />;
 }

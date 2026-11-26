@@ -886,6 +886,8 @@
     "src/shell/agents.ts",
     "src/shell/view.ts",
     "src/components/agentIcons.tsx",
+    "src/components/agentKind.ts",
+    "shared/agent-icons.json",
     "src/lib/workspace.ts",
     "crates/state-projections/src/lib.rs",
     "crates/state-projections/tests/projections.rs",
