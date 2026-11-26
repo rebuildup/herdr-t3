@@ -20,8 +20,9 @@ Counters are process-local; they reset on restart. Shapes are owned by
 | Name | Kind | Labels | Meaning |
 | --- | --- | --- | --- |
 | `herdr.rpc` | timer | `method` | one herdr RPC call, connect through reply |
-| `bridge.snapshot.schedule` | counter | `cause` (`event` / `subscription_error` / `subscription_close` / `rpc`) | snapshot refetch triggers |
+| `bridge.snapshot.schedule` | counter | `cause` (`event` / `subscription_error` / `subscription_close` / `rpc` / `queued`) | snapshot refetch triggers |
 | `bridge.snapshot.push` | counter | — | snapshots pushed to clients |
+| `bridge.snapshot.push.unchanged` | counter | — | refetches whose content matched the last push (deduped, issue #423) |
 | `bridge.snapshot.push.error` | counter | — | failed snapshot fetches |
 | `bridge.subscription.open/close/reopen` | counter | — | events.subscribe lifecycle |
 | `machine.refresh` | timer | — | one full machine state refresh |

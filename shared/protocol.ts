@@ -422,6 +422,28 @@ export const RPC_METHODS = [
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
+/**
+ * RPC methods that cannot mutate session state (issue #423). A successful
+ * call to one of these never schedules a snapshot refetch; every other
+ * method keeps the post-RPC refresh as a belt-and-suspenders for mutations
+ * herdr does not emit events for. `session.snapshot` is the fetch itself —
+ * refreshing after it would amplify read traffic into more fetches.
+ * Unknown/future methods default to refreshing (conservative).
+ */
+export const READ_ONLY_RPC_METHODS = [
+  "session.snapshot",
+  "agent.get",
+  "agent.read",
+  "agent.explain",
+  "pane.process_info",
+  "pane.link.resolve",
+  "worktree.list",
+] as const;
+
+export function isReadOnlyRpcMethod(method: string): boolean {
+  return (READ_ONLY_RPC_METHODS as readonly string[]).includes(method);
+}
+
 /* ------------------------------------------------------------------ */
 /* Plugin contract boundary types (ADR-0011)                            */
 /* ------------------------------------------------------------------ */
