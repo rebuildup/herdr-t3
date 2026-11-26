@@ -7,6 +7,7 @@ members = [
     "crates/terminal-core",
     "crates/terminal-input",
     "crates/terminal-render",
+    "crates/terminal-surface",
     "crates/ui-test-host",
 ]
 

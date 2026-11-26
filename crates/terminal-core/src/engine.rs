@@ -509,6 +509,12 @@ unsafe fn rusize(p: *const u8, off: usize) -> usize {
     (p.add(off) as *const u64).read_unaligned().to_le() as usize
 }
 unsafe fn slice<'a>(p: *const u8, len: usize) -> &'a [u8] {
+    // libghostty-vt returns a null out-pointer for empty results; JS sees ""
+    // there, so map null to an empty slice rather than invoking UB.
+    if p.is_null() {
+        debug_assert_eq!(len, 0, "null buffer with nonzero length");
+        return &[];
+    }
     std::slice::from_raw_parts(p, len)
 }
 
@@ -1461,8 +1467,8 @@ impl GhosttyEngine {
                 s("rectangle"),
             );
             let selection = at::SELECTION;
-            this.scratch.copy_within(at::REF_START, selection + sstart, ref_bytes);
-            this.scratch.copy_within(at::REF_END, selection + send, ref_bytes);
+            this.scratch.copy_within(selection + sstart, at::REF_START, ref_bytes);
+            this.scratch.copy_within(selection + send, at::REF_END, ref_bytes);
             this.scratch.w8(selection + rect, 0);
 
             let options = at::FORMAT_OPTIONS;

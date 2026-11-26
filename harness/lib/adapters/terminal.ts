@@ -25,6 +25,7 @@ import {
   wheelButton,
 } from "../../../src/lib/ghostty/inputPolicy.ts";
 import { engineKeyFor } from "../../../src/lib/ghostty/keys.ts";
+import { SurfaceCore } from "../../../src/lib/ghostty/surfaceCore.ts";
 import type { EngineKey, EngineModes, EngineMouse, ScreenRange } from "../../../shared/ghostty/engine.ts";
 import type { Adapter, Observation } from "../types.ts";
 
@@ -110,6 +111,42 @@ const POLICY_OPS = new Set([
   "input_composition",
 ]);
 
+/** DOM-free surface state-machine ops (issue #301, contract terminal-surface@1). */
+const SURFACE_OPS = new Set([
+  "surface_new",
+  "surface_write",
+  "surface_measure",
+  "surface_scroll_to",
+  "surface_scroll_by",
+  "surface_scroll_to_bottom",
+  "surface_cell_at",
+  "surface_search",
+  "surface_search_step",
+  "surface_set_colors",
+  "surface_set_background_opacity",
+  "surface_set_font",
+  "surface_set_read_only",
+  "surface_set_mouse_capture",
+  "surface_tick",
+  "surface_blink_toggle",
+  "surface_report_focus",
+  "surface_composition_start",
+  "surface_composition_end",
+  "surface_before_input",
+  "surface_key_down",
+  "surface_key_up",
+  "surface_pointer_down",
+  "surface_pointer_move",
+  "surface_pointer_up",
+  "surface_pointer_cancel",
+  "surface_pointer_leave",
+  "surface_wheel",
+  "surface_paste",
+  "surface_get_selection_text",
+  "surface_clear_selection",
+  "surface_dispose",
+]);
+
 function hex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -150,6 +187,7 @@ const OPS = new Set([
   "dispose",
   ...SCENE_OPS,
   ...POLICY_OPS,
+  ...SURFACE_OPS,
 ]);
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -170,6 +208,7 @@ export function createTerminalAdapter(): Adapter {
   let nextHandle = 0;
   let sceneNextHandle = 0;
   const composition = new CompositionTracker();
+  let surface: SurfaceCore | null = null;
   let compiled: Promise<WebAssembly.Module> | null = null;
   const module = () => {
     compiled ??= Bun.file(WASM).arrayBuffer().then((b) => WebAssembly.compile(b));
@@ -190,6 +229,11 @@ export function createTerminalAdapter(): Adapter {
     const s = sceneSessions.get(handle);
     if (!s) throw new Error(`unknown scene handle "${handle}"`);
     return s;
+  }
+
+  function surfaceCore(): SurfaceCore {
+    if (!surface) throw new Error("no surface: run surface_new first");
+    return surface;
   }
 
   return {
@@ -503,6 +547,250 @@ export function createTerminalAdapter(): Adapter {
               }
             });
             return ok({ results });
+          }
+          // ---- terminal-surface ops (contract terminal-surface@1) ------------
+          case "surface_new": {
+            if (surface) throw new Error("surface already exists: dispose first");
+            const colors = input["colors"];
+            if (!isRecord(colors)) throw new Error("colors must be an object");
+            const ansi = Array.isArray(colors["ansi"])
+              ? (colors["ansi"] as unknown[]).map(String)
+              : [];
+            const optNum = (k: string): number | undefined =>
+              typeof input[k] === "number" ? (input[k] as number) : undefined;
+            const optStr = (k: string): string | undefined =>
+              typeof input[k] === "string" ? (input[k] as string) : undefined;
+            const optBool = (k: string): boolean | undefined =>
+              typeof input[k] === "boolean" ? (input[k] as boolean) : undefined;
+            const lh = input["line_height"];
+            const cellW = optNum("cell_w");
+            const cellH = optNum("cell_h");
+            const session = await createGhosttySessionWith(await module(), {
+              cols: num(input, "cols"),
+              rows: num(input, "rows"),
+              ...(cellW !== undefined ? { cellW } : {}),
+              ...(cellH !== undefined ? { cellH } : {}),
+              ...(typeof input["scrollback_lines"] === "number"
+                ? { scrollbackLines: input["scrollback_lines"] as number }
+                : {}),
+            });
+            surface = new SurfaceCore(session, {
+              colors: {
+                foreground: str(colors, "foreground"),
+                background: str(colors, "background"),
+                cursor: str(colors, "cursor"),
+                ansi,
+              },
+              fontFamily: optStr("font_family") ?? "monospace",
+              fontSize: optNum("font_size") ?? 13,
+              ...(typeof lh === "number" ? { lineHeight: lh } : {}),
+              ...(optBool("read_only") !== undefined ? { readOnly: optBool("read_only") } : {}),
+              // capability flags stand in for the host callbacks: the core
+              // only checks presence to pick the report path
+              ...(optBool("has_on_mouse")
+                ? { onMouse: () => {} }
+                : {}),
+              ...(optBool("has_on_wheel")
+                ? { onWheel: () => {} }
+                : {}),
+            });
+            return ok({ effects: [], value: null });
+          }
+          case "surface_write": {
+            const s = surfaceCore();
+            const data =
+              typeof input["text"] === "string"
+                ? input["text"]
+                : unhex(String(input["hex"] ?? ""));
+            const r = s.write(data as string | Uint8Array);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_measure": {
+            const s = surfaceCore();
+            const r = s.measure({
+              hostWidth: num(input, "host_width"),
+              hostHeight: num(input, "host_height"),
+              advance: typeof input["advance"] === "number" ? (input["advance"] as number) : 0,
+              probeLineHeight:
+                typeof input["probe_line_height"] === "number"
+                  ? (input["probe_line_height"] as number)
+                  : 0,
+              dpr: typeof input["dpr"] === "number" ? (input["dpr"] as number) : 1,
+            });
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_scroll_to": {
+            const r = surfaceCore().scrollTo(num(input, "rows"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_scroll_by": {
+            const r = surfaceCore().scrollBy(num(input, "lines"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_scroll_to_bottom": {
+            const r = surfaceCore().scrollToBottom();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_cell_at": {
+            const r = surfaceCore().cellAtClientPoint(num(input, "client_x"), num(input, "client_y"), {
+              left: num(input, "rect_left"),
+              top: num(input, "rect_top"),
+            });
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_search": {
+            const r = surfaceCore().search(str(input, "needle"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_search_step": {
+            const r = surfaceCore().searchStep(str(input, "toward") as "older" | "newer");
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_set_colors": {
+            const colors = input["colors"];
+            if (!isRecord(colors)) throw new Error("colors must be an object");
+            const ansi = Array.isArray(colors["ansi"])
+              ? (colors["ansi"] as unknown[]).map(String)
+              : [];
+            const r = surfaceCore().setColors({
+              foreground: str(colors, "foreground"),
+              background: str(colors, "background"),
+              cursor: str(colors, "cursor"),
+              ansi,
+            });
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_set_background_opacity": {
+            const r = surfaceCore().setBackgroundOpacity(num(input, "alpha"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_set_font": {
+            const s = surfaceCore();
+            const next: { fontFamily?: string; fontSize?: number; lineHeight?: number | null } = {};
+            if (typeof input["font_family"] === "string") next.fontFamily = input["font_family"] as string;
+            if (typeof input["font_size"] === "number") next.fontSize = input["font_size"] as number;
+            if ("line_height" in input) next.lineHeight = input["line_height"] as number | null;
+            const r = s.setFont(next);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_set_read_only": {
+            const r = surfaceCore().setReadOnly(input["read_only"] === true);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_set_mouse_capture": {
+            const r = surfaceCore().setMouseCapture(
+              input["capture"] === null ? null : input["capture"] === true,
+            );
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_tick": {
+            const r = surfaceCore().tick();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_blink_toggle": {
+            const r = surfaceCore().blinkToggle();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_report_focus": {
+            const r = surfaceCore().reportFocus(input["focused"] === true);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_composition_start": {
+            const r = surfaceCore().compositionStart();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_composition_end": {
+            const r = surfaceCore().compositionEnd(str(input, "data"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_before_input": {
+            const r = surfaceCore().beforeInputInsertText(
+              str(input, "data"),
+              input["is_composing"] === true,
+            );
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_key_down":
+          case "surface_key_up": {
+            const s = surfaceCore();
+            const keyInput = {
+              code: str(input, "code"),
+              key: str(input, "key"),
+              keyCode: typeof input["key_code"] === "number" ? (input["key_code"] as number) : 0,
+              repeat: input["repeat"] === true,
+              shiftKey: input["shift"] === true,
+              ctrlKey: input["ctrl"] === true,
+              altKey: input["alt"] === true,
+              metaKey: input["meta"] === true,
+              isComposing: input["is_composing"] === true,
+            };
+            const r = op === "surface_key_down" ? s.keyDown(keyInput) : s.keyUp(keyInput);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_pointer_down":
+          case "surface_pointer_move":
+          case "surface_pointer_up":
+          case "surface_pointer_cancel":
+          case "surface_pointer_leave": {
+            const s = surfaceCore();
+            if (op === "surface_pointer_cancel") {
+              const r = s.pointerCancel();
+              return ok({ effects: r.effects, value: r.value ?? null });
+            }
+            if (op === "surface_pointer_leave") {
+              const r = s.pointerLeave();
+              return ok({ effects: r.effects, value: r.value ?? null });
+            }
+            const rect = { left: num(input, "rect_left"), top: num(input, "rect_top") };
+            const p = {
+              button: num(input, "button"),
+              shiftKey: input["shift"] === true,
+              ctrlKey: input["ctrl"] === true,
+              altKey: input["alt"] === true,
+              clientX: num(input, "client_x"),
+              clientY: num(input, "client_y"),
+            };
+            const r =
+              op === "surface_pointer_down"
+                ? s.pointerDown(p, rect)
+                : op === "surface_pointer_move"
+                  ? s.pointerMove(p, rect)
+                  : s.pointerUp({ ...p, at: typeof input["at"] === "number" ? (input["at"] as number) : 0 }, rect);
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_wheel": {
+            const s = surfaceCore();
+            const r = s.wheel(
+              {
+                deltaX: num(input, "delta_x"),
+                deltaY: num(input, "delta_y"),
+                shiftKey: input["shift"] === true,
+                ctrlKey: input["ctrl"] === true,
+                altKey: input["alt"] === true,
+                clientX: num(input, "client_x"),
+                clientY: num(input, "client_y"),
+              },
+              { left: num(input, "rect_left"), top: num(input, "rect_top") },
+            );
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_paste": {
+            const r = surfaceCore().paste(str(input, "text"));
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_get_selection_text": {
+            const r = surfaceCore().getSelectionText();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_clear_selection": {
+            const r = surfaceCore().clearSelection();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_dispose": {
+            // keep the (now disposed) core alive so post-dispose ops exercise
+            // the inert path; surface_new stays rejected until batch end
+            const r = surfaceCore().dispose();
+            return ok({ effects: r.effects, value: r.value ?? null });
           }
           default:
             return fail(`ts terminal adapter: unknown op "${op}"`);
