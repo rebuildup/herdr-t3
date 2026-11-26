@@ -29,3 +29,4 @@
 | [ADR-0025](./ADR-0025.md) | Accepted | Transitional Rust consumer: wasm-in-runtime for small-data capabilities; no transitional consumer for per-frame paths |
 | [ADR-0026](./ADR-0026.md) | Accepted | Automations surface: automations-v1 contract pin @6c1cfa5 and read-only adoption |
 | [ADR-0027](./ADR-0027.md) | Accepted | Conversations surface: conversations-v1 contract pin @d23205af and read + index adoption |
+| [ADR-0028](./ADR-0028.md) | Accepted | Usage surface: usage-v1 contract pin @d23205af and read-only adoption |

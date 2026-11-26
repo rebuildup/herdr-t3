@@ -13,6 +13,7 @@ import {
   EllipsisIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
+  GaugeIcon,
   GitBranchIcon,
   HistoryIcon,
   InfoIcon,
@@ -658,6 +659,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "conversations", kind: "conversations" })}
               >
                 <MessagesSquareIcon /> Conversations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "usage", kind: "usage" })}
+              >
+                <GaugeIcon /> Usage
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab

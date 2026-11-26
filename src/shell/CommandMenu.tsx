@@ -8,6 +8,7 @@ import {
   CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
+  GaugeIcon,
   FolderKanbanIcon,
   GitBranchIcon,
   HistoryIcon,
@@ -239,6 +240,14 @@ export function CommandMenu({
           icon: <MessagesSquareIcon className="size-4" />,
           keywords: "conversations transcripts sessions history search index plugin",
           run: panelSurface({ id: "conversations", kind: "conversations" }),
+        },
+        {
+          id: "panel-usage",
+          label: "Usage",
+          group: "Actions",
+          icon: <GaugeIcon className="size-4" />,
+          keywords: "usage quota cost tokens divergence estimates plugin",
+          run: panelSurface({ id: "usage", kind: "usage" }),
         },
       );
       list.push(
