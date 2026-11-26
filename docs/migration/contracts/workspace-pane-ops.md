@@ -37,6 +37,16 @@ the UI renders (`src/shell/*`, `src/lib/workspace.ts`).
 - Single-tab workspaces hide the tab label; multi-machine snapshots are
   namespaced by `machine` and never merged.
 
+## Malformed input (projection adapter boundary)
+
+- `deriveWorkspace` assumes the snapshot carries `workspaces`,
+  `layouts` and related arrays. On sparse or non-object snapshots the
+  TS implementation throws (`snapshot?.layouts.find` on a missing
+  `layouts`); the Rust port returns an empty workspace projection.
+  Contract-conforming herdr snapshots always include these arrays, so
+  the divergence is unreachable in production — documented as
+  intentional (#288), not mirrored.
+
 ## Errors
 
 - RPC failure → `rpc_result.ok=false` with herdr's code; UI surfaces a
