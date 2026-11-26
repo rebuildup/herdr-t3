@@ -59,6 +59,9 @@ source of truth. Each feature is classified by where its data comes from:
 | Artifacts (generated-file registry: html/image/pdf/file/other) | [plugin] | `herdr-plugins.artifacts/v1` pinned @d23205af (ADR-0029): export/search/verify read surface connected (#396, capability-gated per host; `missing_ref`/`owner_stale`/`oversize`/`orphans`/`corrupt` rendered verbatim, empty registry is an honest empty state); `resolved_path` is text+copy only — no inline render, no shell-open bridge; mutations (`register`/`delete`/`deliver`/`gc`) gated off, separate ticket |
 | Handoffs / delegation records | [plugin] | `herdr-plugins.handoff/v1` pinned @d23205af (ADR-0030): list/status/resume-info read surface connected (#404 — record list with relationship kind, derived children, `transfer_check` staleness, execution target; on-demand `status` detail with `--no-reconcile` and owner-CLI payload-ref resolution, `resume-info` provider native-resume table); mutations (`create`/`execute`/`delegate`/`merge-back`) and `status --remote` remain separate tickets |
 | Text generation (thread titles, branch/commit/PR content, review guides, next prompts) | [plugin] | `herdr-plugins.textgen/v1` pinned @d23205af (ADR-0031): capability/git-context read surface connected (#442, capability-gated per host — task×path matrix, provider matrix, guards, git integration rendered verbatim); contract has no list/history/result commands so no generation history exists; `generate`/`watch-next-prompt`/config mutations gated off, results never auto-applied — generation ticket separate |
+| Secrets (env bindings, run/inject) | [plugin] | `herdr-plugins.secrets/v1` pinned @d23205af (ADR-0032): bindings surface connected (#454, capability-gated per host — provider/cli/reachability, `invalid_bindings`, metadata-only `resolve` preview, on-demand `capability --probe`); value guarantee enforced twice (parsers drop value-shaped fields, argv builders take no value input — unit-tested); `run`/`inject` mutations gated + confirmed, `config`/`--init` never offered; `run` child output is not streamed (bridge limitation, reported honestly) |
+| Machines (saved-machine inventory/probe) | [plugin] | `herdr-plugins.machines/v1` pinned @d23205af (ADR-0032, draft contract): list/probe surface connected (#454, capability-gated per host — `list` eager merged live+last-known, `probe` on-demand only with per-row/all actions); probe verdicts (`ok`/`disabled`/`unreachable`/`unsupported_remote`/`error`, `plugin_surface` tri-state) rendered verbatim; read-only contract, mutation gating fails closed; machine lifecycle stays herdr CLI |
+| MCP server diagnostics | [plugin] | `herdr-plugins.mcp/v1` pinned @d23205af (ADR-0032, stable contract): diagnostics-only surface connected (#454, capability-gated per host — session resolution, access levels + t3_mapping, tool table, sibling-plugin availability, `remote excluded_v1` tracking herdrdev/herdr#6199); `serve` never spawned, no MCP tool invoked; MCP-client UX is a separate ticket |
 
 > **Container rule (maintainer directive, #333):** plugin surfaces are docked
 > right-panel tabs in the T3 `ChatRightPanel`/`RightPanelTabs` pattern — a
@@ -126,6 +129,12 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    top-level commands gated off, separate ticket), textgen surface via
    `herdr-plugins.textgen` (#442 on the @d23205af
    pin — capability/git-context reads; advertised mutations gated off),
+   secrets surface via `herdr-plugins.secrets` (#454 on the @d23205af
+   pin — bindings/resolve reads + gated run/inject; values never
+   rendered), machines surface via `herdr-plugins.machines` (#454 on
+   the @d23205af pin — list + on-demand probe; read-only contract),
+   mcp diagnostics surface via `herdr-plugins.mcp` (#454 on the
+   @d23205af pin — capability only; serve/tools never invoked),
    settings sections that map to existing data.
 3. **upstream-gated (any release):** issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178

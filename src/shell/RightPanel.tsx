@@ -30,9 +30,12 @@ import {
   GitBranchIcon,
   HistoryIcon,
   GaugeIcon,
+  KeyRoundIcon,
   MessagesSquareIcon,
   PackageIcon,
   PanelLeftCloseIcon,
+  PlugIcon,
+  ServerIcon,
   SparklesIcon,
   PlusIcon,
   SquarePlayIcon,
@@ -65,6 +68,9 @@ import { UsageSurface } from "~/components/UsageSurface";
 import { ArtifactsSurface } from "~/components/ArtifactsSurface";
 import { HandoffsSurface } from "~/components/HandoffsSurface";
 import { TextGenSurface } from "~/components/TextGenSurface";
+import { SecretsSurface } from "~/components/SecretsSurface";
+import { MachinesSurface } from "~/components/MachinesSurface";
+import { McpSurface } from "~/components/McpSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -114,6 +120,9 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   artifacts: PackageIcon,
   handoffs: ArrowLeftRightIcon,
   textgen: SparklesIcon,
+  secrets: KeyRoundIcon,
+  machines: ServerIcon,
+  mcp: PlugIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -128,6 +137,9 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   artifacts: "Artifacts",
   handoffs: "Handoffs",
   textgen: "Text Generation",
+  secrets: "Secrets",
+  machines: "Machines",
+  mcp: "MCP",
 };
 
 function surfaceTitle(
@@ -184,6 +196,12 @@ function SurfaceContent({
       return <HandoffsSurface machine={machine} />;
     case "textgen":
       return <TextGenSurface machine={machine} />;
+    case "secrets":
+      return <SecretsSurface machine={machine} />;
+    case "machines":
+      return <MachinesSurface machine={machine} />;
+    case "mcp":
+      return <McpSurface machine={machine} />;
   }
 }
 
@@ -548,6 +566,21 @@ export function RightPanel() {
       label: "Text Generation",
       icon: SparklesIcon,
       run: () => openSurface(scope, { id: "textgen", kind: "textgen" }),
+    },
+    {
+      label: "Secrets",
+      icon: KeyRoundIcon,
+      run: () => openSurface(scope, { id: "secrets", kind: "secrets" }),
+    },
+    {
+      label: "Machines",
+      icon: ServerIcon,
+      run: () => openSurface(scope, { id: "machines", kind: "machines" }),
+    },
+    {
+      label: "MCP",
+      icon: PlugIcon,
+      run: () => openSurface(scope, { id: "mcp", kind: "mcp" }),
     },
   ];
   const frame = (

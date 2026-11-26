@@ -552,6 +552,38 @@ describe("PluginService.call", () => {
     expect(doc["error"]).toMatchObject({ kind: "partial_save" });
   });
 
+  test("exit-nonzero with ok:false stdout report and no stderr doc returns the report (secrets resolve)", async () => {
+    // secrets-v1 `resolve` exits 1 when any binding is unresolved and
+    // prints the per-binding report on stdout with ok:false — there is
+    // no stderr error document for per-binding failures (issue #454).
+    // The bridge must hand the report back as the result document with
+    // the exit status attached, not collapse it into a bare error.
+    const report = {
+      contract: "herdr-plugins.secrets/v1",
+      command: "resolve",
+      ok: false,
+      bindings: [
+        { name: "alpha", env: "ALPHA_KEY", ref: "infisical:dev:/:ALPHA", status: "resolved" },
+        { name: "missing", env: "MISSING_KEY", ref: "infisical:dev:/:MISSING", status: "unresolved", detail: "secret MISSING not found at dev:/" },
+      ],
+    };
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: { code: 1, stdout: JSON.stringify(report), stderr: "", timedOut: false },
+      },
+    ]);
+    const doc = await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "settle",
+      args: ["w1:p1"],
+    });
+    expect(doc["ok"]).toBe(false);
+    expect(doc["command"]).toBe("resolve");
+    expect((doc["bindings"] as unknown[]).length).toBe(2);
+    expect(doc["error"]).toMatchObject({ code: "plugin_exit", kind: "exit_1" });
+  });
+
   test("non-zero exit with stdout doc that is NOT ok:false still throws", async () => {
     const host = inboxHost([
       {
