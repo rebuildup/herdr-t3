@@ -40,6 +40,13 @@ export interface ShellBridgeState {
   errors: Record<string, string>;
   /** machine ids with a connect+fetch in flight */
   pendingMachines: Record<string, boolean>;
+  /**
+   * Machines whose held snapshot came from the server's reachability probe
+   * (issue #212): displayable list data, but not backed by a live session.
+   * ensureMachine treats these as absent so user actions still open a real
+   * connection; the next non-probe snapshot clears the flag.
+   */
+  probeSnapshots: Record<string, boolean>;
 }
 
 let state: ShellBridgeState = {
@@ -48,6 +55,7 @@ let state: ShellBridgeState = {
   snapshots: {},
   errors: {},
   pendingMachines: {},
+  probeSnapshots: {},
 };
 
 const listeners = new Set<() => void>();
@@ -113,7 +121,9 @@ export function ensureMachine(machine: string): Promise<SessionSnapshot | null> 
     setMachineError(machine, "machine is disabled");
     return Promise.resolve(null);
   }
-  if (existing && (!info || LIVE_STATUSES.has(info.status))) {
+  // A probe snapshot is list data, not a session: callers that reach
+  // ensureMachine want a live connection, so fall through to connect.
+  if (existing && !state.probeSnapshots[machine] && (!info || LIVE_STATUSES.has(info.status))) {
     return Promise.resolve(existing);
   }
   if (state.pendingMachines[machine]) {
@@ -128,11 +138,12 @@ export function ensureMachine(machine: string): Promise<SessionSnapshot | null> 
       };
       const offStore = subscribe(() => {
         const snap = state.snapshots[machine];
-        if (snap) done(snap);
+        if (snap && !state.probeSnapshots[machine]) done(snap);
         else if (!state.pendingMachines[machine]) done(null);
       });
-      const offSnapshot = onSnapshot((snapshot, m) => {
-        if (m === machine) done(snapshot);
+      const offSnapshot = onSnapshot((snapshot, m, probe) => {
+        // Probe pushes are display data; a waiter asked for a live session.
+        if (m === machine && !probe) done(snapshot);
       });
     });
   }
@@ -211,12 +222,20 @@ export function initBridge(): () => void {
   // Listeners must subscribe before connectBridge(): the desktop IPC path
   // notifies "open" synchronously inside connect(), so a later subscription
   // would miss it and the status would stay "connecting" forever (issue #92).
-  const offSnapshot = onSnapshot((snapshot, machine) => {
+  const offSnapshot = onSnapshot((snapshot, machine, probe) => {
     setMachineError(machine, null);
     // Store the snapshot before clearing pending so waiters observing the
     // pending flag never resolve null ahead of the data they waited for.
-    patch({ snapshots: { ...state.snapshots, [machine]: snapshot } });
-    setPending(machine, false);
+    // A probe push is display data only: it must not satisfy a pending
+    // live-session fetch (issue #212).
+    const probeSnapshots = { ...state.probeSnapshots };
+    if (probe) probeSnapshots[machine] = true;
+    else delete probeSnapshots[machine];
+    patch({
+      snapshots: { ...state.snapshots, [machine]: snapshot },
+      probeSnapshots,
+    });
+    if (!probe) setPending(machine, false);
   });
   const offStatus = onStatus((connection) => patch({ connection }));
   const offMachines = onMachines((list) => {

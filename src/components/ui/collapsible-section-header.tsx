@@ -4,6 +4,8 @@
  * Local changes: `chevron` variant — T3's trailing chevron leaves the count
  * ~20px left of the row right rail; leading placement lets the count sit
  * flush with row content (issue #204 review). Default stays verbatim.
+ * `warning` tone added for the Attention shelf header (issue #211; the
+ * old always-visible Attention label used text-warning-foreground).
  */
 import type { ComponentProps, ReactNode } from "react";
 import { ChevronDownIcon } from "lucide-react";
@@ -13,6 +15,7 @@ const tones = {
   muted: { label: "text-sidebar-muted-foreground", line: "bg-sidebar-border/50" },
   emphasized: { label: "text-sidebar-foreground/80", line: "bg-sidebar-foreground/25" },
   accent: { label: "text-primary", line: "bg-primary/50" },
+  warning: { label: "text-warning-foreground", line: "bg-warning-foreground/25" },
 } as const;
 
 export function CollapsibleSectionHeader({

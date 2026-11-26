@@ -1,0 +1,1782 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "projection.agent-organize",
+  "capability": "agent.projection",
+  "contract": "agent-inbox@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "local",
+            "label": "This Mac",
+            "status": "connected"
+          },
+          {
+            "id": "remote",
+            "label": "Remote",
+            "status": "connected"
+          },
+          {
+            "id": "down",
+            "label": "Down",
+            "status": "unreachable"
+          }
+        ],
+        "snapshots": {
+          "local": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim"
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "state_change_seq": 20,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test"
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "remote": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim"
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "state_change_seq": 20,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test"
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "stale": [],
+        "branch_index": {}
+      },
+      "note": "same pane_ids on two machines; 'down' has no snapshot",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": [
+            {
+              "key": "local\nw1:p2",
+              "machine_id": "local",
+              "pane_id": "w1:p2",
+              "status": "blocked",
+              "seq": 11,
+              "display_name": "Claude",
+              "work_target": "vim",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "blocked",
+              "aux_labels": [],
+              "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+            },
+            {
+              "key": "local\nw1:p1",
+              "machine_id": "local",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 20,
+              "display_name": "Codex",
+              "work_target": "bun test",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [],
+              "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+            },
+            {
+              "key": "remote\nw1:p2",
+              "machine_id": "remote",
+              "pane_id": "w1:p2",
+              "status": "blocked",
+              "seq": 11,
+              "display_name": "Claude",
+              "work_target": "vim",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "blocked",
+              "aux_labels": [],
+              "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+            },
+            {
+              "key": "remote\nw1:p1",
+              "machine_id": "remote",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 20,
+              "display_name": "Codex",
+              "work_target": "bun test",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [],
+              "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "local\nw1:p1": {
+            "kind": "settled",
+            "seq": 20
+          },
+          "remote\nw1:p2": {
+            "kind": "snoozed",
+            "seq": 11
+          },
+          "local\nw1:p9": {
+            "kind": "settled",
+            "seq": 3
+          },
+          "down\nw1:p7": {
+            "kind": "snoozed",
+            "seq": 2
+          }
+        },
+        "unresolved_machines": null
+      },
+      "note": "null unresolved = machine list not loaded: settled local p1 shelves, blocked remote p2 stays attention (record dropped), vanished-pane records all preserved",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [
+              {
+                "key": "local\nw1:p2",
+                "machine_id": "local",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+              },
+              {
+                "key": "remote\nw1:p2",
+                "machine_id": "remote",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+              }
+            ],
+            "working": [
+              {
+                "key": "remote\nw1:p1",
+                "machine_id": "remote",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": [
+              {
+                "key": "local\nw1:p1",
+                "machine_id": "local",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ]
+          },
+          "organize": {
+            "local\nw1:p1": {
+              "kind": "settled",
+              "seq": 20
+            },
+            "local\nw1:p9": {
+              "kind": "settled",
+              "seq": 3
+            },
+            "down\nw1:p7": {
+              "kind": "snoozed",
+              "seq": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "local\nw1:p1": {
+            "kind": "settled",
+            "seq": 20
+          },
+          "remote\nw1:p2": {
+            "kind": "snoozed",
+            "seq": 11
+          },
+          "local\nw1:p9": {
+            "kind": "settled",
+            "seq": 3
+          },
+          "down\nw1:p7": {
+            "kind": "snoozed",
+            "seq": 2
+          }
+        },
+        "unresolved_machines": [
+          "down"
+        ]
+      },
+      "note": "resolved machines prune vanished-pane records; 'down' record survives",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [
+              {
+                "key": "local\nw1:p2",
+                "machine_id": "local",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+              },
+              {
+                "key": "remote\nw1:p2",
+                "machine_id": "remote",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+              }
+            ],
+            "working": [
+              {
+                "key": "remote\nw1:p1",
+                "machine_id": "remote",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": [
+              {
+                "key": "local\nw1:p1",
+                "machine_id": "local",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ]
+          },
+          "organize": {
+            "local\nw1:p1": {
+              "kind": "settled",
+              "seq": 20
+            },
+            "down\nw1:p7": {
+              "kind": "snoozed",
+              "seq": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "local\nw1:p1": {
+            "kind": "settled",
+            "seq": 20
+          },
+          "remote\nw1:p2": {
+            "kind": "snoozed",
+            "seq": 11
+          },
+          "local\nw1:p9": {
+            "kind": "settled",
+            "seq": 3
+          },
+          "down\nw1:p7": {
+            "kind": "snoozed",
+            "seq": 2
+          }
+        },
+        "unresolved_machines": []
+      },
+      "note": "empty unresolved set: every unseen record pruned",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [
+              {
+                "key": "local\nw1:p2",
+                "machine_id": "local",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+              },
+              {
+                "key": "remote\nw1:p2",
+                "machine_id": "remote",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+              }
+            ],
+            "working": [
+              {
+                "key": "remote\nw1:p1",
+                "machine_id": "remote",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": [
+              {
+                "key": "local\nw1:p1",
+                "machine_id": "local",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ]
+          },
+          "organize": {
+            "local\nw1:p1": {
+              "kind": "settled",
+              "seq": 20
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "local",
+            "label": "This Mac",
+            "status": "connected"
+          },
+          {
+            "id": "remote",
+            "label": "Remote",
+            "status": "connected"
+          },
+          {
+            "id": "down",
+            "label": "Down",
+            "status": "unreachable"
+          }
+        ],
+        "snapshots": {
+          "local": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim",
+                "state_labels": {
+                  "blocked": "needs approval",
+                  "custom": "in review",
+                  "note": "in review"
+                }
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 8,
+                "state_change_seq": 21,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test",
+                "state_labels": {
+                  "working": "  ",
+                  "review": "compiling"
+                }
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "remote": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim"
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "state_change_seq": 20,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test"
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "stale": [],
+        "branch_index": {}
+      },
+      "note": "local snapshot advanced: p1 seq 20->21, p2 gains state_labels",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": [
+            {
+              "key": "local\nw1:p2",
+              "machine_id": "local",
+              "pane_id": "w1:p2",
+              "status": "blocked",
+              "seq": 11,
+              "display_name": "Claude",
+              "work_target": "vim",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "needs approval",
+              "aux_labels": [
+                "in review"
+              ],
+              "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+            },
+            {
+              "key": "local\nw1:p1",
+              "machine_id": "local",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 21,
+              "display_name": "Codex",
+              "work_target": "bun test",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [
+                "compiling"
+              ],
+              "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+            },
+            {
+              "key": "remote\nw1:p2",
+              "machine_id": "remote",
+              "pane_id": "w1:p2",
+              "status": "blocked",
+              "seq": 11,
+              "display_name": "Claude",
+              "work_target": "vim",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "blocked",
+              "aux_labels": [],
+              "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+            },
+            {
+              "key": "remote\nw1:p1",
+              "machine_id": "remote",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 20,
+              "display_name": "Codex",
+              "work_target": "bun test",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [],
+              "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "local\nw1:p1": {
+            "kind": "settled",
+            "seq": 20
+          }
+        },
+        "unresolved_machines": []
+      },
+      "note": "seq advanced past record -> auto-return to working, record dropped",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [
+              {
+                "key": "local\nw1:p2",
+                "machine_id": "local",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "needs approval",
+                "aux_labels": [
+                  "in review"
+                ],
+                "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+              },
+              {
+                "key": "remote\nw1:p2",
+                "machine_id": "remote",
+                "pane_id": "w1:p2",
+                "status": "blocked",
+                "seq": 11,
+                "display_name": "Claude",
+                "work_target": "vim",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "blocked",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fClaude\u001fvim"
+              }
+            ],
+            "working": [
+              {
+                "key": "local\nw1:p1",
+                "machine_id": "local",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 21,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [
+                  "compiling"
+                ],
+                "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+              },
+              {
+                "key": "remote\nw1:p1",
+                "machine_id": "remote",
+                "pane_id": "w1:p1",
+                "status": "working",
+                "seq": 20,
+                "display_name": "Codex",
+                "work_target": "bun test",
+                "workspace_title": "app",
+                "tab_label": "",
+                "state_label": "working",
+                "aux_labels": [],
+                "row_signature": "remote\u001fapp\u001f\u001fCodex\u001fbun test"
+              }
+            ],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": []
+          },
+          "organize": {}
+        }
+      }
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "local",
+            "label": "This Mac",
+            "status": "connected"
+          },
+          {
+            "id": "remote",
+            "label": "Remote",
+            "status": "connected"
+          },
+          {
+            "id": "down",
+            "label": "Down",
+            "status": "unreachable"
+          }
+        ],
+        "snapshots": {
+          "local": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim",
+                "state_labels": {
+                  "blocked": "needs approval",
+                  "custom": "in review",
+                  "note": "in review"
+                }
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 8,
+                "state_change_seq": 21,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test",
+                "state_labels": {
+                  "working": "  ",
+                  "review": "compiling"
+                }
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "remote": {
+            "version": "22",
+            "protocol": 22,
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 2,
+                "active_tab_id": "w1:t1",
+                "worktree": {
+                  "checkout_path": "/repo/app",
+                  "is_linked_worktree": false,
+                  "repo_key": "repo/app",
+                  "repo_name": "app",
+                  "repo_root": "/repo/app"
+                }
+              },
+              {
+                "workspace_id": "w2",
+                "label": "docs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1,
+                "tab_count": 1,
+                "active_tab_id": "w2:t1",
+                "worktree": null
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "",
+                "number": 1,
+                "agent_status": "working",
+                "focused": true,
+                "pane_count": 2
+              },
+              {
+                "tab_id": "w1:t2",
+                "workspace_id": "w1",
+                "label": "logs",
+                "number": 2,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 0
+              },
+              {
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "label": "",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": false,
+                "pane_count": 1
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "terminal_title": "bun test",
+                "terminal_title_stripped": "bun test",
+                "title": "shell"
+              },
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "terminal_title_stripped": "vim",
+                "title": "editor"
+              },
+              {
+                "pane_id": "w2:p1",
+                "tab_id": "w2:t1",
+                "workspace_id": "w2",
+                "terminal_id": "term-3",
+                "agent_status": "idle",
+                "focused": false,
+                "revision": 1,
+                "terminal_title_stripped": "ssh host",
+                "title": "remote"
+              }
+            ],
+            "agents": [
+              {
+                "pane_id": "w1:p2",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-2",
+                "agent": "claude",
+                "display_agent": "Claude",
+                "agent_status": "blocked",
+                "focused": false,
+                "revision": 3,
+                "state_change_seq": 11,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "vim"
+              },
+              {
+                "pane_id": "w1:p1",
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "terminal_id": "term-1",
+                "agent": "codex",
+                "display_agent": "Codex",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 7,
+                "state_change_seq": 20,
+                "cwd": "/repo/app",
+                "terminal_title_stripped": "bun test"
+              }
+            ],
+            "layouts": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "focused_pane_id": "w1:p1",
+                "zoomed": false,
+                "area": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 200,
+                  "height": 50
+                },
+                "panes": [
+                  {
+                    "pane_id": "w1:p1",
+                    "focused": true,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  },
+                  {
+                    "pane_id": "w1:p2",
+                    "focused": false,
+                    "rect": {
+                      "x": 100,
+                      "y": 0,
+                      "width": 100,
+                      "height": 50
+                    }
+                  }
+                ],
+                "splits": [
+                  {
+                    "id": "s1",
+                    "direction": "right",
+                    "ratio": 0.5,
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 200,
+                      "height": 50
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "stale": [
+          "remote"
+        ],
+        "branch_index": {}
+      },
+      "note": "remote marked stale -> contributes no entries",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": [
+            {
+              "key": "local\nw1:p2",
+              "machine_id": "local",
+              "pane_id": "w1:p2",
+              "status": "blocked",
+              "seq": 11,
+              "display_name": "Claude",
+              "work_target": "vim",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "needs approval",
+              "aux_labels": [
+                "in review"
+              ],
+              "row_signature": "local\u001fapp\u001f\u001fClaude\u001fvim"
+            },
+            {
+              "key": "local\nw1:p1",
+              "machine_id": "local",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 21,
+              "display_name": "Codex",
+              "work_target": "bun test",
+              "workspace_title": "app",
+              "tab_label": "",
+              "state_label": "working",
+              "aux_labels": [
+                "compiling"
+              ],
+              "row_signature": "local\u001fapp\u001f\u001fCodex\u001fbun test"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

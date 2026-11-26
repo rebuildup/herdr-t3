@@ -29,6 +29,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useRoute } from "./router";
+import "~/lib/uiObserve";
 import { useBridgeState } from "./bridge";
 import { syncWorktreeBranches } from "./worktrees";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";

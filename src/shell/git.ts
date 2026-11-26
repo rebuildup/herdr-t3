@@ -1,0 +1,1578 @@
+/*
+ * Plugin-backed Git store (ADR-0011, ADR-0012; issues #220/#227).
+ *
+ * `rebuildup.git` on the pane's host owns repository reads through the
+ * `herdr-plugins.git/v1` contract, pinned at
+ * rebuildup/herdr-plugins@d057830 (release-0-2-0, strict option parsing —
+ * ADR-0018): `status`, `files`,
+ * `diff`, `log`, `compare`, `capability`. Hosts may still run the older
+ * Stage-1 build (`status`/`diff`/`project` only, drifted `diff`/`stat`
+ * field names), so every parser tolerates additive fields and the drifted
+ * names, and `gitCapability` reports which commands a host actually
+ * advertises. The mutation/remote commands added by #228 (`stage` …
+ * `push`, `remote`) live below the read surface, and the forge `pr`
+ * commands (#229) sit between them and capability; every control is
+ * gated on the host's advertised capability sets.
+ *
+ * Freshness is pull-based: callers refresh on open and on demand. The
+ * contract's `project` metadata projection is a herdr-side concern and is
+ * not consumed by this store.
+ */
+import { useEffect, useSyncExternalStore } from "react";
+import { pluginCall } from "../lib/api";
+
+export const GIT_PLUGIN_ID = "rebuildup.git";
+export const GIT_CONTRACT_PREFIX = "herdr-plugins.git/";
+
+/** Boundary-level unavailability (ADR-0011 §10). */
+export type GitUnavailableReason =
+  | "not_installed"
+  | "disabled"
+  | "incompatible"
+  | "unreachable"
+  | "error";
+
+/** Plugin-reported repository states (git-v1 `error.kind`). */
+export type GitRepoErrorKind =
+  | "not_a_repo"
+  | "bare_repo"
+  | "git_missing"
+  | "pane_not_found"
+  | "no_pane_cwd"
+  | "timeout"
+  | "git_error"
+  | "usage";
+
+export type GitStatusState =
+  | { kind: "loading" }
+  | { kind: "ready"; status: GitStatusReport }
+  | { kind: "unavailable"; reason: GitUnavailableReason; detail: string }
+  | {
+      kind: "repo_error";
+      code: GitRepoErrorKind | string;
+      detail: string;
+      /** Bounded contract extras forwarded by the bridge (issue #257). */
+      fields?: Record<string, unknown>;
+    };
+
+export interface GitRepoInfo {
+  root: string;
+  git_dir: string;
+  git_common_dir: string;
+  bare: boolean;
+}
+
+export interface GitBranchInfo {
+  name: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+}
+
+export interface GitChangesInfo {
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  conflicted: number;
+}
+
+export interface GitStatusReport {
+  pane_id: string;
+  generated_at: string | null;
+  repo: GitRepoInfo;
+  branch: GitBranchInfo;
+  changes: GitChangesInfo;
+  warnings: string[];
+}
+
+/* ------------------------------ diff --------------------------------- */
+
+/** `diff` output formats; exactly one output field is non-null per call. */
+export type GitDiffFormat = "patch" | "stat" | "name-status" | "numstat";
+
+/** Document keys that can carry diff text (0.2.x names + Stage-1 drift). */
+export type GitDiffField =
+  | "output"
+  | "stat_output"
+  | "name_status_output"
+  | "numstat_output"
+  | "diff"
+  | "stat";
+
+export interface GitDiffResult {
+  /** Requested/normalized format of the returned text. */
+  format: GitDiffFormat;
+  /** Which document field carried `text`. */
+  field: GitDiffField;
+  /** Patch text, or the requested summary format's text. */
+  text: string;
+  staged: boolean;
+  truncated: boolean;
+  bytes: number;
+}
+
+/* ------------------------------ files -------------------------------- */
+
+export type GitFileKind =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "typechange"
+  | "untracked"
+  | "conflicted"
+  | "ignored";
+
+export interface GitFileEntry {
+  path: string;
+  old_path: string | null;
+  /** Index/worktree status letters as reported (e.g. "M", " ", "?"). */
+  index: string | null;
+  worktree: string | null;
+  kind: GitFileKind | string;
+  staged: boolean;
+  unstaged: boolean;
+  /** true/false for tracked entries, null for untracked/conflicted/ignored. */
+  binary: boolean | null;
+}
+
+export interface GitFilesResult {
+  files: GitFileEntry[];
+  pathspec: string[];
+  repo_root: string | null;
+  generated_at: string | null;
+}
+
+/* ------------------------------- log --------------------------------- */
+
+export interface GitPerson {
+  name: string;
+  email: string;
+  /** ISO-8601 commit timestamp, or null when absent/malformed. */
+  date: string | null;
+}
+
+export interface GitLogCommit {
+  sha: string;
+  parents: string[];
+  author: GitPerson;
+  committer: GitPerson;
+  subject: string;
+}
+
+export interface GitLogResult {
+  commits: GitLogCommit[];
+  has_more: boolean;
+  limit: number | null;
+  skip: number | null;
+  repo_root: string | null;
+  generated_at: string | null;
+}
+
+/* ----------------------------- compare ------------------------------- */
+
+export interface GitCompareFile {
+  status: string;
+  path: string;
+  old_path: string | null;
+}
+
+export interface GitCompareResult {
+  base: string | null;
+  head: string | null;
+  merge_base: string | null;
+  ahead: number | null;
+  behind: number | null;
+  files: GitCompareFile[];
+  stat: string | null;
+  patch: string | null;
+  patch_truncated: boolean;
+  patch_bytes: number | null;
+  repo_root: string | null;
+  generated_at: string | null;
+}
+
+/* ---------------------------- capability ------------------------------ */
+
+/**
+ * Per-host capability probe (`capability` command). `commands` is the
+ * authoritative read surface; `mutationCommands` gates the #228
+ * mutation/remote helpers below (`remote` itself is a read command and
+ * gates on `commands`). `contractOk` is false when the
+ * plugin answers with a foreign/missing contract — callers treat that as
+ * "not supported by this plugin version", distinct from boundary errors.
+ */
+export interface GitCapability {
+  contractOk: boolean;
+  contract: string;
+  commands: Set<string>;
+  mutationCommands: Set<string>;
+  readOnly: boolean;
+}
+
+const CAPABILITY_TTL_MS = 30_000;
+const CAPABILITY_ERROR_TTL_MS = 10_000;
+
+const REPO_ERROR_KINDS = new Set([
+  "not_a_repo",
+  "bare_repo",
+  "git_missing",
+  "pane_not_found",
+  "no_pane_cwd",
+  "timeout",
+  "git_error",
+  "usage",
+]);
+
+const DIFF_FORMATS = new Set<GitDiffFormat>(["patch", "stat", "name-status", "numstat"]);
+
+const DIFF_FIELD_FOR_FORMAT: Record<GitDiffFormat, GitDiffField> = {
+  patch: "output",
+  stat: "stat_output",
+  "name-status": "name_status_output",
+  numstat: "numstat_output",
+};
+
+/** Drifted Stage-1 field names, checked after the 0.2.x names. */
+const DIFF_DRIFT_FIELDS: GitDiffField[] = ["diff", "stat"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function strArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** Contract guard shared by every document parser: foreign contracts reject. */
+function contractAllowed(doc: Record<string, unknown>): boolean {
+  const contract = doc["contract"];
+  return contract === undefined || (typeof contract === "string" && contract.startsWith(GIT_CONTRACT_PREFIX));
+}
+
+/** Defensive projection of the `status` document (additive fields ignored). */
+export function gitStatusFromDoc(doc: Record<string, unknown>): GitStatusReport | null {
+  if (!contractAllowed(doc)) return null;
+  const repo = doc["repo"];
+  const branch = doc["branch"];
+  const changes = doc["changes"];
+  if (!isRecord(repo) || !isRecord(branch) || !isRecord(changes)) return null;
+  const paneId = str(doc["pane_id"]);
+  const root = str(repo["root"]);
+  if (paneId === null || root === null) return null;
+  const warnings = Array.isArray(doc["warnings"])
+    ? doc["warnings"].filter((w): w is string => typeof w === "string")
+    : [];
+  return {
+    pane_id: paneId,
+    generated_at: str(doc["generated_at"]),
+    repo: {
+      root,
+      git_dir: str(repo["git_dir"]) ?? "",
+      git_common_dir: str(repo["git_common_dir"]) ?? "",
+      bare: repo["bare"] === true,
+    },
+    branch: {
+      name: str(branch["name"]) ?? "HEAD",
+      detached: branch["detached"] === true,
+      upstream: str(branch["upstream"]),
+      ahead: num(branch["ahead"]),
+      behind: num(branch["behind"]),
+    },
+    changes: {
+      staged: num(changes["staged"]) ?? 0,
+      unstaged: num(changes["unstaged"]) ?? 0,
+      untracked: num(changes["untracked"]) ?? 0,
+      conflicted: num(changes["conflicted"]) ?? 0,
+    },
+    warnings,
+  };
+}
+
+/**
+ * Project a `diff` document. Reads the 0.2.x output fields
+ * (`output`/`stat_output`/`name_status_output`/`numstat_output`) selected by
+ * `format`, falling back to the drifted Stage-1 `diff`/`stat` names so both
+ * plugin generations work during the rollout window (ADR-0012).
+ */
+export function gitDiffFromDoc(
+  doc: Record<string, unknown>,
+  requestedFormat: GitDiffFormat = "patch",
+): GitDiffResult | null {
+  if (!contractAllowed(doc)) return null;
+  const format = DIFF_FORMATS.has(doc["format"] as GitDiffFormat)
+    ? (doc["format"] as GitDiffFormat)
+    : requestedFormat;
+  const preferred: GitDiffField = DIFF_FIELD_FOR_FORMAT[format];
+  // Drifted Stage-1 names map onto patch/stat; the matching one is tried
+  // before the other so a `--stat` request never returns the `diff` text.
+  const driftForFormat: GitDiffField | null =
+    format === "patch" ? "diff" : format === "stat" ? "stat" : null;
+  const candidates: GitDiffField[] = [preferred];
+  if (driftForFormat !== null) candidates.push(driftForFormat);
+  for (const field of DIFF_DRIFT_FIELDS) {
+    if (!candidates.includes(field)) candidates.push(field);
+  }
+  // If the preferred field is empty but another 0.2.x field carries text,
+  // still surface it rather than dropping the diff.
+  for (const field of Object.values(DIFF_FIELD_FOR_FORMAT) as GitDiffField[]) {
+    if (!candidates.includes(field)) candidates.push(field);
+  }
+  let field: GitDiffField | null = null;
+  let text = "";
+  for (const candidate of candidates) {
+    const value = doc[candidate];
+    if (typeof value === "string" && value !== "") {
+      field = candidate;
+      text = value;
+      break;
+    }
+  }
+  if (field === null) {
+    // All output fields absent/null — an empty diff is still a valid doc.
+    field = preferred;
+  }
+  return {
+    format,
+    field,
+    text,
+    staged: doc["staged"] === true,
+    truncated: doc["truncated"] === true,
+    bytes: num(doc["bytes"]) ?? text.length,
+  };
+}
+
+/** Defensive projection of the `files` document. */
+export function gitFilesFromDoc(doc: Record<string, unknown>): GitFilesResult | null {
+  if (!contractAllowed(doc)) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  const rawFiles = doc["files"];
+  if (!Array.isArray(rawFiles)) return null;
+  const files: GitFileEntry[] = [];
+  for (const raw of rawFiles) {
+    if (!isRecord(raw)) continue;
+    const path = str(raw["path"]);
+    if (path === null) continue;
+    const binary = raw["binary"];
+    files.push({
+      path,
+      old_path: str(raw["old_path"]),
+      index: str(raw["index"]),
+      worktree: str(raw["worktree"]),
+      kind: str(raw["kind"]) ?? "modified",
+      staged: raw["staged"] === true,
+      unstaged: raw["unstaged"] === true,
+      binary: typeof binary === "boolean" ? binary : null,
+    });
+  }
+  const pathspec = doc["pathspec"];
+  return {
+    files,
+    pathspec: Array.isArray(pathspec) ? strArray(pathspec) : str(pathspec) !== null ? [pathspec as string] : [],
+    repo_root: str(doc["repo_root"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+function gitPersonFromDoc(raw: unknown): GitPerson {
+  if (!isRecord(raw)) return { name: "", email: "", date: null };
+  return {
+    name: str(raw["name"]) ?? "",
+    email: str(raw["email"]) ?? "",
+    date: str(raw["date"]),
+  };
+}
+
+/** Defensive projection of the `log` document. */
+export function gitLogFromDoc(doc: Record<string, unknown>): GitLogResult | null {
+  if (!contractAllowed(doc)) return null;
+  const paneId = str(doc["pane_id"]);
+  const commits = doc["commits"];
+  if (paneId === null || !Array.isArray(commits)) return null;
+  const out: GitLogCommit[] = [];
+  for (const raw of commits) {
+    if (!isRecord(raw)) continue;
+    const sha = str(raw["sha"]);
+    if (sha === null) continue;
+    out.push({
+      sha,
+      parents: strArray(raw["parents"]),
+      author: gitPersonFromDoc(raw["author"]),
+      committer: gitPersonFromDoc(raw["committer"]),
+      subject: str(raw["subject"]) ?? "",
+    });
+  }
+  return {
+    commits: out,
+    has_more: doc["has_more"] === true,
+    limit: num(doc["limit"]),
+    skip: num(doc["skip"]),
+    repo_root: str(doc["repo_root"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/** Defensive projection of the `compare` document. */
+export function gitCompareFromDoc(doc: Record<string, unknown>): GitCompareResult | null {
+  if (!contractAllowed(doc)) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  const rawFiles = doc["files"];
+  if (!Array.isArray(rawFiles)) return null;
+  const files: GitCompareFile[] = [];
+  for (const raw of rawFiles) {
+    if (!isRecord(raw)) continue;
+    const path = str(raw["path"]);
+    if (path === null) continue;
+    files.push({
+      status: str(raw["status"]) ?? "",
+      path,
+      old_path: str(raw["old_path"]),
+    });
+  }
+  const patchBytes = doc["patch_bytes"];
+  return {
+    base: str(doc["base"]),
+    head: str(doc["head"]),
+    merge_base: str(doc["merge_base"]),
+    ahead: num(doc["ahead"]),
+    behind: num(doc["behind"]),
+    files,
+    stat: str(doc["stat"]),
+    patch: str(doc["patch"]),
+    patch_truncated: doc["patch_truncated"] === true,
+    patch_bytes: typeof patchBytes === "number" && Number.isFinite(patchBytes) ? patchBytes : null,
+    repo_root: str(doc["repo_root"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+/** Normalize a `capability` document; null when the contract is foreign. */
+export function gitCapabilityFromDoc(doc: Record<string, unknown>): GitCapability | null {
+  const contract = doc["contract"];
+  if (typeof contract !== "string" || !contract.startsWith(GIT_CONTRACT_PREFIX)) return null;
+  const commands = new Set(strArray(doc["commands"]));
+  const mutationCommands = new Set(strArray(doc["mutation_commands"]));
+  return {
+    contractOk: true,
+    contract,
+    commands,
+    mutationCommands,
+    readOnly: doc["read_only"] === true,
+  };
+}
+
+/**
+ * Classify a plugin_call failure into boundary unavailability or a
+ * plugin-side repository error. Unknown codes stay `error`/`git_error`
+ * rather than collapsing into a fake success.
+ */
+export function classifyGitError(error: unknown): GitStatusState & { kind: "unavailable" | "repo_error" } {
+  const code = (error as { code?: string })?.code ?? "";
+  const detail = error instanceof Error ? error.message : String(error);
+  // Bounded contract extras forwarded by the bridge (issue #257).
+  const rawFields = (error as { fields?: unknown })?.fields;
+  const fields = isRecord(rawFields) ? rawFields : undefined;
+  switch (code) {
+    case "plugin_not_installed":
+      return { kind: "unavailable", reason: "not_installed", detail };
+    case "plugin_disabled":
+      return { kind: "unavailable", reason: "disabled", detail };
+    case "plugin_incompatible":
+    case "plugin_unsupported_command":
+    case "plugin_bad_output":
+      return { kind: "unavailable", reason: "incompatible", detail };
+    case "plugin_host_unreachable":
+    case "machine_unavailable":
+    case "connect_failed":
+    case "unreachable":
+      return { kind: "unavailable", reason: "unreachable", detail };
+    default:
+      if (REPO_ERROR_KINDS.has(code)) {
+        return fields === undefined
+          ? { kind: "repo_error", code, detail }
+          : { kind: "repo_error", code, detail, fields };
+      }
+      return fields === undefined
+        ? { kind: "repo_error", code: "git_error", detail }
+        : { kind: "repo_error", code: "git_error", detail, fields };
+  }
+}
+
+/* ------------------------------ store -------------------------------- */
+
+interface GitCacheEntry {
+  state: GitStatusState;
+  fetchedAt: number;
+}
+
+const entries = new Map<string, GitCacheEntry>();
+const inflight = new Map<string, Promise<void>>();
+const listeners = new Set<() => void>();
+
+function keyOf(machine: string, paneId: string): string {
+  return `${machine}\n${paneId}`;
+}
+
+function emit() {
+  for (const listener of listeners) listener();
+}
+
+export function getGitStatus(machine: string, paneId: string): GitStatusState {
+  return entries.get(keyOf(machine, paneId))?.state ?? { kind: "loading" };
+}
+
+/**
+ * Fetch `status` for one pane. Deduped per pane; callers get the shared
+ * promise. A previous `ready` result is kept on failure so a transient
+ * error does not blank the surface — the state still reports the failure.
+ */
+export function refreshGitStatus(machine: string, paneId: string): Promise<void> {
+  const key = keyOf(machine, paneId);
+  const running = inflight.get(key);
+  if (running) return running;
+  const promise = (async () => {
+    try {
+      const doc = await pluginCall(machine, {
+        plugin: GIT_PLUGIN_ID,
+        command: "status",
+        args: [paneId],
+      });
+      const status = gitStatusFromDoc(doc);
+      const state: GitStatusState = status
+        ? { kind: "ready", status }
+        : {
+            kind: "unavailable",
+            reason: "incompatible",
+            detail: "git plugin returned an unrecognized status document",
+          };
+      entries.set(key, { state, fetchedAt: Date.now() });
+    } catch (error) {
+      const classified = classifyGitError(error);
+      entries.set(key, { state: classified, fetchedAt: Date.now() });
+    }
+    emit();
+  })().finally(() => {
+    inflight.delete(key);
+  });
+  inflight.set(key, promise);
+  return promise;
+}
+
+/* --------------------------- on-demand fetches ------------------------ */
+
+/**
+ * Fetch `diff` for one pane on demand (not cached — diffs are large).
+ * `format` selects the output field (`patch` default, `stat`,
+ * `name-status`, `numstat`); `paths` maps to repeated `--path` filters and
+ * `revs` to the positional `[rev [rev]]` range.
+ */
+export async function fetchGitDiff(
+  machine: string,
+  paneId: string,
+  options: {
+    staged?: boolean;
+    format?: GitDiffFormat;
+    paths?: string[] | undefined;
+    maxBytes?: number;
+    revs?: string[] | undefined;
+  } = {},
+): Promise<GitDiffResult> {
+  const format = options.format ?? "patch";
+  const args = [paneId];
+  if (options.staged) args.push("--staged");
+  if (format === "stat") args.push("--stat");
+  else if (format === "name-status") args.push("--name-status");
+  else if (format === "numstat") args.push("--numstat");
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
+  if (options.maxBytes !== undefined) pushOption(args, "--max-bytes", String(options.maxBytes));
+  if (options.revs) args.push(...options.revs.slice(0, 2));
+  const doc = await pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "diff",
+    args,
+  });
+  const result = gitDiffFromDoc(doc, format);
+  if (result === null) {
+    const error = new Error("git plugin returned an unrecognized diff document");
+    (error as { code?: string }).code = "plugin_bad_output";
+    throw error;
+  }
+  return { ...result, staged: options.staged === true };
+}
+
+/** Fetch the `files` listing (grouped change set) for one pane. */
+export async function fetchGitFiles(
+  machine: string,
+  paneId: string,
+  options: { paths?: string[] | undefined } = {},
+): Promise<GitFilesResult> {
+  const args = [paneId];
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
+  const doc = await pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "files",
+    args,
+  });
+  const result = gitFilesFromDoc(doc);
+  if (result === null) {
+    const error = new Error("git plugin returned an unrecognized files document");
+    (error as { code?: string }).code = "plugin_bad_output";
+    throw error;
+  }
+  return result;
+}
+
+export interface GitLogOptions {
+  limit?: number | undefined;
+  skip?: number | undefined;
+  all?: boolean | undefined;
+  firstParent?: boolean | undefined;
+  author?: string | undefined;
+  grep?: string | undefined;
+  since?: string | undefined;
+  until?: string | undefined;
+  paths?: string[] | undefined;
+}
+
+/** Fetch `log` for one pane. Defaults are the plugin's (limit 50, max 1000). */
+export async function fetchGitLog(
+  machine: string,
+  paneId: string,
+  options: GitLogOptions = {},
+): Promise<GitLogResult> {
+  const args = [paneId];
+  if (options.limit !== undefined) pushOption(args, "--limit", String(options.limit));
+  if (options.skip !== undefined && options.skip > 0) pushOption(args, "--skip", String(options.skip));
+  if (options.all) args.push("--all");
+  if (options.firstParent) args.push("--first-parent");
+  if (options.author) pushOption(args, "--author", options.author);
+  if (options.grep) pushOption(args, "--grep", options.grep);
+  if (options.since) pushOption(args, "--since", options.since);
+  if (options.until) pushOption(args, "--until", options.until);
+  for (const path of options.paths ?? []) pushOption(args, "--path", path);
+  const doc = await pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "log",
+    args,
+  });
+  const result = gitLogFromDoc(doc);
+  if (result === null) {
+    const error = new Error("git plugin returned an unrecognized log document");
+    (error as { code?: string }).code = "plugin_bad_output";
+    throw error;
+  }
+  return result;
+}
+
+export interface GitCompareOptions {
+  base?: string | undefined;
+  head?: string | undefined;
+  maxBytes?: number | undefined;
+}
+
+/**
+ * Fetch `compare`. With no revisions the plugin compares against the
+ * upstream; a missing upstream is a `git_error`, not an empty diff.
+ */
+export async function fetchGitCompare(
+  machine: string,
+  paneId: string,
+  options: GitCompareOptions = {},
+): Promise<GitCompareResult> {
+  const args = [paneId];
+  const base = options.base?.trim() ?? "";
+  const head = options.head?.trim() ?? "";
+  if (base !== "" && head !== "") args.push(base, head);
+  else if (base !== "") args.push(base);
+  else if (head !== "") args.push("HEAD", head);
+  if (options.maxBytes !== undefined) pushOption(args, "--max-bytes", String(options.maxBytes));
+  const doc = await pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "compare",
+    args,
+  });
+  const result = gitCompareFromDoc(doc);
+  if (result === null) {
+    const error = new Error("git plugin returned an unrecognized compare document");
+    (error as { code?: string }).code = "plugin_bad_output";
+    throw error;
+  }
+  return result;
+}
+
+/* ---------------------------- mutations ------------------------------- */
+
+/**
+ * Mutation documents (git-v1 @d057830, issue #228) share
+ * `{contract, command, pane_id, repo_root, ok:true, ...}`. The pane is
+ * always the first positional; `PluginService.call` scrubs the
+ * HERDR_PANE_ID/HERDR_PLUGIN_CONTEXT_JSON env fallback server-side so the
+ * positional is authoritative for every command — including `branch` and
+ * `upstream`, where the plugin lets env win over positionals.
+ */
+export interface GitMutationBase {
+  pane_id: string;
+  repo_root: string | null;
+  command: string;
+}
+
+export interface GitStageResult extends GitMutationBase {
+  all: boolean;
+  paths: string[];
+  output: string;
+}
+
+export interface GitCommitResult extends GitMutationBase {
+  sha: string;
+  summary: string;
+}
+
+export interface GitBranchResult extends GitMutationBase {
+  action: "create" | "switch";
+  name: string;
+  output: string;
+}
+
+export interface GitUpstreamResult extends GitMutationBase {
+  upstream: string;
+  output: string;
+}
+
+export interface GitFetchResult extends GitMutationBase {
+  remote: string | null;
+  prune: boolean;
+  output: string;
+}
+
+export interface GitPushResult extends GitMutationBase {
+  remote: string | null;
+  refspec: string | null;
+  set_upstream: boolean;
+  force_with_lease: boolean;
+  output: string;
+}
+
+export interface GitRemoteInfo {
+  name: string;
+  /** Fetch URL; credentials already stripped by the plugin. */
+  url: string;
+  /** Push URL (falls back to `url` plugin-side); credentials stripped. */
+  push_url: string;
+}
+
+export interface GitRemoteResult {
+  pane_id: string;
+  repo_root: string | null;
+  remotes: GitRemoteInfo[];
+}
+
+/**
+ * Light validation shared by every mutation document: foreign contracts,
+ * `ok !== true`, a mismatched `command`, or a missing `pane_id` all reject
+ * — a mutation must never be reported as success on a malformed doc.
+ */
+export function gitMutationFromDoc(
+  doc: Record<string, unknown>,
+  command: string,
+): GitMutationBase | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["ok"] !== true) return null;
+  const docCommand = doc["command"];
+  if (typeof docCommand === "string" && docCommand !== command) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  return { pane_id: paneId, repo_root: str(doc["repo_root"]), command };
+}
+
+function mutationBadOutput(command: string): Error {
+  const error = new Error(`git plugin returned an unrecognized ${command} document`);
+  (error as { code?: string }).code = "plugin_bad_output";
+  return error;
+}
+
+/** pluginCall + mutation-doc validation; returns the raw document. */
+async function callGitMutation(
+  machine: string,
+  command: string,
+  args: string[],
+  timeoutMs?: number,
+): Promise<Record<string, unknown>> {
+  return pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command,
+    args,
+    ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+  });
+}
+
+function baseOrThrow(
+  doc: Record<string, unknown>,
+  command: string,
+): GitMutationBase {
+  const base = gitMutationFromDoc(doc, command);
+  if (base === null) throw mutationBadOutput(command);
+  return base;
+}
+
+/* Fetch/push are network-facing; the plugin's own remote default is 60s
+ * and the bridge caps timeout_ms at 120s. */
+const GIT_REMOTE_TIMEOUT_MS = 120_000;
+
+/* ------------------------- argv builders (pure) ------------------------ */
+
+/**
+ * Push a `--name value` pair. Under strict option parsing (git-v1
+ * @d057830, upstream #64) a `-`-prefixed token is always an option, so a
+ * value that itself starts with `-` must use the `--name=value` form —
+ * the separate form would be rejected as "requires a value" (exit 2),
+ * and a bare `--session`/`--timeout`/`--socket` token would additionally
+ * be eaten by the plugin's global-flag pre-scan. Both forms are
+ * documented; `flagValue`/`flagValues` read either.
+ */
+function pushOption(args: string[], name: string, value: string): void {
+  if (value.startsWith("-")) args.push(`${name}=${value}`);
+  else args.push(name, value);
+}
+
+/**
+ * Pure argv builders for the mutation commands — exported so tests can
+ * pin the exact contract shape (pane first, flags as separate elements,
+ * repeated `-m`/`--path` pairs) without a plugin host.
+ */
+export function gitStageArgs(
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): string[] {
+  const args = [paneId];
+  if (options.all === true) args.push("--all");
+  for (const path of options.paths ?? []) {
+    if (path.length > 0) pushOption(args, "--path", path);
+  }
+  return args;
+}
+
+export function gitUnstageArgs(
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): string[] {
+  // Same argv shape as stage; only the command differs.
+  return gitStageArgs(paneId, options);
+}
+
+export function gitCommitArgs(
+  paneId: string,
+  options: { messages: string[]; allowEmpty?: boolean | undefined },
+): string[] {
+  const args = [paneId];
+  for (const message of options.messages) {
+    if (message.trim() !== "") pushOption(args, "-m", message);
+  }
+  if (options.allowEmpty === true) args.push("--allow-empty");
+  return args;
+}
+
+export function gitBranchArgs(
+  action: "create" | "switch",
+  paneId: string,
+  name: string,
+  options: { switchTo?: boolean | undefined } = {},
+): string[] {
+  const args = ["branch", action, paneId, name];
+  if (action === "create" && options.switchTo === true) args.push("--switch");
+  return args;
+}
+
+export function gitUpstreamArgs(paneId: string, upstream: string): string[] {
+  return ["upstream", paneId, upstream];
+}
+
+export function gitFetchArgs(
+  paneId: string,
+  options: { remote?: string | undefined; prune?: boolean | undefined } = {},
+): string[] {
+  const args = ["fetch", paneId];
+  const remote = options.remote?.trim() ?? "";
+  if (remote !== "") args.push(remote);
+  if (options.prune === true) args.push("--prune");
+  return args;
+}
+
+export function gitPushArgs(
+  paneId: string,
+  options: {
+    remote?: string | undefined;
+    refspec?: string | undefined;
+    setUpstream?: boolean | undefined;
+    forceWithLease?: boolean | undefined;
+  } = {},
+): string[] {
+  const args = ["push", paneId];
+  const remote = options.remote?.trim() ?? "";
+  const refspec = options.refspec?.trim() ?? "";
+  // `[remote] [refspec]` are positional: a refspec without a remote would
+  // be bound as the remote plugin-side, so the pair is only emitted
+  // together (strict parsing makes the mis-binding a usage/git error
+  // rather than the intended push).
+  if (remote !== "") args.push(remote);
+  if (refspec !== "") {
+    if (remote === "") {
+      const error = new Error("push refspec requires a remote");
+      (error as { code?: string }).code = "usage";
+      throw error;
+    }
+    args.push(refspec);
+  }
+  if (options.setUpstream === true) args.push("--set-upstream");
+  if (options.forceWithLease === true) args.push("--force-with-lease");
+  return args;
+}
+
+/**
+ * Stage paths (`--path` repeated) or everything (`--all`). The contract
+ * requires one of the two; the plugin rejects neither with `usage`.
+ */
+export async function gitStage(
+  machine: string,
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): Promise<GitStageResult> {
+  const args = gitStageArgs(paneId, options);
+  const all = options.all === true;
+  const paths = (options.paths ?? []).filter((p) => p.length > 0);
+  const doc = await callGitMutation(machine, "stage", args);
+  return { ...baseOrThrow(doc, "stage"), all, paths, output: str(doc["output"]) ?? "" };
+}
+
+/** Unstage paths or everything; same argv shape as `gitStage`. */
+export async function gitUnstage(
+  machine: string,
+  paneId: string,
+  options: { all?: boolean | undefined; paths?: string[] | undefined } = {},
+): Promise<GitStageResult> {
+  const args = gitUnstageArgs(paneId, options);
+  const all = options.all === true;
+  const paths = (options.paths ?? []).filter((p) => p.length > 0);
+  const doc = await callGitMutation(machine, "unstage", args);
+  return { ...baseOrThrow(doc, "unstage"), all, paths, output: str(doc["output"]) ?? "" };
+}
+
+/**
+ * Commit with one `-m` per message (repeatable) and explicit
+ * `--allow-empty` only — the plugin never guesses an empty commit.
+ */
+export async function gitCommit(
+  machine: string,
+  paneId: string,
+  options: { messages: string[]; allowEmpty?: boolean | undefined },
+): Promise<GitCommitResult> {
+  const doc = await callGitMutation(machine, "commit", gitCommitArgs(paneId, options));
+  return {
+    ...baseOrThrow(doc, "commit"),
+    sha: str(doc["sha"]) ?? "",
+    summary: str(doc["summary"]) ?? "",
+  };
+}
+
+/** `branch create <pane> <name> [--switch]`. */
+export async function gitBranchCreate(
+  machine: string,
+  paneId: string,
+  name: string,
+  options: { switchTo?: boolean | undefined } = {},
+): Promise<GitBranchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "branch",
+    gitBranchArgs("create", paneId, name, options),
+  );
+  return {
+    ...baseOrThrow(doc, "branch"),
+    action: "create",
+    name: str(doc["name"]) ?? name,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `branch switch <pane> <name>`. */
+export async function gitBranchSwitch(
+  machine: string,
+  paneId: string,
+  name: string,
+): Promise<GitBranchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "branch",
+    gitBranchArgs("switch", paneId, name),
+  );
+  return {
+    ...baseOrThrow(doc, "branch"),
+    action: "switch",
+    name: str(doc["name"]) ?? name,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `upstream <pane> <ref>` — `git branch --set-upstream-to` equivalent. */
+export async function gitUpstream(
+  machine: string,
+  paneId: string,
+  upstream: string,
+): Promise<GitUpstreamResult> {
+  const doc = await callGitMutation(machine, "upstream", gitUpstreamArgs(paneId, upstream));
+  return {
+    ...baseOrThrow(doc, "upstream"),
+    upstream: str(doc["upstream"]) ?? upstream,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `fetch <pane> [remote] [--prune]`; network-facing → 120s budget. */
+export async function gitFetch(
+  machine: string,
+  paneId: string,
+  options: { remote?: string | undefined; prune?: boolean | undefined } = {},
+): Promise<GitFetchResult> {
+  const doc = await callGitMutation(
+    machine,
+    "fetch",
+    gitFetchArgs(paneId, options),
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+  return {
+    ...baseOrThrow(doc, "fetch"),
+    remote: str(doc["remote"]),
+    prune: doc["prune"] === true,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/**
+ * `push <pane> [remote] [refspec] [--set-upstream] [--force-with-lease]`.
+ * The contract has no plain `--force`; non-fast-forward surfaces as
+ * `git_error`, never a silent retry.
+ */
+export async function gitPush(
+  machine: string,
+  paneId: string,
+  options: {
+    remote?: string | undefined;
+    refspec?: string | undefined;
+    setUpstream?: boolean | undefined;
+    forceWithLease?: boolean | undefined;
+  } = {},
+): Promise<GitPushResult> {
+  const doc = await callGitMutation(
+    machine,
+    "push",
+    gitPushArgs(paneId, options),
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+  return {
+    ...baseOrThrow(doc, "push"),
+    remote: str(doc["remote"]),
+    refspec: str(doc["refspec"]),
+    set_upstream: doc["set_upstream"] === true,
+    force_with_lease: doc["force_with_lease"] === true,
+    output: str(doc["output"]) ?? "",
+  };
+}
+
+/** `remote <pane>` — read-only remote list (credentials stripped). */
+export async function gitRemote(
+  machine: string,
+  paneId: string,
+): Promise<GitRemoteResult> {
+  const doc = await callGitMutation(machine, "remote", [paneId]);
+  if (!contractAllowed(doc)) throw mutationBadOutput("remote");
+  const docCommand = doc["command"];
+  if (typeof docCommand === "string" && docCommand !== "remote") {
+    throw mutationBadOutput("remote");
+  }
+  const paneIdOut = str(doc["pane_id"]);
+  if (paneIdOut === null) throw mutationBadOutput("remote");
+  const rawRemotes = doc["remotes"];
+  if (!Array.isArray(rawRemotes)) throw mutationBadOutput("remote");
+  const remotes: GitRemoteInfo[] = [];
+  for (const raw of rawRemotes) {
+    if (!isRecord(raw)) continue;
+    const name = str(raw["name"]);
+    if (name === null) continue;
+    remotes.push({
+      name,
+      url: str(raw["url"]) ?? "",
+      push_url: str(raw["pushUrl"]) ?? str(raw["url"]) ?? "",
+    });
+  }
+  return { pane_id: paneIdOut, repo_root: str(doc["repo_root"]), remotes };
+}
+
+/* ------------------------------- forge -------------------------------- */
+
+/*
+ * Forge surface (issue #229): `pr list|status|view|create` backed by the
+ * host's `gh` CLI (git-v1 @d057830). `pr` is one command with the action
+ * as the first positional and the pane second (`pr <action> <pane> …`);
+ * `--repo owner/name` overrides forge-repo detection for every action.
+ * `gh_missing`/`gh_error`/`timeout` arrive as plugin error kinds and are
+ * classified like repo errors — the UI shows the reason, never an empty
+ * result. `pr status` returning `pr: null` means "no open PR", which is
+ * a normal state, not a failure.
+ */
+
+export interface GitPrActor {
+  login: string | null;
+}
+
+/** `pr list` row — the plugin's fixed gh --json projection. */
+export interface GitPrSummary {
+  number: number;
+  title: string;
+  /** gh state: OPEN / CLOSED / MERGED. */
+  state: string;
+  isDraft: boolean;
+  author: GitPrActor;
+  headRefName: string;
+  baseRefName: string;
+  updatedAt: string | null;
+  url: string;
+}
+
+export interface GitPrCheck {
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
+  workflow: string | null;
+}
+
+export interface GitPrReview {
+  author: string | null;
+  state: string | null;
+  submittedAt: string | null;
+}
+
+/** Bounded `pr view`/`pr status` projection (plugin caps body/reviews/checks). */
+export interface GitPrView {
+  number: number;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  author: GitPrActor;
+  headRefName: string;
+  baseRefName: string;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  reviewDecision: string | null;
+  url: string;
+  body: string;
+  bodyTruncated: boolean;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  checks: GitPrCheck[];
+  checksTruncated: boolean;
+  reviews: GitPrReview[];
+}
+
+interface GitPrBase {
+  pane_id: string;
+  repo_root: string | null;
+  /** Forge repo `owner/name` as resolved by the plugin. */
+  repo: string | null;
+  generated_at: string | null;
+}
+
+export interface GitPrListResult extends GitPrBase {
+  action: "list";
+  prs: GitPrSummary[];
+}
+
+export interface GitPrStatusResult extends GitPrBase {
+  action: "status";
+  branch: string;
+  detached: boolean;
+  /** null = no open PR for the branch (normal state). */
+  pr: GitPrView | null;
+}
+
+export interface GitPrViewResult extends GitPrBase {
+  action: "view";
+  pr: GitPrView;
+}
+
+export interface GitPrCreateResult extends GitPrBase {
+  action: "create";
+  url: string;
+  number: number | null;
+}
+
+function gitPrActor(raw: unknown): GitPrActor {
+  if (typeof raw === "string") return { login: raw };
+  if (!isRecord(raw)) return { login: null };
+  return { login: str(raw["login"]) };
+}
+
+function gitPrSummaryFromDoc(raw: unknown): GitPrSummary | null {
+  if (!isRecord(raw)) return null;
+  const number = num(raw["number"]);
+  if (number === null) return null;
+  return {
+    number,
+    title: str(raw["title"]) ?? "",
+    state: str(raw["state"]) ?? "",
+    isDraft: raw["isDraft"] === true,
+    author: gitPrActor(raw["author"]),
+    headRefName: str(raw["headRefName"]) ?? "",
+    baseRefName: str(raw["baseRefName"]) ?? "",
+    updatedAt: str(raw["updatedAt"]),
+    url: str(raw["url"]) ?? "",
+  };
+}
+
+function gitPrViewFromDoc(raw: unknown): GitPrView | null {
+  if (!isRecord(raw)) return null;
+  const number = num(raw["number"]);
+  if (number === null) return null;
+  const checksRaw = Array.isArray(raw["statusCheckRollup"]) ? raw["statusCheckRollup"] : [];
+  const checks: GitPrCheck[] = [];
+  for (const c of checksRaw) {
+    if (!isRecord(c)) continue;
+    checks.push({
+      name: str(c["name"]),
+      status: str(c["status"]),
+      conclusion: str(c["conclusion"]),
+      workflow: str(c["workflow"]),
+    });
+  }
+  const reviewsRaw = Array.isArray(raw["reviews"]) ? raw["reviews"] : [];
+  const reviews: GitPrReview[] = [];
+  for (const r of reviewsRaw) {
+    if (!isRecord(r)) continue;
+    reviews.push({
+      author: str(r["author"]),
+      state: str(r["state"]),
+      submittedAt: str(r["submittedAt"]),
+    });
+  }
+  return {
+    number,
+    title: str(raw["title"]) ?? "",
+    state: str(raw["state"]) ?? "",
+    isDraft: raw["isDraft"] === true,
+    author: gitPrActor(raw["author"]),
+    headRefName: str(raw["headRefName"]) ?? "",
+    baseRefName: str(raw["baseRefName"]) ?? "",
+    mergeable: str(raw["mergeable"]),
+    mergeStateStatus: str(raw["mergeStateStatus"]),
+    reviewDecision: str(raw["reviewDecision"]),
+    url: str(raw["url"]) ?? "",
+    body: str(raw["body"]) ?? "",
+    bodyTruncated: raw["body_truncated"] === true,
+    additions: num(raw["additions"]),
+    deletions: num(raw["deletions"]),
+    changedFiles: num(raw["changedFiles"]),
+    createdAt: str(raw["createdAt"]),
+    updatedAt: str(raw["updatedAt"]),
+    checks,
+    checksTruncated: raw["checks_truncated"] === true,
+    reviews,
+  };
+}
+
+/**
+ * Shared projection for `pr` documents: foreign contracts, a mismatched
+ * `command`/`action`, or a missing `pane_id` all reject — callers must
+ * never render a foreign document as forge data.
+ */
+function gitPrBaseFromDoc(
+  doc: Record<string, unknown>,
+  action: "list" | "status" | "view" | "create",
+): GitPrBase | null {
+  if (!contractAllowed(doc)) return null;
+  if (doc["command"] !== "pr") return null;
+  if (doc["action"] !== action) return null;
+  const paneId = str(doc["pane_id"]);
+  if (paneId === null) return null;
+  return {
+    pane_id: paneId,
+    repo_root: str(doc["repo_root"]),
+    repo: str(doc["repo"]),
+    generated_at: str(doc["generated_at"]),
+  };
+}
+
+export function gitPrListFromDoc(doc: Record<string, unknown>): GitPrListResult | null {
+  const base = gitPrBaseFromDoc(doc, "list");
+  if (base === null || !Array.isArray(doc["prs"])) return null;
+  const prs: GitPrSummary[] = [];
+  for (const raw of doc["prs"]) {
+    const pr = gitPrSummaryFromDoc(raw);
+    if (pr !== null) prs.push(pr);
+  }
+  return { ...base, action: "list", prs };
+}
+
+export function gitPrStatusFromDoc(doc: Record<string, unknown>): GitPrStatusResult | null {
+  const base = gitPrBaseFromDoc(doc, "status");
+  if (base === null) return null;
+  const branch = str(doc["branch"]);
+  if (branch === null) return null;
+  const prRaw = doc["pr"];
+  return {
+    ...base,
+    action: "status",
+    branch,
+    detached: doc["detached"] === true,
+    pr: prRaw === null || prRaw === undefined ? null : gitPrViewFromDoc(prRaw),
+  };
+}
+
+export function gitPrViewFromResultDoc(doc: Record<string, unknown>): GitPrViewResult | null {
+  const base = gitPrBaseFromDoc(doc, "view");
+  if (base === null) return null;
+  const pr = gitPrViewFromDoc(doc["pr"]);
+  if (pr === null) return null;
+  return { ...base, action: "view", pr };
+}
+
+export function gitPrCreateFromDoc(doc: Record<string, unknown>): GitPrCreateResult | null {
+  const base = gitPrBaseFromDoc(doc, "create");
+  if (base === null || doc["ok"] !== true) return null;
+  const url = str(doc["url"]);
+  if (url === null) return null;
+  return { ...base, action: "create", url, number: num(doc["number"]) };
+}
+
+export interface GitPrListOptions {
+  state?: "open" | "closed" | "merged" | "all" | undefined;
+  limit?: number | undefined;
+  head?: string | undefined;
+  repo?: string | undefined;
+}
+
+/** `pr list <pane> [--state] [--limit] [--head] [--repo]`. */
+export function gitPrListArgs(paneId: string, options: GitPrListOptions = {}): string[] {
+  const args = ["list", paneId];
+  if (options.state !== undefined) pushOption(args, "--state", options.state);
+  if (options.limit !== undefined) pushOption(args, "--limit", String(options.limit));
+  const head = options.head?.trim() ?? "";
+  if (head !== "") pushOption(args, "--head", head);
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") pushOption(args, "--repo", repo);
+  return args;
+}
+
+export interface GitPrCreateOptions {
+  title: string;
+  body?: string | undefined;
+  bodyFile?: string | undefined;
+  draft?: boolean | undefined;
+  base?: string | undefined;
+  head?: string | undefined;
+  repo?: string | undefined;
+}
+
+/**
+ * `pr create <pane> --title T [--body B | --body-file PATH] [--draft]
+ * [--base] [--head] [--repo]`. The branch must already be pushed; gh's
+ * own push/prompt flow is not driven (GH_PROMPT_DISABLED plugin-side).
+ */
+export function gitPrCreateArgs(paneId: string, options: GitPrCreateOptions): string[] {
+  const args = ["create", paneId];
+  pushOption(args, "--title", options.title);
+  if (options.body !== undefined && options.bodyFile === undefined) {
+    pushOption(args, "--body", options.body);
+  }
+  if (options.bodyFile !== undefined) pushOption(args, "--body-file", options.bodyFile);
+  if (options.draft === true) args.push("--draft");
+  const base = options.base?.trim() ?? "";
+  if (base !== "") pushOption(args, "--base", base);
+  const head = options.head?.trim() ?? "";
+  if (head !== "") pushOption(args, "--head", head);
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") pushOption(args, "--repo", repo);
+  return args;
+}
+
+function prBadOutput(action: string): Error {
+  const error = new Error(`git plugin returned an unrecognized pr ${action} document`);
+  (error as { code?: string }).code = "plugin_bad_output";
+  return error;
+}
+
+async function callGitPr(
+  machine: string,
+  args: string[],
+): Promise<Record<string, unknown>> {
+  return pluginCall(machine, {
+    plugin: GIT_PLUGIN_ID,
+    command: "pr",
+    args,
+    timeout_ms: GIT_REMOTE_TIMEOUT_MS,
+  });
+}
+
+/** `pr list` — open PRs by default; state/head/repo are optional filters. */
+export async function fetchGitPrList(
+  machine: string,
+  paneId: string,
+  options: GitPrListOptions = {},
+): Promise<GitPrListResult> {
+  const doc = await callGitPr(machine, gitPrListArgs(paneId, options));
+  const result = gitPrListFromDoc(doc);
+  if (result === null) throw prBadOutput("list");
+  return result;
+}
+
+/** `pr status` — the current branch's open PR, or `pr: null` when none. */
+export async function fetchGitPrStatus(
+  machine: string,
+  paneId: string,
+  options: { repo?: string | undefined } = {},
+): Promise<GitPrStatusResult> {
+  const args = ["status", paneId];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") pushOption(args, "--repo", repo);
+  const doc = await callGitPr(machine, args);
+  const result = gitPrStatusFromDoc(doc);
+  if (result === null) throw prBadOutput("status");
+  return result;
+}
+
+/** `pr view <pane> <number>` — bounded detail projection. */
+export async function fetchGitPrView(
+  machine: string,
+  paneId: string,
+  number: number,
+  options: { repo?: string | undefined } = {},
+): Promise<GitPrViewResult> {
+  const args = ["view", paneId, String(number)];
+  const repo = options.repo?.trim() ?? "";
+  if (repo !== "") pushOption(args, "--repo", repo);
+  const doc = await callGitPr(machine, args);
+  const result = gitPrViewFromResultDoc(doc);
+  if (result === null) throw prBadOutput("view");
+  return result;
+}
+
+/** `pr create` — the only forge mutation; requires a title. */
+export async function gitPrCreate(
+  machine: string,
+  paneId: string,
+  options: GitPrCreateOptions,
+): Promise<GitPrCreateResult> {
+  const doc = await callGitPr(machine, gitPrCreateArgs(paneId, options));
+  const result = gitPrCreateFromDoc(doc);
+  if (result === null) throw prBadOutput("create");
+  return result;
+}
+
+/** gh/forge error kinds preserved through plugin_call (issue #229). */
+const FORGE_ERROR_KINDS = new Set(["gh_missing", "gh_error"]);
+
+/**
+ * Forge-aware classification: `gh_missing`/`gh_error` keep their plugin
+ * kind so the UI can say "install/authenticate gh" instead of a generic
+ * git error. Everything else delegates to `classifyGitError`.
+ */
+export function classifyForgeError(error: unknown): GitStatusState & { kind: "unavailable" | "repo_error" } {
+  const code = (error as { code?: string })?.code ?? "";
+  if (FORGE_ERROR_KINDS.has(code)) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const rawFields = (error as { fields?: unknown })?.fields;
+    const fields = isRecord(rawFields) ? rawFields : undefined;
+    return fields === undefined
+      ? { kind: "repo_error", code, detail }
+      : { kind: "repo_error", code, detail, fields };
+  }
+  return classifyGitError(error);
+}
+
+/* ---------------------------- capability ------------------------------ */
+
+const capabilityCache = new Map<string, { cap: GitCapability | null; at: number }>();
+const capabilityInflight = new Map<string, Promise<GitCapability | null>>();
+
+/**
+ * Per-host capability, cached briefly. Returns null on boundary failure
+ * (plugin missing/disabled/unreachable); a returned object with an empty
+ * `commands` set means the plugin answered but does not advertise the
+ * requested command — the "not supported by this plugin version" case.
+ */
+export function gitCapability(machine: string): Promise<GitCapability | null> {
+  const cached = capabilityCache.get(machine);
+  if (cached !== undefined) {
+    const ttl = cached.cap === null ? CAPABILITY_ERROR_TTL_MS : CAPABILITY_TTL_MS;
+    if (Date.now() - cached.at < ttl) return Promise.resolve(cached.cap);
+  }
+  const running = capabilityInflight.get(machine);
+  if (running) return running;
+  const promise = (async () => {
+    try {
+      const doc = await pluginCall(machine, {
+        plugin: GIT_PLUGIN_ID,
+        command: "capability",
+      });
+      const cap = gitCapabilityFromDoc(doc);
+      capabilityCache.set(machine, { cap, at: Date.now() });
+      return cap;
+    } catch {
+      capabilityCache.set(machine, { cap: null, at: Date.now() });
+      return null;
+    } finally {
+      capabilityInflight.delete(machine);
+    }
+  })();
+  capabilityInflight.set(machine, promise);
+  return promise;
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+const LOADING: GitStatusState = { kind: "loading" };
+
+/**
+ * Subscribe to one pane's git status; triggers a fetch when nothing (or a
+ * stale entry older than `ttlMs`) is cached. `refreshKey` changes force a
+ * refetch (e.g. the dialog's manual refresh button).
+ */
+export function useGitStatus(
+  machine: string,
+  paneId: string | null,
+  options: { ttlMs?: number; refreshKey?: number } = {},
+): GitStatusState {
+  const ttlMs = options.ttlMs ?? 15_000;
+  const refreshKey = options.refreshKey ?? 0;
+  const key = paneId === null ? null : keyOf(machine, paneId);
+  const state = useSyncExternalStore(
+    subscribe,
+    () => (key === null ? LOADING : (entries.get(key)?.state ?? LOADING)),
+    () => LOADING,
+  );
+  useEffect(() => {
+    if (key === null || paneId === null) return;
+    const cached = entries.get(key);
+    const stale = cached === undefined || Date.now() - cached.fetchedAt > ttlMs;
+    if (stale || refreshKey > 0) void refreshGitStatus(machine, paneId);
+    // refreshKey is the explicit invalidation signal; ttlMs/pane identity
+    // gate the implicit fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, machine, paneId, ttlMs, refreshKey]);
+  return state;
+}

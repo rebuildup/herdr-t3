@@ -151,17 +151,25 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  navKey,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  /** conformance-harness hook (issue #238): stable nav target id */
+  navKey?: string;
 }) {
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon" />
+            <SidebarMenuButton
+              aria-label={label}
+              onClick={onClick}
+              size="icon"
+              {...(navKey ? { "data-ui-nav": navKey } : {})}
+            />
           }
         >
           {icon}
@@ -250,6 +258,7 @@ const SidebarUtilityMenu = function SidebarUtilityMenu() {
       <SidebarUtilityItem
         icon={<SettingsIcon />}
         label="Settings"
+        navKey="settings"
         onClick={handleSettingsClick}
       />
     </SidebarMenu>

@@ -2,7 +2,11 @@
 
 Canonical mapping of T3 Code's feature surface (checkout pinned at
 `9cc4018c`, see `docs/upstream.md`) onto herdr-t3. Governed by ADR-0009
-and issue #188. Each feature is classified by where its data comes from:
+and issue #188. The machine-readable capability ledger for the GPUI
+migration program lives in `docs/migration/capabilities.json` (issue
+#235); entries there reference this inventory via `parity` and must not
+duplicate its classifications — this file remains the feature-mapping
+source of truth. Each feature is classified by where its data comes from:
 
 - **[herdr]** — herdr already provides the data; client work only.
 - **[cli]** — obtainable via an external CLI/integration (`gh`, agent CLIs).
@@ -10,6 +14,9 @@ and issue #188. Each feature is classified by where its data comes from:
   an upstream proposal, not fabricated.
 - **[excluded]** — would make herdr-t3 own orchestration state; conflicts
   with the herdr boundary (ADR-0009).
+- **[plugin]** — owned by a published `herdr-plugins` contract consumed
+  through the ADR-0011 boundary (`plugin_list`/`plugin_call`); supersedes
+  `[cli]` where a plugin owns the capability (#219/#220).
 
 ## Sidebar / agent rows
 
@@ -17,7 +24,7 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Provider/harness icon on agent rows | [herdr] | `agent` name → icon map; T3 shows provider artwork |
 | Thread status indicators (working/blocked/done) | [herdr] | `agent_status` + `state_change_seq` already mapped |
-| Settle / Snooze / settled shelf | [herdr] | implemented (#173, T3 semantics in §6.2) |
+| Settle / Snooze / settled shelf | [plugin] | `rebuildup.inbox` v1 owns organize state (#219, ADR-0011); #173 localStorage migrated |
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
@@ -38,9 +45,12 @@ and issue #188. Each feature is classified by where its data comes from:
 |---|---|---|
 | Agent details panel | [herdr] | cwd, status, seq, machine |
 | Preview browser surface | [excluded-adjacent] | T3 preview is provider-tooling; revisit if a herdr-native analog exists |
-| Files / diff surface | [cli] | `git` in pane cwd; read-only browsing feasible |
+| Files / diff surface | [plugin] | `herdr-plugins.git/v1` pinned @d057830 (ADR-0012/0018): status + grouped files/path-scoped diff + log + compare connected (#220/#227), explicit-only mutations (stage/unstage/commit/branch/upstream/fetch/push, `remote` list) connected (#228, capability-gated per host); forge `pr status|list|view|create` connected (#229, gh-gated: `gh_missing`/`gh_error` shown as reasons); strict argv parsing with `usage` exit-2 errors classified distinctly (#265) |
 | Issue detail panel | [cli]/[upstream] | needs issue identity (see Issues below) |
 | PR detail panel | [cli]/[upstream] | needs PR identity |
+| Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @2dcb2abf (ADR-0014/0015/0019/0020): registry UI connected (#252, capability-gated per host); #69 audit semantics (verbatim remote case, `has_submodules` tri-state, wholesale settings rewrite) consumed |
+| Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh; shell-family `--shell` selector + `shell_family`/`shell_source` display per #269/ADR-0020); auto triggers upstream-gated (herdr-plugins#60) |
+| Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @ae4f214 (ADR-0016/0017/0021/0024): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); multi-repo save groups + restore-group + bounded gc/prune connected (#279: `group_id` badges/`--group` filter, mandatory dry-run preview, per-repo partial results via the bridge stdout-report convention); per-turn capture remains upstream-gated |
 
 ## Issues / pull requests
 
@@ -76,9 +86,14 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    rows, hover-card terminal title + agent row, agent-row info hierarchy,
    tooltips, motion/animation parity. No new panels or data sources.
 2. **v0.6.0 — new surfaces:** right-panel host, agent details panel,
-   files/diff surface (git read-only), `gh`-backed issue/PR lists +
-   detail panels, branch/worktree pickers, settings sections that map to
-   existing data.
+   files/diff surface via `herdr-plugins.git` (#220 read-only;
+   #227 reads / #228 mutations / #229 forge PRs landed on the pinned
+   contract), projects registry + scripts via `herdr-plugins.projects`
+   (#252/#253 on the @2dcb2abf pin), checkpoints via
+   `herdr-plugins.checkpoints` (#260/#264 on the @c8dc3b3 pin,
+   work-unit auto-capture on the @55df8d0a pin via #268, save groups +
+   retention on the @ae4f214 pin via #279), settings sections
+   that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
    focus-report thread).

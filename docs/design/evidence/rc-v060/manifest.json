@@ -1,0 +1,183 @@
+[
+  {
+    "file": "01-sidebar-agents.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43628,
+    "source": "01-sidebar-agents.png"
+  },
+  {
+    "file": "01-sidebar-populated.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 41280,
+    "source": "01-sidebar-populated.png"
+  },
+  {
+    "file": "02-agent-hover-card.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43638,
+    "source": "02-agent-hover-card.png"
+  },
+  {
+    "file": "02-sidebar-collapsed.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 17706,
+    "source": "02-sidebar-collapsed.png"
+  },
+  {
+    "file": "03-agent-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 47536,
+    "source": "03-agent-context-menu.png"
+  },
+  {
+    "file": "03-command-palette.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 38820,
+    "source": "03-command-palette.png"
+  },
+  {
+    "file": "04-agent-shelf-expanded.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 61448,
+    "source": "04-agent-shelf-expanded.png"
+  },
+  {
+    "file": "04-sidebar-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 53740,
+    "source": "04-sidebar-context-menu.png"
+  },
+  {
+    "file": "05-pane-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 52544,
+    "source": "05-pane-context-menu.png"
+  },
+  {
+    "file": "05-tab-context-menu.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 65142,
+    "source": "05-tab-context-menu.png"
+  },
+  {
+    "file": "06-tab-hover-close.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 59416,
+    "source": "06-tab-hover-close.png"
+  },
+  {
+    "file": "06b-header-tooltip.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 60306,
+    "source": "06b-header-tooltip.png"
+  },
+  {
+    "file": "07-light-agents.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43818,
+    "source": "07-light-agents.png"
+  },
+  {
+    "file": "07-pane-split.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43092,
+    "source": "07-pane-split.png"
+  },
+  {
+    "file": "07b-light-hover-card.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43988,
+    "source": "07b-light-hover-card.png"
+  },
+  {
+    "file": "08-narrow.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 7126,
+    "source": "08-narrow.png"
+  },
+  {
+    "file": "08-pane-zoomed.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 44328,
+    "source": "08-pane-zoomed.png"
+  },
+  {
+    "file": "09-dark.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 40998,
+    "source": "09-dark.png"
+  },
+  {
+    "file": "09-narrow-sheet-agents.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 32604,
+    "source": "09-narrow-sheet-agents.png"
+  },
+  {
+    "file": "10-light.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 43970,
+    "source": "10-light.png"
+  },
+  {
+    "file": "11-narrow.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 7222,
+    "source": "11-narrow.png"
+  },
+  {
+    "file": "12-narrow-sheet.webp",
+    "width": 960,
+    "height": 1600,
+    "bytes": 31082,
+    "source": "12-narrow-sheet.png"
+  },
+  {
+    "file": "contact-sheet.webp",
+    "width": 1944,
+    "height": 7202,
+    "bytes": 235320
+  },
+  {
+    "file": "20-packaged-app-default-session.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 424574,
+    "source": "20-packaged-app-default-session.png"
+  },
+  {
+    "file": "21-remote-machines.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 63810,
+    "source": "21-remote-machines.png"
+  },
+  {
+    "file": "22-packaged-app-8ffa481.webp",
+    "width": 2880,
+    "height": 1800,
+    "bytes": 192554,
+    "source": "22-packaged-app-8ffa481.png"
+  }
+]

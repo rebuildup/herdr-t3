@@ -1,0 +1,64 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "gpui",
+  "scenario": "shell.sidebar-collapse-toggle",
+  "capability": "ui.shell",
+  "contract": "ui-shell@1",
+  "fixture": "single-workspace",
+  "pass": true,
+  "injected_fault": "selection-lost",
+  "git_sha": "1e74a6154bd7687b685b87caf767b7c668dca457",
+  "recorded_at": "2026-11-25T05:27:26.751Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "assert",
+      "name": "state.sidebar_open",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "action",
+      "name": "activate nav.sidebar-toggle",
+      "ok": true
+    },
+    {
+      "index": 2,
+      "kind": "wait",
+      "name": "wait state.sidebar_visible",
+      "ok": true
+    },
+    {
+      "index": 3,
+      "kind": "assert",
+      "name": "state.sidebar_open",
+      "ok": true
+    },
+    {
+      "index": 4,
+      "kind": "assert",
+      "name": "state.sidebar_visible",
+      "ok": true
+    },
+    {
+      "index": 5,
+      "kind": "action",
+      "name": "activate nav.sidebar-toggle",
+      "ok": true
+    },
+    {
+      "index": 6,
+      "kind": "wait",
+      "name": "wait state.sidebar_visible",
+      "ok": true
+    },
+    {
+      "index": 7,
+      "kind": "assert",
+      "name": "state.sidebar_open",
+      "ok": true
+    }
+  ],
+  "error": null
+}

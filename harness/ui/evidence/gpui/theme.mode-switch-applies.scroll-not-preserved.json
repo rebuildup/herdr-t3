@@ -1,0 +1,88 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "gpui",
+  "scenario": "theme.mode-switch-applies",
+  "capability": "ui.theme",
+  "contract": "settings-persistence@1",
+  "fixture": "default-settings",
+  "pass": true,
+  "injected_fault": "scroll-not-preserved",
+  "git_sha": "1e74a6154bd7687b685b87caf767b7c668dca457",
+  "recorded_at": "2026-11-25T05:27:21.271Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "assert",
+      "name": "state.appearance_mode",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "action",
+      "name": "activate nav.settings",
+      "ok": true
+    },
+    {
+      "index": 2,
+      "kind": "wait",
+      "name": "wait state.settings_open",
+      "ok": true
+    },
+    {
+      "index": 3,
+      "kind": "action",
+      "name": "activate nav.settings-appearance",
+      "ok": true
+    },
+    {
+      "index": 4,
+      "kind": "wait",
+      "name": "wait dialog.section",
+      "ok": true
+    },
+    {
+      "index": 5,
+      "kind": "action",
+      "name": "select theme.mode-tiles",
+      "ok": true
+    },
+    {
+      "index": 6,
+      "kind": "wait",
+      "name": "wait state.theme_resolved",
+      "ok": true
+    },
+    {
+      "index": 7,
+      "kind": "assert",
+      "name": "state.appearance_mode",
+      "ok": true
+    },
+    {
+      "index": 8,
+      "kind": "assert",
+      "name": "state.theme_resolved",
+      "ok": true
+    },
+    {
+      "index": 9,
+      "kind": "action",
+      "name": "select theme.mode-tiles",
+      "ok": true
+    },
+    {
+      "index": 10,
+      "kind": "wait",
+      "name": "wait state.theme_resolved",
+      "ok": true
+    },
+    {
+      "index": 11,
+      "kind": "assert",
+      "name": "state.theme_resolved",
+      "ok": true
+    }
+  ],
+  "error": null
+}

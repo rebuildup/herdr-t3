@@ -1,0 +1,574 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "codec.abnormal-inputs",
+  "capability": "protocol.codec",
+  "contract": "protocol-frames@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": null
+      },
+      "note": "non-object frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": "str"
+      },
+      "note": "string frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": [
+          1,
+          2
+        ]
+      },
+      "note": "array frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {}
+      },
+      "note": "missing type",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "nope"
+        }
+      },
+      "note": "unknown type",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1"
+        }
+      },
+      "note": "rpc missing method/params",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": 7,
+          "method": "m",
+          "params": {}
+        }
+      },
+      "note": "rpc non-string id",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": 5,
+          "params": {}
+        }
+      },
+      "note": "rpc non-string method",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_connect"
+        }
+      },
+      "note": "machine_connect missing machine",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "list_machines",
+          "unexpected": {
+            "deep": [
+              1
+            ]
+          }
+        }
+      },
+      "note": "list_machines ignores extras (documented quirk)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p1"
+        }
+      },
+      "note": "subscribe_terminal skips cols/rows checks (documented quirk)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"ready\",\"machine\":\"local\",\"snapshot\":{\"version\":\"22\",\"protocol\":22,\"workspaces\":[],\"panes\":[],\"tabs\":[],\"agents\":[],\"layouts\":[]}}"
+      },
+      "note": "well-formed ready frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "ready",
+            "machine": "local",
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "workspaces": [],
+              "panes": [],
+              "tabs": [],
+              "agents": [],
+              "layouts": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"ready\",\"snapshot\":{\"dup\":1},\"machine\":\"m\",\"snapshot\":{\"dup\":2}}"
+      },
+      "note": "duplicate keys keep last on both sides",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "ready",
+            "snapshot": {
+              "dup": 2
+            },
+            "machine": "m"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"event\",\"machine\":\"m\",\"event\":null}"
+      },
+      "note": "event:null is a present required field",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "event",
+            "machine": "m",
+            "event": null
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"terminal_data\",\"paneId\":\"p\",\"data\":\"aGk=\",\"machine\":\"m\",\"extra\":{\"deep\":[1,\"x\"]}}"
+      },
+      "note": "envelope extras preserved through decode",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_data",
+            "paneId": "p",
+            "data": "aGk=",
+            "machine": "m",
+            "extra": {
+              "deep": [
+                1,
+                "x"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"rpc_result\",\"id\":\"i\",\"ok\":true,\"result\":{\"n\":-0.5e2}}"
+      },
+      "note": "exponent/negative number round-trips",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "rpc_result",
+            "id": "i",
+            "ok": true,
+            "result": {
+              "n": -50
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "not json"
+      },
+      "expect_error": "malformed server frame",
+      "note": "unparseable JSON"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"nope\"}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "unknown frame type"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"ready\",\"snapshot\":{}}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "ready missing machine"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"event\",\"machine\":\"m\"}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "event missing required event key"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"rpc_result\",\"id\":\"i\",\"ok\":\"yes\"}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "rpc_result ok non-boolean"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"machines\",\"machines\":\"x\"}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "machines non-array"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"snapshot\",\"machine\":\"m\",\"snapshot\":[1,2]}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "snapshot payload non-object"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "null"
+      },
+      "expect_error": "malformed server frame",
+      "note": "JSON null is not a frame"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "[1,2]"
+      },
+      "expect_error": "malformed server frame",
+      "note": "JSON array is not a frame"
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_input",
+          "paneId": "w1:p1",
+          "data": "aMOp"
+        }
+      },
+      "note": "unicode bytes in data encode identically",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_input",
+            "paneId": "w1:p1",
+            "data": "aMOp"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot",
+          "params": {},
+          "future_field": {
+            "deep": [
+              true,
+              null
+            ]
+          }
+        }
+      },
+      "note": "unknown fields preserved (additive tolerance)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "rpc",
+            "id": "c1",
+            "method": "session.snapshot",
+            "params": {},
+            "future_field": {
+              "deep": [
+                true,
+                null
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {}
+      },
+      "expect_error": "invalid client frame",
+      "note": "empty frame rejected"
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "nope"
+        }
+      },
+      "expect_error": "invalid client frame",
+      "note": "unknown type rejected"
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": null
+      },
+      "expect_error": "invalid client frame",
+      "note": "non-object frame rejected"
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_connect",
+          "machine": ""
+        }
+      },
+      "expect_error": "invalid client frame",
+      "note": "empty machine id rejected if guard requires non-empty"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": null
+      },
+      "expect_error": "snapshot must be an object",
+      "note": "null snapshot"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": []
+      },
+      "expect_error": "snapshot must be an object",
+      "note": "array snapshot"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": "str"
+      },
+      "expect_error": "snapshot must be an object",
+      "note": "string snapshot"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": {
+          "workspaces": [],
+          "future_field": {
+            "nested": [
+              1,
+              "x"
+            ]
+          },
+          "revision": "r1"
+        }
+      },
+      "note": "sparse snapshot with unknown fields preserved",
+      "expect": {
+        "ok": true,
+        "value": {
+          "snapshot": {
+            "workspaces": [],
+            "future_field": {
+              "nested": [
+                1,
+                "x"
+              ]
+            },
+            "revision": "r1"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": {
+          "workspaces": [],
+          "agents": []
+        }
+      },
+      "note": "__proto__ key is data, not prototype pollution",
+      "expect": {
+        "ok": true,
+        "value": {
+          "snapshot": {
+            "workspaces": [],
+            "agents": []
+          }
+        }
+      }
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "workspaces": [
+            {
+              "workspace_id": "w",
+              "custom": {
+                "a": 1
+              }
+            }
+          ],
+          "tabs": [],
+          "panes": [],
+          "agents": [],
+          "layouts": []
+        }
+      },
+      "note": "nested unknown fields inside workspace preserved",
+      "expect": {
+        "ok": true,
+        "value": {
+          "snapshot": {
+            "version": "22",
+            "protocol": 22,
+            "workspaces": [
+              {
+                "workspace_id": "w",
+                "custom": {
+                  "a": 1
+                }
+              }
+            ],
+            "tabs": [],
+            "panes": [],
+            "agents": [],
+            "layouts": []
+          }
+        }
+      }
+    }
+  ]
+}

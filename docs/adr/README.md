@@ -11,3 +11,18 @@
 | [ADR-0007](./ADR-0007.md) | Accepted | Terminal: libghostty-vt engine replaces xterm.js |
 | [ADR-0008](./ADR-0008.md) | Accepted | Canonical UI architecture: T3 Code application shell |
 | [ADR-0009](./ADR-0009.md) | Accepted | T3 Code feature-parity program (v0.6.0+); AGENTS.md §5 amendment |
+| [ADR-0010](./ADR-0010.md) | Accepted | Pane size authority stays with herdr; attach does not negotiate size |
+| [ADR-0011](./ADR-0011.md) | Accepted | herdr-plugins contract consumption boundary; organize-state ownership and #173 migration |
+| [ADR-0012](./ADR-0012.md) | Accepted | Source Control surface: git-v1 contract pin @62309b9c and per-host capability gating |
+| [ADR-0013](./ADR-0013.md) | Accepted | GPUI staged migration: contract-first foundation and Electron removal gates |
+| [ADR-0014](./ADR-0014.md) | Accepted | Projects/Scripts surface: projects-v1 contract pin @c8460283 and scope (auto triggers upstream-gated) |
+| [ADR-0015](./ADR-0015.md) | Accepted | Projects/Scripts: projects-v1 schema v2 re-pin @b0c8c60 (run ownership + stop confirmation) |
+| [ADR-0016](./ADR-0016.md) | Accepted | Checkpoints surface: checkpoints-v1 contract pin @4aab1a7 and scope (restore/auto-capture/GC upstream-gated) |
+| [ADR-0017](./ADR-0017.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @c8dc3b3 and plan/restore adoption (shared-worktree isolation, pre-restore recovery) |
+| [ADR-0018](./ADR-0018.md) | Accepted | Source Control surface: git-v1 re-pin @d057830 (strict option parsing, usage exit 2) |
+| [ADR-0019](./ADR-0019.md) | Accepted | Projects/Scripts: projects-v1 re-pin @3b28349 (durable script completion receipt) |
+| [ADR-0020](./ADR-0020.md) | Accepted | Projects/Scripts: projects-v1 re-pin @2dcb2abf (shell families + audit convergence) |
+| [ADR-0021](./ADR-0021.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @55df8d0a and work-unit auto-capture adoption (kind/auto_captures/--auto) |
+| [ADR-0022](./ADR-0022.md) | Accepted | plugin exec env scrub: no ambient herdr targeting vars on any exec path |
+| [ADR-0023](./ADR-0023.md) | Accepted | plugin exec env scrub: no ambient GIT_* repo/config/transport targeting vars |
+| [ADR-0024](./ADR-0024.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @ae4f214 and save/restore-group/gc/prune adoption (partial-report bridge convention) |

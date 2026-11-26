@@ -2,6 +2,8 @@ import type {
   ClientFrame,
   HealthResponse,
   MachineInfo,
+  PluginCallResult,
+  PluginListResult,
   RpcMethod,
   ServerFrame,
   SessionResponse,
@@ -10,10 +12,17 @@ import type {
 
 export class ApiError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  /**
+   * Bounded structured extras from a plugin contract error (issue #257):
+   * the plugin's own non-secret `error.*` siblings, already capped
+   * server-side. Undefined for non-plugin or older-server failures.
+   */
+  readonly fields?: Record<string, unknown>;
+  constructor(code: string, message: string, fields?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.code = code;
+    if (fields !== undefined) this.fields = fields;
   }
 }
 
@@ -54,8 +63,8 @@ function waitForPushedSnapshot(machine: string): Promise<SessionSnapshot> {
       off();
       reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
     }, 30_000);
-    const off = onSnapshot((snapshot, m) => {
-      if (m !== machine) return;
+    const off = onSnapshot((snapshot, m, probe) => {
+      if (m !== machine || probe) return;
       clearTimeout(timer);
       off();
       resolve(snapshot);
@@ -94,7 +103,7 @@ export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<Ses
   return waitForPushedSnapshot(machine);
 }
 
-export type SnapshotListener = (snapshot: SessionSnapshot, machine: string) => void;
+export type SnapshotListener = (snapshot: SessionSnapshot, machine: string, probe?: boolean) => void;
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
 export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
@@ -127,7 +136,11 @@ function handleFrame(frame: ServerFrame): void {
       const machine = frame.machine ?? LOCAL_MACHINE;
       // A pushed local snapshot proves the local bridge reached herdr again.
       if (desktopBridge() && machine === LOCAL_MACHINE) notifyStatus("open");
-      for (const listener of wsListeners) listener(frame.snapshot, machine);
+      // Probe snapshots (issue #212) are display data for machines without a
+      // live session; fetchSession callers waiting for a real session must
+      // not resolve on them.
+      const probe = frame.type === "snapshot" && frame.probe === true;
+      for (const listener of wsListeners) listener(frame.snapshot, machine, probe || undefined);
       return;
     }
     case "rpc_result": {
@@ -135,7 +148,14 @@ function handleFrame(frame: ServerFrame): void {
       if (!waiter) return;
       rpcWaiters.delete(frame.id);
       if (frame.ok) waiter.resolve(frame.result);
-      else waiter.reject(new ApiError(frame.error?.code ?? "rpc", frame.error?.message ?? "rpc failed"));
+      else
+        waiter.reject(
+          new ApiError(
+            frame.error?.code ?? "rpc",
+            frame.error?.message ?? "rpc failed",
+            frame.error?.fields,
+          ),
+        );
       return;
     }
     case "terminal_data":
@@ -369,6 +389,29 @@ export function machineUpdate(
   update: { label?: string; enabled?: boolean },
 ): Promise<unknown> {
   return machineCommand({ type: "machine_update", id: "", machine, ...update });
+}
+
+/* ------------------------- plugin contract calls ---------------------- */
+
+/** Installed-plugin discovery on one host (ADR-0011). */
+export function pluginList(machine: string): Promise<PluginListResult> {
+  return machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>;
+}
+
+/** One plugin contract command on one host; result is the plugin's JSON document. */
+export function pluginCall(
+  machine: string,
+  request: { plugin: string; command: string; args?: string[]; timeout_ms?: number },
+): Promise<PluginCallResult> {
+  return machineCommand({
+    type: "plugin_call",
+    id: "",
+    machine,
+    plugin: request.plugin,
+    command: request.command,
+    ...(request.args !== undefined ? { args: request.args } : {}),
+    ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
+  }) as Promise<PluginCallResult>;
 }
 
 /** Launch-at-login state; only the desktop preload exposes these. */

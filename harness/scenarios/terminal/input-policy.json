@@ -1,0 +1,847 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.input-policy",
+  "capability": "terminal.input",
+  "contract": "terminal-input@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "a",
+        "keyCode": 65,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "plain printable text bypasses the encoder (beforeinput delivers it)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "a",
+        "keyCode": 65,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": true
+      },
+      "note": "kitty all-keys mode keeps encoder events for text keys",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": false
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "a",
+        "keyCode": 65,
+        "isComposing": false,
+        "ctrlKey": true,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "ctrl+key reaches the encoder",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": false
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "a",
+        "keyCode": 65,
+        "isComposing": true,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "mid-composition keydown bypasses",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "x",
+        "keyCode": 229,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "keyCode 229 platform marker bypasses",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "Process",
+        "keyCode": 0,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "Process key bypasses",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "Dead",
+        "keyCode": 192,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "dead key awaiting resolution bypasses",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "Enter",
+        "keyCode": 13,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "multi-char key reaches the encoder",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": false
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "😀",
+        "keyCode": 0,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "astral char has UTF-16 length 2 -> reaches encoder path",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": false
+        }
+      }
+    },
+    {
+      "op": "input_bypass_key_encoder",
+      "input": {
+        "key": "é",
+        "keyCode": 0,
+        "isComposing": false,
+        "ctrlKey": false,
+        "metaKey": false,
+        "altKey": false,
+        "kittyAllKeys": false
+      },
+      "note": "BMP accented char is single UTF-16 unit -> bypasses",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bypass": true
+        }
+      }
+    },
+    {
+      "op": "input_focus_report",
+      "input": {
+        "focused": true,
+        "reportsEnabled": true
+      },
+      "note": "focus in with DECSET 1004 -> CSI I",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bytes": "1b5b49"
+        }
+      }
+    },
+    {
+      "op": "input_focus_report",
+      "input": {
+        "focused": false,
+        "reportsEnabled": true
+      },
+      "note": "focus out -> CSI O",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bytes": "1b5b4f"
+        }
+      }
+    },
+    {
+      "op": "input_focus_report",
+      "input": {
+        "focused": true,
+        "reportsEnabled": false
+      },
+      "note": "reports disabled -> no bytes",
+      "expect": {
+        "ok": true,
+        "value": {
+          "bytes": null
+        }
+      }
+    },
+    {
+      "op": "input_pointer_drag_kind",
+      "input": {
+        "shiftKey": true,
+        "mouseReporting": true
+      },
+      "note": "shift+drag always selects even when pane reports mouse",
+      "expect": {
+        "ok": true,
+        "value": {
+          "kind": "select"
+        }
+      }
+    },
+    {
+      "op": "input_pointer_drag_kind",
+      "input": {
+        "shiftKey": false,
+        "mouseReporting": true
+      },
+      "note": "reporting pane gets the drag",
+      "expect": {
+        "ok": true,
+        "value": {
+          "kind": "mouse"
+        }
+      }
+    },
+    {
+      "op": "input_pointer_drag_kind",
+      "input": {
+        "shiftKey": false,
+        "mouseReporting": false
+      },
+      "note": "non-reporting pane selects",
+      "expect": {
+        "ok": true,
+        "value": {
+          "kind": "select"
+        }
+      }
+    },
+    {
+      "op": "input_wheel_button",
+      "input": {
+        "deltaX": 0,
+        "deltaY": -120
+      },
+      "note": "vertical up",
+      "expect": {
+        "ok": true,
+        "value": {
+          "button": "wheelUp"
+        }
+      }
+    },
+    {
+      "op": "input_wheel_button",
+      "input": {
+        "deltaX": 0,
+        "deltaY": 53
+      },
+      "note": "vertical down",
+      "expect": {
+        "ok": true,
+        "value": {
+          "button": "wheelDown"
+        }
+      }
+    },
+    {
+      "op": "input_wheel_button",
+      "input": {
+        "deltaX": -80,
+        "deltaY": 10
+      },
+      "note": "horizontal dominant -> wheelLeft",
+      "expect": {
+        "ok": true,
+        "value": {
+          "button": "wheelLeft"
+        }
+      }
+    },
+    {
+      "op": "input_wheel_button",
+      "input": {
+        "deltaX": 80,
+        "deltaY": -10
+      },
+      "note": "horizontal right wins over small vertical",
+      "expect": {
+        "ok": true,
+        "value": {
+          "button": "wheelRight"
+        }
+      }
+    },
+    {
+      "op": "input_wheel_button",
+      "input": {
+        "deltaX": 0,
+        "deltaY": 0
+      },
+      "note": "zero delta -> no button",
+      "expect": {
+        "ok": true,
+        "value": {
+          "button": null
+        }
+      }
+    },
+    {
+      "op": "input_sends_hover_motion",
+      "input": {
+        "mouseMode": "any"
+      },
+      "note": "1003 any-motion reports hover",
+      "expect": {
+        "ok": true,
+        "value": {
+          "send": true
+        }
+      }
+    },
+    {
+      "op": "input_sends_hover_motion",
+      "input": {
+        "mouseMode": "button"
+      },
+      "note": "button mode does not report hover",
+      "expect": {
+        "ok": true,
+        "value": {
+          "send": false
+        }
+      }
+    },
+    {
+      "op": "input_sends_hover_motion",
+      "input": {
+        "mouseMode": "none"
+      },
+      "note": "no mouse mode -> no hover",
+      "expect": {
+        "ok": true,
+        "value": {
+          "send": false
+        }
+      }
+    },
+    {
+      "op": "input_mouse_report_cell",
+      "input": {
+        "x": 3,
+        "y": 12,
+        "viewportTop": 10,
+        "cols": 80,
+        "rows": 24
+      },
+      "note": "screen point -> viewport cell (row 2)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "cell": {
+            "col": 3,
+            "row": 2
+          }
+        }
+      }
+    },
+    {
+      "op": "input_mouse_report_cell",
+      "input": {
+        "x": 3,
+        "y": 9,
+        "viewportTop": 10,
+        "cols": 80,
+        "rows": 24
+      },
+      "note": "point in kept scrollback -> null",
+      "expect": {
+        "ok": true,
+        "value": {
+          "cell": null
+        }
+      }
+    },
+    {
+      "op": "input_mouse_report_cell",
+      "input": {
+        "x": 999,
+        "y": 33,
+        "viewportTop": 10,
+        "cols": 80,
+        "rows": 24
+      },
+      "note": "out-of-grid point clamps into the grid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "cell": {
+            "col": 79,
+            "row": 23
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "KeyA",
+        "key": "a",
+        "shiftKey": false,
+        "ctrlKey": true,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "ctrl+a: text + unshifted both present",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "A",
+            "mods": {
+              "ctrl": true
+            },
+            "action": "press",
+            "text": "a",
+            "unshifted": "a"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "KeyA",
+        "key": "A",
+        "shiftKey": true,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "shift+a: shifted text, unshifted 'a'",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "A",
+            "mods": {
+              "shift": true
+            },
+            "action": "press",
+            "text": "A",
+            "unshifted": "a"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "Enter",
+        "key": "Enter",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "named key, no text",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "ENTER",
+            "mods": {},
+            "action": "press"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "Numpad7",
+        "key": "Home",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "release"
+      },
+      "note": "numpad code maps to NUMPAD_7",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "NUMPAD_7",
+            "mods": {},
+            "action": "release"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "F13",
+        "key": "F13",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "F13 within F1-F24",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "F13",
+            "mods": {},
+            "action": "press"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "F25",
+        "key": "F25",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "F25 outside range -> null",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": null
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "Unidentified",
+        "key": "x",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "unknown code -> null",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": null
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "Digit5",
+        "key": "%",
+        "shiftKey": true,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "repeat"
+      },
+      "note": "digit code: unshifted '5', shifted text '%'",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "DIGIT_5",
+            "mods": {
+              "shift": true
+            },
+            "action": "repeat",
+            "text": "%",
+            "unshifted": "5"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_engine_key_for",
+      "input": {
+        "code": "KeyA",
+        "key": "😀",
+        "shiftKey": false,
+        "ctrlKey": false,
+        "altKey": false,
+        "metaKey": false,
+        "action": "press"
+      },
+      "note": "astral key text -> text field omitted (UTF-16 len 2)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "key": {
+            "key": "A",
+            "mods": {},
+            "action": "press",
+            "unshifted": "a"
+          }
+        }
+      }
+    },
+    {
+      "op": "input_composition",
+      "input": {
+        "events": [
+          {
+            "type": "start"
+          },
+          {
+            "type": "before_input",
+            "data": "k"
+          },
+          {
+            "type": "end",
+            "data": "か"
+          },
+          {
+            "type": "before_input",
+            "data": "か"
+          }
+        ]
+      },
+      "note": "full IME cycle: mid-composition text dropped, commit sent once, insertText echo deduped",
+      "expect": {
+        "ok": true,
+        "value": {
+          "results": [
+            {
+              "text": null,
+              "active": true
+            },
+            {
+              "text": null,
+              "active": true
+            },
+            {
+              "text": "か",
+              "active": false
+            },
+            {
+              "text": null,
+              "active": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "input_composition",
+      "input": {
+        "events": [
+          {
+            "type": "start"
+          },
+          {
+            "type": "end",
+            "data": ""
+          },
+          {
+            "type": "before_input",
+            "data": "x"
+          }
+        ]
+      },
+      "note": "cancel/empty commit emits nothing; next text passes through",
+      "expect": {
+        "ok": true,
+        "value": {
+          "results": [
+            {
+              "text": null,
+              "active": true
+            },
+            {
+              "text": null,
+              "active": false
+            },
+            {
+              "text": "x",
+              "active": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "input_composition",
+      "input": {
+        "events": [
+          {
+            "type": "start"
+          },
+          {
+            "type": "end",
+            "data": "か"
+          },
+          {
+            "type": "before_input",
+            "data": "が"
+          },
+          {
+            "type": "before_input",
+            "data": "が"
+          }
+        ]
+      },
+      "note": "non-echo beforeinput passes once; a second identical one also passes (echo consumed)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "results": [
+            {
+              "text": null,
+              "active": true
+            },
+            {
+              "text": "か",
+              "active": false
+            },
+            {
+              "text": "が",
+              "active": false
+            },
+            {
+              "text": "が",
+              "active": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "input_composition",
+      "input": {
+        "events": [
+          {
+            "type": "end",
+            "data": "か"
+          },
+          {
+            "type": "start"
+          },
+          {
+            "type": "before_input",
+            "data": "か"
+          }
+        ]
+      },
+      "note": "end without start still commits; new start clears pending echo",
+      "expect": {
+        "ok": true,
+        "value": {
+          "results": [
+            {
+              "text": "か",
+              "active": false
+            },
+            {
+              "text": null,
+              "active": true
+            },
+            {
+              "text": null,
+              "active": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "input_composition",
+      "input": {
+        "events": []
+      },
+      "note": "empty sequence",
+      "expect": {
+        "ok": true,
+        "value": {
+          "results": []
+        }
+      }
+    }
+  ]
+}

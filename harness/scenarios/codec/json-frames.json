@@ -1,0 +1,1445 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "codec.json-frames",
+  "capability": "protocol.codec",
+  "contract": "protocol-frames@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot",
+          "params": {},
+          "machine": "local"
+        }
+      },
+      "note": "rpc valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot"
+        }
+      },
+      "note": "rpc params optional",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "pane.focus_direction",
+          "params": {
+            "direction": "left"
+          }
+        }
+      },
+      "note": "rpc params object",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "command.invoke"
+        }
+      },
+      "note": "rpc method outside allow-list rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot",
+          "params": [
+            1,
+            2
+          ]
+        }
+      },
+      "note": "rpc params array rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": 7,
+          "method": "session.snapshot"
+        }
+      },
+      "note": "rpc id must be string",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "w1:p1",
+          "cols": 80,
+          "rows": 24,
+          "takeover": true
+        }
+      },
+      "note": "subscribe valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "",
+          "cols": "wide"
+        }
+      },
+      "note": "empty paneId rejected; cols type is not guard-checked",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "w1:p1",
+          "takeover": "yes"
+        }
+      },
+      "note": "subscribe takeover must be boolean",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "unsubscribe_terminal",
+          "paneId": "w1:p1",
+          "machine": "local"
+        }
+      },
+      "note": "unsubscribe valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_input",
+          "paneId": "w1:p1",
+          "data": "aGk="
+        }
+      },
+      "note": "terminal_input valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_input",
+          "paneId": "w1:p1",
+          "data": 42
+        }
+      },
+      "note": "terminal_input data must be string",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_resize",
+          "paneId": "w1:p1",
+          "cols": 80.5,
+          "rows": -1
+        }
+      },
+      "note": "resize accepts any finite number (not integer-checked)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_resize",
+          "paneId": "w1:p1",
+          "cols": "80",
+          "rows": 24
+        }
+      },
+      "note": "resize cols must be number",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_mouse",
+          "paneId": "w1:p1",
+          "action": "press",
+          "button": "left",
+          "column": 10,
+          "row": 5,
+          "modifiers": 1
+        }
+      },
+      "note": "mouse press valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_mouse",
+          "paneId": "w1:p1",
+          "action": "moved",
+          "column": 10.5,
+          "row": 5
+        }
+      },
+      "note": "mouse column must be integer",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_mouse",
+          "paneId": "w1:p1",
+          "action": "press",
+          "button": null,
+          "column": 1,
+          "row": 1
+        }
+      },
+      "note": "mouse button null accepted",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_mouse",
+          "paneId": "w1:p1",
+          "action": "click",
+          "column": 1,
+          "row": 1
+        }
+      },
+      "note": "mouse unknown action rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "w1:p1",
+          "direction": "up",
+          "lines": 3,
+          "column": 10,
+          "row": 5,
+          "modifiers": 0
+        }
+      },
+      "note": "scroll valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "w1:p1",
+          "direction": "left"
+        }
+      },
+      "note": "scroll direction must be up|down",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "list_machines"
+        }
+      },
+      "note": "list_machines bare",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "list_machines",
+          "surprise": {
+            "nested": true
+          }
+        }
+      },
+      "note": "list_machines ignores extra fields",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_connect",
+          "machine": "devbox"
+        }
+      },
+      "note": "machine_connect valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_connect",
+          "machine": ""
+        }
+      },
+      "note": "machine_connect empty rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_connect",
+          "machine": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "note": "machine_connect has NO length cap (guard quirk: machineOk not applied)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_add",
+          "id": "m1",
+          "label": "Dev box",
+          "target": "devbox.tailnet.ts.net",
+          "session": "work"
+        }
+      },
+      "note": "machine_add valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_add",
+          "id": "m1",
+          "label": "x",
+          "target": "-oProxyCommand=evil"
+        }
+      },
+      "note": "machine_add target starting with dash rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_add",
+          "id": "m1",
+          "label": "x",
+          "target": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "note": "machine_add target >253 chars rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_remove",
+          "id": "m1",
+          "machine": "local"
+        }
+      },
+      "note": "machine_remove cannot target local",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_remove",
+          "id": "m1",
+          "machine": "devbox"
+        }
+      },
+      "note": "machine_remove valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_update",
+          "id": "m1",
+          "machine": "devbox"
+        }
+      },
+      "note": "machine_update requires label or enabled",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_update",
+          "id": "m1",
+          "machine": "devbox",
+          "enabled": false
+        }
+      },
+      "note": "machine_update enabled valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_list",
+          "id": "p1",
+          "machine": "local"
+        }
+      },
+      "note": "plugin_list valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_list",
+          "id": 1
+        }
+      },
+      "note": "plugin_list id must be string",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "rebuildup.inbox",
+          "command": "list",
+          "args": [
+            "w1:p1",
+            "--until",
+            "+1h"
+          ],
+          "timeout_ms": 30000
+        }
+      },
+      "note": "plugin_call valid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "",
+          "command": "list"
+        }
+      },
+      "note": "plugin_call empty plugin rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "args": [
+            "bad\u0000arg"
+          ]
+        }
+      },
+      "note": "plugin_call NUL in args rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "timeout_ms": 499
+        }
+      },
+      "note": "plugin_call timeout below 500 rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "timeout_ms": 500.5
+        }
+      },
+      "note": "plugin_call timeout must be integer",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "p",
+          "command": "c",
+          "timeout_ms": 120000
+        }
+      },
+      "note": "plugin_call timeout upper bound accepted",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "bogus_type"
+        }
+      },
+      "note": "unknown type rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": [
+          1,
+          2,
+          3
+        ]
+      },
+      "note": "array rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": null
+      },
+      "note": "null rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": "rpc"
+      },
+      "note": "string rejected",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot",
+          "machine": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "note": "machine >128 UTF-16 units rejected on machineOk frames",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "session.snapshot",
+          "machine": "😀😀"
+        }
+      },
+      "note": "machine length counts UTF-16 units (emoji = 2 units each)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "w1:p1",
+          "direction": "down",
+          "lines": 5,
+          "machine": "local"
+        }
+      },
+      "note": "scroll encode round-trip",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_scroll",
+            "paneId": "w1:p1",
+            "direction": "down",
+            "lines": 5,
+            "machine": "local"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c9",
+          "method": "agent.prompt",
+          "params": {
+            "text": "hi"
+          },
+          "machine": "devbox",
+          "future_field": {
+            "nested": [
+              1
+            ]
+          }
+        }
+      },
+      "note": "additive fields preserved through typed encode",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "rpc",
+            "id": "c9",
+            "method": "agent.prompt",
+            "params": {
+              "text": "hi"
+            },
+            "machine": "devbox",
+            "future_field": {
+              "nested": [
+                1
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "list_machines",
+          "ignored": true
+        }
+      },
+      "note": "list_machines extras preserved",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "list_machines",
+            "ignored": true
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "plugin_call",
+          "id": "p1",
+          "plugin": "rebuildup.inbox",
+          "command": "list",
+          "args": [],
+          "timeout_ms": 500
+        }
+      },
+      "note": "plugin_call encode",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "plugin_call",
+            "id": "p1",
+            "plugin": "rebuildup.inbox",
+            "command": "list",
+            "args": [],
+            "timeout_ms": 500
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_mouse",
+          "paneId": "w1:p1",
+          "action": "motion",
+          "column": 3,
+          "row": 4
+        }
+      },
+      "note": "mouse motion without button",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_mouse",
+            "paneId": "w1:p1",
+            "action": "motion",
+            "column": 3,
+            "row": 4
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "machine_update",
+          "id": "m1",
+          "machine": "devbox",
+          "label": "New name"
+        }
+      },
+      "note": "machine_update encode",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "machine_update",
+            "id": "m1",
+            "machine": "devbox",
+            "label": "New name"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "rpc",
+          "id": "c1",
+          "method": "not.allowed"
+        }
+      },
+      "expect_error": "invalid client frame"
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_resize",
+          "paneId": "w1:p1",
+          "cols": "wide",
+          "rows": 24
+        }
+      },
+      "expect_error": "invalid client frame"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"ready\",\"machine\":\"local\",\"snapshot\":{\"version\":\"22\",\"protocol\":22,\"workspaces\":[],\"panes\":[],\"tabs\":[],\"agents\":[],\"layouts\":[]}}"
+      },
+      "note": "ready frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "ready",
+            "machine": "local",
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "workspaces": [],
+              "panes": [],
+              "tabs": [],
+              "agents": [],
+              "layouts": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"snapshot\",\"machine\":\"devbox\",\"probe\":true,\"snapshot\":{\"version\":\"22\"}}"
+      },
+      "note": "probe snapshot frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "snapshot",
+            "machine": "devbox",
+            "probe": true,
+            "snapshot": {
+              "version": "22"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"event\",\"machine\":\"local\",\"event\":{\"kind\":\"pane.scroll_changed\",\"pane_id\":\"w1:p1\"}}"
+      },
+      "note": "event frame",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "event",
+            "machine": "local",
+            "event": {
+              "kind": "pane.scroll_changed",
+              "pane_id": "w1:p1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"rpc_result\",\"id\":\"c1\",\"ok\":true,\"result\":{\"rows\":[1,2]},\"machine\":\"local\"}"
+      },
+      "note": "rpc_result ok",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "rpc_result",
+            "id": "c1",
+            "ok": true,
+            "result": {
+              "rows": [
+                1,
+                2
+              ]
+            },
+            "machine": "local"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"rpc_result\",\"id\":\"c1\",\"ok\":false,\"error\":{\"code\":\"repo_ambiguous\",\"message\":\"pick a repo\",\"fields\":{\"repos\":[\"/a\",\"/b\"]}},\"machine\":\"devbox\"}"
+      },
+      "note": "rpc_result error with plugin fields",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "rpc_result",
+            "id": "c1",
+            "ok": false,
+            "error": {
+              "code": "repo_ambiguous",
+              "message": "pick a repo",
+              "fields": {
+                "repos": [
+                  "/a",
+                  "/b"
+                ]
+              }
+            },
+            "machine": "devbox"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"terminal_data\",\"paneId\":\"w1:p1\",\"data\":\"aGk=\",\"machine\":\"local\"}"
+      },
+      "note": "terminal_data",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_data",
+            "paneId": "w1:p1",
+            "data": "aGk=",
+            "machine": "local"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"terminal_mouse_capture\",\"paneId\":\"w1:p1\",\"enabled\":true,\"machine\":\"local\"}"
+      },
+      "note": "mouse capture",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_mouse_capture",
+            "paneId": "w1:p1",
+            "enabled": true,
+            "machine": "local"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"terminal_closed\",\"paneId\":\"w1:p1\",\"reason\":\"exited\",\"machine\":\"local\"}"
+      },
+      "note": "terminal_closed",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_closed",
+            "paneId": "w1:p1",
+            "reason": "exited",
+            "machine": "local"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"machines\",\"machines\":[{\"id\":\"local\",\"label\":\"This PC\",\"kind\":\"local\",\"enabled\":true,\"status\":\"online\"},{\"id\":\"devbox\",\"label\":\"Dev\",\"kind\":\"ssh\",\"target\":\"devbox\",\"enabled\":true,\"status\":\"online\",\"version\":\"0.9.0\",\"protocol\":22}]}"
+      },
+      "note": "machines list",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "machines",
+            "machines": [
+              {
+                "id": "local",
+                "label": "This PC",
+                "kind": "local",
+                "enabled": true,
+                "status": "online"
+              },
+              {
+                "id": "devbox",
+                "label": "Dev",
+                "kind": "ssh",
+                "target": "devbox",
+                "enabled": true,
+                "status": "online",
+                "version": "0.9.0",
+                "protocol": 22
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"machine_status\",\"machine\":{\"id\":\"devbox\",\"label\":\"Dev\",\"kind\":\"ssh\",\"enabled\":false,\"status\":\"offline\",\"detail\":\"unreachable\"}}"
+      },
+      "note": "machine_status",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "machine_status",
+            "machine": {
+              "id": "devbox",
+              "label": "Dev",
+              "kind": "ssh",
+              "enabled": false,
+              "status": "offline",
+              "detail": "unreachable"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"ready\",\"machine\":\"local\",\"snapshot\":{\"version\":\"22\"},\"future_frame_field\":{\"x\":1}}"
+      },
+      "note": "additive frame fields preserved",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "ready",
+            "machine": "local",
+            "snapshot": {
+              "version": "22"
+            },
+            "future_frame_field": {
+              "x": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"bogus\",\"machine\":\"local\"}"
+      },
+      "expect_error": "malformed server frame"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "not json at all"
+      },
+      "expect_error": "malformed server frame"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\":\"terminal_data\",\"paneId\":\"w1:p1\",\"data\":\"aGk=\"}"
+      },
+      "expect_error": "malformed server frame",
+      "note": "missing required machine field"
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "[1,2,3]"
+      },
+      "expect_error": "malformed server frame"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "Main",
+              "number": 1,
+              "active_tab_id": "w1:t1",
+              "agent_status": "idle",
+              "focused": true,
+              "pane_count": 2,
+              "tab_count": 1
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "w1:t1",
+              "workspace_id": "w1",
+              "label": "Tab 1",
+              "number": 1,
+              "agent_status": "idle",
+              "focused": true,
+              "pane_count": 2
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "w1:p1",
+              "workspace_id": "w1",
+              "tab_id": "w1:t1",
+              "terminal_id": "term1",
+              "agent_status": "working",
+              "focused": true,
+              "revision": 3,
+              "scroll": {
+                "offset_from_bottom": 12,
+                "viewport_rows": 24,
+                "extra_scroll_field": "kept"
+              }
+            }
+          ],
+          "agents": [],
+          "layouts": [],
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "w1:t1",
+          "focused_pane_id": "w1:p1",
+          "herdr_future_top_level": {
+            "added": "later"
+          }
+        }
+      },
+      "note": "full snapshot with additive fields at every level",
+      "expect": {
+        "ok": true,
+        "value": {
+          "snapshot": {
+            "version": "22",
+            "protocol": 22,
+            "workspaces": [
+              {
+                "workspace_id": "w1",
+                "label": "Main",
+                "number": 1,
+                "active_tab_id": "w1:t1",
+                "agent_status": "idle",
+                "focused": true,
+                "pane_count": 2,
+                "tab_count": 1
+              }
+            ],
+            "tabs": [
+              {
+                "tab_id": "w1:t1",
+                "workspace_id": "w1",
+                "label": "Tab 1",
+                "number": 1,
+                "agent_status": "idle",
+                "focused": true,
+                "pane_count": 2
+              }
+            ],
+            "panes": [
+              {
+                "pane_id": "w1:p1",
+                "workspace_id": "w1",
+                "tab_id": "w1:t1",
+                "terminal_id": "term1",
+                "agent_status": "working",
+                "focused": true,
+                "revision": 3,
+                "scroll": {
+                  "offset_from_bottom": 12,
+                  "viewport_rows": 24,
+                  "extra_scroll_field": "kept"
+                }
+              }
+            ],
+            "agents": [],
+            "layouts": [],
+            "focused_workspace_id": "w1",
+            "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1",
+            "herdr_future_top_level": {
+              "added": "later"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": {}
+      },
+      "note": "empty snapshot object parses (all fields optional)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "snapshot": {}
+        }
+      }
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": [
+          1,
+          2,
+          3
+        ]
+      },
+      "expect_error": "must be an object"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": "snapshot"
+      },
+      "expect_error": "must be an object"
+    },
+    {
+      "op": "json_parse_snapshot",
+      "input": {
+        "snapshot": null
+      },
+      "expect_error": "must be an object"
+    }
+  ]
+}

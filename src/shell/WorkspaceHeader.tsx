@@ -10,7 +10,10 @@ import {
   ChevronRightIcon,
   Columns2,
   EllipsisIcon,
+  FolderGit2Icon,
+  FolderKanbanIcon,
   GitBranchIcon,
+  HistoryIcon,
   InfoIcon,
   Maximize2,
   MessageSquareTextIcon,
@@ -19,6 +22,7 @@ import {
   PencilIcon,
   PlusIcon,
   Rows2,
+  SquarePlayIcon,
   SquareSplitHorizontalIcon,
   XIcon,
 } from "lucide-react";
@@ -63,6 +67,10 @@ import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { WorktreesDialog } from "~/components/WorktreesDialog";
+import { ProjectScriptsDialog } from "~/components/ProjectScriptsDialog";
+import { ProjectsDialog } from "~/components/ProjectsDialog";
+import { GitDialog } from "~/components/GitDialog";
+import { CheckpointsDialog } from "~/components/CheckpointsDialog";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -104,6 +112,10 @@ export function WorkspaceHeader() {
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
+  const [projectScriptsOpen, setProjectScriptsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
+  const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -600,8 +612,23 @@ export function WorkspaceHeader() {
                 <InfoIcon /> Details…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => focusedPane && setGitPane(focusedPane)}
+                disabled={!focusedPane}
+              >
+                <FolderGit2Icon /> Source Control…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProjectScriptsOpen(true)}>
+                <SquarePlayIcon /> Project Scripts…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
                 <GitBranchIcon /> Worktrees…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProjectsOpen(true)}>
+                <FolderKanbanIcon /> Projects…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCheckpointsOpen(true)}>
+                <HistoryIcon /> Checkpoints…
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
@@ -625,11 +652,32 @@ export function WorkspaceHeader() {
         machine={machine}
         onClose={() => setDetailsPane(null)}
       />
+      <GitDialog
+        pane={gitPane}
+        machine={machine}
+        onClose={() => setGitPane(null)}
+      />
       {worktreesOpen ? (
         <WorktreesDialog
           machine={machine}
           workspace={workspace}
           onClose={() => setWorktreesOpen(false)}
+        />
+      ) : null}
+      {projectScriptsOpen ? (
+        <ProjectScriptsDialog
+          machine={machine}
+          onClose={() => setProjectScriptsOpen(false)}
+        />
+      ) : null}
+      {projectsOpen ? (
+        <ProjectsDialog machine={machine} onClose={() => setProjectsOpen(false)} />
+      ) : null}
+      {checkpointsOpen ? (
+        <CheckpointsDialog
+          machine={machine}
+          pane={focusedPane ?? null}
+          onClose={() => setCheckpointsOpen(false)}
         />
       ) : null}
     </>

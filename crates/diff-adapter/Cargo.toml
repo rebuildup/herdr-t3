@@ -1,0 +1,10 @@
+[package]
+name = "diff-adapter"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Non-product reference adapter for the herdr-t3 differential harness (issue #237). Implements the attach-codec op subset in Rust so the same fixtures and comparator judge TS and Rust sides. Not shipped."
+
+[dependencies]
+serde_json = "1"

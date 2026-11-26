@@ -1,0 +1,19 @@
+{
+  "format": "herdr-t3/ui-scenario",
+  "version": 1,
+  "id": "shell.sidebar-collapse-toggle",
+  "capability": "ui.shell",
+  "contract": "ui-shell@1",
+  "fixture": "single-workspace",
+  "os": ["macos", "windows-11"],
+  "steps": [
+    { "assert": "state.sidebar_open", "equals": true },
+    { "action": "activate", "target": "nav.sidebar-toggle" },
+    { "wait": { "until": "state.sidebar_visible", "equals": false, "timeout_ms": 5000 } },
+    { "assert": "state.sidebar_open", "equals": false },
+    { "assert": "state.sidebar_visible", "equals": false },
+    { "action": "activate", "target": "nav.sidebar-toggle" },
+    { "wait": { "until": "state.sidebar_visible", "equals": true, "timeout_ms": 5000 } },
+    { "assert": "state.sidebar_open", "equals": true }
+  ]
+}

@@ -1,0 +1,2755 @@
+{
+ "schema_version": 1,
+ "description": "herdr-t3 GPUI migration capability registry (issue #235, ADR-0013). Single machine-readable ledger of every current and planned capability. Stage axis tracks migration progress; status axes track implementation health independently. See docs/migration/README.md.",
+ "stages": [
+  "not-started",
+  "contract-defined",
+  "current-verified",
+  "rust-implemented",
+  "equivalence-verified",
+  "switched",
+  "removed"
+ ],
+ "contracts": [
+  {
+   "id": "protocol-frames",
+   "version": 1,
+   "title": "Wire protocol frames and attach codec",
+   "spec": "docs/migration/contracts/protocol-frames.md",
+   "oracle": "conformance",
+   "summary": "ClientFrame/ServerFrame, snapshot/revision semantics, attach codec, additive tolerance."
+  },
+  {
+   "id": "bridge-session",
+   "version": 1,
+   "title": "Bridge session lifecycle",
+   "spec": "docs/migration/contracts/bridge-session.md",
+   "oracle": "differential",
+   "summary": "Connect/subscribe/attach/reconnect, one-RPC-per-call, draft invariant, attach-stream truth."
+  },
+  {
+   "id": "machines-transport",
+   "version": 1,
+   "title": "Machines and transports",
+   "spec": "docs/migration/contracts/machines-transport.md",
+   "oracle": "differential",
+   "summary": "Machine CRUD/connect, local/SSH/Windows named-pipe routing, probe snapshots."
+  },
+  {
+   "id": "plugins-boundary",
+   "version": 1,
+   "title": "herdr-plugins contract boundary",
+   "spec": "docs/migration/contracts/plugins-boundary.md",
+   "oracle": "conformance",
+   "summary": "plugin_list/plugin_call, per-host capability gating, error-kind passthrough, no state-file reads."
+  },
+  {
+   "id": "workspace-pane-ops",
+   "version": 1,
+   "title": "Workspace/tab/pane/agent/worktree operations",
+   "spec": "docs/migration/contracts/workspace-pane-ops.md",
+   "oracle": "differential",
+   "summary": "RPC_METHODS surface, snapshot-derived views, ordering semantics, agent prompt API."
+  },
+  {
+   "id": "agent-inbox",
+   "version": 1,
+   "title": "Agent projection, inbox organize, attention",
+   "spec": "docs/migration/contracts/agent-inbox.md",
+   "oracle": "conformance",
+   "summary": "Shelves, row projection, plugin-owned organize state, attention notices."
+  },
+  {
+   "id": "terminal-session",
+   "version": 1,
+   "title": "Terminal session lifecycle",
+   "spec": "docs/migration/contracts/terminal-session.md",
+   "oracle": "differential",
+   "summary": "Attach vs mirror, resize authority, sync output, mouse-capture push; byte I/O per docs/design/terminal-io.md."
+  },
+  {
+   "id": "terminal-render",
+   "version": 1,
+   "title": "Terminal paint scene (DOM-free op list)",
+   "spec": "docs/migration/contracts/terminal-render.md",
+   "oracle": "differential",
+   "summary": "Ordered PaintOp list per frame: row cache/dirty tracking, text batching, selection/search/cursor overlay, Kitty image and background-image compositing; pixel output via ui-conformance."
+  },
+  {
+   "id": "terminal-input",
+   "version": 1,
+   "title": "Terminal input policy (IME, keys, mouse, focus)",
+   "spec": "docs/migration/contracts/terminal-input.md",
+   "oracle": "differential",
+   "summary": "Keydown bypass decisions, IME composition lifecycle with commit dedupe, focus reports, pointer/wheel mouse-report mapping, KeyboardEvent->EngineKey."
+  },
+  {
+   "id": "settings-persistence",
+   "version": 1,
+   "title": "Settings and persistence",
+   "spec": "docs/migration/contracts/settings-persistence.md",
+   "oracle": "conformance",
+   "summary": "Single-owner settings keys, drafts, userData profile, legacy overlay migration.",
+   "evidence": [
+    "docs/migration/persistence-compatibility.md",
+    "src/lib/persistence-compat.test.ts",
+    "src/lib/settings.test.ts",
+    "docs/design/evidence/90/manifest.json"
+   ]
+  },
+  {
+   "id": "ui-shell",
+   "version": 1,
+   "title": "UI shell semantics",
+   "spec": "docs/migration/contracts/ui-shell.md",
+   "oracle": "conformance",
+   "summary": "T3 shell semantics: actions, focus, motion, theme roles, window chrome — implementation-independent.",
+   "evidence": [
+    "docs/migration/ui-conformance.md",
+    "harness/ui/targets.json",
+    "scripts/check-ui-scenarios.ts"
+   ]
+  },
+  {
+   "id": "distribution",
+   "version": 1,
+   "title": "Distribution and OS integration",
+   "spec": "docs/migration/contracts/distribution.md",
+   "oracle": "manual",
+   "summary": "electron-builder artifacts, pc-setup install/update/rollback, userData, diagnostics."
+  },
+  {
+   "id": "plugin-projects",
+   "version": 3,
+   "title": "herdr-plugins.projects/v1 registry and scripts",
+   "spec": "docs/migration/contracts/plugin-projects.md",
+   "oracle": "conformance",
+   "summary": "Project registry CRUD/pin/archive/settings/repos plus scripts list/run/stop/results/logs via plugin_call; auto triggers upstream-gated."
+  },
+  {
+   "id": "plugin-checkpoints",
+   "version": 4,
+   "title": "herdr-plugins.checkpoints/v1 hidden-ref checkpoints",
+   "spec": "docs/migration/contracts/plugin-checkpoints.md",
+   "oracle": "conformance",
+   "summary": "Worktree checkpoints as hidden git refs: capability/create/save/list/show/diff/plan/restore/restore-group/delete/gc/prune via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; multi-repo save groups + bounded retention consumed @ae4f214; work-unit auto-capture (kind/auto_captures/create --auto) consumed @55df8d0a; per-turn capture is a non-goal."
+  }
+ ],
+ "capabilities": [
+  {
+   "id": "protocol.codec",
+   "title": "ClientFrame/ServerFrame codec and snapshot types",
+   "area": "protocol",
+   "owner": "app",
+   "boundary": "B1",
+   "contracts": [
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "encode ClientFrame",
+    "decode ServerFrame",
+    "validate isClientFrame",
+    "parse SessionSnapshot"
+   ],
+   "errors": [
+    "malformed frame rejected",
+    "unknown RPC method rejected"
+   ],
+   "side_effects": [
+    "none (pure codec)"
+   ],
+   "scenarios": [
+    "shared/protocol.test.ts",
+    "server/client-link.test.ts"
+   ],
+   "evidence": [
+    "shared/protocol.ts",
+    "server/client-link.ts",
+    "crates/protocol-codec/src/lib.rs",
+    "crates/protocol-codec/tests/codec.rs",
+    "harness/scenarios/codec/json-frames.json"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "protocol.attach-codec",
+   "title": "Binary attach-stream codec (bincode-2 varint, tagged frames)",
+   "area": "protocol",
+   "owner": "app",
+   "boundary": "B1",
+   "contracts": [
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "decode Welcome/Terminal/ServerShutdown/MouseCapture",
+    "encode AttachMouse client messages",
+    "reject truncated frames"
+   ],
+   "errors": [
+    "truncated frame rejected",
+    "unknown variant skipped without mis-framing"
+   ],
+   "side_effects": [
+    "none"
+   ],
+   "scenarios": [
+    "server/client-link.test.ts"
+   ],
+   "evidence": [
+    "server/client-link.ts",
+    "docs/upstream.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr protocol 22 @ e8d7d97"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.connect",
+   "title": "Bridge connect: local socket / dev WS / Electron IPC",
+   "area": "bridge",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "bridge-session@1",
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "open transport",
+    "emit ready+snapshot",
+    "reject bad Host/Origin"
+   ],
+   "errors": [
+    "socket refused → machine offline",
+    "forbidden Host/Origin rejected pre-upgrade"
+   ],
+   "side_effects": [
+    "opens herdr RPC/socket connections"
+   ],
+   "scenarios": [
+    "server/guard.test.ts"
+   ],
+   "evidence": [
+    "server/index.ts",
+    "desktop/main.ts",
+    "desktop/preload.cjs",
+    "src/shell/bridge.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.snapshot-stream",
+   "title": "Snapshot + event subscription stream",
+   "area": "bridge",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "bridge-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "session.snapshot",
+    "events.subscribe (full set, reopen on loss)",
+    "emit snapshot/event frames"
+   ],
+   "errors": [
+    "subscribe loss → resubscribe full set",
+    "herdr close-after-answer honored (one RPC per call)"
+   ],
+   "side_effects": [
+    "long-lived subscribe connection"
+   ],
+   "scenarios": [
+    "server/herdr.test.ts"
+   ],
+   "evidence": [
+    "server/bridge-core.ts",
+    "server/herdr.ts",
+    "AGENTS.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.reconnect-draft",
+   "title": "Reconnect without data loss; typed-input draft invariant",
+   "area": "bridge",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "bridge-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "detect disconnect",
+    "hold draft input",
+    "resume on reconnect",
+    "user send/discard"
+   ],
+   "errors": [
+    "no auto-send after disconnect (forbidden)"
+   ],
+   "side_effects": [
+    "draft held in memory only"
+   ],
+   "scenarios": [
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/components/PaneMessageDialog.tsx",
+    "src/shell/bridge.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.machines",
+   "title": "Machine list/add/update/remove/connect/disconnect",
+   "area": "machines",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "machines-transport@1",
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "list_machines",
+    "machine_add/update/remove/connect/disconnect"
+   ],
+   "errors": [
+    "machine_update_failed",
+    "transport failure → status frame"
+   ],
+   "side_effects": [
+    "herdr machine CLI calls",
+    "per-machine bridge sessions"
+   ],
+   "scenarios": [
+    "server/machines.test.ts",
+    "server/machine-manager.test.ts"
+   ],
+   "evidence": [
+    "server/machines.ts",
+    "server/machine-manager.ts",
+    "src/components/MachineDialog.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.ssh-transport",
+   "title": "SSH remote transport and Windows named-pipe endpoint",
+   "area": "machines",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "machines-transport@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "sshExec remote argv",
+    "forwarded-socket herdr connect",
+    "named-pipe connect on Windows"
+   ],
+   "errors": [
+    "ssh auth/host failure → unreachable status",
+    "named-pipe marker file resolution"
+   ],
+   "side_effects": [
+    "ssh connections",
+    "remote processes for plugins/bridge"
+   ],
+   "scenarios": [
+    "server/machine-manager.test.ts"
+   ],
+   "evidence": [
+    "server/ssh.ts",
+    "server/herdr.ts",
+    "server/socket.ts",
+    "docs/adr/ADR-0006.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11 named-pipe path verified at RC only"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "bridge.plugin-boundary",
+   "title": "plugin_list / plugin_call frame boundary",
+   "area": "plugins",
+   "owner": "app",
+   "boundary": "B2",
+   "contracts": [
+    "plugins-boundary@1",
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "plugin_list discovery",
+    "plugin_call argv exec on owning host",
+    "capability gating data"
+   ],
+   "errors": [
+    "not_installed",
+    "disabled",
+    "unsupported_command",
+    "incompatible",
+    "plugin error.kind passthrough",
+    "bounded error.fields extras (issue #257)",
+    "timeout",
+    "non-JSON stdout"
+   ],
+   "side_effects": [
+    "spawns plugin CLI on local or SSH host",
+    "ambient HERDR_* targeting env removed from every exec (ADR-0022, issue #270)",
+    "ambient GIT_* repo/config/transport targeting env removed from every exec (ADR-0023, issue #280)"
+   ],
+   "scenarios": [
+    "server/plugins.test.ts",
+    "server/machines.test.ts",
+    "shared/protocol.test.ts",
+    "src/shell/projectScripts.test.ts"
+   ],
+   "evidence": [
+    "server/plugins.ts",
+    "server/ssh.ts",
+    "shared/protocol.ts",
+    "src/lib/api.ts",
+    "docs/adr/ADR-0011.md",
+    "docs/adr/ADR-0012.md",
+    "docs/adr/ADR-0022.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins contracts (inbox v0.1.0, git/v1 @d057830)"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "workspace.ops",
+   "title": "Workspace list/create/focus/close/rename/move",
+   "area": "workspace",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "workspace.create",
+    "workspace.focus",
+    "workspace.close",
+    "workspace.rename",
+    "workspace.move",
+    "list via snapshot"
+   ],
+   "errors": [
+    "rpc_result error surfaced",
+    "confirm-close when panes remain"
+   ],
+   "side_effects": [
+    "herdr workspace mutations"
+   ],
+   "scenarios": [
+    "src/lib/workspace.test.ts"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceSidebar.tsx",
+    "src/components/WorkspaceBreadcrumb.tsx",
+    "src/components/RenameDialog.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "tab.ops",
+   "title": "Tab create/focus/close/rename/move + strip UI",
+   "area": "tab",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1",
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "tab.create/focus/close/rename/move",
+    "select/close/rename/drag-reorder/overflow in strip"
+   ],
+   "errors": [
+    "rpc failure → notice",
+    "insert_index semantics match herdr"
+   ],
+   "side_effects": [
+    "herdr tab mutations"
+   ],
+   "scenarios": [
+    "src/lib/reorder.test.ts",
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceCanvas.tsx",
+    "src/shell/WorkspaceHeader.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "pane.ops",
+   "title": "Pane split/close/focus/rename/zoom/move/swap/resize/scroll/clear",
+   "area": "pane",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "pane.split/close/focus/rename/zoom/move/swap/resize/scroll/clear",
+    "layout.set_split_ratio",
+    "pane.focus_direction"
+   ],
+   "errors": [
+    "rpc failure surfaced",
+    "stale ids rejected"
+   ],
+   "side_effects": [
+    "herdr pane/layout mutations",
+    "terminal_resize reports"
+   ],
+   "scenarios": [
+    "src/lib/paneOrder.test.ts",
+    "src/lib/reorder.test.ts"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceCanvas.tsx",
+    "src/components/PaneDetailsDialog.tsx",
+    "docs/adr/ADR-0010.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     214
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr pane size authority (protocol 22)"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "pane.message",
+   "title": "Send text/keys to pane; prompt answers via agent.prompt",
+   "area": "pane",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1",
+    "bridge-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "pane.send_text",
+    "pane.send_keys",
+    "agent.prompt / prompt-answer API"
+   ],
+   "errors": [
+    "never guessed digit keys",
+    "draft held while disconnected"
+   ],
+   "side_effects": [
+    "writes to pane pty via herdr"
+   ],
+   "scenarios": [
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/components/PaneMessageDialog.tsx",
+    "server/herdr.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "pane.links",
+   "title": "Pane link resolve/activate (clickable regions)",
+   "area": "pane",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "pane.link.resolve",
+    "pane.link.activate"
+   ],
+   "errors": [
+    "unresolvable link → no-op/error surfaced"
+   ],
+   "side_effects": [
+    "may open files/URLs via OS"
+   ],
+   "scenarios": [],
+   "evidence": [
+    "shared/protocol.ts",
+    "src/lib/ghostty/renderer.ts"
+   ],
+   "stage": "contract-defined",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "pane.process-info",
+   "title": "pane.process_info foreground process details",
+   "area": "pane",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1",
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "pane.process_info(pane_id) → pid/name/argv/cwd"
+   ],
+   "errors": [
+    "pane_id required; target silently answers focused pane (forbidden)"
+   ],
+   "side_effects": [
+    "none"
+   ],
+   "scenarios": [
+    "src/components/PaneDetailsDialog.tsx"
+   ],
+   "evidence": [
+    "shared/protocol.ts",
+    "server/herdr.ts",
+    "AGENTS.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "worktree.ops",
+   "title": "Worktree list/create/open/remove",
+   "area": "workspace",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "worktree.list/create/open/remove",
+    "branch resolution for workspace rows"
+   ],
+   "errors": [
+    "rpc failure surfaced",
+    "no-match → undefined branch (not fabricated)"
+   ],
+   "side_effects": [
+    "filesystem worktree mutations via herdr"
+   ],
+   "scenarios": [
+    "src/shell/worktrees.test.ts"
+   ],
+   "evidence": [
+    "src/components/WorktreesDialog.tsx",
+    "src/shell/worktrees.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "agent.ops",
+   "title": "Agent get/prompt/rename/start/read/explain",
+   "area": "agent",
+   "owner": "herdr",
+   "boundary": "B2",
+   "contracts": [
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "agent.get",
+    "agent.prompt",
+    "agent.rename",
+    "agent.start",
+    "agent.read",
+    "agent.explain"
+   ],
+   "errors": [
+    "prompt answers only via prompt API",
+    "rpc errors surfaced"
+   ],
+   "side_effects": [
+    "agent lifecycle mutations in herdr"
+   ],
+   "scenarios": [
+    "src/shell/agents.test.ts"
+   ],
+   "evidence": [
+    "src/shell/agents.ts",
+    "server/herdr.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "agent.projection",
+   "title": "Agent shelves, row projection, status mapping",
+   "area": "agent",
+   "owner": "app",
+   "boundary": "B3",
+   "contracts": [
+    "agent-inbox@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "shelf grouping Attention/Working/Done/Idle",
+    "row field resolution",
+    "compareAgents ordering",
+    "agentRowSignature"
+   ],
+   "errors": [
+    "unknown status → unknown shelf",
+    "stale machine excluded but records preserved"
+   ],
+   "side_effects": [
+    "none (pure projection)"
+   ],
+   "scenarios": [
+    "src/shell/agents.test.ts",
+    "src/lib/workspace.test.ts",
+    "src/shell/view.test.ts",
+    "harness/scenarios/projection/"
+   ],
+   "evidence": [
+    "src/shell/agents.ts",
+    "src/shell/view.ts",
+    "src/components/agentIcons.tsx",
+    "src/lib/workspace.ts",
+    "crates/state-projections/src/lib.rs",
+    "crates/state-projections/tests/projections.rs",
+    "harness/scenarios/projection/workspace.json",
+    "harness/scenarios/projection/agents.json",
+    "harness/scenarios/projection/agents-organize.json"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "inbox.organize",
+   "title": "Settle/snooze organize state (plugin-owned + legacy migration)",
+   "area": "agent",
+   "owner": "plugin:rebuildup.inbox",
+   "boundary": "B3",
+   "contracts": [
+    "agent-inbox@1",
+    "plugins-boundary@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "settle",
+    "snooze",
+    "restore",
+    "auto-return on state_change_seq",
+    "localStorage one-time migration"
+   ],
+   "errors": [
+    "plugin failure keeps last state, no localStorage fallback-as-authority"
+   ],
+   "side_effects": [
+    "plugin state writes on herdr host"
+   ],
+   "scenarios": [
+    "src/shell/agents.test.ts"
+   ],
+   "evidence": [
+    "src/shell/inbox.ts",
+    "src/shell/agentOrganizeStore.ts",
+    "docs/adr/ADR-0011.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "rebuildup.inbox v0.1.0"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "attention.notices",
+   "title": "Attention detection and notice toasts",
+   "area": "agent",
+   "owner": "app",
+   "boundary": "B3",
+   "contracts": [
+    "agent-inbox@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "snapshot diff → blocked/done notices",
+    "Open action navigation",
+    "dedupe on state signature"
+   ],
+   "errors": [
+    "baseline snapshot never notifies",
+    "missing workspace → workspace_id fallback"
+   ],
+   "side_effects": [
+    "toast UI only"
+   ],
+   "scenarios": [
+    "src/shell/attention.test.ts"
+   ],
+   "evidence": [
+    "src/shell/attention.ts",
+    "src/shell/notices.ts",
+    "src/shell/NoticeToasts.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "git.surface",
+   "title": "Source Control surface via herdr-plugins.git/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.git",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "status/files/diff/log/compare read",
+    "stage/unstage/commit/branch/upstream mutations",
+    "remote/fetch/push",
+    "pr list/status/create/view via gh"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "repo-state error.kind passthrough",
+    "foreign contract rejected"
+   ],
+   "side_effects": [
+    "git mutations on host repo",
+    "gh CLI calls"
+   ],
+   "scenarios": [
+    "src/shell/git.test.ts",
+    "server/plugins.test.ts"
+   ],
+   "evidence": [
+    "src/shell/git.ts",
+    "src/components/GitDialog.tsx",
+    "docs/adr/ADR-0012.md",
+    "docs/adr/ADR-0018.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.git/v1 @d057830",
+     "host gh CLI for forge"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "projects.registry",
+   "title": "Project registry surface via herdr-plugins.projects/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.projects",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-projects@3",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "list/show projects",
+    "discover pane-cwd repos",
+    "register",
+    "update title/pin/archive/repo membership",
+    "settings get/set/unset",
+    "repos list/add/remove"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "project_not_found/repo_already_registered/settings_key_not_allowed kind passthrough",
+    "foreign contract rejected"
+   ],
+   "side_effects": [
+    "registry state writes on herdr host",
+    "git repo resolution per call"
+   ],
+   "scenarios": [
+    "src/shell/projects.test.ts"
+   ],
+   "evidence": [
+    "src/shell/projects.ts",
+    "src/components/ProjectsDialog.tsx",
+    "docs/migration/contracts/plugin-projects.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.projects/v1 @2dcb2abf"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "projects.scripts",
+   "title": "Project scripts surface via herdr-plugins.projects/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.projects",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-projects@3",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "scripts list resolution layers",
+    "scripts run in dedicated herdr pane",
+    "scripts run --shell family override (auto default)",
+    "scripts stop recorded panes only",
+    "scripts results lazy reconcile",
+    "scripts logs bounded tail"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "repo_ambiguous/unknown_script/run_not_found kind passthrough",
+    "shell_unknown/not_a_shell/invalid_shell pre-injection aborts classified distinctly",
+    "auto triggers inert (upstream herdr-plugins#60)"
+   ],
+   "side_effects": [
+    "user-defined commands execute in dedicated herdr workspace/pane",
+    "ctrl+c+pane close on stop",
+    "run records persisted plugin-side"
+   ],
+   "scenarios": [
+    "src/shell/projectScripts.test.ts"
+   ],
+   "evidence": [
+    "src/shell/projectScripts.ts",
+    "src/components/ProjectScriptsDialog.tsx",
+    "src/shell/WorkspaceHeader.tsx",
+    "docs/migration/contracts/plugin-projects.md",
+    "docs/adr/ADR-0014.md",
+    "docs/adr/ADR-0019.md",
+    "docs/adr/ADR-0020.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert — no upstream execution mapping (herdr-plugins#60)"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.projects/v1 @2dcb2abf",
+     "herdr pane execution API",
+     "auto triggers: herdr-plugins#60 (upstream gap)"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "checkpoints.surface",
+   "title": "Checkpoints surface via herdr-plugins.checkpoints/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.checkpoints",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-checkpoints@4",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host",
+    "list checkpoints (repo/group filters, limit)",
+    "show entry + ref probe + bounded stat",
+    "diff checkpoint/HEAD pairs (bounded patch)",
+    "plan restore preview (files_to_change/untracked_to_delete/already_matches)",
+    "restore with plan gate, same-repo --repo override, shared-worktree/session isolation, explicit --force only, pre_restore recovery",
+    "save multi-repo checkpoint groups (explicit --repo list / focused pane / live discovery with skipped_panes) under shared group_id",
+    "list --group filter + group_id badges; restore-group per-repo flow with per-repo results and labelled whole-group --force retry",
+    "gc bounded retention + prune orphan refs, both gated on a mandatory dry-run preview of identical parameters (would_delete/orphans/unreachable/policy shown)",
+    "partial group outcomes rendered per-repo via bridge stdout-report+stderr-error convention (error attached under doc.error)",
+    "create via --repo PATH or focused pane id, optional label, explicit --auto (kind:auto)",
+    "kind badge (manual/auto/pre_restore) on list/detail",
+    "auto_captures drain outcomes surfaced on every command result (captured/skipped/session_unreachable)",
+    "delete with confirm (idempotent ref_existed/warnings)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "not_a_repo/bare_repo/empty_repo/sparse_checkout/unknown_checkpoint/cross_repo/pane_not_found/no_pane_cwd/repo_mismatch/checkpoint_ref_missing/shared_worktree/session_unreachable/restore_failed/clean_failed/clean_incomplete/restore_verify_failed/unknown_group/partial_save/partial_restore/unreachable_repos/git_missing/timeout/git_error kind passthrough",
+    "error.panes and pre_restore_* extras forwarded via allowlisted error fields",
+    "ref.exists:false rendered honestly",
+    "foreign contract rejected"
+   ],
+   "side_effects": [
+    "hidden git refs written under refs/herdr-plugins/checkpoints/ on the host repo",
+    "plugin state index writes on the herdr host",
+    "restore mutates the target worktree/index after pre-restore checkpoint capture",
+    "capture never touches user index/worktree"
+   ],
+   "scenarios": [
+    "src/shell/checkpoints.test.ts"
+   ],
+   "evidence": [
+    "src/shell/checkpoints.ts",
+    "src/components/CheckpointsDialog.tsx",
+    "src/shell/WorkspaceHeader.tsx",
+    "server/plugins.ts",
+    "docs/migration/contracts/plugin-checkpoints.md",
+    "docs/adr/ADR-0016.md",
+    "docs/adr/ADR-0017.md",
+    "docs/adr/ADR-0021.md",
+    "docs/adr/ADR-0024.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "per-turn auto-capture/multi-repo orchestration/GC are non-goals (herdr-plugins#75+); auto-capture granularity is agent_status work-units"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.checkpoints/v1 @55df8d0a",
+     "git + bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.engine",
+   "title": "Runtime-independent terminal engine core (libghostty-vt native FFI)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "ingest PTY byte stream",
+    "styled-run frame extraction (dirty + full)",
+    "screen/cursor/mode/palette queries",
+    "key/mouse/paste encoding per keyboard/mouse modes",
+    "scroll viewport + synchronized-output (2026) hold",
+    "reply/bell/clipboard-write effects via callbacks",
+    "resize with grid reflow"
+   ],
+   "errors": [
+    "engine trap isolated per session",
+    "dead session refuses new work"
+   ],
+   "side_effects": [
+    "caller-owned effect callbacks (pty write, bell, size, clipboard)"
+   ],
+   "scenarios": [
+    "shared/ghostty/engine.test.ts",
+    "src/lib/ghostty/session.test.ts"
+   ],
+   "evidence": [
+    "crates/terminal-core/src/engine.rs",
+    "crates/terminal-core/src/session.rs",
+    "crates/terminal-core/tests/engine.rs",
+    "harness/scenarios/terminal/basic-screen.json",
+    "harness/scenarios/terminal/modes-and-input.json",
+    "harness/scenarios/terminal/scrollback-resize.json",
+    "harness/scenarios/terminal/callbacks-and-scroll.json",
+    "scripts/ghostty-vt/build-native.sh"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.scene",
+   "title": "Runtime-independent terminal paint scene (DOM-free op list)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-render@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "collect engine styled runs into a row cache",
+    "emit ordered PaintOp list per frame (text + overlay layers)",
+    "batched fillText with per-cell fallback on advance mismatch",
+    "selection/search washes and cursor styles on the overlay",
+    "background colour/image compositing geometry",
+    "injected text metrics (canvas-backed in production, fake in tests)"
+   ],
+   "errors": [
+    "disposed scene renders empty frames",
+    "missing metrics makes collect a no-op"
+   ],
+   "side_effects": [],
+   "scenarios": [
+    "src/lib/ghostty/scene.ts",
+    "crates/terminal-render/tests/scene.rs",
+    "harness/scenarios/terminal/scene-render.json"
+   ],
+   "evidence": [
+    "src/lib/ghostty/scene.ts",
+    "src/lib/ghostty/renderer.ts",
+    "crates/terminal-render/src/lib.rs",
+    "crates/terminal-render/src/bin/terminal-render-adapter.rs",
+    "crates/terminal-render/tests/scene.rs",
+    "harness/scenarios/terminal/scene-render.json",
+    "docs/migration/contracts/terminal-render.md"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.input",
+   "title": "Runtime-independent terminal input policy (DOM-free decisions)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-input@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "keydown bypass decision (IME markers, dead keys, printable text, kitty all-keys)",
+    "IME composition lifecycle with same-turn commit-echo dedupe",
+    "DECSET 1004 focus report gating",
+    "pointer drag select-vs-report decision",
+    "wheel delta -> button mapping",
+    "hover-motion gating per mouse mode",
+    "screen point -> viewport mouse-report cell",
+    "KeyboardEvent fields -> EngineKey (code map, mods, text/unshifted)"
+   ],
+   "errors": [
+    "policy helpers are total; engine errors surface via the session path"
+   ],
+   "side_effects": [],
+   "scenarios": [
+    "src/lib/ghostty/inputPolicy.test.ts",
+    "src/lib/ghostty/keys.test.ts",
+    "crates/terminal-input/tests/input.rs",
+    "harness/scenarios/terminal/input-policy.json"
+   ],
+   "evidence": [
+    "src/lib/ghostty/inputPolicy.ts",
+    "src/lib/ghostty/keys.ts",
+    "crates/terminal-input/src/lib.rs",
+    "crates/terminal-input/src/bin/terminal-input-adapter.rs",
+    "crates/terminal-input/tests/input.rs",
+    "harness/scenarios/terminal/input-policy.json",
+    "docs/migration/contracts/terminal-input.md"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.attach",
+   "title": "Terminal attach stream lifecycle (subscribe/unsubscribe/closed)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1",
+    "protocol-frames@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "subscribe_terminal",
+    "unsubscribe_terminal",
+    "terminal_data frames",
+    "terminal_closed handling",
+    "takeover"
+   ],
+   "errors": [
+    "closed → explicit state",
+    "attach target gone → mirror fallback or unavailable"
+   ],
+   "side_effects": [
+    "herdr attach session per pane",
+    "PTY size lock per ADR-0010"
+   ],
+   "scenarios": [
+    "server/client-link.test.ts",
+    "src/lib/ghostty/session.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/session.ts",
+    "src/components/PaneTerminal.tsx",
+    "docs/adr/ADR-0010.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     214
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr attach protocol"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.render",
+   "title": "Cell-grid render: styled runs, scrollback, selection, search",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "replay screen",
+    "styled runs to renderer",
+    "scroll history",
+    "select word/line/range",
+    "find/step matches"
+   ],
+   "errors": [
+    "engine trap isolates to own pane"
+   ],
+   "side_effects": [
+    "canvas/DOM rendering per pane"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/session.test.ts",
+    "shared/ghostty/engine.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/renderer.ts",
+    "src/lib/ghostty/session.ts",
+    "shared/ghostty/engine.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "libghostty-vt WASM (ADR-0007)"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.input-keys",
+   "title": "Keyboard input encoding (legacy + kitty modes, modifiers, repeat)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "spec_ref": "docs/design/terminal-io.md",
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "encodeKey per keyboard mode",
+    "press/release/repeat",
+    "platform-reserved chords excluded",
+    "plain text via beforeinput"
+   ],
+   "errors": [
+    "hasKey=false keys not sent",
+    "IME-processed keys bypass encoder"
+   ],
+   "side_effects": [
+    "bytes to pane pty"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/session.test.ts",
+    "src/lib/ghostty/keys.test.ts",
+    "src/lib/ghostty/inputPolicy.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/keys.ts",
+    "src/lib/ghostty/session.ts",
+    "docs/design/terminal-io.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.input-ime",
+   "title": "IME composition lifecycle (CJK)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "spec_ref": "docs/design/terminal-io.md",
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "compositionstart/update/end",
+    "commit exactly once",
+    "cancel sends nothing",
+    "composition display layer",
+    "candidate-window anchoring"
+   ],
+   "errors": [
+    "insertText dedupe",
+    "composition keys never leak to pane"
+   ],
+   "side_effects": [
+    "composition overlay rendering"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/inputPolicy.test.ts",
+    "scripts/verify-terminal-input.ts",
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/lib/ghostty/inputPolicy.ts",
+    "src/lib/ghostty/surface.ts",
+    "docs/design/terminal-io.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "OS IME layer is RC-manual per verification.md rows 1-2"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.mouse",
+   "title": "Mouse reporting modes, selection-vs-report boundary, wheel",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "spec_ref": "docs/design/terminal-io.md",
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "press/drag/release/motion/wheel encoding",
+    "SGR/any-motion formats",
+    "Shift+drag local selection",
+    "scrollback vs app wheel",
+    "mouse_capture push handling"
+   ],
+   "errors": [
+    "no reports when capture disabled",
+    "scrollback-region points refused"
+   ],
+   "side_effects": [
+    "terminal_mouse/terminal_scroll frames"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/session.test.ts",
+    "src/lib/ghostty/inputPolicy.test.ts",
+    "server/client-link.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/surface.ts",
+    "src/lib/ghostty/inputPolicy.ts",
+    "docs/design/terminal-io.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     169
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr AttachMouse/AttachScroll",
+     "MouseCapture push (protocol 22)"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.focus-report",
+   "title": "Focus event reporting (DECSET 1004) CSI I/O",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "spec_ref": "docs/design/terminal-io.md",
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "focusin/focusout → CSI I/O only when mode 1004 set",
+    "chrome focus transitions reported"
+   ],
+   "errors": [
+    "no bytes when mode off",
+    "upstream delivery gaps tracked, not faked"
+   ],
+   "side_effects": [
+    "bytes to pane pty"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/inputPolicy.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/inputPolicy.ts",
+    "docs/design/terminal-io.md",
+    "issue:169"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     169
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdrdev/herdr#4902",
+     "herdrdev/herdr#6178"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.clipboard",
+   "title": "Clipboard: OSC 52 write, copy selection, bracketed paste",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "spec_ref": "docs/design/terminal-io.md",
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "OSC 52 → clipboard write",
+    "selection text extraction → copy",
+    "paste → encodePaste (mode 2004 bracket)"
+   ],
+   "errors": [
+    "clipboard write only on OSC 52 effect",
+    "bracket only when mode on"
+   ],
+   "side_effects": [
+    "OS clipboard access"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/session.test.ts"
+   ],
+   "evidence": [
+    "src/lib/ghostty/session.ts",
+    "src/lib/ghostty/surface.ts",
+    "docs/design/terminal-io.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.resize-authority",
+   "title": "Pane size authority stays with herdr; GUI reports grid",
+   "area": "terminal",
+   "owner": "herdr",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "terminal_resize on measured cell size",
+    "engine grid follows GUI size",
+    "no client-side decoupling"
+   ],
+   "errors": [
+    "no size negotiation attempts",
+    "lock acknowledged as upstream behavior"
+   ],
+   "side_effects": [
+    "herdr direct_attach_resize_locks while attached"
+   ],
+   "scenarios": [
+    "docs/adr/ADR-0010.md",
+    "issue:214"
+   ],
+   "evidence": [
+    "src/lib/ghostty/session.ts",
+    "src/components/PaneTerminal.tsx",
+    "docs/adr/ADR-0010.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     214
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdrdev/herdr#6188"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.mirror",
+   "title": "Mirror read fallback for non-attachable panes",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "pane.read-backed render",
+    "read-only (no input path)",
+    "never rebuild attachable pane from read"
+   ],
+   "errors": [
+    "no pty assumed",
+    "explicit unavailable state when neither works"
+   ],
+   "side_effects": [
+    "none beyond render"
+   ],
+   "scenarios": [
+    "AGENTS.md"
+   ],
+   "evidence": [
+    "src/lib/ghostty/session.ts",
+    "src/components/PaneTerminal.tsx",
+    "docs/adr/ADR-0010.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "terminal.scheduling",
+   "title": "Render batching / input event coalescing / resize+scroll throttle",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B5",
+   "contracts": [
+    "terminal-session@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "frame batching",
+    "input event aggregation",
+    "resize/scroll event throttling"
+   ],
+   "errors": [
+    "no dropped final position for any-motion",
+    "no unbounded queue growth"
+   ],
+   "side_effects": [
+    "reduced RPC/render churn during drags"
+   ],
+   "scenarios": [
+    "scripts/perf-terminal-bench.ts",
+    "issue:213"
+   ],
+   "evidence": [
+    "src/components/PaneTerminal.tsx",
+    "src/lib/ghostty/session.ts",
+    "issue:213",
+    "scripts/perf-baseline.ts",
+    "docs/migration/performance-baseline.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.sidebar",
+   "title": "Sidebar chrome: workspace tree, machine folders, agent shelves",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1",
+    "agent-inbox@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "searchable item list",
+    "two-line workspace rows",
+    "agent shelves + hover card",
+    "context menus",
+    "drag reorder",
+    "offcanvas collapse + control trigger"
+   ],
+   "errors": [
+    "empty/disconnected/offline states defined",
+    "stale machine handling"
+   ],
+   "side_effects": [
+    "navigation state",
+    "organize plugin calls"
+   ],
+   "scenarios": [
+    "docs/design/verification.md",
+    "scripts/capture-evidence.ts"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceSidebar.tsx",
+    "src/shell/SidebarChrome.tsx",
+    "src/shell/AgentHoverCard.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "ui.tabstrip",
+   "title": "Tab strip: selection, hover close, context menu, drag, overflow",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "select/close/rename/move/drag",
+    "hover affordances",
+    "overflow scroll",
+    "per-tab agent status",
+    "split/zoom icons"
+   ],
+   "errors": [
+    "single-tab label hidden rule",
+    "insert_index verified vs herdr"
+   ],
+   "side_effects": [
+    "tab RPC mutations"
+   ],
+   "scenarios": [
+    "docs/design/verification.md",
+    "src/lib/reorder.test.ts"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceCanvas.tsx",
+    "src/shell/WorkspaceHeader.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.panegrid",
+   "title": "Pane grid: splits, zoom, ratios, focus order, dimming",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "split panes",
+    "zoom",
+    "split-ratio drag",
+    "pane drag/swap",
+    "unfocused dimming",
+    "reading-order focus"
+   ],
+   "errors": [
+    "narrow viewport remains usable (issue #79 history)"
+   ],
+   "side_effects": [
+    "layout RPC mutations",
+    "terminal_resize reports"
+   ],
+   "scenarios": [
+    "src/lib/paneOrder.test.ts",
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/shell/WorkspaceCanvas.tsx",
+    "src/hooks/useResizeDrag.ts",
+    "src/lib/observeResize.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.command-palette",
+   "title": "Command palette (⌘K) and goto dialog",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "fuzzy action search",
+    "goto rows over workspaces/tabs/panes",
+    "status-token filter (e.g. blocked:)"
+   ],
+   "errors": [
+    "no-match → empty result, not error"
+   ],
+   "side_effects": [
+    "navigation/actions"
+   ],
+   "scenarios": [
+    "src/shell/goto.test.ts"
+   ],
+   "evidence": [
+    "src/shell/CommandMenu.tsx",
+    "src/shell/GotoDialog.tsx",
+    "src/shell/goto.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.dialogs",
+   "title": "Dialogs: rename/machine/pane-details/pane-message/git/worktrees/theme",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "open/close/focus-trap/submit each dialog",
+    "error display inside dialog"
+   ],
+   "errors": [
+    "validation errors inline",
+    "rpc failure surfaced"
+   ],
+   "side_effects": [
+    "varies per dialog (RPC/plugin/OS)"
+   ],
+   "scenarios": [
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/components/RenameDialog.tsx",
+    "src/components/MachineDialog.tsx",
+    "src/components/PaneDetailsDialog.tsx",
+    "src/components/PaneMessageDialog.tsx",
+    "src/components/GitDialog.tsx",
+    "src/components/WorktreesDialog.tsx",
+    "src/components/ThemeModeTiles.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.theme-tokens",
+   "title": "Theme: light/dark/system, T3 tokens, density",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "theme mode select/persist",
+    "token roles apply",
+    "dark/light variant rules",
+    "system follow"
+   ],
+   "errors": [
+    "unknown stored value → default",
+    "storage unavailable → in-memory"
+   ],
+   "side_effects": [
+    "index.css custom properties",
+    "nativeTheme bridge"
+   ],
+   "scenarios": [
+    "src/lib/settings.test.ts",
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/lib/theme.ts",
+    "src/index.css",
+    "src/components/ThemeModeTiles.tsx",
+    "docs/design/rules.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.shortcuts",
+   "title": "Keyboard shortcuts and command menu",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "mod-aware matching",
+    "central shortcut table",
+    "palette access to all actions"
+   ],
+   "errors": [
+    "IME/composition keys never trigger shortcuts",
+    "unbound keys pass to terminal"
+   ],
+   "side_effects": [
+    "action dispatch"
+   ],
+   "scenarios": [
+    "src/lib/ghostty/inputPolicy.test.ts"
+   ],
+   "evidence": [
+    "src/lib/shortcuts.ts",
+    "src/hooks/useShortcuts.ts",
+    "src/shell/CommandMenu.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "ui.motion-a11y",
+   "title": "Motion, reduced-motion, accessibility helpers",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "list/menu transitions",
+    "prefers-reduced-motion instant swap",
+    "focus-visible styles",
+    "aria roles on custom controls"
+   ],
+   "errors": [
+    "reduced-motion never partially animates"
+   ],
+   "side_effects": [
+    "none"
+   ],
+   "scenarios": [
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/lib/visibleAnimation.ts",
+    "src/lib/sidebarListMotion.ts",
+    "src/lib/accessibility.ts",
+    "src/hooks/useMediaQuery.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "os.window-chrome",
+   "title": "Window chrome: macOS hiddenInset, Windows titleBarOverlay, fullscreen",
+   "area": "os",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "ui-shell@1",
+    "distribution@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "traffic-light inset positioning",
+    "WCO titlebar overlay",
+    "fullscreen collapse",
+    "drag-region header"
+   ],
+   "errors": [
+    "OS capability absent → explicit fallback, not silent difference"
+   ],
+   "side_effects": [
+    "native window controls"
+   ],
+   "scenarios": [
+    "docs/design/verification.md"
+   ],
+   "evidence": [
+    "src/lib/windowControlsOverlay.ts",
+    "src/workspaceTitlebar.ts",
+    "desktop/main.ts",
+    "docs/adr/ADR-0008.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11 WCO verified at RC only"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "os.native-theme",
+   "title": "Native theme watcher → ghostty palette resolution",
+   "area": "os",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "settings-persistence@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "nativeTheme changes → palette re-resolve",
+    "user ghostty config overrides",
+    "background image config"
+   ],
+   "errors": [
+    "missing/invalid config → null fallback",
+    "unsupported image formats rejected"
+   ],
+   "side_effects": [
+    "terminal palette updates",
+    "fs watch on config dir"
+   ],
+   "scenarios": [
+    "server/ghostty.test.ts"
+   ],
+   "evidence": [
+    "server/ghostty.ts",
+    "desktop/main.ts",
+    "docs/design/terminal-io.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "user ghostty config files"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "os.diagnostics",
+   "title": "Diagnostics log + bridge-status.json for external verify",
+   "area": "os",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "distribution@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "diag records",
+    "quit-time/startup exception capture",
+    "bridge-status.json status-only output"
+   ],
+   "errors": [
+    "no secrets in diagnostics",
+    "status grants no control"
+   ],
+   "side_effects": [
+    "writes under userData"
+   ],
+   "scenarios": [],
+   "evidence": [
+    "desktop/diagnostics.ts",
+    "desktop/main.ts"
+   ],
+   "stage": "contract-defined",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "os.app-lifecycle",
+   "title": "App lifecycle: single instance, dev/prod identity, userData profiles",
+   "area": "os",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "settings-persistence@1",
+    "distribution@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "profile-scoped userData (herdr-t3 / herdr-t3-dev)",
+    "app root resolution (dev vs asar)",
+    "quit cleanup"
+   ],
+   "errors": [
+    "never touches herdr sessions on quit",
+    "dev profile isolated from stable"
+   ],
+   "side_effects": [
+    "userData dirs",
+    "Dock/⌘Tab identity"
+   ],
+   "scenarios": [
+    "docs/development.md"
+   ],
+   "evidence": [
+    "desktop/main.ts",
+    "docs/development.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "settings.general",
+   "title": "General settings (confirmCloseWorkspace etc.)",
+   "area": "settings",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "settings-persistence@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "read/write herdr-t3:settings:general",
+    "live apply where supported"
+   ],
+   "errors": [
+    "corrupt JSON → defaults",
+    "storage unavailable → in-memory"
+   ],
+   "side_effects": [
+    "localStorage write"
+   ],
+   "scenarios": [
+    "src/lib/settings.test.ts"
+   ],
+   "evidence": [
+    "src/lib/settings.ts",
+    "src/shell/SettingsModal.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "settings.terminal",
+   "title": "Terminal settings (font, size, line height, scrollback)",
+   "area": "settings",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "settings-persistence@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "read/write herdr-t3:settings:terminal",
+    "clamped numeric ranges",
+    "live apply to panes"
+   ],
+   "errors": [
+    "out-of-range → clamped",
+    "unknown fields → defaults"
+   ],
+   "side_effects": [
+    "localStorage write",
+    "pane re-measure/resize"
+   ],
+   "scenarios": [
+    "src/lib/settings.test.ts"
+   ],
+   "evidence": [
+    "src/lib/settings.ts",
+    "src/shell/SettingsModal.tsx"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "settings.launch-login",
+   "title": "Launch-at-login via OS, desktop IPC only",
+   "area": "settings",
+   "owner": "app",
+   "boundary": "B7",
+   "contracts": [
+    "settings-persistence@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "read OS login-item state",
+    "set/unset via desktop IPC"
+   ],
+   "errors": [
+    "OS denial → surfaced error",
+    "never duplicated in renderer storage"
+   ],
+   "side_effects": [
+    "OS login items"
+   ],
+   "scenarios": [],
+   "evidence": [
+    "desktop/main.ts",
+    "desktop/preload.cjs",
+    "src/lib/settings.ts"
+   ],
+   "stage": "contract-defined",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11 login-item behavior RC-verified"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "dist.packaging",
+   "title": "electron-builder macOS/Windows artifacts",
+   "area": "distribution",
+   "owner": "app",
+   "boundary": "B8",
+   "contracts": [
+    "distribution@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "bun run build + desktop:build + electron-builder --publish never",
+    "icons/asar/resources"
+   ],
+   "errors": [
+    "build failure → no artifact",
+    "dirty tree must not claim release SHA"
+   ],
+   "side_effects": [
+    "release/ output artifacts"
+   ],
+   "scenarios": [
+    "issue:146"
+   ],
+   "evidence": [
+    "scripts/build-desktop.ts",
+    "package.json",
+    "build/"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11 artifact verified at RC only"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   }
+  },
+  {
+   "id": "dist.pc-setup",
+   "title": "Install/update/rollback via rebuildup/pc-setup",
+   "area": "distribution",
+   "owner": "external:pc-setup",
+   "boundary": "B8",
+   "contracts": [
+    "distribution@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "managed clone at v* tag/SHA",
+    "install stable",
+    "update (quit-then-update)",
+    "rollback to previous artifact",
+    "verify via diagnostics"
+   ],
+   "errors": [
+    "verify failure blocks release",
+    "update while running refused"
+   ],
+   "side_effects": [
+    "machine-level install state (external repo)"
+   ],
+   "scenarios": [
+    "docs/development.md",
+    "issue:146"
+   ],
+   "evidence": [
+    "docs/development.md",
+    "desktop/diagnostics.ts"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "rebuildup/pc-setup (external repo, explicit dependency)"
+    ],
+    "excluded": false
+   }
+  },
+  {
+   "id": "planned.issues-pr",
+   "title": "Issues/PR lists and detail surfaces (T3 parity, #188)",
+   "area": "parity",
+   "owner": "external:gh",
+   "boundary": "B3",
+   "contracts": [],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "gh issue/pr list per repo from pane cwd",
+    "issue/PR ↔ pane linking"
+   ],
+   "errors": [
+    "unlinked identity → heuristic only, never fabricated"
+   ],
+   "side_effects": [
+    "gh CLI calls"
+   ],
+   "scenarios": [],
+   "evidence": [],
+   "stage": "not-started",
+   "status": {
+    "implemented": false,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr issue/PR identity field (upstream proposal)"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "planned.usage",
+   "title": "Usage metering / provider charts (T3 parity, #188)",
+   "area": "parity",
+   "owner": "upstream:herdr",
+   "boundary": "B3",
+   "contracts": [],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "usage page",
+    "provider charts",
+    "price overrides"
+   ],
+   "errors": [
+    "no herdr token/cost data → cannot implement without upstream"
+   ],
+   "side_effects": [],
+   "scenarios": [],
+   "evidence": [],
+   "stage": "not-started",
+   "status": {
+    "implemented": false,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr usage/token fields (upstream proposal required)"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "planned.agent-details",
+   "title": "Agent details right-panel surface (T3 parity, #188)",
+   "area": "parity",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "right-panel host",
+    "agent details (cwd/status/seq/machine)"
+   ],
+   "errors": [],
+   "side_effects": [],
+   "scenarios": [],
+   "evidence": [],
+   "stage": "not-started",
+   "status": {
+    "implemented": false,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "excluded.thread-lifecycle",
+   "title": "Thread/checkpoint lifecycle ownership (excluded, ADR-0009)",
+   "area": "parity",
+   "owner": "herdr",
+   "boundary": "B3",
+   "contracts": [],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [],
+   "errors": [],
+   "side_effects": [],
+   "scenarios": [],
+   "evidence": [
+    "docs/adr/ADR-0009.md",
+    "docs/design/t3-parity.md"
+   ],
+   "stage": "not-started",
+   "status": {
+    "implemented": false,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": true
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "excluded.provider-execution",
+   "title": "Provider execution / scheduled tasks / voice / MCP (excluded, ADR-0009)",
+   "area": "parity",
+   "owner": "herdr",
+   "boundary": "B3",
+   "contracts": [],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [],
+   "errors": [],
+   "side_effects": [],
+   "scenarios": [],
+   "evidence": [
+    "docs/adr/ADR-0009.md",
+    "docs/design/t3-parity.md"
+   ],
+   "stage": "not-started",
+   "status": {
+    "implemented": false,
+    "known_issues": [],
+    "os_gaps": [],
+    "upstream_deps": [],
+    "excluded": true
+   },
+   "parity": "docs/design/t3-parity.md"
+  }
+ ]
+}

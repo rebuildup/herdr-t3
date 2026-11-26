@@ -1,0 +1,230 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.modes-and-input-encoding",
+  "capability": "terminal.input-keys",
+  "contract": "terminal-session@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "session_new",
+      "input": {
+        "cols": 40,
+        "rows": 6
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "s1"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "\u001b[?1000h\u001b[?1006h\u001b[?2004h\u001b[?1004h\u001b[?1h"
+      },
+      "note": "mouse normal+SGR, bracketed paste, focus reports, app cursor",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "normal",
+          "mouseFormat": "sgr",
+          "bracketedPaste": true,
+          "kittyFlags": 0,
+          "focusReports": true,
+          "syncOutput": false,
+          "appCursor": true,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "encode_mouse",
+      "input": {
+        "handle": "s1",
+        "mouse": {
+          "action": "press",
+          "button": "left",
+          "col": 3,
+          "row": 2
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "1b5b3c303b343b334d"
+        }
+      }
+    },
+    {
+      "op": "encode_mouse",
+      "input": {
+        "handle": "s1",
+        "mouse": {
+          "action": "motion",
+          "button": "left",
+          "col": 4,
+          "row": 2,
+          "mods": {
+            "shift": true
+          }
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": ""
+        }
+      }
+    },
+    {
+      "op": "encode_paste",
+      "input": {
+        "handle": "s1",
+        "text": "a\tb"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "1b5b3230307e6109621b5b3230317e"
+        }
+      }
+    },
+    {
+      "op": "encode_key",
+      "input": {
+        "handle": "s1",
+        "key": {
+          "key": "A",
+          "text": "a"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "61"
+        }
+      }
+    },
+    {
+      "op": "encode_key",
+      "input": {
+        "handle": "s1",
+        "key": {
+          "key": "ENTER"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": "0d"
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "data": "\u001b[?1003h"
+      },
+      "note": "any-event mouse tracking",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "modes",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "altScreen": false,
+          "mouse": "any",
+          "mouseFormat": "sgr",
+          "bracketedPaste": true,
+          "kittyFlags": 0,
+          "focusReports": true,
+          "syncOutput": false,
+          "appCursor": true,
+          "appKeypad": false,
+          "altScroll": true,
+          "win32Input": false
+        }
+      }
+    },
+    {
+      "op": "encode_mouse",
+      "input": {
+        "handle": "s1",
+        "mouse": {
+          "action": "motion",
+          "col": 9,
+          "row": 9
+        }
+      },
+      "note": "buttonless motion only encodes in 'any' mode",
+      "expect": {
+        "ok": true,
+        "value": {
+          "hex": ""
+        }
+      }
+    },
+    {
+      "op": "write",
+      "input": {
+        "handle": "s1",
+        "hex": "1b5b357e"
+      },
+      "note": "DSR cursor-position query -> engine replies via onReply",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "drain_replies",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "replies": []
+        }
+      }
+    },
+    {
+      "op": "dispose",
+      "input": {
+        "handle": "s1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

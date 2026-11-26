@@ -26,6 +26,7 @@ import {
   onTerminalThemeChange,
 } from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
+import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
 
@@ -77,6 +78,24 @@ export function PaneTerminal({
   const surfaceRef = useRef<GhosttySurface | null>(null);
   const mouseCaptureRef = useRef<boolean | null>(null);
   const sizeRef = useRef({ cols: 80, rows: 24 });
+  // ResizeObserver fires per frame during a window drag; the engine grid
+  // follows immediately but the committed grid (which drives re-subscribe)
+  // and the pty resize are only updated on a short trailing delay
+  // (issue #213) — without it every drag frame tore down and re-attached
+  // the terminal. The last size always sends.
+  const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
+  const gridCommitted = useRef(false);
+  // Wheel events coalesce to one AttachScroll per animation frame with the
+  // net line count (issue #213); inertial scrolling emits far more events
+  // than the display can use.
+  const wheelAccum = useRef<{
+    lines: number;
+    column: number | undefined;
+    row: number | undefined;
+    modifiers: number;
+  } | null>(null);
+  const wheelFrame = useRef(0);
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -95,6 +114,7 @@ export function PaneTerminal({
     let disposed = false;
     let surface: GhosttySurface | null = null;
     let session: GhosttySession | null = null;
+    let unregisterProbe: (() => void) | null = null;
     // Attach bytes that arrive while the WASM module compiles queue here and
     // flush in order once the surface exists — the stream is never dropped.
     const pending: Uint8Array[] = [];
@@ -127,6 +147,11 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        // Conformance observation (#238): rows scrolled above the bottom.
+        unregisterProbe = registerTerminalScrollProbe(`${machine}\n${paneId}`, () => {
+          const h = created.history();
+          return h.scrollback - h.viewportTop;
+        });
         const terminalSettings = getTerminalSettings();
         surface = new GhosttySurface(host, created, {
           session: created,
@@ -138,11 +163,57 @@ export function PaneTerminal({
             : {}),
           onInput: send,
           onMouse: (event) => terminalMouse(machine, paneId, event),
-          onWheel: (event) => terminalScroll(machine, paneId, event),
+          onWheel: (event) => {
+            const signed = event.direction === "down" ? event.lines : -event.lines;
+            const acc = wheelAccum.current ?? {
+              lines: 0,
+              column: undefined,
+              row: undefined,
+              modifiers: event.modifiers,
+            };
+            acc.lines += signed;
+            acc.column = event.column;
+            acc.row = event.row;
+            acc.modifiers = event.modifiers;
+            wheelAccum.current = acc;
+            if (wheelFrame.current === 0) {
+              wheelFrame.current = requestAnimationFrame(() => {
+                wheelFrame.current = 0;
+                const pending = wheelAccum.current;
+                wheelAccum.current = null;
+                if (!pending || pending.lines === 0) return;
+                terminalScroll(machine, paneId, {
+                  direction: pending.lines > 0 ? "down" : "up",
+                  lines: Math.abs(pending.lines),
+                  ...(pending.column !== undefined && pending.row !== undefined
+                    ? { column: pending.column, row: pending.row }
+                    : {}),
+                  modifiers: pending.modifiers,
+                });
+              });
+            }
+          },
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
-            setGrid((prev) => (prev && prev.cols === cols && prev.rows === rows ? prev : { cols, rows }));
-            terminalResize(machine, paneId, cols, rows);
+            if (!gridCommitted.current) {
+              // First measurement: commit at once so the initial subscribe
+              // carries the real size — no resize RPC is needed yet.
+              gridCommitted.current = true;
+              setGrid({ cols, rows });
+              return;
+            }
+            pendingResize.current = { cols, rows };
+            if (resizeTimer.current) clearTimeout(resizeTimer.current);
+            resizeTimer.current = setTimeout(() => {
+              resizeTimer.current = null;
+              const size = pendingResize.current;
+              pendingResize.current = null;
+              if (!size) return;
+              setGrid((prev) =>
+                prev && prev.cols === size.cols && prev.rows === size.rows ? prev : size,
+              );
+              terminalResize(machine, paneId, size.cols, size.rows);
+            }, 120);
           },
           onDead: (error) => {
             setEngineError(error instanceof Error ? error.message : String(error));
@@ -346,7 +417,10 @@ export function PaneTerminal({
       if (link.timer) clearTimeout(link.timer);
       surfaceRef.current?.setLinkHover(false);
       if (bellTimer.current) clearTimeout(bellTimer.current);
+      if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
+      unregisterProbe?.();
       surface?.dispose();
       session?.dispose();
     };
@@ -376,7 +450,7 @@ export function PaneTerminal({
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      <div ref={hostRef} className="absolute inset-0" />
+      <div ref={hostRef} className="absolute inset-0" data-ui-terminal={`${machine}\n${paneId}`} />
       {searchOpen && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md">
           <Input

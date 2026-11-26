@@ -1,0 +1,3118 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.scene-render",
+  "capability": "terminal.scene",
+  "contract": "terminal-render@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "scene_new",
+      "input": {
+        "cols": 20,
+        "rows": 6,
+        "cellW": 8,
+        "cellH": 16,
+        "dpr": 2,
+        "scrollback": 50,
+        "options": {
+          "fontFamily": "monospace",
+          "fontSize": 13,
+          "foreground": "#d4d4d4",
+          "background": "#1e1e1e",
+          "cursor": "#ffffff",
+          "selection": "rgba(120,160,255,0.28)",
+          "search": "rgba(250,204,21,0.22)"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "sc1"
+        }
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "metrics": {
+          "cols": 20,
+          "rows": 6,
+          "cellW": 8,
+          "cellH": 16,
+          "dpr": 2
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "hello world\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;31mRED\u001b[0m \u001b[4;7mINV\u001b[0m \u001b[2mfaint\u001b[0m \u001b[8mhid\u001b[0m \u001b[9mstrike\u001b[0m\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "wide 日本語 abc ××× end\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 11.575,
+              "text": "hello world         ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 27.575000000000003,
+              "text": "           ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 88,
+              "y": 27.575000000000003,
+              "text": "RED",
+              "font": "bold 13px monospace",
+              "color": "#cc6666",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 112,
+              "y": 27.575000000000003,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 120,
+              "y": 27.575000000000003,
+              "text": "INV",
+              "font": "13px monospace",
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 120,
+                "y": 29.525000000000002,
+                "w": 24,
+                "h": 1
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 144,
+              "y": 27.575000000000003,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 152,
+              "y": 27.575000000000003,
+              "text": "f",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 0.5
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 43.574999999999996,
+              "text": "aint",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 32,
+              "y": 43.574999999999996,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 64,
+              "y": 43.574999999999996,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 43.574999999999996,
+              "text": "strike",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 72,
+                "y": 39.675,
+                "w": 48,
+                "h": 1
+              },
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 120,
+              "y": 43.574999999999996,
+              "text": "     ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 59.574999999999996,
+              "text": "               wide ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 75.575,
+              "text": "日本語 abc ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 88,
+              "y": 75.575,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 96,
+              "y": 75.575,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 104,
+              "y": 75.575,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 112,
+              "y": 75.575,
+              "text": " end  ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 91.575,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 144,
+                "y": 80,
+                "w": 8,
+                "h": 16
+              },
+              "color": "#ffffff",
+              "alpha": 0.35
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 144,
+                "y": 80,
+                "w": 8,
+                "h": 16
+              },
+              "color": "#ffffff",
+              "alpha": 0.35
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "second frame\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 11.575,
+              "text": "aint",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 32,
+              "y": 11.575,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 64,
+              "y": 11.575,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 11.575,
+              "text": "strike",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 72,
+                "y": 7.674999999999999,
+                "w": 48,
+                "h": 1
+              },
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 120,
+              "y": 11.575,
+              "text": "     ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 27.575000000000003,
+              "text": "               wide ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 43.574999999999996,
+              "text": "日本語 abc ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 88,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 96,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 104,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 112,
+              "y": 43.574999999999996,
+              "text": " end  ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 59.574999999999996,
+              "text": "                  se",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 75.575,
+              "text": "cond frame          ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 91.575,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 80,
+                "y": 80,
+                "w": 8,
+                "h": 16
+              },
+              "color": "#ffffff",
+              "alpha": 0.35
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": {
+          "start": {
+            "x": 0,
+            "y": 0
+          },
+          "end": {
+            "x": 5,
+            "y": 1
+          }
+        },
+        "highlights": [
+          {
+            "start": {
+              "x": 6,
+              "y": 2
+            },
+            "end": {
+              "x": 10,
+              "y": 2
+            }
+          }
+        ],
+        "cursorVisible": true
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 80,
+                "y": 80,
+                "w": 8,
+                "h": 16
+              },
+              "color": "#ffffff",
+              "alpha": 0.35
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "cursorVisible": false
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "colors": {
+          "foreground": "#ff0000",
+          "background": "#001100"
+        },
+        "bgOpacity": 0.5
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 11.575,
+              "text": "aint",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 32,
+              "y": 11.575,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 64,
+              "y": 11.575,
+              "text": " ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 11.575,
+              "text": "strike",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 72,
+                "y": 7.674999999999999,
+                "w": 48,
+                "h": 1
+              },
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 120,
+              "y": 11.575,
+              "text": "     ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 27.575000000000003,
+              "text": "               wide ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 43.574999999999996,
+              "text": "日本語 abc ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 88,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 96,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 104,
+              "y": 43.574999999999996,
+              "text": "×",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 112,
+              "y": 43.574999999999996,
+              "text": " end  ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 59.574999999999996,
+              "text": "                  se",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 75.575,
+              "text": "cond frame          ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 91.575,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "bgImage": {
+          "width": 100,
+          "height": 50,
+          "opacity": 0.8,
+          "position": "center",
+          "fit": "cover",
+          "repeat": false
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "bgImage": {
+          "width": 40,
+          "height": 20,
+          "opacity": 1,
+          "position": "top-left",
+          "fit": "none",
+          "repeat": true
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "font": {
+          "fontSize": 14
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 11.850000000000001,
+              "text": "aint",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 0.5
+            },
+            {
+              "op": "fill_text",
+              "x": 32,
+              "y": 11.850000000000001,
+              "text": " ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 64,
+              "y": 11.850000000000001,
+              "text": " ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 11.850000000000001,
+              "text": "strike",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 72,
+                "y": 7.650000000000001,
+                "w": 48,
+                "h": 1
+              },
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 120,
+              "y": 11.850000000000001,
+              "text": "     ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 27.85,
+              "text": "               wide ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 43.85,
+              "text": "日本語 abc ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 88,
+              "y": 43.85,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 96,
+              "y": 43.85,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 104,
+              "y": 43.85,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 112,
+              "y": 43.85,
+              "text": " end  ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 59.85,
+              "text": "                  se",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 75.85000000000001,
+              "text": "cond frame          ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 91.85000000000001,
+              "text": "                    ",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 48,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "metrics": {
+          "cols": 24,
+          "rows": 8,
+          "cellW": 9,
+          "cellH": 18,
+          "dpr": 1
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "after resize\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 12.850000000000001,
+              "text": "日",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 18,
+              "y": 12.850000000000001,
+              "text": "本",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 36,
+              "y": 12.850000000000001,
+              "text": "語",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 63,
+              "y": 12.850000000000001,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 12.850000000000001,
+              "text": "b",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 81,
+              "y": 12.850000000000001,
+              "text": "c",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 99,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 108,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 117,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 135,
+              "y": 12.850000000000001,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 144,
+              "y": 12.850000000000001,
+              "text": "n",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 153,
+              "y": 12.850000000000001,
+              "text": "d",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 162,
+              "y": 30.85,
+              "text": "s",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 171,
+              "y": 30.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 48.85,
+              "text": "c",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 9,
+              "y": 48.85,
+              "text": "o",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 18,
+              "y": 48.85,
+              "text": "n",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 27,
+              "y": 48.85,
+              "text": "d",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 45,
+              "y": 48.85,
+              "text": "f",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 54,
+              "y": 48.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 63,
+              "y": 48.85,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 48.85,
+              "text": "m",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 81,
+              "y": 48.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 90,
+              "y": 66.85,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 99,
+              "y": 66.85,
+              "text": "f",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 108,
+              "y": 66.85,
+              "text": "t",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 117,
+              "y": 66.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 126,
+              "y": 66.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 144,
+              "y": 66.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 153,
+              "y": 66.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 162,
+              "y": 66.85,
+              "text": "s",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 171,
+              "y": 66.85,
+              "text": "i",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 84.85000000000001,
+              "text": "z",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 9,
+              "y": 84.85000000000001,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              }
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 144
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "invalidate": true
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 12.850000000000001,
+              "text": "日",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 18,
+              "y": 12.850000000000001,
+              "text": "本",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 36,
+              "y": 12.850000000000001,
+              "text": "語",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 63,
+              "y": 12.850000000000001,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 12.850000000000001,
+              "text": "b",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 81,
+              "y": 12.850000000000001,
+              "text": "c",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 99,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 108,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 117,
+              "y": 12.850000000000001,
+              "text": "×",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 135,
+              "y": 12.850000000000001,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 144,
+              "y": 12.850000000000001,
+              "text": "n",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 153,
+              "y": 12.850000000000001,
+              "text": "d",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 18,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 162,
+              "y": 30.85,
+              "text": "s",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 171,
+              "y": 30.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 36,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 48.85,
+              "text": "c",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 9,
+              "y": 48.85,
+              "text": "o",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 18,
+              "y": 48.85,
+              "text": "n",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 27,
+              "y": 48.85,
+              "text": "d",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 45,
+              "y": 48.85,
+              "text": "f",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 54,
+              "y": 48.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 63,
+              "y": 48.85,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 72,
+              "y": 48.85,
+              "text": "m",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 81,
+              "y": 48.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 54,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 90,
+              "y": 66.85,
+              "text": "a",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 99,
+              "y": 66.85,
+              "text": "f",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 108,
+              "y": 66.85,
+              "text": "t",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 117,
+              "y": 66.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 126,
+              "y": 66.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 144,
+              "y": 66.85,
+              "text": "r",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 153,
+              "y": 66.85,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 162,
+              "y": 66.85,
+              "text": "s",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 171,
+              "y": 66.85,
+              "text": "i",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 72,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 84.85000000000001,
+              "text": "z",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 9,
+              "y": 84.85000000000001,
+              "text": "e",
+              "font": "14px monospace",
+              "color": "#ff0000",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              },
+              "color": "#001100",
+              "alpha": 0
+            },
+            {
+              "op": "draw_image",
+              "image": {
+                "kind": "background"
+              },
+              "src": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "dst": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 20
+              },
+              "alpha": 0.5,
+              "repeat": true,
+              "clip": {
+                "x": 0,
+                "y": 90,
+                "w": 216,
+                "h": 18
+              }
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 216,
+                "h": 144
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_dispose",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect_error": "unknown scene handle"
+    }
+  ]
+}

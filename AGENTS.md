@@ -86,7 +86,15 @@ Worktrunk UI, Infisical integration, Agent Router settings UI, new provider
 execution, thread/checkpoint lifecycle ownership, mobile apps, cloud sync,
 changes to dotfiles/herdr/Agent Router/Worktrunk. T3 Code features that do
 not conflict with the herdr boundary are in scope per ADR-0009 and the
-parity inventory in `docs/design/t3-parity.md` (issue #188).
+parity inventory in `docs/design/t3-parity.md` (issue #188). Consuming
+published `herdr-plugins` contracts through the ADR-0011 boundary
+(`plugin_list`/`plugin_call`) is in scope; direct CLI implementations must
+not duplicate plugin-owned capabilities.
+
+GPUI staged-migration program (issue #233, ADR-0013): contract,
+verification, CI and readiness groundwork is in scope; product porting to
+Rust/GPUI requires the readiness gate in `docs/design/migration-policy.md`
+and starts only via a dedicated ticket after it passes.
 
 ## 6. Delivery workflow
 

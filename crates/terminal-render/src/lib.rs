@@ -1,0 +1,743 @@
+//! Runtime-independent terminal paint scene — the Rust mirror of
+//! `src/lib/ghostty/scene.ts` under contract `terminal-render@1`.
+//!
+//! [`GhosttyScene`] owns a [`GhosttySession`], caches the engine's styled
+//! runs, and turns `collect()`/`render()` into an ordered [`PaintOp`] list
+//! per frame. Every op carries its full paint state so a runtime painter
+//! (Canvas2D today, GPUI later) needs no canvas-state memory. Text
+//! measurement is injected through [`TextMetrics`]; nothing here touches
+//! DOM, canvas, or pixels.
+
+use std::collections::{HashMap, HashSet};
+use terminal_core::{
+    CursorStyle, GhosttyImage, GhosttyRun, GhosttySession, RunColor, ScreenRange,
+    STYLE_BOLD, STYLE_FAINT, STYLE_INVERSE, STYLE_INVISIBLE, STYLE_ITALIC, STYLE_STRIKE,
+    STYLE_UNDERLINE_MASK,
+};
+
+// ---------------------------------------------------------------------------
+// Injected text metrics
+// ---------------------------------------------------------------------------
+
+/// What the runtime measures for the scene: glyph advances for the
+/// fillText-batching check and the plain-font ink box for baselines.
+/// `measure` returns a negative width for "cannot measure" (the TS path's
+/// missing-canvas -1), which fails the advance check and forces per-cell
+/// text ops.
+pub trait TextMetrics {
+    fn measure(&self, text: &str, font: &str) -> f64;
+    /// (ascent, descent) of the plain UI font — no bold/italic bits.
+    fn font_box(&self, font_size: f64, font_family: &str) -> (f64, f64);
+}
+
+// ---------------------------------------------------------------------------
+// Scene inputs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct SceneMetrics {
+    pub cols: u32,
+    pub rows: u32,
+    pub cell_w: f64,
+    pub cell_h: f64,
+    /// painter-side backing scale; the scene never reads it
+    pub dpr: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GhosttySceneOptions {
+    pub font_family: String,
+    pub font_size: f64,
+    pub foreground: String,
+    pub background: String,
+    pub cursor: String,
+    pub selection: Option<String>,
+    pub search: Option<String>,
+}
+
+/// A `background-image` reduced to what the scene needs (position/fit are
+/// the TS union strings; `tile` geometry is derived, not stored).
+#[derive(Debug, Clone)]
+pub struct SceneBackgroundImage {
+    pub width: f64,
+    pub height: f64,
+    /// `background-image-opacity`; relative to background-opacity, may exceed 1
+    pub opacity: f64,
+    pub position: String,
+    pub fit: String,
+    pub repeat: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Paint ops — serde shape mirrors the TS PaintOp objects exactly
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ImageRef {
+    Kitty { id: u32, generation: u64 },
+    Background,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum PaintOp {
+    #[serde(rename = "clear")]
+    Clear { rect: Rect },
+    #[serde(rename = "fill_rect")]
+    FillRect { rect: Rect, color: String, alpha: f64 },
+    #[serde(rename = "stroke_rect")]
+    StrokeRect {
+        rect: Rect,
+        color: String,
+        #[serde(rename = "lineWidth")]
+        line_width: f64,
+    },
+    #[serde(rename = "fill_text")]
+    FillText {
+        x: f64,
+        y: f64,
+        text: String,
+        font: String,
+        color: String,
+        alpha: f64,
+    },
+    #[serde(rename = "draw_image")]
+    DrawImage {
+        image: ImageRef,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        src: Option<Rect>,
+        dst: Rect,
+        alpha: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        repeat: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        clip: Option<Rect>,
+    },
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct SceneFrame {
+    pub text: Vec<PaintOp>,
+    pub overlay: Vec<PaintOp>,
+}
+
+// ---------------------------------------------------------------------------
+// The scene
+// ---------------------------------------------------------------------------
+
+/// The DOM-free paint scene — port of `GhosttyScene`. Owns the session so a
+/// caller gets one handle for input + scene ops (the adapter's model).
+pub struct GhosttyScene<M: TextMetrics> {
+    session: GhosttySession,
+    metrics_provider: M,
+    options: GhosttySceneOptions,
+    /// every row's latest runs, keyed by viewport y
+    rows: HashMap<u16, Vec<GhosttyRun>>,
+    /// dirty rows in insertion order (the TS Set's iteration order)
+    pending: Vec<u16>,
+    pending_set: HashSet<u16>,
+    images: Vec<GhosttyImage>,
+    metrics: Option<SceneMetrics>,
+    selection: Option<ScreenRange>,
+    highlights: Vec<ScreenRange>,
+    cursor_on: bool,
+    bg_image: Option<SceneBackgroundImage>,
+    bg_opacity: f64,
+    disposed: bool,
+    text_box: Option<(String, f64, f64)>,
+    font_strings: HashMap<u16, String>,
+    advance_cache: HashMap<String, f64>,
+}
+
+impl<M: TextMetrics> GhosttyScene<M> {
+    pub fn new(session: GhosttySession, options: GhosttySceneOptions, metrics: M) -> Self {
+        Self {
+            session,
+            metrics_provider: metrics,
+            options,
+            rows: HashMap::new(),
+            pending: Vec::new(),
+            pending_set: HashSet::new(),
+            images: Vec::new(),
+            metrics: None,
+            selection: None,
+            highlights: Vec::new(),
+            cursor_on: true,
+            bg_image: None,
+            bg_opacity: 1.0,
+            disposed: false,
+            text_box: None,
+            font_strings: HashMap::new(),
+            advance_cache: HashMap::new(),
+        }
+    }
+
+    pub fn session(&mut self) -> &mut GhosttySession {
+        &mut self.session
+    }
+
+    /// the injected text-metrics provider (a runtime may re-tune it, e.g.
+    /// when cell metrics change)
+    pub fn text_metrics_mut(&mut self) -> &mut M {
+        &mut self.metrics_provider
+    }
+
+    pub fn set_font(&mut self, font_family: Option<&str>, font_size: Option<f64>) {
+        if let Some(f) = font_family {
+            self.options.font_family = f.to_string();
+        }
+        if let Some(s) = font_size {
+            self.options.font_size = s;
+        }
+        self.font_strings.clear();
+        self.advance_cache.clear();
+        self.invalidate();
+    }
+
+    pub fn set_metrics(&mut self, metrics: SceneMetrics) {
+        self.metrics = Some(metrics);
+        self.invalidate();
+    }
+
+    /// repaint every row: a resize, a scroll, a theme change
+    pub fn invalidate(&mut self) {
+        self.rows.clear();
+        self.pending.clear();
+        self.pending_set.clear();
+    }
+
+    pub fn set_selection(&mut self, range: Option<ScreenRange>) {
+        self.selection = range;
+    }
+
+    pub fn set_highlights(&mut self, ranges: Vec<ScreenRange>) {
+        self.highlights = ranges;
+    }
+
+    pub fn set_cursor_visible(&mut self, visible: bool) {
+        self.cursor_on = visible;
+    }
+
+    pub fn set_colors(
+        &mut self,
+        foreground: Option<String>,
+        background: Option<String>,
+        cursor: Option<String>,
+        selection: Option<String>,
+        search: Option<String>,
+    ) {
+        if let Some(c) = foreground {
+            self.options.foreground = c;
+        }
+        if let Some(c) = background {
+            self.options.background = c;
+        }
+        if let Some(c) = cursor {
+            self.options.cursor = c;
+        }
+        if let Some(c) = selection {
+            self.options.selection = Some(c);
+        }
+        if let Some(c) = search {
+            self.options.search = Some(c);
+        }
+        self.invalidate();
+    }
+
+    pub fn set_background_opacity(&mut self, alpha: f64) {
+        self.bg_opacity = alpha.max(0.0).min(1.0);
+        self.invalidate();
+    }
+
+    pub fn set_background_image(&mut self, spec: Option<SceneBackgroundImage>) {
+        self.bg_image = spec;
+        self.invalidate();
+    }
+
+    fn mark_pending(&mut self, y: u16) {
+        if self.pending_set.insert(y) {
+            self.pending.push(y);
+        }
+    }
+
+    /// Pull the engine's changed rows into the cache and mark them for
+    /// repaint — port of `collect()`.
+    pub fn collect(&mut self) -> Result<bool, String> {
+        // TS checks only `!m` — a zero-row metrics still collects
+        let Some(metric_rows) = self.metrics.as_ref().map(|m| m.rows) else {
+            return Ok(false);
+        };
+        // the frame callback cannot touch `self` while `self.session` is
+        // borrowed — collect into a local and merge after the call
+        let mut collected: Vec<(u16, Vec<GhosttyRun>)> = Vec::new();
+        let mut changed = if self.rows.is_empty() {
+            self.session
+                .frame_all(false, |y, runs| collected.push((y, runs)))?;
+            true
+        } else {
+            self.session
+                .frame(false, |y, runs| collected.push((y, runs)))?
+        };
+        for (y, runs) in collected {
+            self.rows.insert(y, runs);
+            self.mark_pending(y);
+        }
+        if let Some(placed) = self.session.placed_images()? {
+            self.images = placed;
+            for y in 0..metric_rows {
+                self.mark_pending(y as u16);
+            }
+            changed = true;
+        }
+        Ok(changed)
+    }
+
+    /// The ordered op list for this frame — port of `render()`.
+    pub fn render(&mut self) -> Result<SceneFrame, String> {
+        let mut frame = SceneFrame::default();
+        if self.metrics.is_none() || self.disposed {
+            return Ok(frame);
+        }
+        let m = self.metrics.clone().unwrap();
+        let w = m.cols as f64 * m.cell_w;
+        // with images on screen every row band is composited on its own, so
+        // every row repaints
+        let all: Vec<u16> = if !self.images.is_empty() {
+            (0..m.rows as u16).collect()
+        } else {
+            self.pending.clone()
+        };
+        for y in all {
+            let top = y as f64 * m.cell_h;
+            let band = Rect { x: 0.0, y: top, w, h: m.cell_h };
+            frame.text.push(PaintOp::Clear { rect: band });
+            // Window background at `background-opacity`; when an image is
+            // set the background color only shows through where the image
+            // lets it.
+            let image_alpha = match &self.bg_image {
+                Some(spec) => (spec.opacity * self.bg_opacity).max(0.0).min(1.0),
+                None => 0.0,
+            };
+            let bg_alpha = self.bg_opacity
+                * (1.0 - self.bg_image.as_ref().map(|s| s.opacity).unwrap_or(0.0).max(0.0).min(1.0));
+            frame.text.push(PaintOp::FillRect {
+                rect: band,
+                color: self.options.background.clone(),
+                alpha: bg_alpha,
+            });
+            if let Some(bg) = self.background_dest(&m) {
+                if image_alpha > 0.0 {
+                    let spec = self.bg_image.as_ref().unwrap();
+                    let src = Rect { x: 0.0, y: 0.0, w: spec.width, h: spec.height };
+                    if bg.tile {
+                        frame.text.push(PaintOp::DrawImage {
+                            image: ImageRef::Background,
+                            src: Some(src),
+                            dst: Rect { x: bg.x, y: bg.y, w: bg.w, h: bg.h },
+                            alpha: image_alpha,
+                            repeat: Some(true),
+                            clip: Some(band),
+                        });
+                    } else if bg.y + bg.h > top && bg.y < top + m.cell_h {
+                        frame.text.push(PaintOp::DrawImage {
+                            image: ImageRef::Background,
+                            src: Some(src),
+                            dst: Rect { x: bg.x, y: bg.y, w: bg.w, h: bg.h },
+                            alpha: image_alpha,
+                            repeat: None,
+                            clip: Some(band),
+                        });
+                    }
+                }
+            }
+            self.paint_images(&mut frame.text, 0, top, m.cell_h)?;
+            self.paint_row_backgrounds(&mut frame.text, y, &m);
+            self.paint_images(&mut frame.text, 1, top, m.cell_h)?;
+            self.paint_row_text(&mut frame.text, y, &m);
+            self.paint_images(&mut frame.text, 2, top, m.cell_h)?;
+        }
+        self.pending.clear();
+        self.pending_set.clear();
+        self.paint_overlay(&mut frame.overlay, &m)?;
+        Ok(frame)
+    }
+
+    /// The `background-image` fitted into the surface (issue #108) — port of
+    /// `backgroundDest()`, pure geometry.
+    fn background_dest(&self, m: &SceneMetrics) -> Option<BgDest> {
+        let spec = self.bg_image.as_ref()?;
+        let w_px = m.cols as f64 * m.cell_w;
+        let h_px = m.rows as f64 * m.cell_h;
+        let iw = spec.width;
+        let ih = spec.height;
+        if iw == 0.0 || ih == 0.0 || w_px <= 0.0 || h_px <= 0.0 {
+            return None;
+        }
+        let (fx, fy) = match spec.position.as_str() {
+            "top-left" => (0.0, 0.0),
+            "top-center" => (0.5, 0.0),
+            "top-right" => (1.0, 0.0),
+            "center-left" => (0.0, 0.5),
+            "center-right" => (1.0, 0.5),
+            "bottom-left" => (0.0, 1.0),
+            "bottom-center" => (0.5, 1.0),
+            "bottom-right" => (1.0, 1.0),
+            _ => (0.5, 0.5),
+        };
+        let (w, h) = match spec.fit.as_str() {
+            "stretch" => (w_px, h_px),
+            "none" => (iw, ih),
+            "cover" => {
+                let s = (w_px / iw).max(h_px / ih);
+                (iw * s, ih * s)
+            }
+            _ => {
+                // contain (and the default)
+                let s = (w_px / iw).min(h_px / ih);
+                (iw * s, ih * s)
+            }
+        };
+        let tile = spec.repeat && spec.fit != "cover" && spec.fit != "stretch";
+        Some(BgDest { x: fx * (w_px - w), y: fy * (h_px - h), w, h, tile })
+    }
+
+    /// The images on one layer that reach into the band — port of
+    /// `paintImages`.
+    fn paint_images(
+        &mut self,
+        out: &mut Vec<PaintOp>,
+        layer: u32,
+        top: f64,
+        cell_h: f64,
+    ) -> Result<(), String> {
+        let m = self.metrics.as_ref().unwrap();
+        let band_bottom = top + cell_h;
+        let clip = Rect { x: 0.0, y: top, w: m.cols as f64 * m.cell_w, h: cell_h };
+        let images = self.images.clone();
+        for image in &images {
+            if image.layer != layer {
+                continue;
+            }
+            let y = image.row as f64 * m.cell_h + image.offset_y as f64;
+            let h = image.height as f64;
+            if y + h <= top || y >= band_bottom {
+                continue;
+            }
+            if self.session.image_pixels(image.id)?.is_none() {
+                continue;
+            }
+            let s = image.source;
+            if s.width > 0 && s.height > 0 {
+                out.push(PaintOp::DrawImage {
+                    image: ImageRef::Kitty { id: image.id, generation: image.generation },
+                    src: Some(Rect {
+                        x: s.x as f64,
+                        y: s.y as f64,
+                        w: s.width as f64,
+                        h: s.height as f64,
+                    }),
+                    dst: Rect {
+                        x: image.col as f64 * m.cell_w + image.offset_x as f64,
+                        y,
+                        w: image.width as f64,
+                        h,
+                    },
+                    alpha: 1.0,
+                    repeat: None,
+                    clip: Some(clip),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn paint_row_backgrounds(&self, out: &mut Vec<PaintOp>, y: u16, m: &SceneMetrics) {
+        for run in self.rows.get(&y).map(Vec::as_slice).unwrap_or(&[]) {
+            // TS `if (!run.bg) continue` — null and "" both skip
+            let Some(bg) = run_color_string(run.bg.as_ref()) else {
+                continue;
+            };
+            if bg.is_empty() {
+                continue;
+            }
+            let width: usize = run.cells.iter().map(|c| if c.wide { 2 } else { 1 }).sum();
+            out.push(PaintOp::FillRect {
+                rect: Rect {
+                    x: run.x as f64 * m.cell_w,
+                    y: y as f64 * m.cell_h,
+                    w: width as f64 * m.cell_w,
+                    h: m.cell_h,
+                },
+                color: bg,
+                alpha: 1.0,
+            });
+        }
+    }
+
+    /// ascent/descent of the UI font, measured once per font/size pair
+    fn baseline_for(&mut self, row_top: f64, m: &SceneMetrics) -> f64 {
+        let key = format!("{}px {}", self.options.font_size, self.options.font_family);
+        if self.text_box.as_ref().map(|b| &b.0) != Some(&key) {
+            let (a, d) = self
+                .metrics_provider
+                .font_box(self.options.font_size, &self.options.font_family);
+            let ascent = if a == 0.0 || a.is_nan() { self.options.font_size * 0.8 } else { a };
+            let descent = if d == 0.0 || d.is_nan() { self.options.font_size * 0.25 } else { d };
+            self.text_box = Some((key, ascent, descent));
+        }
+        let (_, ascent, descent) = self.text_box.as_ref().unwrap();
+        row_top + (m.cell_h - (ascent + descent)) / 2.0 + ascent
+    }
+
+    /// the draw font for a run's bold/italic bits; built once per pair (#213)
+    fn font_for(&mut self, flags: u16) -> String {
+        let key = flags & (STYLE_BOLD | STYLE_ITALIC);
+        if let Some(font) = self.font_strings.get(&key) {
+            return font.clone();
+        }
+        let font = format!(
+            "{}{}{}px {}",
+            if flags & STYLE_ITALIC != 0 { "italic " } else { "" },
+            if flags & STYLE_BOLD != 0 { "bold " } else { "" },
+            self.options.font_size,
+            self.options.font_family
+        );
+        self.font_strings.insert(key, font.clone());
+        font
+    }
+
+    /// advance width of one grapheme under `font`, measured once and cached
+    fn glyph_advance(&mut self, text: &str, font: &str) -> f64 {
+        let key = format!("{font}\n{text}");
+        if let Some(w) = self.advance_cache.get(&key) {
+            return *w;
+        }
+        let w = self.metrics_provider.measure(text, font);
+        self.advance_cache.insert(key, w);
+        w
+    }
+
+    /// a cell joins a batched fillText only when its grapheme's advance is
+    /// its cell width (#213)
+    fn advance_matches(&mut self, text: &str, expected: f64, font: &str) -> bool {
+        let width = self.glyph_advance(text, font);
+        width >= 0.0 && (width - expected).abs() <= 0.02
+    }
+
+    fn paint_row_text(&mut self, out: &mut Vec<PaintOp>, y: u16, m: &SceneMetrics) {
+        let baseline = self.baseline_for(y as f64 * m.cell_h, m);
+        let cell_w = m.cell_w;
+        let Some(runs) = self.rows.get(&y).cloned() else {
+            return;
+        };
+        for run in runs {
+            let flags = run.flags;
+            if flags & STYLE_INVISIBLE != 0 {
+                continue;
+            }
+            let fg = run_color_string(run.fg.as_ref()).unwrap_or_else(|| self.options.foreground.clone());
+            let bg = run_color_string(run.bg.as_ref()).unwrap_or_else(|| self.options.background.clone());
+            let color = if flags & STYLE_INVERSE != 0 { bg } else { fg };
+            let font = self.font_for(flags);
+            let alpha = if flags & STYLE_FAINT != 0 { 0.5 } else { 1.0 };
+            // Join consecutive cells into one fillText (#213); a grapheme
+            // failing the advance check is flushed and drawn alone at its
+            // exact cell — the row can never drift.
+            let mut text = String::new();
+            let mut seg_x = 0.0;
+            let mut x = run.x as f64 * cell_w;
+            macro_rules! flush {
+                () => {
+                    if !text.is_empty() {
+                        out.push(PaintOp::FillText {
+                            x: seg_x,
+                            y: baseline,
+                            text: std::mem::take(&mut text),
+                            font: font.clone(),
+                            color: color.clone(),
+                            alpha,
+                        });
+                    }
+                };
+            }
+            for cell in &run.cells {
+                let step = (if cell.wide { 2.0 } else { 1.0 }) * cell_w;
+                if self.advance_matches(&cell.text, step, &font) {
+                    if text.is_empty() {
+                        seg_x = x;
+                    }
+                    text.push_str(&cell.text);
+                } else {
+                    flush!();
+                    if cell.text != " " {
+                        out.push(PaintOp::FillText {
+                            x,
+                            y: baseline,
+                            text: cell.text.clone(),
+                            font: font.clone(),
+                            color: color.clone(),
+                            alpha,
+                        });
+                    }
+                }
+                x += step;
+            }
+            flush!();
+            let width = x - run.x as f64 * cell_w;
+            // underline and strikethrough are drawn: text has no decoration channel
+            let mut lines: Vec<f64> = Vec::new();
+            if flags & STYLE_UNDERLINE_MASK != 0 {
+                lines.push(baseline + self.options.font_size * 0.15);
+            }
+            if flags & STYLE_STRIKE != 0 {
+                lines.push(baseline - self.options.font_size * 0.3);
+            }
+            for ly in lines {
+                out.push(PaintOp::FillRect {
+                    rect: Rect { x: run.x as f64 * cell_w, y: ly, w: width, h: (m.cell_h * 0.06).max(1.0) },
+                    color: color.clone(),
+                    alpha,
+                });
+            }
+        }
+    }
+
+    /// selection and search washes, then the cursor — port of `paintOverlay`.
+    fn paint_overlay(&mut self, out: &mut Vec<PaintOp>, m: &SceneMetrics) -> Result<(), String> {
+        out.push(PaintOp::Clear {
+            rect: Rect { x: 0.0, y: 0.0, w: m.cols as f64 * m.cell_w, h: m.rows as f64 * m.cell_h },
+        });
+        let viewport_top = self.session.history()?.viewport_top;
+        let selection = self.selection;
+        let selection_color = self
+            .options
+            .selection
+            .clone()
+            .unwrap_or_else(|| "rgba(120,160,255,0.28)".to_string());
+        if let Some(range) = selection {
+            self.wash(out, range, &selection_color, viewport_top, m);
+        }
+        let highlights = self.highlights.clone();
+        let search_color = self
+            .options
+            .search
+            .clone()
+            .unwrap_or_else(|| "rgba(250,204,21,0.22)".to_string());
+        for range in highlights {
+            self.wash(out, range, &search_color, viewport_top, m);
+        }
+        if self.cursor_on {
+            self.paint_cursor(out, m)?;
+        }
+        Ok(())
+    }
+
+    fn wash(
+        &self,
+        out: &mut Vec<PaintOp>,
+        range: ScreenRange,
+        color: &str,
+        viewport_top: u64,
+        m: &SceneMetrics,
+    ) {
+        // TS `if (!color) return` — an empty wash colour emits nothing
+        if color.is_empty() {
+            return;
+        }
+        // the cells of a screen range on the viewport, row by row — eachCell
+        let top = (range.start.y as i64).max(viewport_top as i64);
+        let bottom = (range.end.y as i64).min(viewport_top as i64 + m.rows as i64 - 1);
+        if bottom < top {
+            return;
+        }
+        for y in top..=bottom {
+            let vy = y - viewport_top as i64;
+            let from = if y == range.start.y as i64 { range.start.x as i64 } else { 0 };
+            let to = if y == range.end.y as i64 { range.end.x as i64 } else { m.cols as i64 - 1 };
+            if to >= from {
+                out.push(PaintOp::FillRect {
+                    rect: Rect {
+                        x: from as f64 * m.cell_w,
+                        y: vy as f64 * m.cell_h,
+                        w: (to - from + 1) as f64 * m.cell_w,
+                        h: m.cell_h,
+                    },
+                    color: color.to_string(),
+                    alpha: 1.0,
+                });
+            }
+        }
+    }
+
+    fn paint_cursor(&mut self, out: &mut Vec<PaintOp>, m: &SceneMetrics) -> Result<(), String> {
+        let cursor = self.session.cursor_state()?;
+        if !cursor.visible || cursor.x as u32 >= m.cols || cursor.y as u32 >= m.rows {
+            return Ok(());
+        }
+        let x = cursor.x as f64 * m.cell_w;
+        let y = cursor.y as f64 * m.cell_h;
+        let w = m.cell_w;
+        let h = m.cell_h;
+        let color = self.options.cursor.clone();
+        match cursor.style {
+            CursorStyle::Bar => out.push(PaintOp::FillRect {
+                rect: Rect { x, y, w: (w * 0.12).max(2.0), h },
+                color,
+                alpha: 1.0,
+            }),
+            CursorStyle::Underline => out.push(PaintOp::FillRect {
+                rect: Rect { x, y: y + h * 0.82, w, h: (h * 0.12).max(1.0) },
+                color,
+                alpha: 1.0,
+            }),
+            CursorStyle::Hollow => out.push(PaintOp::StrokeRect {
+                rect: Rect { x: x + 0.5, y: y + 0.5, w: w - 1.0, h: h - 1.0 },
+                color,
+                line_width: 1.0,
+            }),
+            _ => out.push(PaintOp::FillRect {
+                rect: Rect { x, y, w, h },
+                color,
+                alpha: 0.35,
+            }),
+        }
+        Ok(())
+    }
+
+    pub fn dispose(&mut self) {
+        self.disposed = true;
+        self.rows.clear();
+        self.pending.clear();
+        self.pending_set.clear();
+        self.font_strings.clear();
+        self.advance_cache.clear();
+        self.session.dispose();
+    }
+}
+
+struct BgDest {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    tile: bool,
+}
+
+/// A run colour in hex mode is "#rrggbb"; Written cannot appear (frame is
+/// always called with written=false) and degrades to the default like a
+/// null would not — kept total rather than panicking.
+fn run_color_string(color: Option<&RunColor>) -> Option<String> {
+    match color {
+        Some(RunColor::Hex(s)) => Some(s.clone()),
+        _ => None,
+    }
+}

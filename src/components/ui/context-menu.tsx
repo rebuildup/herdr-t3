@@ -5,6 +5,7 @@
  * Base UI's context-menu primitive for the same interaction.
  */
 import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
+import { ChevronRightIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
@@ -75,4 +76,33 @@ export function ContextMenuItem({
 
 export function ContextMenuSeparator() {
   return <BaseContextMenu.Separator className="mx-2 my-1 h-px bg-border" />;
+}
+
+export function ContextMenuSub({ children }: { children: ReactNode }) {
+  return <BaseContextMenu.SubmenuRoot>{children}</BaseContextMenu.SubmenuRoot>;
+}
+
+export function ContextMenuSubTrigger({ children }: { children: ReactNode }) {
+  return (
+    <BaseContextMenu.SubmenuTrigger className={cn(itemClass, "data-popup-open:bg-accent")}>
+      {children}
+      <ChevronRightIcon className="-me-0.5 ms-auto opacity-80" />
+    </BaseContextMenu.SubmenuTrigger>
+  );
+}
+
+export function ContextMenuSubPopup({ children }: { children: ReactNode }) {
+  return (
+    <BaseContextMenu.Portal>
+      <BaseContextMenu.Positioner className="z-[130]" sideOffset={4}>
+        <BaseContextMenu.Popup
+          className={cn(
+            "dropdown-glass relative w-max min-w-40 origin-(--transform-origin) rounded-lg p-1 shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] outline-none dark:shadow-[0_18px_44px_-12px_rgb(0_0_0/90%)] dark:ring-1 dark:ring-foreground/10",
+          )}
+        >
+          {children}
+        </BaseContextMenu.Popup>
+      </BaseContextMenu.Positioner>
+    </BaseContextMenu.Portal>
+  );
 }

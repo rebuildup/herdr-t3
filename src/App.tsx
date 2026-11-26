@@ -24,6 +24,7 @@ import { NoticeToasts } from "./shell/NoticeToasts";
 import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
 import { callRpc, ensureMachine, initBridge, selectWorkspace } from "./shell/bridge";
+import { initInbox } from "./shell/inbox";
 import { onSnapshot } from "./lib/api";
 import type { SessionSnapshot } from "../shared/protocol";
 import { isElectron } from "./lib/env";
@@ -36,11 +37,16 @@ export default function App() {
   useEffect(() => {
     initRouter();
     const disconnectBridge = initBridge();
+    initInbox();
     // Attention toasts (issue #113): diff each machine's pushed snapshots
     // for agent blocked/done transitions. The first snapshot per machine
     // is a baseline and never notifies.
     const previous = new Map<string, SessionSnapshot>();
-    const offAttention = onSnapshot((snapshot, machine) => {
+    const offAttention = onSnapshot((snapshot, machine, probe) => {
+      // Probe pushes (issue #212) are list data, not a live session: they
+      // neither notify nor advance the baseline. The first live snapshot
+      // still establishes the baseline.
+      if (probe) return;
       observeSnapshotAttention(machine, previous.get(machine) ?? null, snapshot, {
         focusAgent: (m, workspaceId, paneId) => {
           selectWorkspace(m, workspaceId);

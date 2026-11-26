@@ -8,7 +8,6 @@
 import {
   Fragment,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -50,6 +49,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubPopup,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
@@ -79,17 +81,19 @@ import {
   agentOrganizeKey,
   agentRowSignature,
   agentStateLabel,
-  isCollapsibleAgentSection,
-  agentStateSeq,
   agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
   shortPaneId,
   type AgentListEntry,
-  type AgentOrganizeMap,
-  type CollapsibleAgentSection,
+  type AgentSection,
 } from "./agents";
-import { readAgentOrganize, writeAgentOrganize } from "./agentOrganizeStore";
+import {
+  inboxOrganize,
+  useInboxOrganize,
+  useInboxStates,
+  type InboxUnavailableReason,
+} from "./inbox";
 import { workspaceTitle } from "~/lib/workspace";
 import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
@@ -175,6 +179,7 @@ function WorkspaceRow({
     <button
       type="button"
       data-sidebar-row={workspace.workspace_id}
+      data-sidebar-workspace={workspace.workspace_id}
       onClick={() => selectWorkspace(machine.id, workspace.workspace_id)}
       className={cn(
         // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
@@ -350,39 +355,34 @@ function MachineFolderHeader({
   );
 }
 
-/**
- * Static section label for the Attention shelf — always expanded
- * (info-architecture.md §6.2), so it is a label, not a disclosure.
- */
-function AgentSectionLabel({
-  label,
-  count,
-  attention = false,
-}: {
-  label: string;
-  count: number;
-  /** Attention is always expanded, so it has no chevron; tint the label
-      warning instead (issue #165). */
-  attention?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        // pe matches the row content inset so the count ends on the same
-        // right rail as row content — no chevron column is reserved
-        // (issue #204 review).
-        "flex h-8 w-full items-center gap-2 ps-2 pe-[var(--sidebar-row-content-inset)] text-xs font-medium",
-        attention ? "text-warning-foreground" : "text-sidebar-muted-foreground",
-      )}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      <span className="min-w-0 flex-1" />
-      <span className="font-normal tabular-nums">{count}</span>
-    </div>
-  );
-}
-
 type AgentOrganizeAction = "settle" | "snooze" | "restore";
+
+/** Why organize actions are unavailable on a machine (ADR-0011 §10). */
+const INBOX_UNAVAILABLE_LABELS: Record<InboxUnavailableReason, string> = {
+  not_installed: "inbox plugin not installed",
+  disabled: "inbox plugin disabled",
+  incompatible: "inbox contract incompatible",
+  unreachable: "inbox host unreachable",
+  error: "inbox unavailable",
+};
+
+/** Snooze presets offered by the plugin contract (`--until` specs). */
+const SNOOZE_PRESETS = [
+  { label: "1 hour", spec: "+1h" },
+  { label: "1 day", spec: "+1d" },
+  { label: "1 week", spec: "+7d" },
+] as const;
+
+function formatSnoozeUntil(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /**
  * One agent row in the Agents shelves. Two lines per T3
@@ -401,6 +401,9 @@ function AgentRow({
   showPaneId,
   pane,
   shelf,
+  inboxReady,
+  inboxReason,
+  snoozedUntil,
   onDetails,
   onOrganize,
 }: {
@@ -409,10 +412,15 @@ function AgentRow({
   /** Sibling rows render identically without it — append the pane token (issue #165). */
   showPaneId: boolean;
   pane: PaneInfo | undefined;
-  /** User-organize shelf the row currently sits in, if any (issue #173). */
+  /** User-organize shelf the row currently sits in, if any (#173/#219). */
   shelf: "settled" | "snoozed" | undefined;
+  /** Whether the host's inbox plugin can accept organize mutations. */
+  inboxReady: boolean;
+  inboxReason?: InboxUnavailableReason | undefined;
+  /** Plugin-reported snooze deadline (snoozed rows only). */
+  snoozedUntil?: string | undefined;
   onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
-  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction) => void;
+  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction, snoozeSpec?: string) => void;
 }) {
   const { machine, agent } = entry;
   const stateLabel = agentStateLabel(agent);
@@ -434,6 +442,12 @@ function AgentRow({
       ? displayName
       : null,
     showPaneId ? shortPaneId(agent.pane_id) : null,
+    shelf === "snoozed" && snoozedUntil
+      ? (() => {
+          const until = formatSnoozeUntil(snoozedUntil);
+          return until ? `until ${until}` : null;
+        })()
+      : null,
   ].filter((part): part is string => part !== null);
   const focusAgent = () => {
     selectWorkspace(machine.id, agent.workspace_id);
@@ -519,38 +533,47 @@ function AgentRow({
             <InfoIcon /> Details…
           </ContextMenuItem>
         ) : null}
-        {/* User-side shelf organization (issue #173): UI-layer only,
-            herdr state is untouched. Shelved rows can be restored or
-            moved to the other shelf; natural-section rows offer
-            Settle/Snooze. T3 keeps snoozed threads reachable for manual
-            unsnooze — the Snoozed shelf mirrors that. */}
+        {/* User-side shelf organization (#173, plugin-backed per ADR-0011):
+            herdr state is untouched; the host's rebuildup.inbox plugin owns
+            organize state. Shelved rows can be restored or moved to the
+            other shelf; natural-section rows offer Settle/Snooze. T3 keeps
+            snoozed threads reachable for manual unsnooze — the Snoozed
+            shelf mirrors that. When the host has no usable inbox plugin the
+            actions are disabled with the reason, never silently local. */}
         <ContextMenuSeparator />
-        {shelf === "settled" ? (
-          <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
-              <RotateCcwIcon /> Restore
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
-              <MoonIcon /> Snooze
-            </ContextMenuItem>
-          </>
-        ) : shelf === "snoozed" ? (
-          <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
-              <RotateCcwIcon /> Restore
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
-              <CheckCheckIcon /> Settle
-            </ContextMenuItem>
-          </>
+        {!inboxReady ? (
+          <ContextMenuItem disabled>
+            {INBOX_UNAVAILABLE_LABELS[inboxReason ?? "error"]}
+          </ContextMenuItem>
         ) : (
           <>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
-              <CheckCheckIcon /> Settle
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onOrganize(entry, "snooze")}>
-              <MoonIcon /> Snooze
-            </ContextMenuItem>
+            {shelf === "settled" || shelf === "snoozed" ? (
+              <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
+                <RotateCcwIcon /> Restore
+              </ContextMenuItem>
+            ) : null}
+            {shelf !== "snoozed" ? (
+              <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
+                <CheckCheckIcon /> Settle
+              </ContextMenuItem>
+            ) : null}
+            {shelf !== "settled" ? (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <MoonIcon /> Snooze
+                </ContextMenuSubTrigger>
+                <ContextMenuSubPopup>
+                  {SNOOZE_PRESETS.map((preset) => (
+                    <ContextMenuItem
+                      key={preset.spec}
+                      onSelect={() => onOrganize(entry, "snooze", preset.spec)}
+                    >
+                      {preset.label}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubPopup>
+              </ContextMenuSub>
+            ) : null}
           </>
         )}
         <ContextMenuSeparator />
@@ -718,13 +741,13 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     [machines, bridge.snapshots, branchIndex],
   );
 
-  // User-side settle/snooze overlay (issue #173): localStorage-persisted,
-  // keyed by machine+pane with the state_change_seq at action time.
-  // partitionAgents resolves it against live snapshots — seq advance
-  // auto-returns the row, vanished panes drop their record.
-  const [agentOrganize, setAgentOrganize] = useState<AgentOrganizeMap>(() =>
-    readAgentOrganize(),
-  );
+  // User-side settle/snooze overlay (#173 → ADR-0011): the host's
+  // rebuildup.inbox plugin owns organize state; this store only projects
+  // it into the AgentOrganizeMap partitionAgents consumes. Plugin-sourced
+  // records carry seq=MAX so the plugin's own generation/expiry
+  // resolution is authoritative — the client never re-derives it.
+  const inboxOrganizeMap = useInboxOrganize();
+  const inboxStates = useInboxStates();
   // Machines without a usable snapshot cannot resolve organize records —
   // partitionAgents carries their records through instead of pruning them
   // on absent data (app start before the first snapshot would otherwise
@@ -741,77 +764,57 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     () =>
       partitionAgents(
         agentEntries,
-        agentOrganize,
+        inboxOrganizeMap,
         machines.length === 0 ? null : unresolvedAgentMachines,
       ),
-    [agentEntries, agentOrganize, machines.length, unresolvedAgentMachines],
+    [agentEntries, inboxOrganizeMap, machines.length, unresolvedAgentMachines],
   );
   const agentSections = agentPartition.sections;
-  // The collapsible shelves dock below the scroll area (issue #204
-  // review): with a long always-visible list the shelves used to sit
-  // below the fold with no cue. Headers stay pinned; expanded rows
-  // scroll inside the dock's own max-height.
-  const agentListHasEntries = AGENT_SECTIONS.some(
-    (section) => !isCollapsibleAgentSection(section) && agentSections[section].length > 0,
-  );
-  const agentShelfHasEntries = COLLAPSIBLE_AGENT_SECTIONS.some(
-    (section) => agentSections[section].length > 0,
-  );
-  // First populated shelf owns the separator above the shelf region —
-  // later shelves flow under it without their own hairline.
-  const firstShelfSection = COLLAPSIBLE_AGENT_SECTIONS.find(
+  // Every section is a collapsible shelf (issue #211): the whole Agents
+  // region docks at the sidebar bottom — inline at the end of the scroll
+  // list below md, in the pinned dock at md and up.
+  const hasAgentEntries = AGENT_SECTIONS.some(
     (section) => agentSections[section].length > 0,
   );
   const renderAgentRow = (
     entry: AgentListEntry,
     shelf?: "settled" | "snoozed",
     className?: string,
-  ) => (
-    <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
-      <AgentRow
-        entry={entry}
-        multiMachine={machines.length > 1}
-        showPaneId={(agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1}
-        pane={entry.pane}
-        shelf={shelf}
-        onDetails={(e, p) => setAgentDetails({ machine: e.machine.id, pane: p })}
-        onOrganize={organizeAgent}
-      />
-    </li>
-  );
-
-  // Keep storage and state in sync with the resolved map: auto-restored
-  // rows and records for closed panes are pruned on write-back. This
-  // effect is the single writer — organizeAgent only updates state, so a
-  // user action can never be overwritten by a stale resolved map.
-  const agentOrganizeJson = JSON.stringify(agentPartition.organize);
-  const lastAgentOrganizeJson = useRef<string | null>(null);
-  useEffect(() => {
-    if (lastAgentOrganizeJson.current === agentOrganizeJson) return;
-    lastAgentOrganizeJson.current = agentOrganizeJson;
-    writeAgentOrganize(agentPartition.organize);
-    // Adopt the resolved map only while state still is the input this
-    // partition was computed from — an organize action landing between
-    // render and effect must not be clobbered by a stale resolved map.
-    setAgentOrganize((current) =>
-      current === agentOrganize ? agentPartition.organize : current,
+  ) => {
+    const inboxState = inboxStates.get(entry.machine.id);
+    const organizeRecord =
+      shelf !== undefined
+        ? inboxOrganizeMap[agentOrganizeKey(entry.machine.id, entry.agent.pane_id)]
+        : undefined;
+    return (
+      <li key={`${entry.machine.id}:${entry.agent.pane_id}`} className={cn("list-none", className)}>
+        <AgentRow
+          entry={entry}
+          multiMachine={machines.length > 1}
+          showPaneId={(agentSignatureCounts.get(agentRowSignature(entry)) ?? 0) > 1}
+          pane={entry.pane}
+          shelf={shelf}
+          inboxReady={inboxState?.status.kind === "ready"}
+          inboxReason={
+            inboxState?.status.kind === "unavailable" ? inboxState.status.reason : undefined
+          }
+          snoozedUntil={organizeRecord?.until}
+          onDetails={(e, p) => setAgentDetails({ machine: e.machine.id, pane: p })}
+          onOrganize={organizeAgent}
+        />
+      </li>
     );
-  }, [agentOrganizeJson, agentPartition.organize, agentOrganize]);
+  };
 
-  const organizeAgent = (entry: AgentListEntry, action: AgentOrganizeAction) => {
-    const key = agentOrganizeKey(entry.machine.id, entry.agent.pane_id);
-    setAgentOrganize((prev) => {
-      const next = { ...prev };
-      if (action === "restore") {
-        delete next[key];
-      } else {
-        next[key] = {
-          kind: action === "settle" ? "settled" : "snoozed",
-          seq: agentStateSeq(entry.agent),
-        };
-      }
-      return next;
-    });
+  // Organize mutations go to the host's inbox plugin (ADR-0011); the
+  // projection refreshes from the plugin's own `list` — the client never
+  // writes organize state itself.
+  const organizeAgent = (
+    entry: AgentListEntry,
+    action: AgentOrganizeAction,
+    snoozeSpec?: string,
+  ) => {
+    void inboxOrganize(entry.machine.id, entry.agent.pane_id, action, snoozeSpec);
   };
 
   // Rows that would render identically get a pane-id disambiguator
@@ -830,20 +833,22 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     return counts;
   }, [visibleAgentEntries]);
 
-  // Shelf expansion persists per section like T3's shelf toggles: the
-  // working/snoozed/settled bottom shelves all default collapsed, matching
-  // T3's useLocalStorage(..., false) defaults (Sidebar.tsx).
+  // Shelf expansion persists per section like T3's shelf toggles
+  // (issue #211): Attention defaults expanded so blocked agents are never
+  // hidden; the other five default collapsed, matching T3's
+  // useLocalStorage(..., false) defaults (Sidebar.tsx).
   const [agentShelves, setAgentShelves] = useState<
-    Record<CollapsibleAgentSection, boolean>
+    Record<AgentSection, boolean>
   >(() => {
-    const initial = {} as Record<CollapsibleAgentSection, boolean>;
+    const initial = {} as Record<AgentSection, boolean>;
     for (const section of COLLAPSIBLE_AGENT_SECTIONS) {
       initial[section] =
-        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ?? false;
+        getLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`) ??
+        section === "attention";
     }
     return initial;
   });
-  const toggleAgentShelf = (section: CollapsibleAgentSection) => {
+  const toggleAgentShelf = (section: AgentSection) => {
     setAgentShelves((prev) => {
       const next = { ...prev, [section]: !prev[section] };
       setLocalStorageBoolean(`herdr-t3:sidebar:agents:${section}`, next[section]);
@@ -858,17 +863,25 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   // FLIP motion for agent rows (issue #151, Sidebar.motion.ts port):
   // rows animate on add/move/remove and section collapse, keyed on the
   // rendered membership+order so unrelated renders do not re-measure.
+  // Two lists exist — the <md inline shelves and the md+ dock — and each
+  // gets its own motion instance since only one is visible at a time.
   const agentsMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const agentsDockMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
   const attachAgentsList = useCallback((node: HTMLUListElement | null) => {
     agentsMotionRef.current?.dispose();
     agentsMotionRef.current = node ? createSidebarListMotion(node) : null;
     agentsMotionRef.current?.update(false);
   }, []);
+  const attachAgentsDockList = useCallback((node: HTMLUListElement | null) => {
+    agentsDockMotionRef.current?.dispose();
+    agentsDockMotionRef.current = node ? createSidebarListMotion(node) : null;
+    agentsDockMotionRef.current?.update(false);
+  }, []);
   const agentsLayoutKey = useMemo(() => {
     if (agentEntries.length === 0) return "";
     return AGENT_SECTIONS.map(
       (section) =>
-        `${section}:${isCollapsibleAgentSection(section) ? agentShelves[section] : "-"}:` +
+        `${section}:${agentShelves[section] ? 1 : 0}:` +
         agentSections[section]
           .map(
             (e) =>
@@ -879,6 +892,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   }, [agentEntries.length, agentSections, agentShelves]);
   useLayoutEffect(() => {
     agentsMotionRef.current?.update(true);
+    agentsDockMotionRef.current?.update(true);
   }, [agentsLayoutKey]);
 
   // FLIP motion for workspace rows (issue #154): same Sidebar.motion.ts
@@ -905,6 +919,38 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   useLayoutEffect(() => {
     workspacesMotionRef.current?.update(true);
   }, [workspacesLayoutKey]);
+
+  // One shelf block shared by the <md inline list and the md+ dock
+  // (issue #211): disclosure header + expanded rows. Attention keeps its
+  // warning tint through the header tone — the role the old always-visible
+  // AgentSectionLabel played.
+  const renderAgentShelf = (section: AgentSection) => {
+    const list = agentSections[section];
+    if (list.length === 0) return null;
+    const expanded = agentShelves[section];
+    const shelfKind =
+      section === "settled" || section === "snoozed" ? section : undefined;
+    return (
+      <Fragment key={section}>
+        <li className="list-none">
+          <CollapsibleSectionHeader
+            chevron="leading"
+            expanded={expanded}
+            onClick={() => toggleAgentShelf(section)}
+            tone={section === "attention" ? "warning" : "muted"}
+            accessory={
+              <span className="font-normal tabular-nums">{list.length}</span>
+            }
+          >
+            {AGENT_SECTION_LABELS[section]}
+          </CollapsibleSectionHeader>
+        </li>
+        {expanded
+          ? list.map((entry) => renderAgentRow(entry, shelfKind))
+          : null}
+      </Fragment>
+    );
+  };
 
   return (
     <>
@@ -1107,67 +1153,15 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
               })}
         </ul>
       </SidebarGroup>
-      {!searching && (agentListHasEntries || agentShelfHasEntries) ? (
-        <div
-          className={cn(
-            "mt-1 pt-1",
-            agentListHasEntries && "border-t border-sidebar-border/60",
-          )}
-        >
+      {!searching && hasAgentEntries ? (
+        // Below md the pinned dock would starve the list on short sheets
+        // (issue #204 review): every shelf renders inline at the end of
+        // this scroll list instead, so the whole agents region scrolls
+        // as one (issue #211).
+        <div className="mt-1 border-t border-sidebar-border/60 pt-1 md:hidden">
         <SidebarGroup>
           <ul ref={attachAgentsList} className="relative flex flex-col gap-px" role="list">
-            {AGENT_SECTIONS.map((section) => {
-              const list = agentSections[section];
-              if (list.length === 0) return null;
-              if (isCollapsibleAgentSection(section)) {
-                // Below md the pinned dock would starve the always-visible
-                // list on short sheets (issue #204 review): shelves render
-                // inline at the end of this scroll list instead, so the
-                // whole agents region scrolls as one.
-                const expanded = agentShelves[section];
-                const shelfKind =
-                  section === "settled" || section === "snoozed" ? section : undefined;
-                return (
-                  <Fragment key={section}>
-                    <li
-                      className={cn(
-                        "list-none md:hidden",
-                        section === firstShelfSection &&
-                          "mt-2 border-t border-sidebar-border pt-1",
-                      )}
-                    >
-                      <CollapsibleSectionHeader
-                        chevron="leading"
-                        expanded={expanded}
-                        onClick={() => toggleAgentShelf(section)}
-                        accessory={
-                          <span className="font-normal tabular-nums">{list.length}</span>
-                        }
-                      >
-                        {AGENT_SECTION_LABELS[section]}
-                      </CollapsibleSectionHeader>
-                    </li>
-                    {expanded
-                      ? list.map((entry) =>
-                          renderAgentRow(entry, shelfKind, "md:hidden"),
-                        )
-                      : null}
-                  </Fragment>
-                );
-              }
-              return (
-                <Fragment key={section}>
-                  <li className="list-none">
-                    <AgentSectionLabel
-                      label={AGENT_SECTION_LABELS[section]}
-                      count={list.length}
-                      attention={section === "attention"}
-                    />
-                  </li>
-                  {list.map((entry) => renderAgentRow(entry))}
-                </Fragment>
-              );
-            })}
+            {AGENT_SECTIONS.map(renderAgentShelf)}
           </ul>
         </SidebarGroup>
         </div>
@@ -1216,45 +1210,14 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         </DialogContent>
       </Dialog>
     </SidebarContent>
-      {/* Pinned shelf dock (issue #204): Working/Snoozed/Settled headers
-          stay visible above the footer regardless of how long the
-          always-visible list grows; expanded rows scroll inside the
-          dock's max-height. */}
-      {!searching && agentShelfHasEntries ? (
+      {/* Pinned shelf dock (issues #204/#211): every Agents section is a
+          collapsible shelf whose header stays visible above the footer
+          regardless of how long the workspace list grows; expanded rows
+          scroll inside the dock's max-height. */}
+      {!searching && hasAgentEntries ? (
         <div className="hidden max-h-[45%] shrink-0 overflow-y-auto border-t border-sidebar-border px-[var(--sidebar-content-inset)] pb-[var(--sidebar-content-inset)] pt-1 md:block">
-          <ul className="flex flex-col gap-px" role="list">
-            {AGENT_SECTIONS.map((section) => {
-              if (!isCollapsibleAgentSection(section)) return null;
-              const list = agentSections[section];
-              if (list.length === 0) return null;
-              const expanded = agentShelves[section];
-              return (
-                <Fragment key={section}>
-                  <li className="list-none">
-                    <CollapsibleSectionHeader
-                      chevron="leading"
-                      expanded={expanded}
-                      onClick={() => toggleAgentShelf(section)}
-                      accessory={
-                        <span className="font-normal tabular-nums">{list.length}</span>
-                      }
-                    >
-                      {AGENT_SECTION_LABELS[section]}
-                    </CollapsibleSectionHeader>
-                  </li>
-                  {expanded
-                    ? list.map((entry) =>
-                        renderAgentRow(
-                          entry,
-                          section === "settled" || section === "snoozed"
-                            ? section
-                            : undefined,
-                        ),
-                      )
-                    : null}
-                </Fragment>
-              );
-            })}
+          <ul ref={attachAgentsDockList} className="flex flex-col gap-px" role="list">
+            {AGENT_SECTIONS.map(renderAgentShelf)}
           </ul>
         </div>
       ) : null}
