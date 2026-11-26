@@ -50,6 +50,9 @@ pub enum SurfaceEffect {
         row: Option<f64>,
         modifiers: u8,
     },
+    /// host should move its authoritative viewport (selection edge
+    /// auto-scroll, issue #433)
+    ScrollRequest { direction: &'static str, lines: u32 },
     /// `onSelectionChange`
     SelectionChange { text: Option<String> },
     /// `onScroll` — rows above the bottom
@@ -68,6 +71,9 @@ pub enum SurfaceEffect {
     RenderSetSelection { range: Option<RangeJson> },
     /// renderer: search-match highlight ranges
     RenderSetHighlights { ranges: Vec<RangeJson> },
+    /// renderer/scene: rows the host viewport sits above the engine's
+    /// bottom-anchored viewport_top (server-side scroll, issue #436)
+    RenderSetViewportShift { shift: i64 },
     /// renderer: cursor visibility for the blink phase
     RenderSetCursorVisible { visible: bool },
     /// renderer: repaint everything
@@ -385,12 +391,42 @@ enum DragKind {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct DragEdge {
+    direction: &'static str,
+    lines: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct Drag {
     kind: DragKind,
     anchor: ScreenPoint,
     moved: bool,
     button: Option<MouseButton>,
     reported: bool,
+    /// pointer position in cell units relative to the surface origin; may
+    /// leave the grid while auto-scrolling (issue #433)
+    pointer: Option<(f64, f64)>,
+    /// edge auto-scroll state while a select drag holds the pointer at a
+    /// viewport edge
+    edge: Option<DragEdge>,
+}
+
+/// The host's authoritative scroll offset (herdr `pane.scroll_changed`).
+#[derive(Debug, Clone, Copy)]
+pub struct HostScrollInfo {
+    pub offset_from_bottom: i64,
+    pub max_offset_from_bottom: i64,
+    pub viewport_rows: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HostScroll {
+    offset: i64,
+    max: i64,
+    viewport_rows: i64,
+    shift: i64,
+    /// scrollback growth observed while the host viewport was scrolled
+    appends: i64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -448,8 +484,8 @@ pub struct SurfaceCore {
     last_click_at: f64,
     last_click_count: u32,
     cursor_phase: bool,
-    last_viewport_top: Option<u64>,
-    scroll_jump: bool,
+    host_scroll: Option<HostScroll>,
+    highlight_ranges: Vec<ScreenRange>,
     disposed: bool,
     dead: bool,
     dead_message: Option<String>,
@@ -493,8 +529,8 @@ impl SurfaceCore {
             last_click_at: 0.0,
             last_click_count: 0,
             cursor_phase: true,
-            last_viewport_top: None,
-            scroll_jump: false,
+            host_scroll: None,
+            highlight_ranges: Vec::new(),
             disposed: false,
             dead: false,
             dead_message: None,
@@ -561,11 +597,24 @@ impl SurfaceCore {
         mouse_report_cell(
             point.x as f64,
             point.y as f64,
-            top as f64,
+            (top as i64 - self.host_shift()) as f64,
             m.cols as f64,
             m.rows as f64,
         )
         .map(|(c, r)| (c, r))
+    }
+
+    /// rows the host viewport sits above the engine's bottom-anchored view
+    fn host_shift(&self) -> i64 {
+        self.host_scroll.map(|h| h.shift).unwrap_or(0)
+    }
+
+    /// engine history y of the first displayed row
+    fn effective_viewport_top(&mut self, effects: &mut Vec<SurfaceEffect>) -> Option<i64> {
+        let top = self
+            .try_session(effects, |s| s.history())
+            .map(|h| h.viewport_top)?;
+        Some(top as i64 - self.host_shift())
     }
 
     fn send_structured_mouse(
@@ -660,6 +709,12 @@ impl SurfaceCore {
         void_result(effects)
     }
 
+    /// the current selection in engine history coordinates (TS
+    /// `selectionRange` getter)
+    pub fn selection_range(&self) -> Option<ScreenRange> {
+        self.selection
+    }
+
     pub fn get_selection_text(&mut self) -> CoreResult {
         let mut effects = Vec::new();
         let Some(sel) = self.selection else {
@@ -707,7 +762,6 @@ impl SurfaceCore {
                 return void_result(effects);
             }
         }
-        self.scroll_jump = true;
         effects.push(SurfaceEffect::RenderInvalidate);
         effects.push(SurfaceEffect::Scroll { rows: next });
         self.schedule(&mut effects);
@@ -721,6 +775,86 @@ impl SurfaceCore {
 
     pub fn scroll_to_bottom(&mut self) -> CoreResult {
         self.scroll_to(0)
+    }
+
+    /// The host's authoritative scroll offset moved (herdr
+    /// `pane.scroll_changed`, issue #436) — mirror of the TS
+    /// `hostScrollChanged`: selection and highlights stay in engine history
+    /// coordinates; only the renderer's projection subtracts the shift.
+    pub fn host_scroll_changed(&mut self, info: HostScrollInfo) -> CoreResult {
+        let mut effects = Vec::new();
+        let Some(prev) = self.host_scroll else {
+            let shift = info.offset_from_bottom.max(0);
+            self.host_scroll = Some(HostScroll {
+                offset: info.offset_from_bottom,
+                max: info.max_offset_from_bottom,
+                viewport_rows: info.viewport_rows,
+                shift,
+                appends: 0,
+            });
+            if shift != 0 {
+                effects.push(SurfaceEffect::RenderSetViewportShift { shift });
+                self.schedule(&mut effects);
+            }
+            return void_result(effects);
+        };
+        // A viewport-row change means the pane resized (reflow) and a
+        // shrinking max means history was pruned: stored coordinates can no
+        // longer be trusted, so drop the selection and highlights explicitly.
+        if info.viewport_rows != prev.viewport_rows
+            || info.max_offset_from_bottom < prev.max
+        {
+            self.host_scroll = Some(HostScroll {
+                offset: info.offset_from_bottom,
+                max: info.max_offset_from_bottom,
+                viewport_rows: info.viewport_rows,
+                shift: info.offset_from_bottom.max(0),
+                appends: 0,
+            });
+            self.invalidate_selection(&mut effects);
+            let shift = self.host_scroll.map(|h| h.shift).unwrap_or(0);
+            effects.push(SurfaceEffect::RenderSetViewportShift { shift });
+            self.schedule(&mut effects);
+            return void_result(effects);
+        }
+        let mut appends = prev.appends;
+        if info.offset_from_bottom == 0 || prev.offset == 0 {
+            appends = 0;
+        } else {
+            appends += (info.max_offset_from_bottom - prev.max).max(0);
+        }
+        let shift = if info.offset_from_bottom == 0 {
+            0
+        } else {
+            (info.offset_from_bottom - appends).max(0)
+        };
+        self.host_scroll = Some(HostScroll {
+            offset: info.offset_from_bottom,
+            max: info.max_offset_from_bottom,
+            viewport_rows: info.viewport_rows,
+            shift,
+            appends,
+        });
+        if shift != prev.shift {
+            effects.push(SurfaceEffect::RenderSetViewportShift { shift });
+            self.schedule(&mut effects);
+        }
+        void_result(effects)
+    }
+
+    /// drop selection state whose history coordinates are no longer
+    /// trustworthy (resize/reflow/prune, issue #436)
+    fn invalidate_selection(&mut self, effects: &mut Vec<SurfaceEffect>) {
+        self.drag = None;
+        if self.selection.is_some() {
+            self.selection = None;
+            effects.push(SurfaceEffect::RenderSetSelection { range: None });
+            effects.push(SurfaceEffect::SelectionChange { text: None });
+        }
+        if !self.highlight_ranges.is_empty() {
+            self.highlight_ranges.clear();
+            effects.push(SurfaceEffect::RenderSetHighlights { ranges: Vec::new() });
+        }
     }
 
     /// client point → cell under it, in visible-viewport coordinates
@@ -763,7 +897,7 @@ impl SurfaceCore {
             .map(|h| h.viewport_top)?;
         Some(ScreenPoint {
             x: col as u16,
-            y: (top + row as u64) as u32,
+            y: ((top as i64 - self.host_shift()) + row).max(0) as u32,
         })
     }
 
@@ -773,6 +907,7 @@ impl SurfaceCore {
         let matches = self
             .try_session(&mut effects, |s| s.search(needle))
             .unwrap_or_default();
+        self.highlight_ranges = matches.clone();
         if !self.dead {
             effects.push(SurfaceEffect::RenderSetHighlights {
                 ranges: ranges_json(&matches),
@@ -944,53 +1079,10 @@ impl SurfaceCore {
         }
         // history() may fail on a dead engine — same guard as the original's
         // outer try/catch → dead effect
-        let top = match self.session.history() {
-            Ok(h) => h.viewport_top,
-            Err(e) => {
-                self.fail(&e, &mut effects);
-                return void_result(effects);
-            }
-        };
-        // output appended while the pane sits at the bottom moves its text
-        // down the kept screen: carry the selection with it
-        if let Some(sel) = self.selection {
-            if let Some(last) = self.last_viewport_top {
-                if !self.scroll_jump && self.scroll_offset == 0 {
-                    let delta = top as i64 - last as i64;
-                    if delta != 0 {
-                        // TS keeps the raw sum (can go negative on paper);
-                        // ScreenPoint.y is u32 so clamp at 0 — unreachable
-                        // in practice since viewport_top never decreases
-                        // while a selection is carried
-                        self.selection = Some(ScreenRange {
-                            start: ScreenPoint {
-                                x: sel.start.x,
-                                y: (sel.start.y as i64 + delta).max(0) as u32,
-                            },
-                            end: ScreenPoint {
-                                x: sel.end.x,
-                                y: (sel.end.y as i64 + delta).max(0) as u32,
-                            },
-                        });
-                        if let Some(s) = self.selection {
-                            effects.push(SurfaceEffect::RenderSetSelection {
-                                range: Some(range_json(s)),
-                            });
-                        }
-                        // an in-flight drag anchor tracks the same content
-                        // (issue #427)
-                        if let Some(d) = self.drag.as_mut() {
-                            d.anchor = ScreenPoint {
-                                x: d.anchor.x,
-                                y: (d.anchor.y as i64 + delta).max(0) as u32,
-                            };
-                        }
-                    }
-                }
-            }
+        if let Err(e) = self.session.history() {
+            self.fail(&e, &mut effects);
+            return void_result(effects);
         }
-        self.last_viewport_top = Some(top);
-        self.scroll_jump = false;
         let cursor = self.session.cursor_state().ok();
         if let Some(c) = &cursor {
             if c.visible {
@@ -999,6 +1091,7 @@ impl SurfaceCore {
         }
         self.flush_hover_motion(&mut effects);
         self.flush_drag_motion(&mut effects);
+        self.tick_drag_selection(&mut effects);
         let blinking = cursor.as_ref().map(|c| c.visible && c.blinking).unwrap_or(false);
         effects.push(SurfaceEffect::RenderSetCursorVisible {
             visible: !blinking || self.cursor_phase,
@@ -1016,6 +1109,76 @@ impl SurfaceCore {
             self.cursor_phase = true;
         }
         void_result(effects)
+    }
+
+    /// Per-frame upkeep for an in-flight select drag (issues #433/#436) —
+    /// mirror of the TS `tickDragSelection`.
+    fn tick_drag_selection(&mut self, effects: &mut Vec<SurfaceEffect>) {
+        let Some(drag) = self.drag else {
+            return;
+        };
+        if drag.kind != DragKind::Select || drag.pointer.is_none() {
+            return;
+        }
+        if let Some(end) = self.drag_end_cell(drag, effects) {
+            let range = ordered(drag.anchor, end);
+            let same = self.selection == Some(range);
+            self.selection = Some(range);
+            if !same {
+                let empty = range.start.x == range.end.x && range.start.y == range.end.y;
+                effects.push(SurfaceEffect::RenderSetSelection {
+                    range: if empty { None } else { Some(range_json(range)) },
+                });
+            }
+        }
+        if let Some(edge) = drag.edge {
+            effects.push(SurfaceEffect::ScrollRequest {
+                direction: edge.direction,
+                lines: edge.lines,
+            });
+            self.schedule(effects);
+        }
+    }
+
+    /// The selection's moving end for an in-flight drag — mirror of the TS
+    /// `dragEndCell`: the pointer's cell clamped to the visible grid and
+    /// mapped through the host scroll shift.
+    fn drag_end_cell(
+        &mut self,
+        drag: Drag,
+        effects: &mut Vec<SurfaceEffect>,
+    ) -> Option<ScreenPoint> {
+        let m = self.metrics?;
+        let (col_f, row_f) = drag.pointer?;
+        let top = self.effective_viewport_top(effects)?;
+        let col = col_f.floor() as i64;
+        let row = row_f.floor() as i64;
+        Some(ScreenPoint {
+            x: col.clamp(0, m.cols as i64 - 1) as u16,
+            y: (top + row.clamp(0, m.rows as i64 - 1)).max(0) as u32,
+        })
+    }
+
+    /// Edge auto-scroll for a select drag (issue #433) — mirror of the TS
+    /// `updateEdgeScroll`.
+    fn update_edge_scroll(drag: &mut Drag, m: SurfaceMetrics) {
+        let Some((_, row_f)) = drag.pointer else {
+            drag.edge = None;
+            return;
+        };
+        let row = row_f;
+        let (direction, overshoot) = if row < 1.0 {
+            ("up", (-row).max(0.0))
+        } else if row >= m.rows as f64 - 1.0 {
+            ("down", (row - m.rows as f64).max(0.0))
+        } else {
+            drag.edge = None;
+            return;
+        };
+        drag.edge = Some(DragEdge {
+            direction,
+            lines: ((1.0 + overshoot.floor()).min(m.rows as f64)) as u32,
+        });
     }
 
     /// host-side blink timeout fired: flip phase and repaint next frame
@@ -1177,7 +1340,7 @@ impl SurfaceCore {
             pending.point.x as f64,
             pending.point.y as f64,
             match self.session.history() {
-                Ok(h) => h.viewport_top as f64,
+                Ok(h) => (h.viewport_top as i64 - self.host_shift()) as f64,
                 Err(_) => return,
             },
             self.metrics.unwrap().cols as f64,
@@ -1391,8 +1554,19 @@ impl SurfaceCore {
             moved: false,
             button: Some(button),
             reported: false,
+            pointer: None,
+            edge: None,
         });
         if !to_mouse {
+            if let Some(m) = self.metrics {
+                if let Some(d) = self.drag.as_mut() {
+                    d.pointer = Some((
+                        (input.client_x - rect.left) / m.cell_w,
+                        (input.client_y - rect.top) / m.cell_h,
+                    ));
+                    d.edge = None;
+                }
+            }
             self.selection = Some(ScreenRange {
                 start: cell,
                 end: cell,
@@ -1420,14 +1594,14 @@ impl SurfaceCore {
             return void_result(effects);
         };
         self.hover_point = None;
-        let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects) else {
-            return void_result(effects);
-        };
-        if let Some(d) = self.drag.as_mut() {
-            d.moved = true;
-        }
-        let mods = mods_of(input.shift_key, input.alt_key, input.ctrl_key);
         if drag.kind == DragKind::Mouse {
+            let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects) else {
+                return void_result(effects);
+            };
+            if let Some(d) = self.drag.as_mut() {
+                d.moved = true;
+            }
+            let mods = mods_of(input.shift_key, input.alt_key, input.ctrl_key);
             if let Some(button) = drag.button {
                 // coalesce to the latest cell per frame; tick() flushes
                 self.pending_drag_motion = Some(PendingDragMotion {
@@ -1439,26 +1613,45 @@ impl SurfaceCore {
             }
             return void_result(effects);
         }
+        // select drag: the pointer may leave the grid — track it in cell
+        // units (floats, so edge distance still scales the scroll speed)
+        // and refresh the edge auto-scroll state (issue #433)
+        if let Some(d) = self.drag.as_mut() {
+            d.moved = true;
+            if let Some(m) = self.metrics {
+                d.pointer = Some((
+                    (input.client_x - rect.left) / m.cell_w,
+                    (input.client_y - rect.top) / m.cell_h,
+                ));
+                Self::update_edge_scroll(d, m);
+            }
+        }
+        let mods = mods_of(input.shift_key, input.alt_key, input.ctrl_key);
+        // refresh the copy: pointer/edge were just mutated through as_mut
+        let drag = self.drag.unwrap_or(drag);
         // selection drag that also reports structured motion to the pane
         if self.has_on_mouse && drag.reported {
             if let Some(button) = drag.button {
-                self.pending_drag_motion = Some(PendingDragMotion {
-                    button,
-                    point: cell,
-                    mods,
-                });
-                self.schedule(&mut effects);
+                if let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects) {
+                    self.pending_drag_motion = Some(PendingDragMotion {
+                        button,
+                        point: cell,
+                        mods,
+                    });
+                }
             }
         }
-        // the gesture anchor is fixed at pointer-down; the normalized
-        // selection start is the moving end and must not become the anchor
-        // (issue #427 — upward drags lost their anchor)
-        let range = ordered(drag.anchor, cell);
-        self.selection = Some(range);
-        let empty = range.start.x == range.end.x && range.start.y == range.end.y;
-        effects.push(SurfaceEffect::RenderSetSelection {
-            range: if empty { None } else { Some(range_json(range)) },
-        });
+        // the gesture anchor is fixed at pointer-down in engine history
+        // coordinates; the moving end is re-derived from the pointer so it
+        // tracks whatever content scrolls under it (issues #427/#433/#436)
+        if let Some(end) = self.drag_end_cell(drag, &mut effects) {
+            let range = ordered(drag.anchor, end);
+            let empty = range.start.x == range.end.x && range.start.y == range.end.y;
+            self.selection = Some(range);
+            effects.push(SurfaceEffect::RenderSetSelection {
+                range: if empty { None } else { Some(range_json(range)) },
+            });
+        }
         self.schedule(&mut effects);
         void_result(effects)
     }
@@ -1569,7 +1762,7 @@ impl SurfaceCore {
             return;
         };
         let top = match self.session.history() {
-            Ok(h) => h.viewport_top,
+            Ok(h) => h.viewport_top as i64 - self.host_shift(),
             Err(_) => return,
         };
         let Some((col, row)) = mouse_report_cell(
@@ -1834,6 +2027,17 @@ pub fn run_op(
         "surface_scroll_to" => core.scroll_to(req(input, "rows")?.as_i64().unwrap_or(0)),
         "surface_scroll_by" => core.scroll_by(req(input, "lines")?.as_i64().unwrap_or(0)),
         "surface_scroll_to_bottom" => core.scroll_to_bottom(),
+        "surface_host_scroll" => core.host_scroll_changed(HostScrollInfo {
+            offset_from_bottom: req(input, "offset_from_bottom")?
+                .as_i64()
+                .ok_or("offset_from_bottom must be an integer")?,
+            max_offset_from_bottom: req(input, "max_offset_from_bottom")?
+                .as_i64()
+                .ok_or("max_offset_from_bottom must be an integer")?,
+            viewport_rows: req(input, "viewport_rows")?
+                .as_i64()
+                .ok_or("viewport_rows must be an integer")?,
+        }),
         "surface_cell_at" => core.cell_at_client_point(
             req_f64(input, "client_x")?,
             req_f64(input, "client_y")?,

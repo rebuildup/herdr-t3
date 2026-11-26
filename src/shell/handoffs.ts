@@ -8,12 +8,16 @@
  * through the `herdr-plugins.handoff/v1` contract, pinned at
  * rebuildup/herdr-plugins@d23205af (v0.9.0,
  * docs/contracts/handoff-v1.md; v1 stable since plugin v0.6.0). The
- * plugin DOES advertise mutations (`create`/`execute`/`delegate`/
- * `merge-back` are top-level commands), but this surface is READ-ONLY:
- * it consumes only `list`, `status`, and `resume-info`. The local
- * `HANDOFF_MUTATION_COMMANDS` allowlist is intentionally empty so
- * `handoffsSupportsMutation` fails closed — execute/delegate/
- * merge-back are a separate ticket and are never offered here.
+ * plugin advertises mutations two ways across versions: `execute`/
+ * `delegate`/`merge-back`/`create` are top-level `commands` in every
+ * v1 build, and plugin v0.7.0+ (herdr-plugins#224, release-0-10-0,
+ * unpublished at pin time) additionally lists the persisting commands
+ * in a `mutation_commands` capability field. This surface consumes
+ * the read commands (`list`, `status`, `resume-info`) plus the
+ * mutation commands `execute`/`delegate`/`merge-back` (issue #451) —
+ * `create` stays out of scope (record authoring is agent-side
+ * CLI/MCP work) and `status` is only ever invoked with
+ * `--no-reconcile` so the read path never writes.
  *
  * `list` is the eager read: records are cheap state-file reads with a
  * per-item `transfer_check` staleness verdict computed plugin-side.
@@ -46,15 +50,20 @@ export const HANDOFF_CONTRACT_PREFIX = "herdr-plugins.handoff/";
 const REQUIRED_COMMANDS = ["list", "status", "resume-info"] as const;
 
 /**
- * Mutation commands this surface may invoke. handoff-v1 advertises
- * writes as top-level commands (`create`/`execute`/`delegate`/
- * `merge-back`), NOT via `mutation_commands` — and this ticket ships
- * the read surface only, so the allowlist is intentionally empty and
- * `handoffsSupportsMutation` can never return true. A future mutation
- * ticket must extend the allowlist deliberately (same gating shape as
- * usage.ts/conversations.ts).
+ * Mutation commands this surface may invoke (issue #451). The pinned
+ * plugin (v0.9.0 / capability v0.6.0) predates the `mutation_commands`
+ * capability field added upstream in plugin v0.7.0 (#224), so gating
+ * is this explicit allowlist intersected with the advertised flat
+ * `commands` list — and with `mutation_commands` when the plugin
+ * advertises that field. `create` is deliberately absent: records are
+ * authored by agents via CLI/MCP, and `status`'s lazy reconcile write
+ * is never triggered here (`--no-reconcile` is unconditional).
  */
-export const HANDOFF_MUTATION_COMMANDS = [] as const;
+export const HANDOFF_MUTATION_COMMANDS = [
+  "execute",
+  "delegate",
+  "merge-back",
+] as const;
 export type HandoffMutationCommand = (typeof HANDOFF_MUTATION_COMMANDS)[number];
 
 /** Boundary-level unavailability (ADR-0011 §10). */
@@ -87,6 +96,13 @@ export interface HandoffCapability {
   version: string;
   commands: Set<string>;
   mutationCommands: Set<string>;
+  /**
+   * True when the capability document carried a `mutation_commands`
+   * field at all (plugin ≥ v0.7.0, herdr-plugins#224). The pinned
+   * v0.9.0 build predates it; `false` selects the conservative
+   * allowlist + `commands` fallback in `handoffsSupportsMutation`.
+   */
+  hasMutationCommands: boolean;
   /** `same_host_and_remote_saved_machines` etc.; open string. */
   execution: string | null;
 }
@@ -796,6 +812,7 @@ export function handoffCapabilityFromDoc(doc: Record<string, unknown>): HandoffC
     version: typeof doc["version"] === "string" ? doc["version"] : "",
     commands: new Set(strArray(doc["commands"])),
     mutationCommands: new Set(strArray(doc["mutation_commands"])),
+    hasMutationCommands: doc["mutation_commands"] !== undefined,
     execution: str(doc["execution"]),
   };
 }
@@ -956,6 +973,286 @@ export async function fetchHandoffResumeInfo(
   return report;
 }
 
+/* ----------------------------- mutations ------------------------------- */
+
+/**
+ * Target selector for `execute`/`delegate` — the contract's four
+ * mutually exclusive surface choices plus the plugin default. `auto`
+ * emits no flag: the plugin applies its own precedence
+ * (`--target-pane`/recorded workspace intent → new workspace).
+ */
+export type HandoffTargetChoice =
+  | { kind: "auto" }
+  | { kind: "pane"; paneId: string }
+  | { kind: "workspace"; workspaceId: string }
+  | { kind: "new-workspace" }
+  | { kind: "worktree"; branch?: string | undefined; base?: string | undefined };
+
+/** Flags shared by `execute` and `delegate` (the execute pipeline). */
+export interface HandoffExecuteFlags {
+  target?: HandoffTargetChoice | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  waitMs?: number | undefined;
+  cleanupOnFailure?: boolean | undefined;
+}
+
+function pushNonEmpty(args: string[], flag: string, value: string | undefined): void {
+  if (value !== undefined && value !== "") args.push(flag, value);
+}
+
+function pushTargetArgs(args: string[], target: HandoffTargetChoice | undefined): void {
+  if (target === undefined || target.kind === "auto") return;
+  switch (target.kind) {
+    case "pane":
+      pushNonEmpty(args, "--target-pane", target.paneId);
+      break;
+    case "workspace":
+      pushNonEmpty(args, "--target-workspace", target.workspaceId);
+      break;
+    case "new-workspace":
+      args.push("--new-workspace");
+      break;
+    case "worktree":
+      args.push("--worktree");
+      pushNonEmpty(args, "--worktree-branch", target.branch);
+      pushNonEmpty(args, "--worktree-base", target.base);
+      break;
+  }
+}
+
+function pushExecuteFlagArgs(args: string[], flags: HandoffExecuteFlags): void {
+  pushTargetArgs(args, flags.target);
+  pushNonEmpty(args, "--provider", flags.provider);
+  pushNonEmpty(args, "--model", flags.model);
+  if (
+    flags.waitMs !== undefined &&
+    Number.isInteger(flags.waitMs) &&
+    flags.waitMs >= 0
+  ) {
+    args.push("--wait-ms", String(flags.waitMs));
+  }
+  if (flags.cleanupOnFailure === true) args.push("--cleanup-on-failure");
+}
+
+/**
+ * `execute <handoff-id> [target flags] [--remote MACHINE]
+ * [--provider HINT] [--model M] [--wait-ms MS]
+ * [--cleanup-on-failure]`. `--remote` selects a saved herdr machine on
+ * the plugin host (cross-machine execute, contract T3); it is only
+ * meaningful when `capability.execution` advertises remote machines —
+ * the surface gates the input on that, and the plugin probes the
+ * machine BEFORE any mutation (unreachable → pre-mutation refusal,
+ * record stays pending).
+ */
+export function handoffExecuteArgs(
+  handoffId: string,
+  options: HandoffExecuteFlags & { remote?: string | undefined } = {},
+): string[] {
+  const args = [handoffId];
+  pushNonEmpty(args, "--remote", options.remote);
+  pushExecuteFlagArgs(args, options);
+  return args;
+}
+
+/**
+ * `delegate <parent-handoff-id> [--task TEXT] [--strategy S]
+ * [--link-note TEXT] [--no-execute] [execute flags]`. Same-session
+ * only in v1 — `--remote` is a plugin usage error and is never
+ * emitted. `--no-execute` records intent without running the execute
+ * pipeline.
+ */
+export function handoffDelegateArgs(
+  parentId: string,
+  options: HandoffExecuteFlags & {
+    task?: string | undefined;
+    strategy?: string | undefined;
+    linkNote?: string | undefined;
+    noExecute?: boolean | undefined;
+  } = {},
+): string[] {
+  const args = [parentId];
+  pushNonEmpty(args, "--task", options.task);
+  if (
+    options.strategy !== undefined &&
+    options.strategy !== "" &&
+    (HANDOFF_STRATEGIES as readonly string[]).includes(options.strategy)
+  ) {
+    args.push("--strategy", options.strategy);
+  }
+  pushNonEmpty(args, "--link-note", options.linkNote);
+  pushExecuteFlagArgs(args, options);
+  if (options.noExecute === true) args.push("--no-execute");
+  return args;
+}
+
+/**
+ * `merge-back <child-handoff-id> [--task TEXT] [--wait-ms MS]
+ * [--link-note TEXT] [--no-execute]`. Creates a subagent_result /
+ * merge_back record and delivers it via `agent.prompt` to the
+ * delegating agent's EXISTING pane — `agent.start` is never called on
+ * a pane that already runs an agent.
+ */
+export function handoffMergeBackArgs(
+  childId: string,
+  options: {
+    task?: string | undefined;
+    waitMs?: number | undefined;
+    linkNote?: string | undefined;
+    noExecute?: boolean | undefined;
+  } = {},
+): string[] {
+  const args = [childId];
+  pushNonEmpty(args, "--task", options.task);
+  if (
+    options.waitMs !== undefined &&
+    Number.isInteger(options.waitMs) &&
+    options.waitMs >= 0
+  ) {
+    args.push("--wait-ms", String(options.waitMs));
+  }
+  pushNonEmpty(args, "--link-note", options.linkNote);
+  if (options.noExecute === true) args.push("--no-execute");
+  return args;
+}
+
+/** `strategy` values `create`/`delegate` accept (contract field semantics). */
+export const HANDOFF_STRATEGIES = [
+  "native_resume",
+  "portable_context",
+  "checkpoint_ref",
+  "manual",
+] as const;
+
+/* ------------------------- mutation results ---------------------------- */
+
+/**
+ * Normalized mutation outcome. `outcome` is the plugin's verbatim word
+ * (`delivered`/`done`/`recorded`/`failed`/`dry_run`); `record` is the
+ * post-mutation handoff record (never auto-applied anywhere — the
+ * surface only displays it); `remote` is present for `execute --remote`
+ * runs and names the probed saved machine explicitly.
+ */
+export interface HandoffMutationResult {
+  command: string;
+  outcome: string | null;
+  dryRun: boolean;
+  record: HandoffRecord;
+  parentId: string | null;
+  childId: string | null;
+  remote: HandoffRemoteExecution | null;
+}
+
+function remoteExecutionFromDoc(raw: unknown): HandoffRemoteExecution | null {
+  if (!isRecord(raw)) return null;
+  return {
+    machine_id: str(raw["machine_id"]),
+    label: str(raw["label"]),
+    target: str(raw["target"]),
+    session: str(raw["session"]),
+    enabled: raw["enabled"] === true,
+    probed_at: str(raw["probed_at"]),
+    server_version: str(raw["server_version"]),
+    protocol: num(raw["protocol"]),
+  };
+}
+
+/**
+ * Parse an `execute`/`delegate`/`merge-back` success document. Requires
+ * the matching `command` word and a parseable `handoff` record —
+ * a success document without the record is malformed, not a partial
+ * success. `parent`/`child` are bare id strings in the contract.
+ */
+export function handoffMutationFromDoc(
+  doc: Record<string, unknown>,
+  expectedCommand: string,
+): HandoffMutationResult | null {
+  if (!contractAllowed(doc)) return null;
+  if (str(doc["command"]) !== expectedCommand) return null;
+  const handoffRaw = doc["handoff"];
+  const record = isRecord(handoffRaw) ? handoffRecordFromDoc(handoffRaw) : null;
+  if (record === null) return null;
+  const dryRun = doc["dry_run"] === true;
+  return {
+    command: expectedCommand,
+    outcome: str(doc["outcome"]) ?? (dryRun ? "dry_run" : null),
+    dryRun,
+    record,
+    parentId: str(doc["parent"]),
+    childId: str(doc["child"]),
+    remote: remoteExecutionFromDoc(doc["remote"]),
+  };
+}
+
+const MUTATION_TIMEOUT_MS = 120_000;
+
+async function callHandoffMutation(
+  machine: string,
+  command: string,
+  args: string[],
+): Promise<HandoffMutationResult> {
+  const doc = await callHandoff(machine, command, args, MUTATION_TIMEOUT_MS);
+  const result = handoffMutationFromDoc(doc, command);
+  if (result === null) throw badOutput(command);
+  return result;
+}
+
+/**
+ * `execute <id>` — runs the handoff end-to-end: staleness gate →
+ * strategy decision → surface creation (optionally on a `--remote`
+ * saved machine) → `agent.start` → payload prompt → `delivered`.
+ * `outcome:"failed"` is a plugin-side execution failure: the plugin
+ * exits non-zero with `execution_failed` AND persists
+ * `status:"failed"` + `execution.error` on the record — surfaced here
+ * as an honest error, never relabelled. Pre-mutation refusals
+ * (stale source, busy target, `unsupported_strategy`, unreachable
+ * remote) leave the record untouched.
+ */
+export async function executeHandoff(
+  machine: string,
+  handoffId: string,
+  options: HandoffExecuteFlags & { remote?: string | undefined } = {},
+): Promise<HandoffMutationResult> {
+  return callHandoffMutation(machine, "execute", handoffExecuteArgs(handoffId, options));
+}
+
+/**
+ * `delegate <parent-id>` — subagent_spawn: creates a child record
+ * bound to the delegating agent's pane, then runs the normal execute
+ * pipeline. `noExecute` records intent only. Same-session only in v1.
+ */
+export async function delegateHandoff(
+  machine: string,
+  parentId: string,
+  options: HandoffExecuteFlags & {
+    task?: string | undefined;
+    strategy?: string | undefined;
+    linkNote?: string | undefined;
+    noExecute?: boolean | undefined;
+  } = {},
+): Promise<HandoffMutationResult> {
+  return callHandoffMutation(machine, "delegate", handoffDelegateArgs(parentId, options));
+}
+
+/**
+ * `merge-back <child-id>` — subagent_result/merge_back: creates a
+ * result record and delivers it via `agent.prompt` to the delegating
+ * agent's existing pane. Never calls `agent.start` on a pane that
+ * already runs an agent.
+ */
+export async function mergeBackHandoff(
+  machine: string,
+  childId: string,
+  options: {
+    task?: string | undefined;
+    waitMs?: number | undefined;
+    linkNote?: string | undefined;
+    noExecute?: boolean | undefined;
+  } = {},
+): Promise<HandoffMutationResult> {
+  return callHandoffMutation(machine, "merge-back", handoffMergeBackArgs(childId, options));
+}
+
 /* ---------------------------- capability ------------------------------ */
 
 const CAPABILITY_TTL_MS = 30_000;
@@ -1009,11 +1306,14 @@ export function handoffsSupports(
 }
 
 /**
- * Mutation gating. The read surface never invokes handoff mutations —
- * `create`/`execute`/`delegate`/`merge-back` are top-level `commands`,
- * not `mutation_commands`, and the local HANDOFF_MUTATION_COMMANDS
- * allowlist is empty so this fails closed even if a future contract
- * revision advertises writes. `null` cap = still probing.
+ * Mutation gating (issue #451). A command must be in the local
+ * HANDOFF_MUTATION_COMMANDS allowlist AND advertised as a top-level
+ * `command`. When the capability document carries `mutation_commands`
+ * (plugin ≥ v0.7.0), membership there is required too; the pinned
+ * v0.9.0 build predates the field, so its absence falls back to the
+ * allowlist + `commands` check — conservative because the allowlist
+ * names only commands this client deliberately invokes. `null` cap =
+ * still probing.
  */
 export function handoffsSupportsMutation(
   cap: HandoffCapability | null | undefined,
@@ -1024,7 +1324,9 @@ export function handoffsSupportsMutation(
   if (!(HANDOFF_MUTATION_COMMANDS as readonly string[]).includes(command)) {
     return false;
   }
-  return cap.mutationCommands.has(command) && cap.commands.has(command);
+  if (!cap.commands.has(command)) return false;
+  if (cap.hasMutationCommands) return cap.mutationCommands.has(command);
+  return true;
 }
 
 /* ------------------------------ store --------------------------------- */

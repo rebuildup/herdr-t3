@@ -6,6 +6,7 @@ import {
   USAGE_MUTATION_COMMANDS,
   USAGE_PLUGIN_ID,
   classifyUsageError,
+  describeUsageError,
   usageAggregationArgs,
   usageCapabilityFromDoc,
   usageCostFromDoc,
@@ -641,5 +642,40 @@ describe("classifyUsageError", () => {
     );
     expect(usageErrorHint(err("conversations_error"))).toBeNull();
     expect(usageErrorHint(new Error("plain"))).toBeNull();
+  });
+});
+
+describe("describeUsageError", () => {
+  const err = (code: string, message = "boom") =>
+    Object.assign(new Error(message), { code });
+
+  test("plugin_timeout gets a short 'timed out' summary, detail stays verbatim", () => {
+    const info = describeUsageError(
+      err("plugin_timeout", "rebuildup.usage usage timed out"),
+    );
+    expect(info.summary).toBe("timed out");
+    expect(info.detail).toBe("rebuildup.usage usage timed out");
+  });
+
+  test("other unreachable codes keep the host-unreachable label", () => {
+    expect(describeUsageError(err("machine_unavailable")).summary).toBe(
+      "host unreachable",
+    );
+  });
+
+  test("the plugin hint rides the summary in parens", () => {
+    const withHint = Object.assign(new Error("conversations plugin unavailable"), {
+      code: "conversations_unavailable",
+      fields: { hint: "install rebuildup.conversations" },
+    });
+    const info = describeUsageError(withHint);
+    expect(info.summary).toBe("host unreachable (install rebuildup.conversations)");
+    expect(info.detail).toBe("conversations plugin unavailable");
+  });
+
+  test("non-plugin failures classify as request failed", () => {
+    const info = describeUsageError(new Error("plain"));
+    expect(info.summary).toBe("request failed");
+    expect(info.detail).toBe("plain");
   });
 });

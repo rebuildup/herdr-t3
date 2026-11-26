@@ -1,0 +1,288 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.scene-viewport-shift",
+  "capability": "terminal.surface",
+  "contract": "terminal-surface@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "scene_new",
+      "input": {
+        "cols": 20,
+        "rows": 6,
+        "cellW": 8,
+        "cellH": 16,
+        "dpr": 1,
+        "scrollback": 50,
+        "options": {
+          "fontFamily": "monospace",
+          "fontSize": 13,
+          "foreground": "#d4d4d4",
+          "background": "#1e1e1e",
+          "cursor": "#ffffff",
+          "selection": "rgba(120,160,255,0.28)",
+          "search": "rgba(250,204,21,0.22)"
+        }
+      },
+      "note": "issue #436: selection/highlight projection must follow the host viewport shift",
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "sc1"
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "metrics": {
+          "cols": 20,
+          "rows": 6,
+          "cellW": 8,
+          "cellH": 16,
+          "dpr": 1
+        }
+      },
+      "note": "grid metrics",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\n"
+      },
+      "note": "12 lines in a 6-row scene -> scrollback 6, viewportTop=6 shows abs rows 6..11",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": {
+          "start": {
+            "x": 0,
+            "y": 7
+          },
+          "end": {
+            "x": 19,
+            "y": 8
+          }
+        },
+        "highlights": [
+          {
+            "start": {
+              "x": 0,
+              "y": 9
+            },
+            "end": {
+              "x": 19,
+              "y": 9
+            }
+          }
+        ]
+      },
+      "note": "selection on abs rows 7..8 (viewport rows 1..2), search highlight on abs row 9 (viewport row 3)",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "baseline overlay: wash rects at viewport rows 1,2 (selection) and 3 (search)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "viewportShift": 2
+      },
+      "note": "host viewport sits 2 rows above the engine's bottom-anchored top -> displayed abs rows 4..9",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "same engine coordinates must now paint 2 rows higher: selection at viewport rows -1..0 -> clipped to row 0, search at row 1",
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "viewportShift": 0
+      },
+      "note": "shift back to bottom -> original projection",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "identical to baseline",
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "rgba(250,204,21,0.22)",
+              "alpha": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_dispose",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "final dispose",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

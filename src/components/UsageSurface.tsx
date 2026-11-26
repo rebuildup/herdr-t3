@@ -33,13 +33,12 @@ import {
 import { DialogPanel } from "./ui/dialog";
 import {
   USAGE_BREAKDOWN_DIMENSIONS,
-  classifyUsageError,
+  describeUsageError,
   fetchUsageCost,
   fetchUsageDivergence,
   fetchUsageReport,
   refreshUsage,
   usageCapability,
-  usageErrorHint,
   useUsageState,
   type UsageAggregationOptions,
   type UsageBreakdownDimension,
@@ -48,6 +47,7 @@ import {
   type UsageCapability,
   type UsageCostReport,
   type UsageDivergenceReport,
+  type UsageErrorInfo,
   type UsageQuotaHub,
   type UsageQuotaProvider,
   type UsageQuotaWindow,
@@ -63,12 +63,18 @@ const UNAVAILABLE_LABELS: Record<UsageUnavailableReason, string> = {
   error: "usage unavailable",
 };
 
-/** Honest failure text: classified reason + plugin detail verbatim. */
-function errorText(error: unknown): string {
-  const classified = classifyUsageError(error);
-  const hint = usageErrorHint(error);
-  const base = `${classified.reason}${classified.detail ? ` — ${classified.detail}` : ""}`;
-  return hint !== null ? `${base} (${hint})` : base;
+/** Section failure line: short summary in destructive, raw detail secondary. */
+function SectionError({ label, error }: { label: string; error: UsageErrorInfo }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="text-2xs text-destructive">
+        {label} failed: {error.summary}
+      </p>
+      {error.detail !== null ? (
+        <p className="text-2xs text-muted-foreground/70">{error.detail}</p>
+      ) : null}
+    </div>
+  );
 }
 
 function formatTime(iso: string | null): string {
@@ -154,11 +160,18 @@ function verdictVariant(
 /* ------------------------------ quota cards ---------------------------- */
 
 function QuotaWindowRow({ window }: { window: UsageQuotaWindow }) {
+  // The kind suffix only earns its place when it adds information —
+  // "Session · session" / "Weekly · weekly" printed the same word twice
+  // (issue #417). A differing kind ("5h · session") still shows.
+  const kindDiffers =
+    window.kind !== null &&
+    (window.label === null ||
+      window.label.toLowerCase() !== window.kind.toLowerCase());
   return (
     <div className="flex min-w-0 items-center gap-2 text-2xs">
       <span className="min-w-0 flex-1 truncate">
         {window.label ?? window.id ?? "window"}
-        {window.kind !== null ? (
+        {kindDiffers ? (
           <span className="text-muted-foreground/70"> · {window.kind}</span>
         ) : null}
       </span>
@@ -298,32 +311,14 @@ function QuotaHubCard({ hub }: { hub: UsageQuotaHub }) {
 
 function QuotaSection({ machine }: { machine: string }) {
   const state = useUsageState(machine);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const refresh = useCallback(() => {
-    setRefreshing(true);
-    void refreshUsage(machine).finally(() => setRefreshing(false));
-  }, [machine]);
 
   return (
     <section className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-          Quota
-        </h3>
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={refresh}
-          disabled={refreshing}
-          aria-label="Refresh quota"
-        >
-          <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
-          Refresh
-        </Button>
-      </div>
+      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+        Quota
+      </h3>
       {state.quotaError !== null ? (
-        <p className="text-2xs text-destructive">quota failed: {state.quotaError}</p>
+        <SectionError label="quota" error={state.quotaError} />
       ) : null}
       {state.quota === null ? (
         <p className="text-2xs text-muted-foreground">
@@ -405,6 +400,9 @@ function FilterBar({
         aria-label="Provider filter"
         className="w-32"
       />
+      {/* Visible range labels: two identical datetime fields read as a
+          duplicate pair without them (issue #417). */}
+      <span className="text-2xs text-muted-foreground/70">from</span>
       <Input
         size="sm"
         type="datetime-local"
@@ -413,6 +411,7 @@ function FilterBar({
         aria-label="From"
         title="From (inclusive)"
       />
+      <span className="text-2xs text-muted-foreground/70">to</span>
       <Input
         size="sm"
         type="datetime-local"
@@ -580,7 +579,7 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UsageErrorInfo | null>(null);
   const [dimension, setDimension] = useState<UsageBreakdownDimension>("by_provider");
 
   useEffect(() => {
@@ -592,7 +591,7 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
         if (!cancelled) setReport(next);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(errorText(e));
+        if (!cancelled) setError(describeUsageError(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -610,15 +609,14 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
       {loading && report === null ? (
         <p className="text-2xs text-muted-foreground">loading usage…</p>
       ) : null}
-      {error !== null ? (
-        <p className="text-2xs text-destructive">usage failed: {error}</p>
-      ) : null}
+      {error !== null ? <SectionError label="usage" error={error} /> : null}
       {report !== null ? (
         <>
           {report.totals.events === 0 ? (
             <p className="text-2xs text-muted-foreground">
-              no measured usage in this window — an empty conversations index
-              reports zeros, not zero usage
+              no measured usage in this window — indexed sessions
+              contributed no usage events; the plugin reports zeros, not
+              measured zero usage
             </p>
           ) : null}
           <TotalsRow report={report} />
@@ -686,7 +684,7 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageCostReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UsageErrorInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -697,7 +695,7 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
         if (!cancelled) setReport(next);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(errorText(e));
+        if (!cancelled) setError(describeUsageError(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -716,9 +714,7 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
       {loading && report === null ? (
         <p className="text-2xs text-muted-foreground">loading cost…</p>
       ) : null}
-      {error !== null ? (
-        <p className="text-2xs text-destructive">cost failed: {error}</p>
-      ) : null}
+      {error !== null ? <SectionError label="cost" error={error} /> : null}
       {cost !== null ? (
         <>
           {cost.disclaimer !== null ? (
@@ -817,7 +813,7 @@ function DivergenceSection({ machine, filters }: { machine: string; filters: Usa
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageDivergenceReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UsageErrorInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -828,7 +824,7 @@ function DivergenceSection({ machine, filters }: { machine: string; filters: Usa
         if (!cancelled) setReport(next);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(errorText(e));
+        if (!cancelled) setError(describeUsageError(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -846,9 +842,7 @@ function DivergenceSection({ machine, filters }: { machine: string; filters: Usa
       {loading && report === null ? (
         <p className="text-2xs text-muted-foreground">loading divergence…</p>
       ) : null}
-      {error !== null ? (
-        <p className="text-2xs text-destructive">divergence failed: {error}</p>
-      ) : null}
+      {error !== null ? <SectionError label="divergence" error={error} /> : null}
       {report !== null ? (
         <>
           {report.hint !== null ? (
@@ -976,10 +970,8 @@ export function UsageSurface({ machine }: { machine: string }) {
           <p className="text-2xs text-muted-foreground">
             Token usage, subscription quota, estimated cost, and
             quota-vs-measured divergence from the rebuildup.usage plugin.
-            Quota reads provider endpoints through the plugin; usage/cost/
-            divergence aggregate the rebuildup.conversations index. All
-            figures are plugin-reported — estimated cost is a list-price
-            estimate, never a bill.
+            Usage/cost/divergence aggregate the conversations index;
+            estimated cost is a list-price estimate, never a bill.
           </p>
           <Button
             size="xs"

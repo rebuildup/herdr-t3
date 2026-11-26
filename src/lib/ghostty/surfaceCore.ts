@@ -78,6 +78,13 @@ export type SurfaceEffect =
       row?: number;
       modifiers: number;
     }
+  /**
+   * The host should move its authoritative viewport (selection edge
+   * auto-scroll, issue #433): emitted once per frame while a select drag
+   * holds the pointer in the edge zone. The host decides how — herdr
+   * `pane.scroll` for attach panes, local scrollback otherwise.
+   */
+  | { type: "scroll_request"; direction: "up" | "down"; lines: number }
   /** `options.onSelectionChange` */
   | { type: "selection_change"; text: string | null }
   /** `options.onScroll` — rows above the bottom */
@@ -96,6 +103,13 @@ export type SurfaceEffect =
   | { type: "render_set_selection"; range: ScreenRange | null }
   /** renderer: search-match highlight ranges */
   | { type: "render_set_highlights"; ranges: ScreenRange[] }
+  /**
+   * renderer/scene: rows the host's authoritative viewport sits above the
+   * engine's bottom-anchored `viewportTop` (server-side scroll, issue
+   * #436). Selection and highlights stay in engine history coordinates;
+   * the scene projects them against `viewportTop - shift`.
+   */
+  | { type: "render_set_viewport_shift"; shift: number }
   /** renderer: cursor visibility for the current blink phase */
   | { type: "render_set_cursor_visible"; visible: boolean }
   /** renderer: repaint everything (resize/theme/scroll jump) */
@@ -273,6 +287,12 @@ export class SurfaceCore {
     moved: boolean;
     button?: "left" | "middle" | "right";
     reported?: boolean;
+    /** pointer position in cell units relative to the surface origin; may
+     *  leave the grid while auto-scrolling (issue #433) */
+    pointer?: { col: number; row: number };
+    /** edge auto-scroll state while a select drag holds the pointer at a
+     *  viewport edge */
+    edge?: { direction: "up" | "down"; lines: number } | null;
   } | null = null;
   private readonly composition = new CompositionTracker();
   private imeAnchor: ScreenPoint | null = null;
@@ -288,8 +308,22 @@ export class SurfaceCore {
   private pressed = new Set<string>();
   private lastClick = { at: 0, count: 0 };
   private cursorPhase = true;
-  private lastViewportTop: number | null = null;
-  private scrollJump = false;
+  /**
+   * The host's authoritative viewport offset (herdr `pane.scroll_changed`,
+   * issue #436): `shift` is how many rows the displayed viewport sits above
+   * the engine's bottom-anchored `viewportTop`. Stored coordinates stay in
+   * engine history rows; only the renderer's projection subtracts the
+   * shift, so selection text and highlight track the same characters.
+   */
+  private hostScroll: {
+    offset: number;
+    max: number;
+    viewportRows: number;
+    shift: number;
+    /** scrollback growth observed while the host viewport was scrolled */
+    appends: number;
+  } | null = null;
+  private highlightRanges: ScreenRange[] = [];
   private disposed = false;
   private dead = false;
   private deadMessage: string | null = null;
@@ -362,11 +396,22 @@ export class SurfaceCore {
     if (!this.metrics) return null;
     const cell = mouseReportCell(
       point,
-      this.session.history().viewportTop,
+      this.session.history().viewportTop - this.hostShift(),
       this.metrics.cols,
       this.metrics.rows,
     );
     return cell ? { column: cell.col, row: cell.row } : null;
+  }
+
+  /** rows the host viewport sits above the engine's bottom-anchored view */
+  private hostShift(): number {
+    return this.hostScroll?.shift ?? 0;
+  }
+
+  /** engine history y of the first displayed row */
+  private effectiveViewportTop(effects: SurfaceEffect[]): number | undefined {
+    const top = this.trySession(effects, () => this.session.history().viewportTop);
+    return top === undefined ? undefined : top - this.hostShift();
   }
 
   private sendStructuredMouse(
@@ -468,7 +513,6 @@ export class SurfaceCore {
       this.session.scrollFromBottom(next);
     });
     if (scrolled === undefined && this.dead) return ok(effects, undefined);
-    this.scrollJump = true;
     effects.push({ type: "render_invalidate" });
     effects.push({ type: "scroll", rows: next });
     this.schedule(effects);
@@ -481,6 +525,101 @@ export class SurfaceCore {
 
   scrollToBottom(): CoreResult {
     return this.scrollTo(0);
+  }
+
+  /**
+   * The host's authoritative scroll offset moved (herdr
+   * `pane.scroll_changed`, issue #436): `shift` is how far the displayed
+   * viewport sits above the engine's bottom-anchored `viewportTop`.
+   * Selection and highlights stay in engine history coordinates — the
+   * scene projects them against `viewportTop - shift` — so the highlight
+   * keeps tracking the same characters instead of a fixed screen row.
+   * Appends while pinned at an offset grow `max` without moving the
+   * displayed content, which is why the shift is `offset - appends`, not
+   * the raw offset.
+   */
+  hostScrollChanged(info: {
+    offsetFromBottom: number;
+    maxOffsetFromBottom: number;
+    viewportRows: number;
+  }): CoreResult {
+    const effects: SurfaceEffect[] = [];
+    const prev = this.hostScroll;
+    if (!prev) {
+      const shift = Math.max(0, info.offsetFromBottom);
+      this.hostScroll = {
+        offset: info.offsetFromBottom,
+        max: info.maxOffsetFromBottom,
+        viewportRows: info.viewportRows,
+        shift,
+        appends: 0,
+      };
+      if (shift !== 0) {
+        effects.push({ type: "render_set_viewport_shift", shift });
+        this.schedule(effects);
+      }
+      return ok(effects, undefined);
+    }
+    // A viewport-row change means the pane resized (reflow) and a shrinking
+    // max means history was pruned: stored coordinates can no longer be
+    // trusted, so drop the selection and highlights explicitly rather than
+    // highlight whatever now occupies those rows.
+    if (
+      info.viewportRows !== prev.viewportRows ||
+      info.maxOffsetFromBottom < prev.max
+    ) {
+      this.hostScroll = {
+        offset: info.offsetFromBottom,
+        max: info.maxOffsetFromBottom,
+        viewportRows: info.viewportRows,
+        shift: Math.max(0, info.offsetFromBottom),
+        appends: 0,
+      };
+      this.invalidateSelection(effects);
+      effects.push({
+        type: "render_set_viewport_shift",
+        shift: this.hostScroll.shift,
+      });
+      this.schedule(effects);
+      return ok(effects, undefined);
+    }
+    let appends = prev.appends;
+    if (info.offsetFromBottom === 0 || prev.offset === 0) {
+      appends = 0;
+    } else {
+      appends += Math.max(0, info.maxOffsetFromBottom - prev.max);
+    }
+    const shift =
+      info.offsetFromBottom === 0
+        ? 0
+        : Math.max(0, info.offsetFromBottom - appends);
+    this.hostScroll = {
+      offset: info.offsetFromBottom,
+      max: info.maxOffsetFromBottom,
+      viewportRows: info.viewportRows,
+      shift,
+      appends,
+    };
+    if (shift !== prev.shift) {
+      effects.push({ type: "render_set_viewport_shift", shift });
+      this.schedule(effects);
+    }
+    return ok(effects, undefined);
+  }
+
+  /** drop selection state whose history coordinates are no longer
+   *  trustworthy (resize/reflow/prune, issue #436) */
+  private invalidateSelection(effects: SurfaceEffect[]): void {
+    this.drag = null;
+    if (this.selection) {
+      this.selection = null;
+      effects.push({ type: "render_set_selection", range: null });
+      effects.push({ type: "selection_change", text: null });
+    }
+    if (this.highlightRanges.length > 0) {
+      this.highlightRanges = [];
+      effects.push({ type: "render_set_highlights", ranges: [] });
+    }
   }
 
   /**
@@ -514,15 +653,16 @@ export class SurfaceCore {
     const col = Math.floor((clientX - rect.left) / m.cellW);
     const row = Math.floor((clientY - rect.top) / m.cellH);
     if (col < 0 || col >= m.cols || row < 0 || row >= m.rows) return null;
-    const top = this.trySession(effects, () => this.session.history().viewportTop);
+    const top = this.effectiveViewportTop(effects);
     if (top === undefined) return null;
-    return { x: col, y: top + row };
+    return { x: col, y: Math.max(0, top + row) };
   }
 
   /** find matches of `needle`; an empty needle clears them */
   search(needle: string): CoreResult<ScreenRange[]> {
     const effects: SurfaceEffect[] = [];
     const matches = this.trySession(effects, () => this.session.search(needle)) ?? [];
+    this.highlightRanges = matches;
     if (!this.dead) {
       effects.push({ type: "render_set_highlights", ranges: matches });
       this.schedule(effects);
@@ -653,36 +793,13 @@ export class SurfaceCore {
 
   // ---- frame tick -------------------------------------------------------------
 
-  /** one display frame: selection carry, hover/drag flush, cursor, paint */
+  /** one display frame: drag upkeep, hover/drag flush, cursor, paint */
   tick(): CoreResult {
     const effects: SurfaceEffect[] = [];
     if (this.disposed) return ok(effects, undefined);
     try {
-      const top = this.session.history().viewportTop;
-      if (
-        this.selection &&
-        this.lastViewportTop !== null &&
-        !this.scrollJump &&
-        this.scrollOffset === 0
-      ) {
-        const delta = top - this.lastViewportTop;
-        if (delta !== 0) {
-          this.selection = {
-            start: { x: this.selection.start.x, y: this.selection.start.y + delta },
-            end: { x: this.selection.end.x, y: this.selection.end.y + delta },
-          };
-          effects.push({ type: "render_set_selection", range: this.selection });
-          // an in-flight drag anchor tracks the same content (issue #427)
-          if (this.drag) {
-            this.drag.anchor = {
-              x: this.drag.anchor.x,
-              y: this.drag.anchor.y + delta,
-            };
-          }
-        }
-      }
-      this.lastViewportTop = top;
-      this.scrollJump = false;
+      // history() may fail on a dead engine — same guard as before
+      this.session.history();
       let cursor: ReturnType<GhosttySession["cursorState"]> | null = null;
       try {
         cursor = this.session.cursorState();
@@ -692,6 +809,7 @@ export class SurfaceCore {
       if (cursor?.visible) this.lastCursor = { x: cursor.x, y: cursor.y };
       this.flushHoverMotion(effects);
       this.flushDragMotion(effects);
+      this.tickDragSelection(effects);
       const blinking = cursor?.visible === true && cursor.blinking;
       effects.push({
         type: "render_set_cursor_visible",
@@ -711,6 +829,97 @@ export class SurfaceCore {
       this.fail(error, effects);
     }
     return ok(effects, undefined);
+  }
+
+  /**
+   * Per-frame upkeep for an in-flight select drag (issues #433/#436): the
+   * moving end is re-derived from the last pointer position in cell units,
+   * so host-driven viewport moves — edge auto-scroll, wheel, `pane.scroll` —
+   * keep extending the range without the pointer moving. While the pointer
+   * sits in the edge zone a `scroll_request` asks the host to keep
+   * scrolling; the schedule effect keeps the rAF chain alive only then.
+   */
+  private tickDragSelection(effects: SurfaceEffect[]): void {
+    const drag = this.drag;
+    if (!drag || drag.kind !== "select" || !drag.pointer) return;
+    const end = this.dragEndCell(drag, effects);
+    if (end) {
+      const range = ordered(drag.anchor, end);
+      const same =
+        this.selection !== null &&
+        this.selection.start.x === range.start.x &&
+        this.selection.start.y === range.start.y &&
+        this.selection.end.x === range.end.x &&
+        this.selection.end.y === range.end.y;
+      this.selection = range;
+      if (!same) {
+        const empty =
+          range.start.x === range.end.x && range.start.y === range.end.y;
+        effects.push({ type: "render_set_selection", range: empty ? null : range });
+      }
+    }
+    if (drag.edge) {
+      effects.push({
+        type: "scroll_request",
+        direction: drag.edge.direction,
+        lines: drag.edge.lines,
+      });
+      this.schedule(effects);
+    }
+  }
+
+  /**
+   * The selection's moving end for an in-flight drag: the pointer's cell,
+   * clamped to the visible grid and mapped through the host scroll shift,
+   * so the end tracks whatever content is actually under the pointer.
+   */
+  private dragEndCell(
+    drag: NonNullable<SurfaceCore["drag"]>,
+    effects: SurfaceEffect[],
+  ): ScreenPoint | null {
+    const m = this.metrics;
+    if (!m || !drag.pointer) return null;
+    const top = this.effectiveViewportTop(effects);
+    if (top === undefined) return null;
+    const col = Math.floor(drag.pointer.col);
+    const row = Math.floor(drag.pointer.row);
+    return {
+      x: Math.max(0, Math.min(m.cols - 1, col)),
+      y: Math.max(0, top + Math.max(0, Math.min(m.rows - 1, row))),
+    };
+  }
+
+  /**
+   * Edge auto-scroll for a select drag (issue #433): holding the pointer on
+   * the outermost row — or beyond the surface — scrolls toward older/newer
+   * history at a bounded, distance-scaled rate; moving back inside stops
+   * it and reverses direction.
+   */
+  private updateEdgeScroll(
+    drag: NonNullable<SurfaceCore["drag"]>,
+    m: SurfaceMetrics,
+  ): void {
+    const row = drag.pointer?.row;
+    if (row === undefined) {
+      drag.edge = null;
+      return;
+    }
+    let direction: "up" | "down";
+    let overshoot: number;
+    if (row < 1) {
+      direction = "up";
+      overshoot = Math.max(0, -row);
+    } else if (row >= m.rows - 1) {
+      direction = "down";
+      overshoot = Math.max(0, row - m.rows);
+    } else {
+      drag.edge = null;
+      return;
+    }
+    drag.edge = {
+      direction,
+      lines: Math.min(m.rows, 1 + Math.floor(overshoot)),
+    };
   }
 
   /** host-side blink timeout fired: flip phase and repaint next frame */
@@ -856,7 +1065,7 @@ export class SurfaceCore {
     }
     const cell = mouseReportCell(
       pending.point,
-      this.session.history().viewportTop,
+      this.session.history().viewportTop - this.hostShift(),
       this.metrics.cols,
       this.metrics.rows,
     );
@@ -1027,6 +1236,14 @@ export class SurfaceCore {
     ) === "mouse";
     this.drag = { kind: toMouse ? "mouse" : "select", anchor: cell, moved: false, button };
     if (!toMouse) {
+      const m = this.metrics;
+      if (m) {
+        this.drag.pointer = {
+          col: (input.clientX - rect.left) / m.cellW,
+          row: (input.clientY - rect.top) / m.cellH,
+        };
+        this.drag.edge = null;
+      }
       this.selection = { start: cell, end: cell };
       effects.push({ type: "render_set_selection", range: null });
     }
@@ -1053,28 +1270,46 @@ export class SurfaceCore {
       return ok(effects, undefined);
     }
     this.hoverPoint = null;
-    const cell = this.cellAt(input.clientX, input.clientY, rect, effects);
-    if (!cell) return ok(effects, undefined);
-    drag.moved = true;
-    const mods = SurfaceCore.modsOf(input);
     if (drag.kind === "mouse") {
+      const cell = this.cellAt(input.clientX, input.clientY, rect, effects);
+      if (!cell) return ok(effects, undefined);
+      drag.moved = true;
+      const mods = SurfaceCore.modsOf(input);
       if (drag.button) {
         this.pendingDragMotion = { button: drag.button, point: cell, mods };
         this.schedule(effects);
       }
       return ok(effects, undefined);
     }
-    if (this.callbacks.onMouse && drag.reported && drag.button) {
-      this.pendingDragMotion = { button: drag.button, point: cell, mods };
-      this.schedule(effects);
+    // select drag: the pointer may leave the grid — track it in cell units
+    // (floats, so edge distance still scales the scroll speed) and refresh
+    // the edge auto-scroll state (issue #433)
+    drag.moved = true;
+    const m = this.metrics;
+    if (m) {
+      drag.pointer = {
+        col: (input.clientX - rect.left) / m.cellW,
+        row: (input.clientY - rect.top) / m.cellH,
+      };
+      this.updateEdgeScroll(drag, m);
     }
-    // the gesture anchor is fixed at pointer-down; the normalized
-    // selection start is the moving end and must not become the anchor
-    // (issue #427 — upward drags lost their anchor)
-    const range = ordered(drag.anchor, cell);
-    this.selection = range;
-    const empty = range.start.x === range.end.x && range.start.y === range.end.y;
-    effects.push({ type: "render_set_selection", range: empty ? null : range });
+    const mods = SurfaceCore.modsOf(input);
+    if (this.callbacks.onMouse && drag.reported && drag.button) {
+      const cell = this.cellAt(input.clientX, input.clientY, rect, effects);
+      if (cell) {
+        this.pendingDragMotion = { button: drag.button, point: cell, mods };
+      }
+    }
+    // the gesture anchor is fixed at pointer-down in engine history
+    // coordinates; the moving end is re-derived from the pointer so it
+    // tracks whatever content scrolls under it (issues #427/#433/#436)
+    const end = this.dragEndCell(drag, effects);
+    if (end) {
+      const range = ordered(drag.anchor, end);
+      this.selection = range;
+      const empty = range.start.x === range.end.x && range.start.y === range.end.y;
+      effects.push({ type: "render_set_selection", range: empty ? null : range });
+    }
     this.schedule(effects);
     return ok(effects, undefined);
   }
@@ -1153,7 +1388,7 @@ export class SurfaceCore {
     if (!this.metrics) return;
     const target = mouseReportCell(
       cell,
-      this.session.history().viewportTop,
+      this.session.history().viewportTop - this.hostShift(),
       this.metrics.cols,
       this.metrics.rows,
     );

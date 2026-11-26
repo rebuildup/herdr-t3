@@ -1924,6 +1924,12 @@ export function GitSurface({
   const [section, setSection] = useState<Section>("changes");
   const [cap, setCap] = useState<GitCapability | null | undefined>(undefined);
   const status = useGitStatus(machine, paneId, { refreshKey });
+  // Every section reads the same repository: when status already failed
+  // (plugin unavailable, not a repo, bare repo, …) the tabs would only
+  // re-report the same failure — disable them instead of offering
+  // enabled-but-unavailable actions (issue #417 Windows leg).
+  const sectionsDisabled =
+    status.kind === "unavailable" || status.kind === "repo_error";
 
   useEffect(() => {
     let cancelled = false;
@@ -1962,6 +1968,7 @@ export function GitSurface({
                   key={s.id}
                   size="xs"
                   variant={section === s.id ? "secondary" : "ghost"}
+                  disabled={sectionsDisabled}
                   onClick={() => setSection(s.id)}
                 >
                   {s.label}
