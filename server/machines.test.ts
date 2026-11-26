@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { endpointsPath, loadMachineMetadata, loadSavedMachines } from "./machines.ts";
 import { isClientFrame } from "../shared/protocol.ts";
-import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, sshArgs, sshPluginHost } from "./ssh.ts";
+import { classifySshFailure, remoteArgvCommand, remoteBridgeCommand, remotePluginArgv, sshArgs, sshPluginHost } from "./ssh.ts";
 import { PLUGIN_ENV_SCRUB } from "./plugins.ts";
 
 const dirs: string[] = [];
@@ -285,5 +285,35 @@ describe("sshPluginHost session targeting (issue #289)", () => {
     const host = sshPluginHost({ ...endpoint, session: "default" }, "default");
     expect(host.pluginSession).toBeUndefined();
     expect(host.herdrArgv).toEqual(["/usr/bin/herdr"]);
+  });
+});
+
+describe("remotePluginArgv remote bun resolution (issue #339)", () => {
+  const endpoint = { id: "m", target: "h", session: "default", remoteHerdr: "/usr/bin/herdr" };
+
+  test("a resolved remoteBun replaces the bare bun argv head", () => {
+    const resolved = { ...endpoint, remoteBun: "/home/basic/.local/share/mise/installs/bun/1.4.5/bin/bun" };
+    expect(remotePluginArgv(resolved, ["bun", "run", "src/cli.ts", "capability"])).toEqual([
+      "/home/basic/.local/share/mise/installs/bun/1.4.5/bin/bun",
+      "run",
+      "src/cli.ts",
+      "capability",
+    ]);
+  });
+
+  test("non-bun argv and unresolved endpoints pass through unchanged", () => {
+    expect(remotePluginArgv(endpoint, ["bun", "run", "src/cli.ts"])).toEqual(["bun", "run", "src/cli.ts"]);
+    expect(remotePluginArgv({ ...endpoint, remoteBun: "/opt/bun" }, ["herdr", "plugin", "list"])).toEqual([
+      "herdr",
+      "plugin",
+      "list",
+    ]);
+    // Only the argv head is rewritten — a `bun` argument later in the
+    // vector (e.g. a plugin arg) must not be touched.
+    expect(remotePluginArgv({ ...endpoint, remoteBun: "/opt/bun" }, ["sh", "-c", "bun --version"])).toEqual([
+      "sh",
+      "-c",
+      "bun --version",
+    ]);
   });
 });

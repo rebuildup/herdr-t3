@@ -599,6 +599,76 @@ describe("PluginService.call", () => {
   });
 });
 
+describe("PluginService probe failure caching (issue #339)", () => {
+  /** Stateful host: the capability probe fails until `heal()` flips it. */
+  function flakyCapabilityHost() {
+    let healed = false;
+    const calls: string[][] = [];
+    const host: PluginHost & { calls: string[][]; heal: () => void } = {
+      calls,
+      heal: () => {
+        healed = true;
+      },
+      async exec(argv: string[]): Promise<PluginExecOutcome> {
+        calls.push([...argv]);
+        if (argv[0] === "herdr" && argv.includes("plugin")) return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") {
+          if (!healed) {
+            return { code: 127, stdout: "", stderr: "bun: command not found", timedOut: false };
+          }
+          return ok(CAPABILITY);
+        }
+        return ok({ contract: "herdr-plugins.inbox/v1", command: argv[3], ok: true });
+      },
+    };
+    return host;
+  }
+
+  test("a failed capability probe is retried on the next call, not served from cache", async () => {
+    const host = flakyCapabilityHost();
+    const svc = serviceFor(host);
+    await expect(
+      svc.call("m", { plugin: "rebuildup.inbox", command: "list" }),
+    ).rejects.toMatchObject({ code: "plugin_error" });
+    host.heal();
+    const doc = await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+    expect(doc["ok"]).toBe(true);
+    // discovery ran once (success is cached); capability probed twice —
+    // the cold-start failure must not occupy the TTL window.
+    const capabilityCalls = host.calls.filter((c) => c[3] === "capability");
+    expect(capabilityCalls).toHaveLength(2);
+  });
+
+  test("a failed discovery probe is retried on the next call, not served from cache", async () => {
+    let healed = false;
+    const calls: string[][] = [];
+    const host: PluginHost & { calls: string[][]; heal: () => void } = {
+      calls,
+      heal: () => {
+        healed = true;
+      },
+      async exec(argv: string[]): Promise<PluginExecOutcome> {
+        calls.push([...argv]);
+        if (argv[0] === "herdr" && argv.includes("plugin")) {
+          if (!healed) {
+            return { code: 1, stdout: "", stderr: "ssh bridge reset", timedOut: false };
+          }
+          return ok(PLUGIN_LIST);
+        }
+        if (argv[3] === "capability") return ok(CAPABILITY);
+        return ok({ contract: "herdr-plugins.inbox/v1", command: argv[3], ok: true });
+      },
+    };
+    const svc = serviceFor(host);
+    await expect(svc.listPlugins("m")).rejects.toMatchObject({ code: "plugin_error" });
+    host.heal();
+    const result = await svc.listPlugins("m");
+    expect(result.plugins).toHaveLength(2);
+    const discoveryCalls = host.calls.filter((c) => c[0] === "herdr" && c.includes("plugin"));
+    expect(discoveryCalls).toHaveLength(2);
+  });
+});
+
 describe("plugin host session/socket targeting (issue #289)", () => {
   const SOCKET = "/cfg/herdr/sessions/ht3rc/herdr.sock";
 

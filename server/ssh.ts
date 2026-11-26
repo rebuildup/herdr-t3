@@ -39,6 +39,13 @@ export interface SshEndpoint {
   remoteHerdr: string;
   /** Remote OS from herdr's ssh-metadata ("windows" selects the PowerShell path). */
   os?: string;
+  /**
+   * Resolved remote bun executable for plugin CLIs (issue #339). Non-login
+   * ssh PATH often lacks mise/bun installs, so plugin execs must not rely
+   * on bare `bun` resolving remotely. Absent → argv keeps `bun` and the
+   * remote shell resolves it (or fails honestly).
+   */
+  remoteBun?: string;
 }
 
 export function endpointFromMachine(machine: SavedMachine, remoteHerdr: string, os?: string): SshEndpoint {
@@ -422,6 +429,111 @@ export async function resolveRemoteHerdr(
   throw new Error("remote herdr not found on PATH or known install locations");
 }
 
+/* ------------------------- remote bun resolution ----------------------- */
+
+const resolvedBuns = new Map<string, string>();
+
+/**
+ * POSIX bun probe (issue #339): non-login ssh PATH frequently misses
+ * user-level bun installs (mise shims, ~/.bun), so plugin CLIs cannot
+ * rely on bare `bun`. Check PATH first, then the common per-user install
+ * locations; print the first executable candidate.
+ */
+const BUN_PROBE_SCRIPT = [
+  'for c in "$(command -v bun 2>/dev/null)" "$HOME/.bun/bin/bun" "$(ls -d "$HOME"/.local/share/mise/installs/bun/*/bin/bun 2>/dev/null | tail -1)" "$HOME/.local/share/mise/shims/bun" "$HOME/.local/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun /home/linuxbrew/.linuxbrew/bin/bun; do',
+  '  if [ -n "$c" ] && [ -x "$c" ]; then printf "%s\\n" "$c"; exit 0; fi',
+  "done",
+  "exit 1",
+].join("\n");
+
+/** herdr-style Windows bun candidate enumeration for `resolveRemoteBun`. */
+function windowsBunCandidateCommand(): string {
+  const script =
+    "function Emit-BunPath([string]$CandidatePath) { " +
+    "if ([string]::IsNullOrWhiteSpace($CandidatePath) -or -not (Test-Path -LiteralPath $CandidatePath -PathType Leaf)) { return }; " +
+    "$candidateFullPath = [System.IO.Path]::GetFullPath($CandidatePath); " +
+    "$encodedCandidate = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($candidateFullPath)); " +
+    `[Console]::Out.WriteLine('${WINDOWS_REMOTE_PATH_MARKER}' + $encodedCandidate) }; ` +
+    "$cmd = Get-Command bun.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+    "if ($null -ne $cmd) { Emit-BunPath $cmd.Source }; " +
+    "$cmd = Get-Command bun -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+    "if ($null -ne $cmd) { Emit-BunPath $cmd.Source }; " +
+    "Emit-BunPath (Join-Path $env:USERPROFILE '.bun\\bin\\bun.exe'); " +
+    "$mise = if ([string]::IsNullOrWhiteSpace($env:MISE_DATA_DIR)) { Join-Path $env:LOCALAPPDATA 'mise' } else { $env:MISE_DATA_DIR }; " +
+    "Get-ChildItem -LiteralPath (Join-Path $mise 'installs\\bun') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object { Emit-BunPath (Join-Path $_.FullName 'bin\\bun.exe') }; " +
+    "Emit-BunPath (Join-Path $mise 'shims\\bun.exe'); exit 0";
+  return windowsPowerShellScriptCommand(script);
+}
+
+async function probePosixBun(target: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn("ssh", [...sshArgs({ id: `probe-${target}`, target, session: "default", remoteHerdr: "true" }), "sh", "-s"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let out = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, SSH_CONNECT_TIMEOUT_S * 1000 + 5000);
+    child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf8")));
+    child.stderr?.on("data", () => {});
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const path = out.trim().split("\n").pop()?.trim() ?? "";
+      resolve(code === 0 && path.startsWith("/") ? path : null);
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(BUN_PROBE_SCRIPT);
+  });
+}
+
+/**
+ * Resolve the remote bun runtime used by plugin CLIs (issue #339). Probes
+ * are memoized per endpoint id for the process lifetime, mirroring
+ * `resolveRemoteHerdr`; only successes are cached so a later-installed bun
+ * is picked up on the next plugin host creation. Probe/ssh failures
+ * resolve to null — callers keep the bare `bun` argv and the remote
+ * failure stays honest instead of breaking machine connect.
+ */
+export async function resolveRemoteBun(endpoint: SshEndpoint): Promise<string | null> {
+  const cached = resolvedBuns.get(endpoint.id);
+  if (cached !== undefined) return cached;
+
+  let found: string | null = null;
+  if (isWindowsEndpoint(endpoint)) {
+    const candidates = await sshExecEndpoint(
+      endpoint,
+      windowsBunCandidateCommand(),
+      SSH_CONNECT_TIMEOUT_S * 1000 + 15000,
+    );
+    if (candidates.code === 0) {
+      const seen = new Set<string>();
+      for (const line of candidates.stdout.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith(WINDOWS_REMOTE_PATH_MARKER)) continue;
+        let path: string;
+        try {
+          path = Buffer.from(trimmed.slice(WINDOWS_REMOTE_PATH_MARKER.length), "base64").toString("utf8");
+        } catch {
+          continue;
+        }
+        if (!path || seen.has(path)) continue;
+        seen.add(path);
+        found = path;
+        break;
+      }
+    }
+  } else {
+    found = await probePosixBun(endpoint.target);
+  }
+  if (found !== null) resolvedBuns.set(endpoint.id, found);
+  return found;
+}
+
 /* ------------------------- windows remote discovery --------------------- */
 
 /** Run one ssh remote command to completion; resolves {code, stdout, stderr, timedOut}. */
@@ -520,6 +632,18 @@ export function remoteArgvCommand(
 }
 
 /**
+ * Plugin CLIs are spawned as `bun run src/cli.ts …` (plugins.ts). A
+ * resolved `endpoint.remoteBun` replaces the bare `bun` argv head so
+ * non-login ssh PATH does not have to carry the runtime (issue #339);
+ * every other argv passes through unchanged.
+ */
+export function remotePluginArgv(endpoint: SshEndpoint, argv: string[]): string[] {
+  return endpoint.remoteBun !== undefined && argv[0] === "bun"
+    ? [endpoint.remoteBun, ...argv.slice(1)]
+    : argv;
+}
+
+/**
  * PluginHost for a saved SSH machine (ADR-0011): argv runs on the remote
  * host through the same ssh transport as the bridges. `session` is the
  * herdr session name; "default" maps to no flag (the plugin CLI's
@@ -541,7 +665,7 @@ export function sshPluginHost(
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? [], options.envSet ?? {}),
+        remoteArgvCommand(endpoint, remotePluginArgv(endpoint, argv), options.cwd, options.envRemove ?? [], options.envSet ?? {}),
         options.timeoutMs,
       ).then((r) => ({
         code: r.code,

@@ -278,15 +278,13 @@ export interface PluginCallRequest {
 
 interface DiscoveryCacheEntry {
   at: number;
-  result?: PluginListResult;
-  error?: HerdrError;
+  result: PluginListResult;
 }
 
 interface CapabilityCacheEntry {
   at: number;
-  /** Parsed capability document, or the failure. */
-  doc?: Record<string, unknown>;
-  error?: HerdrError;
+  /** Parsed capability document. Failures are never cached (issue #339). */
+  doc: Record<string, unknown>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -506,8 +504,7 @@ export class PluginService {
   async listPlugins(machine: string): Promise<PluginListResult> {
     const cached = this.discovery.get(machine);
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
-      if (cached.error) throw cached.error;
-      return cached.result as PluginListResult;
+      return cached.result;
     }
     const host = await this.requireHost(machine);
     const outcome = await host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
@@ -525,16 +522,16 @@ export class PluginService {
     });
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
-      this.discovery.set(machine, { at: Date.now(), error: parsed.error });
+      // Probe failures are never cached (issue #339): a cold-start ssh
+      // hiccup or a runtime that appears a moment later must not poison
+      // the TTL window for every subsequent call.
       throw parsed.error;
     }
     const doc = parsed.doc;
     // herdr CLI envelope: {id, result:{plugins:[InstalledPluginInfo]}}
     const pluginsRaw = isRecord(doc) && isRecord(doc["result"]) ? doc["result"]["plugins"] : undefined;
     if (!Array.isArray(pluginsRaw)) {
-      const error = new HerdrError("plugin_bad_output", "herdr plugin list returned no plugins array");
-      this.discovery.set(machine, { at: Date.now(), error });
-      throw error;
+      throw new HerdrError("plugin_bad_output", "herdr plugin list returned no plugins array");
     }
     const plugins: PluginListEntry[] = [];
     for (const entry of pluginsRaw) {
@@ -619,12 +616,17 @@ export class PluginService {
       },
     );
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
-    const entry: CapabilityCacheEntry =
-      "error" in parsed
-        ? { at: Date.now(), error: parsed.error }
-        : { at: Date.now(), doc: isRecord(parsed.doc) ? parsed.doc : {} };
+    if ("error" in parsed) {
+      // Same cold-start rule as discovery (issue #339): a failed probe —
+      // e.g. `bun: command not found` before the runtime resolves — is
+      // retried on the next call instead of being served from cache.
+      throw parsed.error;
+    }
+    const entry: CapabilityCacheEntry = {
+      at: Date.now(),
+      doc: isRecord(parsed.doc) ? parsed.doc : {},
+    };
     this.capabilities.set(key, entry);
-    if (entry.error) throw entry.error;
     return entry;
   }
 
