@@ -1,0 +1,40 @@
+{
+  "format": "herdr-t3/perf-baseline",
+  "version": 1,
+  "recorded_at": "2026-11-26T06:24:33.226Z",
+  "git_sha": "932ce11d341385006a6389591a329f74a550d9d4",
+  "host": {
+    "platform": "win32",
+    "arch": "x64",
+    "hostname": "UUU",
+    "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700H",
+    "cpu_count": 20,
+    "mem_total_bytes": 34078433280
+  },
+  "bun_version": "1.4.4",
+  "workload": {
+    "bench": "scripts/perf-terminal-bench.ts",
+    "seed": 42,
+    "ticks": 400,
+    "note": "ANSI streaming decode+frame, base64 bridge hop; fixed LCG seed 42 inside bench"
+  },
+  "bench": {
+    "command": "bun C:\\Users\\rebui\\AppData\\Local\\herdr-t3\\releases\\932ce11d341385006a6389591a329f74a550d9d4\\scripts\\perf-terminal-bench.ts",
+    "iterations": 7,
+    "totals_ms": [
+      122,
+      135,
+      136,
+      146,
+      152,
+      158,
+      464
+    ],
+    "p50_ms": 146,
+    "p95_ms": 464,
+    "min_ms": 122,
+    "max_ms": 464,
+    "cv": 0.6045253401453874,
+    "cells_decoded_total": 1912344
+  }
+}
