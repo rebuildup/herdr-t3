@@ -24,6 +24,7 @@
  * and closed on exit unless --keep is passed.
  */
 import { $ } from "bun";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertBridgeTargetIsolated,
@@ -43,7 +44,14 @@ const CDP_PORT = Number(process.env["HT3_DRAFT_CDP_PORT"] ?? 9341);
 const BASE = `http://localhost:${VITE_PORT}/`;
 const CHROME =
   process.env.CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  (process.platform === "win32"
+    ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+// herdr panes get bash on POSIX and PowerShell on Windows; both need a real
+// temp dir for the workspace cwd and the Chrome profile.
+const IS_WIN = process.platform === "win32";
+const TEMP_DIR = IS_WIN ? tmpdir() : "/tmp";
+const SHELL_RESET = IS_WIN ? "Clear-Host" : "exec bash --norc -i";
 const WS_LABEL = "ht3draft-rc";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -165,7 +173,7 @@ async function launchChrome(): Promise<ReturnType<typeof Bun.spawn>> {
       "--headless=new",
       `--remote-debugging-port=${CDP_PORT}`,
       "--no-first-run",
-      "--user-data-dir=/tmp/herdr-t3-cdp-draft",
+      `--user-data-dir=${join(TEMP_DIR, "herdr-t3-cdp-draft")}`,
       "about:blank",
     ],
     { stdout: "ignore", stderr: "pipe" },
@@ -266,6 +274,33 @@ async function main() {
   const socketPath = sessionSocketPath(SESSION);
   console.log(`session=${SESSION} socket=${socketPath}`);
 
+  // herdr on Windows does not auto-start a named session for API commands
+  // (they fail with server_not_running); `herdr --session <name> server`
+  // runs it headless. POSIX herdr starts the server on demand.
+  if (IS_WIN) {
+    const list = await $`herdr session list`.text().catch(() => "");
+    const running = list
+      .split("\n")
+      .some((line) => line.includes(SESSION) && line.includes("running"));
+    if (!running) {
+      const server = Bun.spawn(["herdr", "--session", SESSION, "server"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      spawned.push({ proc: server, name: "herdr-server" });
+      const deadline = Date.now() + 15000;
+      for (;;) {
+        try {
+          await herdr(["workspace", "list"]);
+          break;
+        } catch {
+          if (Date.now() > deadline) throw new Error(`herdr session ${SESSION} did not start`);
+          await sleep(300);
+        }
+      }
+    }
+  }
+
   // --- herdr side: throwaway workspace + clean bash prompt ---------------
   const workspacesOut = await herdr(["workspace", "list"]);
   const workspaces =
@@ -276,7 +311,7 @@ async function main() {
     workspaceId = existing.workspace_id;
   } else {
     const created = await herdr([
-      "workspace", "create", "--label", WS_LABEL, "--cwd", "/tmp", "--focus",
+      "workspace", "create", "--label", WS_LABEL, "--cwd", TEMP_DIR, "--focus",
     ]);
     const parsed = JSON.parse(created) as {
       result?: { workspace?: { workspace_id?: string }; root_pane?: { pane_id?: string } };
@@ -296,8 +331,9 @@ async function main() {
   if (!paneId) throw new Error(`no pane in workspace ${workspaceId}`);
   console.log(`workspace=${workspaceId} pane=${paneId}`);
 
-  // Normalize the pane to a plain bash prompt so the draft is observable.
-  await herdr(["pane", "run", paneId, "exec bash --norc -i"]);
+  // Normalize the pane to a plain prompt so the draft is observable
+  // (bash on POSIX, PowerShell's Clear-Host on Windows).
+  await herdr(["pane", "run", paneId, SHELL_RESET]);
   await sleep(800);
 
   // --- spawn bridge + vite ----------------------------------------------
