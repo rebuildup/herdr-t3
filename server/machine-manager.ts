@@ -18,6 +18,7 @@ import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint,
 import { HerdrError } from "./herdr.ts";
 import { loadMachineMetadata, loadSavedMachines, type SavedMachine } from "./machines.ts";
 import { localPluginHost, PluginService, type PluginHost } from "./plugins.ts";
+import { metricInc } from "./metrics.ts";
 import {
   classifySshFailure,
   endpointFromMachine,
@@ -104,6 +105,7 @@ export class MachineManager {
 
   /** Re-read herdr's registry, drop vanished machines, refresh statuses. */
   async refresh(): Promise<void> {
+    metricInc("machine.refresh");
     if (this.closed) return;
     const saved = this.listSource();
     const seen = new Set<string>([LOCAL_ID]);
@@ -159,6 +161,7 @@ export class MachineManager {
 
   /** Route one client frame; returns true when it was machine-scoped. */
   handleFrame(frame: ClientFrame): boolean {
+    metricInc("client.frame", { type: frame.type });
     switch (frame.type) {
       case "list_machines":
         this.pushMachines();
@@ -440,6 +443,7 @@ export class MachineManager {
 
   /** Lightweight reachability probe for machines without a session. */
   private async probe(machine: string): Promise<void> {
+    metricInc("machine.probe");
     const info = this.infos.get(machine);
     if (!info || info.kind !== "ssh" || this.sessions.has(machine)) return;
     const saved = this.listSource().find((m) => m.id === machine);

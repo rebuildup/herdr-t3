@@ -13,6 +13,7 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import type { PluginCallResult, PluginListEntry, PluginListResult } from "../shared/protocol.ts";
 import { HerdrError, herdrSocketPath } from "./herdr.ts";
+import { metricInc, metricTimed } from "./metrics.ts";
 
 /* ------------------------------------------------------------------ */
 /* Host execution                                                       */
@@ -504,22 +505,29 @@ export class PluginService {
   async listPlugins(machine: string): Promise<PluginListResult> {
     const cached = this.discovery.get(machine);
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
+      metricInc("plugin.discovery.hit");
       return cached.result;
     }
+    metricInc("plugin.discovery.miss");
     const host = await this.requireHost(machine);
-    const outcome = await host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
-      timeoutMs: DEFAULT_TIMEOUT_MS,
-      // `herdr plugin list` itself resolves its socket through the same
-      // env precedence — scrub or discovery could read a foreign session.
-      envRemove: PLUGIN_ENV_SCRUB,
-      // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
-      // explicit socket override and beats `--session`/default. Set it
-      // *after* the scrub so it carries the bridge's own socket, not an
-      // ambient one (issue #289).
-      ...(host.pluginSocket !== undefined
-        ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
-        : {}),
-    });
+    const outcome = await metricTimed(
+      "plugin.exec",
+      () =>
+        host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
+          timeoutMs: DEFAULT_TIMEOUT_MS,
+          // `herdr plugin list` itself resolves its socket through the same
+          // env precedence — scrub or discovery could read a foreign session.
+          envRemove: PLUGIN_ENV_SCRUB,
+          // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
+          // explicit socket override and beats `--session`/default. Set it
+          // *after* the scrub so it carries the bridge's own socket, not an
+          // ambient one (issue #289).
+          ...(host.pluginSocket !== undefined
+            ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
+            : {}),
+        }),
+      { what: "plugin_list" },
+    );
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
       // Probe failures are never cached (issue #339): a cold-start ssh
@@ -588,11 +596,16 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
     argv.push(...pluginTargetArgs(host));
-    const outcome = await host.exec(argv, {
-      cwd: entry.plugin_root,
-      timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
-      envRemove: PLUGIN_ENV_SCRUB,
-    });
+    const outcome = await metricTimed(
+      "plugin.exec",
+      () =>
+        host.exec(argv, {
+          cwd: entry.plugin_root,
+          timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
+          envRemove: PLUGIN_ENV_SCRUB,
+        }),
+      { what: "plugin_call", command: request.command },
+    );
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;
     if (!isRecord(parsed.doc)) {
@@ -605,15 +618,24 @@ export class PluginService {
   private async capability(machine: string, pluginRoot: string): Promise<CapabilityCacheEntry> {
     const key = `${machine}\u0000${pluginRoot}`;
     const cached = this.capabilities.get(key);
-    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) return cached;
+    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) {
+      metricInc("plugin.capability.hit");
+      return cached;
+    }
+    metricInc("plugin.capability.miss");
     const host = await this.requireHost(machine);
-    const outcome = await host.exec(
-      ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
-      {
-        cwd: pluginRoot,
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-        envRemove: PLUGIN_ENV_SCRUB,
-      },
+    const outcome = await metricTimed(
+      "plugin.exec",
+      () =>
+        host.exec(
+          ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
+          {
+            cwd: pluginRoot,
+            timeoutMs: DEFAULT_TIMEOUT_MS,
+            envRemove: PLUGIN_ENV_SCRUB,
+          },
+        ),
+      { what: "capability" },
     );
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
     if ("error" in parsed) {

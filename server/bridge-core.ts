@@ -16,6 +16,7 @@ import {
 } from "./herdr.ts";
 import { openTerminalLink, type TerminalLink } from "./client-link.ts";
 import { clientSocketPath } from "./client-link.ts";
+import { metricInc } from "./metrics.ts";
 import { herdrSocketPath, socketAddress } from "./herdr.ts";
 import { socketConnector, type Connector } from "./socket.ts";
 
@@ -101,12 +102,14 @@ function pushSnapshot(state: SessionState): void {
   void fetchSnapshot(state.endpoint)
     .then((snapshot) => {
       state.snapshot = snapshot;
+      metricInc("bridge.snapshot.push");
       state.send({ type: "snapshot", snapshot, machine: state.machine });
       reconcileSubscriptions(state, snapshot);
     })
     .catch((error: unknown) => {
       /* herdr unreachable; surface it so diagnostics and the client can tell
          "offline" apart from "empty session". Renderers ignore unknown ids. */
+      metricInc("bridge.snapshot.push.error");
       const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
       state.send({
         type: "rpc_result",
@@ -130,21 +133,24 @@ function reconcileSubscriptions(state: SessionState, snapshot: SessionSnapshot):
 
 function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subscription {
   state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
+  metricInc("bridge.subscription.open");
   return subscribeEvents(
     [...STRUCTURE_SUBSCRIPTIONS, ...statusSubscriptions(snapshot)],
     {
       onEvent: (frame: EventFrame) => {
         state.send({ type: "event", event: frame, machine: state.machine });
-        scheduleSnapshot(state);
+        scheduleSnapshot(state, "event");
       },
-      onError: () => scheduleSnapshot(state),
+      onError: () => scheduleSnapshot(state, "subscription_error"),
       onClose: () => {
         state.subscription = null;
         state.subscribedPaneIds = new Set();
-        scheduleSnapshot(state);
+        metricInc("bridge.subscription.close");
+        scheduleSnapshot(state, "subscription_close");
         // Retry the subscription itself; the snapshot push above already ran once.
         state.pushTimer = setTimeout(() => {
           state.pushTimer = null;
+          metricInc("bridge.subscription.reopen");
           void fetchSnapshot(state.endpoint)
             .then((snapshot) => {
               state.send({ type: "snapshot", snapshot, machine: state.machine });
@@ -158,7 +164,8 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
   );
 }
 
-function scheduleSnapshot(state: SessionState): void {
+function scheduleSnapshot(state: SessionState, cause: string): void {
+  metricInc("bridge.snapshot.schedule", { cause });
   if (state.snapshotTimer !== null) return;
   state.snapshotTimer = setTimeout(() => {
     state.snapshotTimer = null;
@@ -270,7 +277,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       void herdrRpc(frame.method, frame.params ?? {}, { connect: state.endpoint.api, timeoutMs: 20000 })
         .then((result) => {
           state.send({ type: "rpc_result", id: frame.id, ok: true, result, machine: state.machine });
-          scheduleSnapshot(state);
+          scheduleSnapshot(state, "rpc");
         })
         .catch((error: unknown) => {
           const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
