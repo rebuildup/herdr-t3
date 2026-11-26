@@ -102,6 +102,18 @@ const SCENE_OPS = new Set([
   "scene_dispose",
 ]);
 
+/** terminal-input policy ops (issue #301). */
+const INPUT_OPS = new Set([
+  "input_bypass_key_encoder",
+  "input_focus_report",
+  "input_pointer_drag_kind",
+  "input_wheel_button",
+  "input_sends_hover_motion",
+  "input_mouse_report_cell",
+  "input_engine_key_for",
+  "input_composition",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -142,6 +154,14 @@ const BINS: RustBin[] = [
     envVar: "TERMINAL_RENDER_BIN",
     fileName: "terminal-render-adapter",
     label: "terminal-render-adapter",
+  },
+  {
+    ops: INPUT_OPS,
+    path: null,
+    package: "terminal-input",
+    envVar: "TERMINAL_INPUT_BIN",
+    fileName: "terminal-input-adapter",
+    label: "terminal-input-adapter",
   },
 ];
 

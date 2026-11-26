@@ -5466,6 +5466,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal-input"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "terminal-render"
 version = "0.0.0"
 dependencies = [
