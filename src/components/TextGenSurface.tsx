@@ -7,27 +7,30 @@
  *
  * The contract has NO list/history/result commands: `generate`
  * results are returned to the caller and never persisted
- * plugin-side, so there is no history to render. This surface is the
- * read side: `capability` (task×path matrix, agent/api provider
+ * plugin-side, so there is no history to render. This surface shows
+ * the latest result transiently and labels it "not retained"
+ * (retention gap recorded upstream as rebuildup/herdr-plugins#249).
+ * Reads: `capability` (task×path matrix, agent/api provider
  * matrix, guards, git-integration status, redacted config warnings)
  * fetched eagerly per machine, and `git-context` (read-only preview
  * of the repository input the git adapter would feed a task — no
  * provider is invoked) on demand.
  *
- * `generate` and `watch-next-prompt` are mutations (they drive herdr
- * agent panes and record pane metadata) and the `config` subcommands
- * write config.json — the local allowlist stays empty so no mutation
- * is ever offered. Generation and application stay separated: even
- * when a generation ticket lands, adopting a result is always an
- * explicit user action, never automatic.
+ * `generate` (issue #458) is the one allowlisted mutation
+ * (`TEXTGEN_MUTATION_COMMANDS`): confirm-gated, input sent on the
+ * plugin CLI's stdin, result displayed once with copy affordance.
+ * `watch-next-prompt` and the `config` writes stay gated off.
+ * Generation and application stay separated: adopting a result is
+ * always an explicit user action, never automatic.
  */
 import { useCallback, useEffect, useState } from "react";
-import { CopyIcon, EyeIcon } from "lucide-react";
+import { CopyIcon, EyeIcon, SparklesIcon } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Input, Label, Textarea } from "./ui/input";
 import { RefreshIcon } from "./ui/refresh-icon";
+import { Switch } from "./ui/switch";
 import {
   Select,
   SelectContent,
@@ -35,15 +38,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { DialogPanel } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   classifyTextgenError,
   fetchTextgenGitContext,
   refreshTextgen,
+  runTextgenGenerate,
   textgenErrorHint,
   textgenSupports,
+  textgenSupportsMutation,
   useTextgenState,
   type TextgenCapability,
+  type TextgenGenerateResult,
   type TextgenGitContextReport,
   type TextgenTask,
   type TextgenUnavailableReason,
@@ -518,6 +532,475 @@ function GitContextSection({
   );
 }
 
+/* ----------------------------- generate section ---------------------- */
+
+/**
+ * Input fields that carry bulk text (diffs, contexts, PR bodies) get a
+ * textarea; everything else a single-line input. `candidates` is the
+ * only numeric field in textgen-v1.
+ */
+const LONG_INPUT_FIELDS = new Set([
+  "diff",
+  "context",
+  "commits",
+  "issue_refs",
+  "pr_context",
+  "instructions",
+  "conventions",
+]);
+
+/** Contract-fixed git tasks that accept `--git-pane` collection. */
+const GIT_PANE_TASKS = new Set(["branch_name", "commit_message", "pr_content"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Serialized copy payload: strings verbatim, everything else JSON. */
+function resultCopyText(result: unknown): string {
+  return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+}
+
+/** Result body rendered per the contract's output shapes. */
+function GenerateResultBody({ report }: { report: TextgenGenerateResult }) {
+  const { result } = report;
+  if (typeof result === "string") {
+    return (
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 p-2 font-mono text-2xs">
+        {result}
+      </pre>
+    );
+  }
+  if (Array.isArray(result)) {
+    return (
+      <ol className="flex max-h-96 list-decimal flex-col gap-1 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2 pl-6 font-mono text-2xs">
+        {result.map((item) => (
+          <li
+            key={typeof item === "string" ? item : JSON.stringify(item)}
+            className="whitespace-pre-wrap"
+          >
+            {typeof item === "string" ? item : JSON.stringify(item)}
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  if (isRecord(result) && typeof result["title"] === "string") {
+    const body = typeof result["body"] === "string" ? result["body"] : "";
+    return (
+      <div className="flex max-h-96 flex-col gap-1.5 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2">
+        <p className="font-mono text-2xs font-semibold">{result["title"]}</p>
+        <pre className="whitespace-pre-wrap font-mono text-2xs">{body}</pre>
+      </div>
+    );
+  }
+  return (
+    <pre className="max-h-96 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2 font-mono text-2xs">
+      {JSON.stringify(result, null, 2)}
+    </pre>
+  );
+}
+
+function GenerateSection({
+  machine,
+  capability,
+}: {
+  machine: string;
+  capability: TextgenCapability;
+}) {
+  const supported = textgenSupports(capability, "generate");
+  const allowed = textgenSupportsMutation(capability, "generate");
+  const tasks = capability.tasks;
+
+  const [taskKind, setTaskKind] = useState("");
+  const effectiveTaskKind =
+    taskKind !== "" && tasks.some((t) => t.kind === taskKind)
+      ? taskKind
+      : (tasks[0]?.kind ?? "");
+  const task = tasks.find((t) => t.kind === effectiveTaskKind) ?? null;
+
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [provider, setProvider] = useState("auto");
+  const [model, setModel] = useState("");
+  const [paneId, setPaneId] = useState("");
+  const [gitRoot, setGitRoot] = useState("");
+  const [cwd, setCwd] = useState("");
+  const [timeoutSec, setTimeoutSec] = useState("");
+  const [allowExpensive, setAllowExpensive] = useState(false);
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState<TextgenGenerateResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const isGitTask = GIT_PANE_TASKS.has(effectiveTaskKind);
+  const gitPaneActive = isGitTask && paneId.trim() !== "";
+
+  // Providers offered verbatim from capability: enabled agent providers
+  // plus enabled API generators that already have a credential. ""
+  // means plugin-side resolution (config default → manifests → known).
+  const providerOptions = [
+    { value: "auto", label: "auto (plugin resolution)" },
+    ...capability.agentProviders
+      .filter((p) => p.enabled)
+      .map((p) => ({ value: p.id, label: `agent ${p.id}` })),
+    ...capability.apiProviders
+      .filter((p) => p.enabled && p.credentialConfigured)
+      .map((p) => ({ value: p.id, label: `api ${p.id}` })),
+  ];
+
+  // Required fields may be satisfied by --git-pane collection instead of
+  // the form; otherwise every required_input must be non-empty.
+  const requiredMissing = (task?.requiredInput ?? []).filter(
+    (field) => (fields[field] ?? "").trim() === "",
+  );
+  const canGenerate =
+    task !== null &&
+    allowed === true &&
+    !running &&
+    (gitPaneActive || requiredMissing.length === 0);
+
+  const setField = (name: string, value: string) =>
+    setFields((prev) => ({ ...prev, [name]: value }));
+
+  const runGenerate = () => {
+    if (task === null || running) return;
+    setRunning(true);
+    setError(null);
+    const timeoutMs =
+      timeoutSec.trim() !== "" && Number(timeoutSec) > 0
+        ? Math.floor(Number(timeoutSec) * 1000)
+        : undefined;
+    // Only send fields the selected task's allowlist knows — stale keys
+    // from another task would trip the plugin's input_unknown_field.
+    const input: Record<string, unknown> = {};
+    for (const field of task.inputFields) {
+      const raw = (fields[field] ?? "").trim();
+      if (raw === "") continue;
+      if (field === "candidates") {
+        const n = Number(raw);
+        if (Number.isFinite(n)) input[field] = n;
+      } else {
+        input[field] = raw;
+      }
+    }
+    runTextgenGenerate(machine, {
+      task: task.kind,
+      input,
+      ...(provider !== "" && provider !== "auto" ? { provider } : {}),
+      ...(model.trim() !== "" ? { model: model.trim() } : {}),
+      ...(gitPaneActive ? { paneId: paneId.trim() } : {}),
+      ...(gitRoot.trim() !== "" ? { gitRoot: gitRoot.trim() } : {}),
+      ...(cwd.trim() !== "" ? { cwd: cwd.trim() } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(allowExpensive ? { allowExpensive: true } : {}),
+    })
+      .then((r) => {
+        setReport(r);
+        setConfirmOpen(false);
+      })
+      .catch((e: unknown) => {
+        setError(errorText(e));
+        setConfirmOpen(false);
+      })
+      .finally(() => setRunning(false));
+  };
+
+  const copyResult = () => {
+    if (report === null) return;
+    void navigator.clipboard
+      ?.writeText(resultCopyText(report.result))
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  };
+
+  if (supported !== true) return null;
+  return (
+    <section className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+          Generate
+        </h3>
+        {allowed === true ? (
+          <Badge size="sm" variant="warning">
+            mutation
+          </Badge>
+        ) : (
+          <Badge size="sm" variant="outline">
+            gated off
+          </Badge>
+        )}
+      </div>
+      <p className="text-2xs text-muted-foreground/70">
+        runs the plugin&apos;s <code>generate</code> command — the agent
+        path spawns a dedicated herdr pane and API generators spend
+        per-token budget. The result is returned once and{" "}
+        <span className="text-foreground">not retained</span> by the
+        plugin; copy it before generating again.
+      </p>
+
+      {allowed !== true ? (
+        <p className="text-2xs text-muted-foreground">
+          {allowed === null
+            ? "checking mutation support…"
+            : "generate is not in this host's mutation_commands (or not allowlisted client-side)"}
+        </p>
+      ) : tasks.length === 0 ? (
+        <p className="text-2xs text-muted-foreground">no tasks advertised</p>
+      ) : (
+        <div className="flex flex-col gap-2 rounded-md border border-border/60 p-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={effectiveTaskKind} onValueChange={setTaskKind}>
+              <SelectTrigger aria-label="Task" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {tasks.map((t) => (
+                  <SelectItem key={t.kind} value={t.kind}>
+                    {t.kind}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={provider} onValueChange={setProvider}>
+              <SelectTrigger aria-label="Provider" className="min-w-40 flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providerOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              size="sm"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="model (optional)"
+              aria-label="Model override"
+              className="w-36"
+            />
+          </div>
+
+          {task !== null && task.inputFields.length > 0 ? (
+            <div className="grid gap-1.5">
+              {task.inputFields.map((field) => {
+                const required = task.requiredInput.includes(field);
+                const label = `${field}${required ? " *" : ""}`;
+                if (field === "candidates") {
+                  return (
+                    <div key={field} className="flex items-center gap-2">
+                      <Label className="w-28 shrink-0">{label}</Label>
+                      <Input
+                        size="sm"
+                        type="number"
+                        min={1}
+                        max={5}
+                        value={fields[field] ?? ""}
+                        onChange={(e) => setField(field, e.target.value)}
+                        placeholder="1–5"
+                        aria-label={label}
+                        className="w-24"
+                      />
+                    </div>
+                  );
+                }
+                if (LONG_INPUT_FIELDS.has(field)) {
+                  return (
+                    <div key={field} className="flex flex-col gap-0.5">
+                      <Label>{label}</Label>
+                      <Textarea
+                        value={fields[field] ?? ""}
+                        onChange={(e) => setField(field, e.target.value)}
+                        placeholder={field}
+                        aria-label={label}
+                        rows={4}
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={field} className="flex items-center gap-2">
+                    <Label className="w-28 shrink-0">{label}</Label>
+                    <Input
+                      size="sm"
+                      value={fields[field] ?? ""}
+                      onChange={(e) => setField(field, e.target.value)}
+                      placeholder={field}
+                      aria-label={label}
+                      className="min-w-0 flex-1"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {isGitTask ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Input
+                size="sm"
+                value={paneId}
+                onChange={(e) => setPaneId(e.target.value)}
+                placeholder="git pane id (optional — collects diff/commits via rebuildup.git)"
+                aria-label="Git pane"
+                className="min-w-48 flex-1"
+              />
+              <Input
+                size="sm"
+                value={gitRoot}
+                onChange={(e) => setGitRoot(e.target.value)}
+                placeholder="git plugin root (optional)"
+                aria-label="Git plugin root"
+                className="min-w-36 flex-1"
+              />
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              size="sm"
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder="cwd (optional)"
+              aria-label="Working directory"
+              className="w-44"
+            />
+            <Input
+              size="sm"
+              type="number"
+              min={1}
+              value={timeoutSec}
+              onChange={(e) => setTimeoutSec(e.target.value)}
+              placeholder="timeout s (optional)"
+              aria-label="Timeout seconds"
+              className="w-32"
+            />
+            {task?.requiresOptIn ? (
+              <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+                <Switch
+                  size="sm"
+                  checked={allowExpensive}
+                  onCheckedChange={(checked) => setAllowExpensive(checked === true)}
+                  aria-label="Allow expensive task"
+                />
+                allow expensive task
+                {capability.guards?.expensiveTaskOptIn ? " (config opt-in on)" : ""}
+              </span>
+            ) : null}
+            <Button
+              size="xs"
+              className="ml-auto"
+              disabled={!canGenerate}
+              onClick={() => setConfirmOpen(true)}
+            >
+              <SparklesIcon />
+              {running ? "Generating…" : "Generate"}
+            </Button>
+          </div>
+          {task !== null && !gitPaneActive && requiredMissing.length > 0 ? (
+            <p className="text-2xs text-muted-foreground/70">
+              required: {requiredMissing.join(", ")}
+            </p>
+          ) : null}
+          {task?.requiresOptIn && task.optIn !== null ? (
+            <p className="text-2xs text-muted-foreground/70">{task.optIn}</p>
+          ) : null}
+        </div>
+      )}
+
+      {error !== null ? (
+        <p className="text-2xs text-destructive">generate failed: {error}</p>
+      ) : null}
+
+      {report !== null ? (
+        <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/60 p-2">
+          <div className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground">
+            <Badge size="sm" variant="info">
+              {report.task ?? "?"}
+            </Badge>
+            <span className="min-w-0 truncate">
+              {report.provider ?? "?"}
+              {report.model !== null ? ` · ${report.model}` : ""}
+              {report.path !== null ? ` · ${report.path}` : ""}
+            </span>
+            {report.elapsedMs !== null ? (
+              <span className="shrink-0">{(report.elapsedMs / 1000).toFixed(1)}s</span>
+            ) : null}
+            <Badge size="sm" variant="outline" title="generate results are returned to the caller only — the plugin keeps no history">
+              not retained
+            </Badge>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={copyResult}
+              aria-label={copied ? "Result copied" : "Copy result"}
+              title={copied ? "Copied" : "Copy result"}
+            >
+              <CopyIcon className="size-3" />
+            </Button>
+          </div>
+          <GenerateResultBody report={report} />
+          {report.gitContext !== null ? (
+            <p className="truncate text-2xs text-muted-foreground/70">
+              git context: pane {report.gitContext.paneId ?? "?"}
+              {report.gitContext.branch !== null ? ` · ${report.gitContext.branch}` : ""}
+              {report.gitContext.repoRoot !== null ? ` · ${report.gitContext.repoRoot}` : ""}
+            </p>
+          ) : null}
+          {report.warnings.map((warning) => (
+            <p key={warning} className="text-2xs text-warning">
+              warning: {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Mutation confirm: generation spends provider quota and may
+          spawn a dedicated agent pane; the result is shown once and
+          never auto-applied. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Run generate?</DialogTitle>
+            <DialogDescription>
+              Runs <code>generate --task {effectiveTaskKind}</code>
+              {provider !== "" && provider !== "auto" ? ` --provider ${provider}` : ""}
+              {gitPaneActive ? ` --git-pane ${paneId.trim()}` : ""} on{" "}
+              {machine}. The agent path spawns a dedicated herdr pane;
+              API providers spend per-token budget. The result appears
+              here once and is not retained — copy it if you need it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              disabled={running}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={running || !canGenerate}
+              onClick={runGenerate}
+            >
+              {running ? "Generating…" : "Generate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
 /* -------------------------------- surface ------------------------------ */
 
 export function TextGenSurface({ machine }: { machine: string }) {
@@ -546,9 +1029,9 @@ export function TextGenSurface({ machine }: { machine: string }) {
             structured candidates (thread titles, branch names,
             commit messages, PR content, review guides, next prompts)
             produced through dedicated herdr agent panes or opt-in API
-            generators. Read surface only: capability registry +
-            git-context preview. generate/watch-next-prompt/config
-            writes stay plugin-side; results are never auto-applied.
+            generators. generate runs on demand with confirmation;
+            results are shown once and never auto-applied or retained.
+            watch-next-prompt/config writes stay gated off.
           </p>
           <Button
             size="xs"
@@ -583,6 +1066,7 @@ export function TextGenSurface({ machine }: { machine: string }) {
         {state.status.kind === "ready" || capability !== null ? (
           capability !== null ? (
             <div className="flex flex-col gap-4">
+              <GenerateSection machine={machine} capability={capability} />
               <TasksSection capability={capability} />
               <ProvidersSection capability={capability} />
               <GuardsSection capability={capability} />

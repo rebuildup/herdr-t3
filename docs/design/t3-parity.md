@@ -58,7 +58,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Automations (scheduled/event tasks) | [plugin] | `herdr-plugins.automations/v1` pinned @6c1cfa5 (ADR-0026): task/run surface connected (#361 read + #362 lifecycle mutations); driver commands remain out of scope |
 | Artifacts (generated-file registry: html/image/pdf/file/other) | [plugin] | `herdr-plugins.artifacts/v1` pinned @d23205af (ADR-0029): export/search/verify read surface connected (#396, capability-gated per host; `missing_ref`/`owner_stale`/`oversize`/`orphans`/`corrupt` rendered verbatim, empty registry is an honest empty state); `resolved_path` is text+copy only — no inline render, no shell-open bridge; mutations (`register`/`delete`/`deliver`/`gc`) gated off, separate ticket |
 | Handoffs / delegation records | [plugin] | `herdr-plugins.handoff/v1` pinned @d23205af (ADR-0030): list/status/resume-info read surface connected (#404 — record list with relationship kind, derived children, `transfer_check` staleness, execution target; on-demand `status` detail with `--no-reconcile` and owner-CLI payload-ref resolution, `resume-info` provider native-resume table); mutations (`create`/`execute`/`delegate`/`merge-back`) and `status --remote` remain separate tickets |
-| Text generation (thread titles, branch/commit/PR content, review guides, next prompts) | [plugin] | `herdr-plugins.textgen/v1` pinned @d23205af (ADR-0031): capability/git-context read surface connected (#442, capability-gated per host — task×path matrix, provider matrix, guards, git integration rendered verbatim); contract has no list/history/result commands so no generation history exists; `generate`/`watch-next-prompt`/config mutations gated off, results never auto-applied — generation ticket separate |
+| Text generation (thread titles, branch/commit/PR content, review guides, next prompts) | [plugin] | `herdr-plugins.textgen/v1` pinned @d23205af (ADR-0031 + #458 amendment): capability/git-context reads + confirm-gated `generate` connected (capability-gated per host — task×path matrix, provider matrix, guards, git integration rendered verbatim; generate input via `plugin_call.stdin`, result shown transiently with "not retained" label, copy affordance); contract has no list/history/result commands so no generation history exists (retention gap: herdr-plugins#249); `watch-next-prompt`/config mutations gated off, results never auto-applied |
 
 > **Container rule (maintainer directive, #333):** plugin surfaces are docked
 > right-panel tabs in the T3 `ChatRightPanel`/`RightPanelTabs` pattern — a
@@ -125,7 +125,8 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    @d23205af pin — list/status/resume-info reads; mutations are
    top-level commands gated off, separate ticket), textgen surface via
    `herdr-plugins.textgen` (#442 on the @d23205af
-   pin — capability/git-context reads; advertised mutations gated off),
+   pin — capability/git-context reads; `generate` confirm-gated since
+   #458, `watch-next-prompt`/config writes still gated off),
    settings sections that map to existing data.
 3. **upstream-gated (any release):** issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178

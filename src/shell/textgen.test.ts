@@ -7,6 +7,8 @@ import {
   classifyTextgenError,
   textgenCapabilityFromDoc,
   textgenErrorHint,
+  textgenGenerateArgs,
+  textgenGenerateFromDoc,
   textgenGitContextArgs,
   textgenGitContextFromDoc,
   textgenSupports,
@@ -169,9 +171,9 @@ describe("textgen doc parsers", () => {
   test("constants match the pinned contract", () => {
     expect(TEXTGEN_PLUGIN_ID).toBe("rebuildup.textgen");
     expect(TEXTGEN_CONTRACT_PREFIX).toBe("herdr-plugins.textgen/");
-    // Read surface only: the local allowlist stays empty even though
-    // the contract advertises generate/watch-next-prompt/config writes.
-    expect(TEXTGEN_MUTATION_COMMANDS).toHaveLength(0);
+    // Issue #458: `generate` is the one allowlisted mutation; the
+    // watcher and config writes stay gated off.
+    expect(TEXTGEN_MUTATION_COMMANDS).toEqual(["generate"]);
   });
 
   test("capability parses tasks, providers, guards and git integration", () => {
@@ -256,13 +258,13 @@ describe("textgen doc parsers", () => {
 });
 
 describe("textgen capability gating", () => {
-  test("mutation gating fails closed despite advertised mutation_commands", () => {
+  test("mutation gating allows generate only (issue #458)", () => {
     const cap = textgenCapabilityFromDoc(CAPABILITY_DOC);
     expect(cap).not.toBeNull();
-    // The contract DOES advertise mutations, but the empty local
-    // allowlist keeps every command unofferable on this surface.
+    // generate is advertised in both commands and mutation_commands.
+    expect(textgenSupportsMutation(cap, "generate")).toBe(true);
+    // Everything else — including advertised mutations — stays gated.
     for (const command of [
-      "generate",
       "watch-next-prompt",
       "config set-default-provider",
       "config set-default-model",
@@ -276,6 +278,121 @@ describe("textgen capability gating", () => {
     // Probe states mirror textgenSupports: undefined = probing.
     expect(textgenSupportsMutation(undefined, "generate")).toBeNull();
     expect(textgenSupportsMutation(null, "generate")).toBe(false);
+  });
+
+  test("generate fails closed when the plugin does not advertise it", () => {
+    const cap = textgenCapabilityFromDoc({
+      ...CAPABILITY_DOC,
+      commands: ["capability", "git-context"],
+      mutation_commands: [],
+    });
+    expect(textgenSupportsMutation(cap, "generate")).toBe(false);
+    const mutationsOnly = textgenCapabilityFromDoc({
+      ...CAPABILITY_DOC,
+      commands: ["capability"],
+      mutation_commands: ["generate"],
+    });
+    expect(textgenSupportsMutation(mutationsOnly, "generate")).toBe(false);
+  });
+});
+
+describe("textgen generate argv + result doc (issue #458)", () => {
+  test("generate argv carries task and optional flags, never input", () => {
+    // cli.ts parseArgs: input JSON travels on stdin (the plugin_call
+    // `stdin` field), never argv — --input FILE has no remote channel.
+    expect(
+      textgenGenerateArgs({
+        task: "commit_message",
+        input: { diff: "diff --git a/f b/f" },
+      }),
+    ).toEqual(["--task", "commit_message"]);
+    expect(
+      textgenGenerateArgs({
+        task: "pr_content",
+        input: {},
+        provider: "agent:claude",
+        model: "claude-sonnet-4",
+        paneId: "w1:p1",
+        gitRoot: "/plugins/git",
+        cwd: "/repo",
+        timeoutMs: 300_000,
+        allowExpensive: true,
+      }),
+    ).toEqual([
+      "--task",
+      "pr_content",
+      "--provider",
+      "agent:claude",
+      "--model",
+      "claude-sonnet-4",
+      "--timeout",
+      "300000",
+      "--cwd",
+      "/repo",
+      "--git-pane",
+      "w1:p1",
+      "--git-root",
+      "/plugins/git",
+      "--allow-expensive",
+    ]);
+    // Empty optionals are omitted.
+    expect(
+      textgenGenerateArgs({
+        task: "branch_name",
+        input: {},
+        provider: "",
+        model: "",
+        paneId: "",
+        gitRoot: "",
+        cwd: "",
+      }),
+    ).toEqual(["--task", "branch_name"]);
+  });
+
+  test("generate result parses task/provider/result/warnings/git_context", () => {
+    const report = textgenGenerateFromDoc({
+      contract: CONTRACT,
+      command: "generate",
+      ok: true,
+      task: "commit_message",
+      provider: "agent:claude",
+      path: "agent",
+      model: null,
+      result: ["feat: add generation (#458)"],
+      elapsed_ms: 12345,
+      warnings: ["agent_availability_unverified"],
+      git_context: {
+        pane_id: "w1:p1",
+        repo_root: "/repo",
+        branch: "feature/x",
+        sources: ["git-v1:status"],
+      },
+    });
+    expect(report).not.toBeNull();
+    expect(report?.task).toBe("commit_message");
+    expect(report?.provider).toBe("agent:claude");
+    expect(report?.path).toBe("agent");
+    expect(report?.result).toEqual(["feat: add generation (#458)"]);
+    expect(report?.elapsedMs).toBe(12345);
+    expect(report?.warnings).toEqual(["agent_availability_unverified"]);
+    expect(report?.gitContext?.paneId).toBe("w1:p1");
+    expect(report?.gitContext?.sources).toEqual(["git-v1:status"]);
+  });
+
+  test("generate result rejects foreign contract, wrong command, failure", () => {
+    expect(
+      textgenGenerateFromDoc({ contract: "other/v9", command: "generate", ok: true, result: "x" }),
+    ).toBeNull();
+    expect(
+      textgenGenerateFromDoc({ contract: CONTRACT, command: "capability", ok: true, result: "x" }),
+    ).toBeNull();
+    expect(
+      textgenGenerateFromDoc({ contract: CONTRACT, command: "generate", ok: false, error: {} }),
+    ).toBeNull();
+    expect(
+      textgenGenerateFromDoc({ contract: CONTRACT, command: "generate", ok: true }),
+    ).toBeNull();
+    expect(textgenGenerateFromDoc({})).toBeNull();
   });
 });
 
