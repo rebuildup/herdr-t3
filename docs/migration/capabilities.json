@@ -141,6 +141,14 @@
    "spec": "docs/migration/contracts/plugin-checkpoints.md",
    "oracle": "conformance",
    "summary": "Worktree checkpoints as hidden git refs: capability/create/save/list/show/diff/plan/restore/restore-group/delete/gc/prune via plugin_call; restore has plan preview, shared-worktree isolation and pre-restore recovery; multi-repo save groups + bounded retention consumed @ae4f214; work-unit auto-capture (kind/auto_captures/create --auto) consumed @55df8d0a; per-turn capture is a non-goal."
+  },
+  {
+   "id": "plugin-automations",
+   "version": 1,
+   "title": "herdr-plugins.automations/v1 scheduled and event-triggered tasks",
+   "spec": "docs/migration/contracts/plugin-automations.md",
+   "oracle": "conformance",
+   "summary": "Automations task registry + run history via plugin_call: capability/list/get/runs read surface consumed @6c1cfa5; mutations and driver commands out of scope for the read ticket."
   }
  ],
  "capabilities": [
@@ -517,7 +525,8 @@
      "rebuildup.inbox v0.1.0",
      "herdr-plugins.git/v1 @d057830",
      "herdr-plugins.projects/v1 @2dcb2abf",
-     "herdr-plugins.checkpoints/v1 @ae4f214"
+     "herdr-plugins.checkpoints/v1 @ae4f214",
+     "herdr-plugins.automations/v1 @6c1cfa5"
     ],
     "excluded": false
    }
@@ -1239,6 +1248,64 @@
     "upstream_deps": [
      "herdr-plugins.checkpoints/v1 @ae4f214",
      "git + bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "automations.surface",
+   "title": "Automations surface via herdr-plugins.automations/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.automations",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-automations@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host",
+    "list task views (schedule/enabled/next_run_at/driver/missed_total)",
+    "get single task view",
+    "runs history per task incl. derived missed entries (run_id:null, derived:true)",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "task_not_found and contract error.code passthrough as error detail",
+    "foreign contract and malformed documents rejected (plugin_bad_output)"
+   ],
+   "side_effects": [
+    "none client-side beyond plugin_call reads; task/run state writes stay plugin-side"
+   ],
+   "scenarios": [
+    "src/shell/automations.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/automations.ts",
+    "src/components/AutomationsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-automations.md",
+    "docs/adr/ADR-0026.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "read surface only — mutations (set-enabled/run-now/delete/reconcile) and driver commands (watch/tick/schedule) are separate tickets"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.automations/v1 @6c1cfa5",
+     "bun on the plugin host"
     ],
     "excluded": false
    },
