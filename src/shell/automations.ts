@@ -4,12 +4,13 @@
  * `rebuildup.automations` on each target host owns scheduled/event
  * agent tasks through the `herdr-plugins.automations/v1` contract,
  * pinned at rebuildup/herdr-plugins@6c1cfa5 (v0.7.0,
- * docs/contracts/automations-v1.md). This module consumes the READ
- * surface only — `capability`, `list`, `get`, `runs`. Mutations
- * (`create`/`update`/`set-enabled`/`delete`/`run-now`/`reconcile`) and
- * driver commands (`fire`/`tick`/`watch`/`schedule`) are intentionally
- * absent: `reconcile` materializes missed runs (a write) and the driver
- * commands are long-running or fire executions.
+ * docs/contracts/automations-v1.md). This module consumes the read
+ * surface (`capability`, `list`, `get`, `runs`) plus the lifecycle
+ * mutations `set-enabled`/`run-now`/`delete`/`reconcile` (issue #362).
+ * Driver commands (`fire`/`tick`/`watch`/`schedule`) stay absent:
+ * they are long-running or execute prompts outside the `plugin_call`
+ * envelope, and `create`/`update` remain out of scope (complex
+ * `--schedule`/`--destination` JSON authoring).
  *
  * Task/run documents are defensive projections: a foreign contract, a
  * missing `tasks`/`runs` array, or a malformed entry rejects (or is
@@ -30,8 +31,26 @@ import type { PluginCallResult } from "../../shared/protocol";
 
 export const AUTOMATIONS_PLUGIN_ID = "rebuildup.automations";
 export const AUTOMATIONS_CONTRACT_PREFIX = "herdr-plugins.automations/";
-/** Read commands this surface requires; mutation/driver commands are out of scope. */
+/** Read commands this surface requires. */
 const REQUIRED_COMMANDS = ["list", "get", "runs"] as const;
+
+/**
+ * Mutation commands this surface may invoke (issue #362). The v1
+ * capability document has NO `mutation_commands` field — a contract
+ * gap recorded in docs/migration/contracts/plugin-automations.md — so
+ * gating is this explicit local allowlist intersected with the flat
+ * advertised `commands` list: a mutation is offered only when BOTH
+ * hold. `create`/`update` are deliberately absent (out of scope), and
+ * driver commands (`fire`/`tick`/`watch`/`schedule`) are never
+ * mutations this client sends.
+ */
+export const AUTOMATIONS_MUTATION_COMMANDS = [
+  "set-enabled",
+  "run-now",
+  "delete",
+  "reconcile",
+] as const;
+export type AutomationsMutationCommand = (typeof AUTOMATIONS_MUTATION_COMMANDS)[number];
 
 /** Boundary-level unavailability (ADR-0011 §10). */
 export type AutomationsUnavailableReason =
@@ -599,6 +618,92 @@ export async function fetchAutomationsRuns(
   return runs;
 }
 
+/* ----------------------------- mutations ------------------------------ */
+
+/** `set-enabled <task_id> <true|false>`; `false` materializes owed missed runs first. */
+export function automationsSetEnabledArgs(taskId: string, enabled: boolean): string[] {
+  return [taskId, enabled ? "true" : "false"];
+}
+
+/** `run-now <task_id>` — manual trigger; never collides with the occurrence key. */
+export function automationsRunNowArgs(taskId: string): string[] {
+  return [taskId];
+}
+
+/** `delete <task_id>` — removes the task AND its run records. */
+export function automationsDeleteArgs(taskId: string): string[] {
+  return [taskId];
+}
+
+/** `reconcile [--task <task_id>]` — materializes derived missed occurrences (a write). */
+export function automationsReconcileArgs(
+  options: { taskId?: string | undefined } = {},
+): string[] {
+  return options.taskId !== undefined && options.taskId !== ""
+    ? ["--task", options.taskId]
+    : [];
+}
+
+/**
+ * `set-enabled` — returns the updated task view. Disabling materializes
+ * owed missed runs before closing the enabled window (contract §Missed-run
+ * policy), so the returned view already reflects honest `missed_total`.
+ */
+export async function setAutomationsTaskEnabled(
+  machine: string,
+  taskId: string,
+  enabled: boolean,
+): Promise<AutomationsTask> {
+  const doc = await callAutomations(
+    machine,
+    "set-enabled",
+    automationsSetEnabledArgs(taskId, enabled),
+  );
+  const task = automationsGetFromDoc(doc);
+  if (task === null) throw badOutput("set-enabled");
+  return task;
+}
+
+/**
+ * `run-now` — creates a `trigger:"manual"` run and delivers it
+ * synchronously through the same run path as `fire`. A transport
+ * failure raises before any record exists (`socket_unavailable`); a
+ * delivered-but-failed run is honest run history, surfaced by the
+ * post-mutation refresh — never relabelled here.
+ */
+export async function runAutomationsTaskNow(
+  machine: string,
+  taskId: string,
+): Promise<void> {
+  await callAutomations(machine, "run-now", automationsRunNowArgs(taskId));
+}
+
+/** `delete` — removes the task and its run records; unknown id → `task_not_found`. */
+export async function deleteAutomationsTask(
+  machine: string,
+  taskId: string,
+): Promise<void> {
+  await callAutomations(machine, "delete", automationsDeleteArgs(taskId));
+}
+
+/**
+ * `reconcile` — idempotently materializes derived missed occurrences
+ * into real `missed` run records. Returns the plugin-reported
+ * `materialized` count; a document without a numeric count is a
+ * foreign/malformed response (`plugin_bad_output`), not a silent 0.
+ */
+export async function reconcileAutomations(
+  machine: string,
+  options: { taskId?: string | undefined } = {},
+): Promise<number> {
+  const doc = await callAutomations(machine, "reconcile", automationsReconcileArgs(options));
+  const written = doc["materialized"];
+  if (typeof written !== "number" || !Number.isFinite(written)) {
+    throw badOutput("reconcile");
+  }
+  return written;
+}
+
 /* ---------------------------- capability ------------------------------ */
 
 const CAPABILITY_TTL_MS = 30_000;
@@ -650,6 +755,26 @@ export function automationsSupports(
 ): boolean | null {
   if (cap === undefined) return null;
   if (cap === null) return false;
+  return cap.commands.has(command);
+}
+
+/**
+ * Mutation gating (issue #362). The v1 capability document has no
+ * `mutation_commands` field, so support requires BOTH the local
+ * AUTOMATIONS_MUTATION_COMMANDS allowlist AND the command appearing in
+ * the advertised flat `commands` list. `null` cap = still probing;
+ * `false` also covers allowlisted-looking words the plugin never
+ * advertised (e.g. an older contract build).
+ */
+export function automationsSupportsMutation(
+  cap: AutomationsCapability | null | undefined,
+  command: string,
+): boolean | null {
+  if (cap === undefined) return null;
+  if (cap === null) return false;
+  if (!(AUTOMATIONS_MUTATION_COMMANDS as readonly string[]).includes(command)) {
+    return false;
+  }
   return cap.commands.has(command);
 }
 

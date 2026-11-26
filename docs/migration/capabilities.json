@@ -148,7 +148,7 @@
    "title": "herdr-plugins.automations/v1 scheduled and event-triggered tasks",
    "spec": "docs/migration/contracts/plugin-automations.md",
    "oracle": "conformance",
-   "summary": "Automations task registry + run history via plugin_call: capability/list/get/runs read surface consumed @6c1cfa5; mutations and driver commands out of scope for the read ticket."
+   "summary": "Automations task registry + run history via plugin_call: capability/list/get/runs read surface plus set-enabled/run-now/delete/reconcile mutations consumed @6c1cfa5 (gated on flat commands + local allowlist — no mutation_commands field); create/update and driver commands remain out of scope."
   }
  ],
  "capabilities": [
@@ -1273,16 +1273,19 @@
     "list task views (schedule/enabled/next_run_at/driver/missed_total)",
     "get single task view",
     "runs history per task incl. derived missed entries (run_id:null, derived:true)",
+    "set-enabled/run-now/delete mutations with confirm dialogs (mutation_commands absent — allowlist + commands gating)",
+    "reconcile surface action reporting plugin materialized count",
     "snapshot/status/machines-triggered refresh (inbox pattern)"
    ],
    "errors": [
     "capability-gated per host",
     "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
     "task_not_found and contract error.code passthrough as error detail",
-    "foreign contract and malformed documents rejected (plugin_bad_output)"
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "mutation failures surface classified error.kind + detail verbatim"
    ],
    "side_effects": [
-    "none client-side beyond plugin_call reads; task/run state writes stay plugin-side"
+    "plugin_call reads plus lifecycle mutations (set-enabled/run-now/delete/reconcile) that write task/run records plugin-side; refreshAutomations after every mutation"
    ],
    "scenarios": [
     "src/shell/automations.test.ts",
@@ -1300,7 +1303,7 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "read surface only — mutations (set-enabled/run-now/delete/reconcile) and driver commands (watch/tick/schedule) are separate tickets"
+     "create/update task authoring and driver commands (watch/tick/schedule) remain separate tickets"
     ],
     "os_gaps": [],
     "upstream_deps": [
