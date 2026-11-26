@@ -62,7 +62,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { focusPaneTerminal } from "../lib/paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 import {
   checkpointsCapability,
@@ -641,7 +640,7 @@ function CheckpointList({
       {result?.checkpoints.map((entry) => {
         const selected = entry.id === selectedId;
         return (
-          // oxlint-disable-next-line herdr-t3/no-raw-control -- composite selection row, same pattern as GitDialog file rows
+          // oxlint-disable-next-line herdr-t3/no-raw-control -- composite selection row, same pattern as GitSurface file rows
           <button
             key={entry.id}
             type="button"
@@ -1992,20 +1991,14 @@ function MaintenanceDialog({
 
 const LIMIT_OPTIONS = [50, 100, 200, 500];
 
-export function CheckpointsDialog({
+/** Issue #333: docked right-panel surface (was CheckpointsDialog). */
+export function CheckpointsSurface({
   machine,
   pane,
-  onClose,
 }: {
   machine: string;
   pane?: PaneInfo | null;
-  onClose: () => void;
 }) {
-  const requestClose = () => {
-    onClose();
-    setTimeout(() => focusPaneTerminal(), 0);
-  };
-
   const [cap, setCap] = useState<CheckpointsCapability | null | undefined>(undefined);
   const [repoDraft, setRepoDraft] = useState("");
   const [repoFilter, setRepoFilter] = useState("");
@@ -2110,20 +2103,15 @@ export function CheckpointsDialog({
   );
 
   return (
-    <Dialog open onOpenChange={(open) => !open && requestClose()}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Checkpoints</DialogTitle>
-          <DialogDescription>
-            Worktree checkpoints from the rebuildup.checkpoints plugin —
-            synthetic commits under hidden git refs. Capture never touches
-            your index or staging area; restore previews changes first and
-            always keeps a pre-restore checkpoint.
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogPanel>
-          {cap === null ? (
+    <div className="flex h-full min-h-0 flex-col">
+      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+        <p className="text-2xs text-muted-foreground">
+          Worktree checkpoints from the rebuildup.checkpoints plugin —
+          synthetic commits under hidden git refs. Capture never touches
+          your index or staging area; restore previews changes first and
+          always keeps a pre-restore checkpoint.
+        </p>
+        {cap === null ? (
             <SectionMessage>
               checkpoints plugin unavailable on this host — install or enable
               rebuildup.checkpoints and reopen
@@ -2267,24 +2255,19 @@ export function CheckpointsDialog({
           )}
 
           <MutationFeedback error={deleteError} notice={deleteNotice} />
-        </DialogPanel>
+      </DialogPanel>
 
-        <DialogFooter>
-          {(canGc === true || canPrune === true) && cap !== null ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="mr-auto"
-              onClick={() => setMaintenanceOpen(true)}
-            >
-              Maintenance…
-            </Button>
-          ) : null}
-          <Button size="sm" variant="ghost" onClick={requestClose}>
-            Close
+      {(canGc === true || canPrune === true) && cap !== null ? (
+        <div className="flex items-center border-t border-border px-4 py-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setMaintenanceOpen(true)}
+          >
+            Maintenance…
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </div>
+      ) : null}
 
       {maintenanceOpen ? (
         <MaintenanceDialog
@@ -2343,6 +2326,6 @@ export function CheckpointsDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Dialog>
+    </div>
   );
 }

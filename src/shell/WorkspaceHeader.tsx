@@ -66,11 +66,7 @@ import { callRpc } from "./bridge";
 import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
-import { WorktreesDialog } from "~/components/WorktreesDialog";
-import { ProjectScriptsDialog } from "~/components/ProjectScriptsDialog";
-import { ProjectsDialog } from "~/components/ProjectsDialog";
-import { GitDialog } from "~/components/GitDialog";
-import { CheckpointsDialog } from "~/components/CheckpointsDialog";
+import { openSurface, type RightPanelSurface } from "./rightPanelStore";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -111,11 +107,6 @@ export function WorkspaceHeader() {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
-  const [worktreesOpen, setWorktreesOpen] = useState(false);
-  const [projectScriptsOpen, setProjectScriptsOpen] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
-  const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -140,6 +131,11 @@ export function WorkspaceHeader() {
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
     callRpc(machine, method, params);
+  // Issue #333: plugin surfaces open as docked right-panel tabs scoped to
+  // this workspace — Source Control targets the focused pane's repo.
+  const panelScope = `${machine}\n${workspace?.workspace_id ?? ""}`;
+  const openPanelSurface = (surface: RightPanelSurface) =>
+    openSurface(panelScope, surface);
 
   const headerClass = cn(
     "relative flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3",
@@ -613,22 +609,43 @@ export function WorkspaceHeader() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => focusedPane && setGitPane(focusedPane)}
+                onClick={() =>
+                  focusedPane &&
+                  openPanelSurface({
+                    id: `git:${focusedPane.pane_id}`,
+                    kind: "git",
+                    paneId: focusedPane.pane_id,
+                  })
+                }
                 disabled={!focusedPane}
               >
-                <FolderGit2Icon /> Source Control…
+                <FolderGit2Icon /> Source Control
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setProjectScriptsOpen(true)}>
-                <SquarePlayIcon /> Project Scripts…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "scripts", kind: "scripts" })}
+              >
+                <SquarePlayIcon /> Project Scripts
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
-                <GitBranchIcon /> Worktrees…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "worktrees", kind: "worktrees" })}
+              >
+                <GitBranchIcon /> Worktrees
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setProjectsOpen(true)}>
-                <FolderKanbanIcon /> Projects…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "projects", kind: "projects" })}
+              >
+                <FolderKanbanIcon /> Projects
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCheckpointsOpen(true)}>
-                <HistoryIcon /> Checkpoints…
+              <DropdownMenuItem
+                onClick={() =>
+                  openPanelSurface({
+                    id: "checkpoints",
+                    kind: "checkpoints",
+                    paneId: focusedPane?.pane_id ?? null,
+                  })
+                }
+              >
+                <HistoryIcon /> Checkpoints
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
@@ -652,34 +669,6 @@ export function WorkspaceHeader() {
         machine={machine}
         onClose={() => setDetailsPane(null)}
       />
-      <GitDialog
-        pane={gitPane}
-        machine={machine}
-        onClose={() => setGitPane(null)}
-      />
-      {worktreesOpen ? (
-        <WorktreesDialog
-          machine={machine}
-          workspace={workspace}
-          onClose={() => setWorktreesOpen(false)}
-        />
-      ) : null}
-      {projectScriptsOpen ? (
-        <ProjectScriptsDialog
-          machine={machine}
-          onClose={() => setProjectScriptsOpen(false)}
-        />
-      ) : null}
-      {projectsOpen ? (
-        <ProjectsDialog machine={machine} onClose={() => setProjectsOpen(false)} />
-      ) : null}
-      {checkpointsOpen ? (
-        <CheckpointsDialog
-          machine={machine}
-          pane={focusedPane ?? null}
-          onClose={() => setCheckpointsOpen(false)}
-        />
-      ) : null}
     </>
   );
 }

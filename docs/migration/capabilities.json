@@ -793,7 +793,7 @@
     "src/shell/worktrees.test.ts"
    ],
    "evidence": [
-    "src/components/WorktreesDialog.tsx",
+    "src/components/WorktreesSurface.tsx",
     "src/shell/worktrees.ts"
    ],
    "stage": "current-verified",
@@ -1029,7 +1029,7 @@
    ],
    "evidence": [
     "src/shell/git.ts",
-    "src/components/GitDialog.tsx",
+    "src/components/GitSurface.tsx",
     "docs/adr/ADR-0012.md",
     "docs/adr/ADR-0018.md"
    ],
@@ -1083,7 +1083,7 @@
    ],
    "evidence": [
     "src/shell/projects.ts",
-    "src/components/ProjectsDialog.tsx",
+    "src/components/ProjectsSurface.tsx",
     "docs/migration/contracts/plugin-projects.md"
    ],
    "stage": "current-verified",
@@ -1137,7 +1137,7 @@
    ],
    "evidence": [
     "src/shell/projectScripts.ts",
-    "src/components/ProjectScriptsDialog.tsx",
+    "src/components/ProjectScriptsSurface.tsx",
     "src/shell/WorkspaceHeader.tsx",
     "docs/migration/contracts/plugin-projects.md",
     "docs/adr/ADR-0014.md",
@@ -1209,7 +1209,7 @@
    ],
    "evidence": [
     "src/shell/checkpoints.ts",
-    "src/components/CheckpointsDialog.tsx",
+    "src/components/CheckpointsSurface.tsx",
     "src/shell/WorkspaceHeader.tsx",
     "server/plugins.ts",
     "docs/migration/contracts/plugin-checkpoints.md",
@@ -2130,8 +2130,8 @@
     "src/components/MachineDialog.tsx",
     "src/components/PaneDetailsDialog.tsx",
     "src/components/PaneMessageDialog.tsx",
-    "src/components/GitDialog.tsx",
-    "src/components/WorktreesDialog.tsx",
+    "src/components/GitSurface.tsx",
+    "src/components/WorktreesSurface.tsx",
     "src/components/ThemeModeTiles.tsx"
    ],
    "stage": "current-verified",

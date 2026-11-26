@@ -91,7 +91,10 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    shelf order (#192), topbar icon+overflow (#194), provider icons on agent
    rows, hover-card terminal title + agent row, agent-row info hierarchy,
    tooltips, motion/animation parity. No new panels or data sources.
-2. **v0.6.0 — new surfaces:** right-panel host, agent details panel,
+2. **v0.6.0 — new surfaces:** right-panel host + plugin surface
+   migration (#333: `src/shell/rightPanelStore.ts` +
+   `src/shell/RightPanel.tsx`, workspace-scoped docked tabs replacing the
+   interim `*Dialog` containers), agent details panel,
    files/diff surface via `herdr-plugins.git` (#220 read-only;
    #227 reads / #228 mutations / #229 forge PRs landed on the pinned
    contract), projects registry + scripts via `herdr-plugins.projects`

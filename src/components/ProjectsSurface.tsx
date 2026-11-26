@@ -4,7 +4,7 @@
  * rebuildup/herdr-plugins@2dcb2abf) owns the project registry —
  * list/show/discover/register/update/flag setters, settings
  * get/set/unset, and repos list/add/remove. Registry state is
- * host-global, so this dialog is machine-scoped, not pane-scoped.
+ * host-global, so this surface is machine-scoped, not pane-scoped.
  *
  * Every control is gated on the host's advertised `capability.commands`
  * (reads) and `mutation_commands` (writes, entries may carry the
@@ -18,16 +18,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogTitle,
-} from "./ui/dialog";
-import { focusPaneTerminal } from "../lib/paneFocus";
+import { DialogPanel } from "./ui/dialog";
 import {
   addProjectRepos,
   classifyProjectsError,
@@ -145,7 +136,7 @@ function ProjectRow({
   onSelect: () => void;
 }) {
   return (
-    // oxlint-disable-next-line herdr-t3/no-raw-control -- composite selection row with badges, same pattern as GitDialog file rows
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- composite selection row with badges, same pattern as GitSurface file rows
     <button
       type="button"
       onClick={onSelect}
@@ -672,23 +663,18 @@ function RegisterSection({
   );
 }
 
-/* ------------------------------ dialog -------------------------------- */
+/* ------------------------------ surface ------------------------------- */
 
 /**
  * Projects registry surface. `machine` is the owning host — the registry
  * is host-global, so no pane/workspace context is needed.
+ * Issue #333: docked right-panel surface (was ProjectsDialog).
  */
-export function ProjectsDialog({
+export function ProjectsSurface({
   machine,
-  onClose,
 }: {
   machine: string;
-  onClose: () => void;
 }) {
-  const requestClose = () => {
-    onClose();
-    setTimeout(() => focusPaneTerminal(), 0);
-  };
   const [cap, setCap] = useState<ProjectsCapability | null | undefined>(undefined);
   const [list, setList] = useState<ProjectsListResult | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -732,17 +718,13 @@ export function ProjectsDialog({
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && requestClose()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Projects</DialogTitle>
-          <DialogDescription>
-            Project registry on {machine} via the host's projects plugin —
-            multi-repo grouping, pin/archive, settings overrides.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <div className="flex flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+        <p className="text-2xs text-muted-foreground">
+          Project registry on {machine} via the host's projects plugin —
+          multi-repo grouping, pin/archive, settings overrides.
+        </p>
+        <div className="flex flex-col gap-3">
             <section className="flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Switch checked={showArchived} onCheckedChange={setShowArchived} />
@@ -825,13 +807,7 @@ export function ProjectsDialog({
               }}
             />
           </div>
-        </DialogPanel>
-        <DialogFooter>
-          <Button size="sm" variant="ghost" onClick={requestClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </DialogPanel>
+    </div>
   );
 }
