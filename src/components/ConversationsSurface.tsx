@@ -16,7 +16,12 @@
  * 120s timeout. Indexing is non-destructive (plugin state only) so no
  * confirm dialog — progress and the plugin-reported
  * sessions_indexed/events_appended/skipped counts are shown honestly.
- * `show`/`usage` stay unconsumed (`usage` is issue #364).
+ * `show` (issue #457) resolves stable event/tool/turn references:
+ * history event rows expand into a `show` detail scoped to the
+ * session, gated on the capability `commands` list like the other
+ * reads. `usage` stays unconsumed (issue #364). The v1 contract's
+ * `mutation_commands` advertises only `index`/`refresh` — no other
+ * mutations exist to gate.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -36,9 +41,12 @@ import {
   classifyConversationsError,
   conversationsCapability,
   conversationsErrorHint,
+  conversationsShowRef,
+  conversationsSupports,
   conversationsSupportsMutation,
   fetchConversationsHistory,
   fetchConversationsSearch,
+  fetchConversationsShow,
   indexConversations,
   refreshConversations,
   useConversationsState,
@@ -48,6 +56,7 @@ import {
   type ConversationsSearchPage,
   type ConversationsSearchResult,
   type ConversationsSession,
+  type ConversationsShowPage,
   type ConversationsUnavailableReason,
 } from "../shell/conversations";
 
@@ -123,9 +132,27 @@ function eventSummary(event: ConversationsEvent): string {
   return event.type;
 }
 
-function EventRow({ event }: { event: ConversationsEvent }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-2xs">
+function EventRow({
+  event,
+  onToggle,
+  expanded,
+}: {
+  event: ConversationsEvent;
+  /** When set the row becomes a disclosure button (issue #457 `show`). */
+  onToggle?: (() => void) | undefined;
+  expanded?: boolean | undefined;
+}) {
+  const body = (
+    <>
+      {onToggle !== undefined ? (
+        <ChevronDownIcon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground transition-transform",
+            !expanded && "-rotate-90",
+          )}
+        />
+      ) : null}
       <Badge size="sm" variant={eventTypeVariant(event.type)}>
         {event.type}
       </Badge>
@@ -149,6 +176,135 @@ function EventRow({ event }: { event: ConversationsEvent }) {
       {event.model !== null ? (
         <span className="shrink-0 text-muted-foreground/70">{event.model}</span>
       ) : null}
+    </>
+  );
+  if (onToggle === undefined) {
+    return <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-2xs">{body}</div>;
+  }
+  return (
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- composite disclosure row, same pattern as SessionRow
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={onToggle}
+      className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left text-2xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {body}
+    </button>
+  );
+}
+
+/* ------------------------------ show detail ---------------------------- */
+
+/**
+ * `show` resolution for one event row (issue #457): the ref is derived
+ * from the event (`tool:<id>` for tool events, `turn:<n>` for turn
+ * boundaries, bare `event_id` otherwise) and scoped to the session so
+ * paging/history context is preserved. `resolved.kind`, `matched`,
+ * `truncated`, `selector_note` render verbatim — the client never
+ * re-derives them.
+ */
+function ShowDetail({
+  machine,
+  sessionKey,
+  showRef,
+}: {
+  machine: string;
+  sessionKey: string;
+  showRef: string;
+}) {
+  const [page, setPage] = useState<ConversationsShowPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPage(null);
+    setError(null);
+    setLoading(true);
+    fetchConversationsShow(machine, showRef, { sessionId: sessionKey })
+      .then((next) => {
+        if (!cancelled) setPage(next);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorText(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [machine, sessionKey, showRef]);
+
+  if (loading) {
+    return <p className="px-2 py-1 pl-6 text-2xs text-muted-foreground">resolving {showRef}…</p>;
+  }
+  if (error !== null) {
+    return <p className="px-2 py-1 pl-6 text-2xs text-destructive">show failed: {error}</p>;
+  }
+  if (page === null) return null;
+  const matched = page.matched ?? page.results.length;
+  return (
+    <div className="flex flex-col gap-0.5 pb-1 pl-4">
+      <p className="px-1 py-0.5 text-2xs text-muted-foreground/70">
+        show {page.ref ?? showRef} → {page.resolvedKind ?? "?"} · {matched} match
+        {matched === 1 ? "" : "es"} across {page.sessions.length} session
+        {page.sessions.length === 1 ? "" : "s"}
+        {page.truncated ? " · truncated at the 200-result cap — narrow the session" : ""}
+        {page.selector_note !== null ? ` · ${page.selector_note}` : ""}
+      </p>
+      {page.results.length === 0 ? (
+        <p className="px-1 py-0.5 text-2xs text-muted-foreground">no matches</p>
+      ) : (
+        page.results.map((result, index) => (
+          <div key={`${result.session_key}:${result.event?.event_id ?? index}`} className="flex flex-col">
+            <div className="flex min-w-0 items-center gap-2 px-1.5 text-2xs">
+              <span className="shrink-0 truncate font-mono text-muted-foreground">
+                {result.session_key}
+              </span>
+              {result.matched_fields.map((field) => (
+                <Badge key={field} size="sm" variant="outline">
+                  {field}
+                </Badge>
+              ))}
+            </div>
+            {result.event !== null ? (
+              <EventRow event={result.event} />
+            ) : (
+              <p className="px-1.5 py-1 text-2xs text-muted-foreground">unparseable event</p>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** History event row: expands into `show` detail when the plugin advertises it. */
+function ShowableEventRow({
+  machine,
+  sessionKey,
+  event,
+  showEnabled,
+}: {
+  machine: string;
+  sessionKey: string;
+  event: ConversationsEvent;
+  showEnabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const showRef = showEnabled ? conversationsShowRef(event) : null;
+  return (
+    <div className="flex flex-col">
+      <EventRow
+        event={event}
+        expanded={open}
+        onToggle={showRef !== null ? () => setOpen((v) => !v) : undefined}
+      />
+      {open && showRef !== null ? (
+        <ShowDetail machine={machine} sessionKey={sessionKey} showRef={showRef} />
+      ) : null}
     </div>
   );
 }
@@ -157,7 +313,15 @@ function EventRow({ event }: { event: ConversationsEvent }) {
 
 const HISTORY_PAGE_LIMIT = 100;
 
-function SessionHistory({ machine, session }: { machine: string; session: ConversationsSession }) {
+function SessionHistory({
+  machine,
+  session,
+  showEnabled,
+}: {
+  machine: string;
+  session: ConversationsSession;
+  showEnabled: boolean;
+}) {
   const [pages, setPages] = useState<ConversationsHistoryPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -226,9 +390,12 @@ function SessionHistory({ machine, session }: { machine: string; session: Conver
         <p className="px-2 py-1 text-2xs text-muted-foreground">no events</p>
       ) : (
         events.map((event, index) => (
-          <EventRow
+          <ShowableEventRow
             key={event.event_id ?? `${session.key}-${index}`}
+            machine={machine}
+            sessionKey={session.key}
             event={event}
+            showEnabled={showEnabled}
           />
         ))
       )}
@@ -258,7 +425,15 @@ function SessionHistory({ machine, session }: { machine: string; session: Conver
 
 /* ------------------------------ session row ---------------------------- */
 
-function SessionRow({ machine, session }: { machine: string; session: ConversationsSession }) {
+function SessionRow({
+  machine,
+  session,
+  showEnabled,
+}: {
+  machine: string;
+  session: ConversationsSession;
+  showEnabled: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const paneId = session.identity?.pane_id ?? session.live?.pane_id ?? null;
   return (
@@ -311,7 +486,9 @@ function SessionRow({ machine, session }: { machine: string; session: Conversati
           </Badge>
         ) : null}
       </button>
-      {expanded ? <SessionHistory machine={machine} session={session} /> : null}
+      {expanded ? (
+        <SessionHistory machine={machine} session={session} showEnabled={showEnabled} />
+      ) : null}
     </div>
   );
 }
@@ -454,6 +631,9 @@ export function ConversationsSurface({ machine }: { machine: string }) {
   const [indexNotice, setIndexNotice] = useState<string | null>(null);
 
   const canIndex = conversationsSupportsMutation(cap, "index");
+  // `show` is a read command — gated on the advertised commands list
+  // only (issue #457); probing/older builds simply keep rows static.
+  const canShow = conversationsSupports(cap, "show") === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -567,7 +747,12 @@ export function ConversationsSurface({ machine }: { machine: string }) {
         {state.sessions.length > 0 ? (
           <div className="flex flex-col gap-1">
             {state.sessions.map((session) => (
-              <SessionRow key={session.key} machine={machine} session={session} />
+              <SessionRow
+                key={session.key}
+                machine={machine}
+                session={session}
+                showEnabled={canShow}
+              />
             ))}
           </div>
         ) : null}
