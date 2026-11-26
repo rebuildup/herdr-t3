@@ -92,12 +92,14 @@ machine ごとの worktree 一覧を cache して workspace→branch を解決�
 `workspace_id`/`pane_id`/`tab_id`/`terminal_id`/`cwd`/`foreground_cwd`/
 `agent_session`/`scroll`/`layout` JSON/`revision` は:
 
-- pane context menu または header overflow の「Details」で表示
+- pane context menu・header overflow の「Details」、または context
+  card (§9) の明示的な Copy 操作で参照・コピー
 - command palette の検索対象 (ID でも引ける)
 - diagnostics/settings 画面
 
-既定 UI に ID を出さない。例外: connection error 等で ID が診断に必要な
-場合のみ status 領域に併記する。
+既定 UI に ID を出さない。context card の行にも ID は印字しない
+(cwd は hover card と同じ on-demand surface として許容)。例外:
+connection error 等で ID が診断に必要な場合のみ status 領域に併記する。
 
 ## 6. Agents ワークサーフェス (v0.5.0 正本, Issue #151)
 
@@ -248,3 +250,38 @@ default rows (`src/ui/sidebar/tokens.rs` @ `e8d7d97`) に準拠する:
   (split right/down・zoom) は直接 icon button として露出する。
   直接操作・context menu・三点メニューは相互排他にしない
   (同一操作の複数経路を許容)。詳細は app-shell.md §4。
+
+## 9. Pane context card (v0.6.0 正本, Issue #390)
+
+header の info icon から開く popover card。T3 Code の
+`ThreadDetailsCard` / `ThreadDetailsPanel` / `ThreadDetailsControl` /
+`threadDetailsPanelStyles` (`apps/web/src/components/chat/` @ `9cc4018`)
+を herdr の pane ドメインへ写像したもの (`src/shell/PaneContextCard.tsx`)。
+
+- **役割分担**: RightPanel は workspace scope の docked plugin surface
+  (issue #333) であり、本 card は focused pane の一時的な context +
+  関連操作を示す独立した役割を持つ。内部 ID・`agent.read` 出力などの
+  深い diagnostics は `PaneDetailsDialog` に残し、card はその user-
+  facing な補完面とする (§5)。
+- **セクション** (空の section は畳む): Agent (status・agent 識別・
+  作業対象・cwd)、Workspace (識別名・branch・machine・tab/pane 数)、
+  Process (`pane.process_info`)、Agent state (`agent.explain` の
+  scalar 項目)、Actions (Prompt agent… / Details… / Source Control /
+  Checkpoints / Copy pane ID / Copy workspace ID)、"Choose what to
+  show" の item visibility 開示。データは snapshot・
+  `usePaneDiagnostics` (`pane.process_info`/`agent.explain`; card は
+  `agent.read` を呼ばない)・既存 store (`openSurface`・
+  `PaneMessageDialog`・`PaneDetailsDialog`) のみを使い、新しい正本や
+  重複実装を持たない。
+- **密度**: T3 と同じ full → compact → essential の階段を、popup の
+  利用可能高さに対する実測 (`scrollHeight` vs popup `clientHeight`、
+  `observeResize`) で自動降格する。compact で Process/Agent state、
+  essential で Agent のみ残る。それでも収まらない場合は popup の
+  viewport が scroll する。
+- **item visibility**: T3 `threadDetailsItems` 相当を
+  `src/lib/detailsCardItems.ts` に移植 (localStorage、default との差分
+  のみ永続化)。
+- **配置**: header 右側の pane actions 群で三点メニューの直前。
+  card 内の Actions は三点メニューと同じ操作への別経路であり、§8 の
+  「複数経路を許容」と整合する。T3 固有概念 (thread/checkpoint/
+  provider usage) は herdr に存在しないため移植しない。
