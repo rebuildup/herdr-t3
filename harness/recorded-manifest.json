@@ -1,9 +1,9 @@
 {
   "format": "herdr-t3/recorded-manifest",
   "version": 1,
-  "recorded_at": "2026-11-26T01:36:27.182Z",
+  "recorded_at": "2026-11-26T01:46:30.910Z",
   "bun": "1.4.4",
-  "git": "e74694ce5374c363ffa52cba71a614dc2255c73c",
+  "git": "cd7077f3e1ddabc2d1a053e78904e5396b8001e9",
   "scenarios": [
     {
       "id": "terminal.input-policy",
