@@ -56,5 +56,7 @@ ADR-0010; wire shapes: protocol-frames.
 
 `server/herdr.test.ts`, `server/bridge-core.ts` paths,
 `scripts/verify-terminal-input.ts` (live attach-path checks),
-`docs/design/verification.md` RC row 13 (attach→input→disconnect→
-reconnect→draft). Differential replay incl. fault injection: #237.
+`scripts/verify-reconnect-draft.ts` (attach→input→bridge kill→reconnect→
+draft retained / outage input never delivered / explicit send only;
+issue #356), `scripts/verify-guard.ts` (harness isolation enforcement).
+Differential replay incl. fault injection: #237.
