@@ -33,6 +33,9 @@ import { initArtifacts } from "./shell/artifacts";
 import { initHandoffs } from "./shell/handoffs";
 import { initControls } from "./shell/controls";
 import { initTextgen } from "./shell/textgen";
+import { initSecrets } from "./shell/secrets";
+import { initMachines } from "./shell/machines";
+import { initMcp } from "./shell/mcp";
 
 import { onSnapshot } from "./lib/api";
 import type { SessionSnapshot } from "../shared/protocol";
@@ -54,6 +57,9 @@ export default function App() {
     initHandoffs();
     initControls();
     initTextgen();
+    initSecrets();
+    initMachines();
+    initMcp();
 
     // Attention toasts (issue #113): diff each machine's pushed snapshots
     // for agent blocked/done transitions. The first snapshot per machine

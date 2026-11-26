@@ -463,6 +463,27 @@ function outcomeToJson(
       const fields = pluginErrorFields(err);
       return { error: new HerdrError(code, message, fields) };
     }
+    // Exit-nonzero with no stderr error document but a contract
+    // `ok:false` document on stdout (secrets-v1 `resolve` reports
+    // per-binding statuses this way — issue #454): hand the report
+    // back as the result document, same convention as the
+    // partial-failure merge above, with the exit status attached so
+    // clients never mistake it for a success.
+    const stdoutReport = parseJson(outcome.stdout);
+    if (
+      isRecord(stdoutReport) &&
+      stdoutReport["ok"] === false &&
+      typeof stdoutReport["contract"] === "string" &&
+      stdoutReport["contract"].length > 0
+    ) {
+      const merged: Record<string, unknown> = { ...stdoutReport };
+      merged["error"] = {
+        code: "plugin_exit",
+        kind: `exit_${outcome.code}`,
+        message: `${what} exited ${outcome.code} with an ok:false report`,
+      };
+      return { doc: merged };
+    }
     const tail = outcome.stderr.trim() || outcome.stdout.trim();
     return {
       error: new HerdrError(
