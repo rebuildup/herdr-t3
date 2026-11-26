@@ -5,7 +5,7 @@
  * (desktop/main.ts) over the same ClientFrame/ServerFrame contract.
  */
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
-import { isRpcMethod } from "../shared/protocol.ts";
+import { isReadOnlyRpcMethod, isRpcMethod } from "../shared/protocol.ts";
 import { protocolCodecWasm } from "../shared/protocolWasm.ts";
 import {
   HerdrError,
@@ -93,15 +93,40 @@ interface SessionState {
   subscribedPaneIds: Set<string>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
+  /** True while a pushSnapshot fetch is in flight; a queued refetch runs after it. */
+  fetchingSnapshot: boolean;
+  /** Set when scheduleSnapshot fires while a fetch is in flight. */
+  snapshotQueued: boolean;
   snapshot: SessionSnapshot | null;
+  /** JSON of the last snapshot actually sent to this client (issue #423 dedup). */
+  lastPushedSnapshotJson: string | null;
   terminals: Map<string, TerminalSlot>;
 }
 
+/**
+ * Deliver a fetched snapshot to this client, suppressing pushes whose
+ * content is identical to the last one sent (issue #423). `state.snapshot`
+ * always tracks the freshest fetch regardless.
+ */
+function deliverSnapshot(state: SessionState, snapshot: SessionSnapshot): void {
+  state.snapshot = snapshot;
+  const json = JSON.stringify(snapshot);
+  if (json === state.lastPushedSnapshotJson) return;
+  state.lastPushedSnapshotJson = json;
+  state.send({ type: "snapshot", snapshot, machine: state.machine });
+}
+
 function pushSnapshot(state: SessionState): void {
+  // Single-flight: events arriving mid-fetch queue one trailing refetch
+  // instead of overlapping session.snapshot calls (issue #423).
+  if (state.fetchingSnapshot) {
+    state.snapshotQueued = true;
+    return;
+  }
+  state.fetchingSnapshot = true;
   void fetchSnapshot(state.endpoint)
     .then((snapshot) => {
-      state.snapshot = snapshot;
-      state.send({ type: "snapshot", snapshot, machine: state.machine });
+      deliverSnapshot(state, snapshot);
       reconcileSubscriptions(state, snapshot);
     })
     .catch((error: unknown) => {
@@ -115,6 +140,13 @@ function pushSnapshot(state: SessionState): void {
         error: { code: err.code, message: err.message },
         machine: state.machine,
       });
+    })
+    .finally(() => {
+      state.fetchingSnapshot = false;
+      if (state.snapshotQueued) {
+        state.snapshotQueued = false;
+        scheduleSnapshot(state, "queued");
+      }
     });
 }
 
@@ -135,19 +167,19 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
     {
       onEvent: (frame: EventFrame) => {
         state.send({ type: "event", event: frame, machine: state.machine });
-        scheduleSnapshot(state);
+        scheduleSnapshot(state, "event");
       },
-      onError: () => scheduleSnapshot(state),
+      onError: () => scheduleSnapshot(state, "subscription_error"),
       onClose: () => {
         state.subscription = null;
         state.subscribedPaneIds = new Set();
-        scheduleSnapshot(state);
+        scheduleSnapshot(state, "subscription_close");
         // Retry the subscription itself; the snapshot push above already ran once.
         state.pushTimer = setTimeout(() => {
           state.pushTimer = null;
           void fetchSnapshot(state.endpoint)
             .then((snapshot) => {
-              state.send({ type: "snapshot", snapshot, machine: state.machine });
+              deliverSnapshot(state, snapshot);
               state.subscription = openSubscription(state, snapshot);
             })
             .catch(() => {});
@@ -158,7 +190,7 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
   );
 }
 
-function scheduleSnapshot(state: SessionState): void {
+function scheduleSnapshot(state: SessionState, cause: string): void {
   if (state.snapshotTimer !== null) return;
   state.snapshotTimer = setTimeout(() => {
     state.snapshotTimer = null;
@@ -270,7 +302,9 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       void herdrRpc(frame.method, frame.params ?? {}, { connect: state.endpoint.api, timeoutMs: 20000 })
         .then((result) => {
           state.send({ type: "rpc_result", id: frame.id, ok: true, result, machine: state.machine });
-          scheduleSnapshot(state);
+          // Read-only RPCs cannot change the snapshot; refreshing after them
+          // amplified read traffic into session.snapshot fetches (#423).
+          if (!isReadOnlyRpcMethod(frame.method)) scheduleSnapshot(state, "rpc");
         })
         .catch((error: unknown) => {
           const err = error instanceof HerdrError ? error : new HerdrError("bridge_error", String(error));
@@ -367,7 +401,10 @@ export function createBridgeSession(
     subscribedPaneIds: new Set(),
     snapshotTimer: null,
     pushTimer: null,
+    fetchingSnapshot: false,
+    snapshotQueued: false,
     snapshot: null,
+    lastPushedSnapshotJson: null,
     terminals: new Map(),
   };
   return {
@@ -376,6 +413,9 @@ export function createBridgeSession(
       fetchSnapshot(endpoint)
         .then((snapshot) => {
           state.snapshot = snapshot;
+          // `ready` already carried this snapshot to the client; seed the
+          // dedup key so an identical first refetch is not re-pushed (#423).
+          state.lastPushedSnapshotJson = JSON.stringify(snapshot);
           state.send({ type: "ready", snapshot, machine });
           state.subscription = openSubscription(state, snapshot);
         })
