@@ -431,19 +431,28 @@ export function WorkspaceHeader() {
             summary is capped so its "title · agent" text gives up width
             (agent metadata truncates first — it is the tail of the single
             truncating node) before the workspace breadcrumb does
-            (issue #417). */}
+            (issue #417). Below `md` it hides entirely: at ~480–700px
+            windows it could only render "r…"/"devin.exe: re…", and the
+            workspace/session breadcrumb is the higher-value label there
+            (issue #417 Windows leg). */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
           <Tooltip>
             <TooltipTrigger
               render={
-                <div className="flex min-w-0 max-w-48 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+                <div className="flex min-w-0 max-w-48 items-center gap-2 text-xs text-secondary-label max-md:hidden" />
               }
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">
-                  {focusedTitle}
-                  {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
-                </span>
+                {/* The pane title keeps priority inside the cap; the agent
+                    name is capped and truncates first so a long agent
+                    label cannot starve the title (issue #417 Windows
+                    leg). */}
+                <span className="min-w-0 truncate">{focusedTitle}</span>
+                {focusedPane?.agent ? (
+                  <span className="min-w-0 max-w-28 shrink truncate">
+                    · {focusedPane.agent}
+                  </span>
+                ) : null}
               </span>
               {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
                 <AgentStatusBadge status={focusedPane.agent_status} />

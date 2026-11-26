@@ -383,7 +383,7 @@ function CreateForm({
               font="mono"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="/path/inside/repo"
+              placeholder="path/inside/repo"
             />
           </label>
         ) : (
@@ -526,7 +526,7 @@ function SaveGroupForm({
             <Textarea
               value={reposText}
               onChange={(e) => setReposText(e.target.value)}
-              placeholder={"/path/to/repo-a\n/path/to/repo-b"}
+              placeholder={"path/to/repo-a\npath/to/repo-b"}
               className="min-h-14"
               aria-label="Save group repository paths"
             />
@@ -1790,7 +1790,7 @@ function GcSection({ machine }: { machine: string }) {
             font="mono"
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
-            placeholder="/path/inside/repo"
+            placeholder="path/inside/repo"
           />
         </label>
         <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
@@ -1912,7 +1912,7 @@ function PruneSection({ machine }: { machine: string }) {
           font="mono"
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
-          placeholder="/path/inside/repo"
+          placeholder="path/inside/repo"
         />
       </label>
       <div className="flex items-center gap-2">
@@ -2134,7 +2134,11 @@ export function CheckpointsSurface({
                   onSaved={refreshAll}
                 />
 
-                <div className="flex items-center gap-2">
+                {/* flex-wrap: the repo filter is w-full, so without wrap
+                    the group/limit/refresh controls clipped mid-label in
+                    a narrow dock ("Filter by r", "1." — issue #417
+                    Windows leg). Controls now stack onto the next line. */}
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
                     size="sm"
                     value={repoDraft}

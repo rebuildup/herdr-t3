@@ -511,12 +511,15 @@ function AgentRow({
           {rowTitle}
         </span>
         {metaParts.length > 0 ? (
-          <span className="max-w-40 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
+          // T3 SidebarThreadRow meta line: text-secondary-label text-xs —
+          // text-2xs read as low-contrast gray on Windows light theme
+          // (issue #417 Windows leg).
+          <span className="max-w-40 shrink-0 truncate text-xs text-secondary-label">
             {metaParts.join(" · ")}
           </span>
         ) : null}
         {auxLabels.length > 0 ? (
-          <span className="max-w-32 shrink-0 truncate text-2xs text-sidebar-muted-foreground">
+          <span className="max-w-32 shrink-0 truncate text-xs text-secondary-label">
             {auxLabels.join(" · ")}
           </span>
         ) : null}
