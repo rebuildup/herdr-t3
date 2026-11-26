@@ -1,0 +1,91 @@
+{
+  "format": "herdr-t3/perf-frame",
+  "version": 1,
+  "recorded_at": "2026-11-26T11:16:47.354Z",
+  "git_sha": "1f376bf3e3a332fee9769ebbca6e83b5ce8cd6d6",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "bun_version": "1.4.4",
+  "condition": {
+    "loadavg_1m": 24.2626953125,
+    "loadavg_5m": 27.0927734375,
+    "loadavg_15m": 35.46875
+  },
+  "app": {
+    "base_url": "http://localhost:5742",
+    "bridge_port": 4742,
+    "vite_port": 5742,
+    "cdp_port": 9334,
+    "session": "ht3frame",
+    "socket": "/Users/rebui/.config/herdr/sessions/ht3frame/herdr.sock",
+    "pane_id": "w6:p1",
+    "headless_chrome": true,
+    "viewport": "1440x900@2x"
+  },
+  "workload": {
+    "storm": "seed-42 ANSI chunks (same generator as perf-scene-bench), 24 files round-robin every 8ms via in-pane bun looper",
+    "measure_seconds": 15,
+    "warmup_seconds": 2,
+    "scroll": "CDP mouseWheel bursts: 8x|deltaY|=4000 (~100 lines) alternating up/down every ~350ms",
+    "preload_scrollback_lines": 400,
+    "storm_attempts": 1
+  },
+  "idle": {
+    "seconds": 4.745899999976158,
+    "navigated": false,
+    "frames": {
+      "count": 56,
+      "p50": 49.900000000001455,
+      "p95": 316.70000000000437,
+      "min": 16.599999999998545,
+      "max": 700.1000000000058,
+      "mean": 84.81607142857138,
+      "pct_over_16_7": 71.42857142857143,
+      "pct_over_33_4": 55.35714285714286,
+      "pct_over_50": 46.42857142857143
+    },
+    "longtask_count": 6,
+    "longtask_total_ms": 1762,
+    "longtask_max_ms": 597,
+    "canvas_api_ms": 0,
+    "canvas_calls": 0,
+    "task_duration_ms": 2425.7920000000013,
+    "script_duration_ms": 1611.2730000000042,
+    "task_utilization_pct": 51.11342421905619
+  },
+  "storm": {
+    "seconds": 16.21260000002384,
+    "navigated": false,
+    "frames": {
+      "count": 10,
+      "p50": 299.90000000000873,
+      "p95": 999.9000000000087,
+      "min": 200,
+      "max": 999.9000000000087,
+      "mean": 471.65000000000146,
+      "pct_over_16_7": 100,
+      "pct_over_33_4": 100,
+      "pct_over_50": 100
+    },
+    "longtask_count": 31,
+    "longtask_total_ms": 14614,
+    "longtask_max_ms": 1713,
+    "canvas_api_ms": 481.4999997615814,
+    "canvas_calls": 1601,
+    "task_duration_ms": 15619.117999999993,
+    "script_duration_ms": 13229.710000000005,
+    "task_utilization_pct": 96.33937801448889
+  },
+  "notes": [
+    "frames = rAF timestamp intervals inside the measured window; >16.7/33.4/50ms percentages are frame-budget misses",
+    "canvas_api_ms = wall time inside CanvasRenderingContext2D fillText/drawImage calls (raster submission, not compositor present)",
+    "task_duration_ms = CDP Performance TaskDuration delta (all renderer main-thread task time in window)",
+    "longtask = PerformanceObserver longtask entries (>50ms) overlapping the window"
+  ]
+}

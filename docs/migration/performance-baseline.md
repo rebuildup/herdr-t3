@@ -23,6 +23,12 @@ and is not covered.
   breakdown separates the #294/#301-changed path from engine decode.
   Canvas2D rasterization (`GhosttyRenderer.paint`) is DOM-bound and is
   NOT measured here — see Coverage map.
+- `scripts/perf-frame-bench.ts` (#354 follow-up): real frame-time bench —
+  drives the running app (isolated herdr session → bridge → vite →
+  headless Chrome CDP) through the same seed-42 output storm plus CDP
+  wheel scroll traversal, and records rAF frame intervals, longtasks,
+  task utilization and Canvas2D API time per window. Self-contained
+  (spawns and reaps its own stack); reports to `perf-reports/frame-*.json`.
 - `scripts/perf-baseline.ts`: runner + gate.
   - `record --iterations N --out PATH` → machine-readable report
     (`perf-reports/baseline-<sha>.json`) with `bench` (decode/frame),
@@ -86,10 +92,10 @@ RC freeze collects both-OS evidence on reference hardware.
 |---|---|
 | terminal decode/frame microbench (streaming ANSI, base64 hop) | ✅ `perf-terminal-bench.ts` via `perf-baseline.ts` |
 | scene build + paint-op emission (SurfaceCore.tick → GhosttyScene collect/render, scroll storm) | ✅ `perf-scene-bench.ts` via `perf-baseline.ts` `scene` section (#354) |
-| Canvas2D rasterization (`GhosttyRenderer.paint`: fillText/drawImage onto canvas) | deferred — DOM-bound; needs CDP Performance/LongTasks or traced canvas timing in the real app |
+| Canvas2D rasterization (`GhosttyRenderer.paint`: fillText/drawImage onto canvas) | ✅ measured — `perf-frame-bench.ts` (CDP, real app); loaded-host legs only so far, see Frame-bench section |
 | startup time, idle CPU/RSS, peak memory | deferred — needs packaged-app harness at RC |
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
-| input-to-paint p50/p95/p99, scroll/resize/streaming | partially — scene path timed in Bun; end-to-end input→photon latency still needs renderer-side instrumentation |
+| input-to-paint p50/p95/p99, scroll/resize/streaming | partially — scene path timed in Bun; `perf-frame-bench.ts` gives frame-interval/longtask/task-utilization under storm, but input→photon latency still needs renderer-side instrumentation |
 | local/SSH/reconnect, plugin calls | deferred — bridge-level timing not yet instrumented |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
 
@@ -150,11 +156,93 @@ Rust `terminal-render` port can be compared against these TS numbers
 directly via the shared FakeMetrics policy.
 
 **Remaining gap:** `GhosttyRenderer.paint` (Canvas2D fillText /
-drawImage rasterization) is DOM-bound and unmeasured in Bun. The
-honest next step is CDP `Performance`/`LongTasks` (or a `console.time`
-around `renderer.render()` in a dev build) during a scripted
-scrollback+output workload in the real app — recorded here as
-follow-up, not fabricated.
+drawImage rasterization) is DOM-bound and unmeasured in Bun — now
+covered by `scripts/perf-frame-bench.ts` (CDP, real app); see the
+Frame-bench section below for method, legs and remaining gaps.
+
+## Frame-bench: real frame time via CDP (issue #354 follow-up, 2026-11-26)
+
+`scripts/perf-frame-bench.ts` closes the gap `perf-scene-bench.ts`
+documents: it measures the DOM-bound half — real rAF frame intervals,
+longtasks, main-thread task utilization, and Canvas2D API time — inside
+the running app, not a Bun-side simulation.
+
+**Method.** The script orchestrates the whole stack itself: isolated
+herdr session (default `ht3frame`, enforced by `verify-guard.ts` —
+`assertBridgeTargetIsolated` re-checks `/api/health` so the harness can
+never silently measure the live session) → dev bridge → vite →
+headless Chrome over CDP. It seeds one `perf-frame` workspace whose
+pane first gets 400 scrollback lines, then runs the same seed-42 ANSI
+chunk generator as the scene/terminal benches (24 chunk files streamed
+round-robin every 8 ms by an in-pane bun looper), while CDP
+`Input.dispatchMouseEvent` wheel bursts (~100 lines/event, alternating
+direction every ~350 ms) traverse scrollback — the same scroll-storm
+mix as the scene bench. Inside the page it injects a
+`PerformanceObserver("longtask")` + rAF timestamp recorder + a
+`CanvasRenderingContext2D.fillText/drawImage` timer, and cross-checks
+with CDP `Performance.getMetrics` (`TaskDuration`/`ScriptDuration`
+deltas). Reports land in `perf-reports/frame-<sha>*.json` with
+`condition.loadavg`, host metadata and per-window stats; a window that
+navigates mid-run (vite HMR full-reload under load) is detected via
+`performance.timeOrigin` and the storm attempt is retried once.
+
+**What it measures that the scene bench cannot:** whether frames
+actually make the vsync deadline in the real renderer (Canvas2D
+rasterization, style/layout, GC, compositor pacing included), how many
+longtasks the storm produces, and how much wall time the Canvas2D API
+calls themselves consume.
+
+**Legs recorded (release head `1f376bf`, macOS arm64, bun 1.4.4,
+headless Chrome, 1440x900@2x):**
+
+| leg | loadavg (1/5/15m) | storm frame p50/p95 | frames | storm >16.7 ms | longtasks | canvas API | task util |
+|---|---|---|---|---|---|---|---|
+| run 2 (`frame-1f376bf3-run2.json`) | 24/27/35 | 300/1000 ms | 10 | 100 % | 31 | 481 ms / 1601 calls | 96 % |
+| run 3 (`frame-1f376bf3-run3.json`) | 15/16/21 | 33.4/183 ms | 230 | 77.8 % | 36 | 546 ms / 10 921 calls | 53 % |
+
+Both legs are **loaded-host** evidence — other agent workloads were
+running (same caveat as the section-l leg). The two legs show how
+steeply the numbers move with host load: at loadavg ~24–35 the
+renderer main thread is saturated (96 % task utilization, <1 fps
+frame production, only 10 frames in the window); at loadavg ~15–21
+the same storm yields 230 frames at p50 33 ms with 53 % utilization.
+Frame-interval p50/p95 under either condition is dominated by CPU
+starvation, not raster cost — treat absolute values as loaded-host
+evidence only.
+
+**Findings:**
+
+- **Canvas2D API submission is not the bottleneck.** `fillText` +
+  `drawImage` wall time is ~0.5 s per ~15–17 s storm window — ~3 % of
+  `TaskDuration` in the saturated leg, ~6 % in the lighter leg
+  (546 ms / 8875 ms), at ~0.05–0.3 ms/call. Real but small next to
+  decode + scene op emission, which the scene bench prices at
+  ~1.2–6 ms/tick on the same host (`perf-scene-bench.ts`: 1232 ms
+  scene path / 200 ticks at loadavg ~28).
+- **Headless idle frame intervals are not a usable idle-fps signal:**
+  with no visual damage Chrome's frame sink throttles rAF to ~8–10
+  fps even though task utilization is only ~19 % (run 3 idle:
+  p50 117 ms, 44 frames, 0 canvas calls). The storm leg — constant
+  canvas damage — is the meaningful one; idle cost is better read
+  from `task_utilization_pct` (~19 %) than frame intervals.
+- Scroll traversal (wheel bursts into history) is included in the
+  storm window, so scroll-repaint cost is inside these numbers, not
+  a separate leg.
+
+**Remaining gaps (honest):**
+
+- No idle-host leg yet — all numbers above are loaded-host; absolute
+  frame pacing is not established.
+- Headless Chrome vsync cadence under CPU starvation is itself
+  degraded (~12 fps ceiling observed on `about:blank` at loadavg
+  ~100); `frames` counts produced frames, and `>16.7 ms` percentages
+  should be read as "missed the 60 fps budget", not "missed display
+  vsync".
+- `canvas_api_ms` measures time inside the Canvas2D API calls
+  (raster submission), not compositor present — true photon latency
+  still needs renderer-side instrumentation or a traced capture.
+- The bench drives vite dev (React dev build), not the packaged
+  Electron app; a packaged-app leg is still deferred to RC.
 
 ## Fast gate vs RC gate
 
