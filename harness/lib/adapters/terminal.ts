@@ -119,6 +119,7 @@ const SURFACE_OPS = new Set([
   "surface_scroll_to",
   "surface_scroll_by",
   "surface_scroll_to_bottom",
+  "surface_host_scroll",
   "surface_cell_at",
   "surface_search",
   "surface_search_step",
@@ -421,6 +422,9 @@ export function createTerminalAdapter(): Adapter {
             if (typeof input["cursorVisible"] === "boolean") {
               scene.setCursorVisible(input["cursorVisible"]);
             }
+            if (typeof input["viewportShift"] === "number") {
+              scene.setViewportShift(input["viewportShift"] as number);
+            }
             const colors = input["colors"];
             if (isRecord(colors)) {
               const c = colors as Record<string, unknown>;
@@ -639,6 +643,14 @@ export function createTerminalAdapter(): Adapter {
           }
           case "surface_scroll_to_bottom": {
             const r = surfaceCore().scrollToBottom();
+            return ok({ effects: r.effects, value: r.value ?? null });
+          }
+          case "surface_host_scroll": {
+            const r = surfaceCore().hostScrollChanged({
+              offsetFromBottom: num(input, "offset_from_bottom"),
+              maxOffsetFromBottom: num(input, "max_offset_from_bottom"),
+              viewportRows: num(input, "viewport_rows"),
+            });
             return ok({ effects: r.effects, value: r.value ?? null });
           }
           case "surface_cell_at": {

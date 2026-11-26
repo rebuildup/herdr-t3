@@ -6,8 +6,9 @@ Version: 1. Scope: consuming `herdr-plugins.conversations/v1` through
 tag `v0.9.0`). The plugin owns the provider transcript index
 (claude/codex/opencode JSONL/SQLite normalization), the per-session
 event logs, and staleness verdicts; herdr-t3 renders the session list,
-paged event history, and search results, and drives the explicit
-`index` mutation (issue #374). Upstream spec:
+paged event history, search results, and `show` reference resolution,
+and drives the explicit `index` mutation (issues #374/#457).
+Upstream spec:
 `herdr-plugins/docs/contracts/conversations-v1.md` (STABLE since
 herdr-plugins v0.5.0).
 
@@ -53,6 +54,16 @@ the bare discovery document without the `ok` envelope):
   `next_cursor` is an opaque base64url per-session-offset token —
   verbatim round-trip; `restarted_sessions` flags logs rewritten
   smaller between pages (duplicates possible, explicitly reported).
+- `show <ref> [--session-id REF] [--pane PANE] [--provider ID]
+  [--offline]` → `{ref, resolved:{kind}, selector_note,
+  results:[{session_key, matched_fields, event}], matched, truncated,
+  sessions:[…]}` (issue #457). `<ref>` is a bare `event_id`/
+  `tool_use_id`, `tool:<tool_use_id>` (call/result pair), or
+  `turn:<n>` (whole turn). No cursor — results cap at 200 upstream and
+  `truncated` reports the cap; `resolved.kind` is the plugin's verdict
+  rendered verbatim. The surface derives refs per history event row
+  (`tool:` for tool events, `turn:` for turn boundaries, bare
+  `event_id` otherwise) scoped via `--session-id`.
 
 ### Mutation (issue #374)
 
@@ -72,11 +83,13 @@ the bare discovery document without the `ok` envelope):
   reports counts and distinct reasons, never fabricated outcomes.
   Every index is followed by a `sessions` refresh.
 
+`mutation_commands` advertises exactly `["index","refresh"]` — the
+only mutations the v1 contract defines (verified against the pinned
+`cli.ts` at d23205af for issue #457). No other command mutates plugin
+or herdr state, so no additional mutation gating exists.
+
 ## Operations NOT consumed
 
-- `show <ref>` — resolves stable event/tool_use_id/turn references;
-  the surface renders event history structurally and does not need
-  ref resolution yet.
 - `usage` — token/cost aggregation read surface; separate ticket
   (#364).
 - `index [--session NAME] [--socket PATH] [--timeout MS]` options —

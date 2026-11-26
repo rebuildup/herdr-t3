@@ -197,6 +197,50 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
     `pane.focus` が upstream で修正されれば追加実装不要。`AttachFocus`
     採用時のみ attach link への薄い配線が必要。
 
+### 5.5 ホスト側スクロールと選択投影 (issues #433/#436)
+
+attach 経路では wheel/trackpad scroll が `terminal_scroll` → herdr
+`AttachScroll` として **server 側** で処理されるため、クライアント
+engine の `scrollJump`/`scrollOffset` は更新されない。選択・検索
+highlight は engine の履歴座標 (absolute row) に保存したまま、
+**投影時にだけ** ホストの表示位置を差し引く:
+
+- herdr は `PaneInfo.scroll`
+  (`{offset_from_bottom, max_offset_from_bottom, viewport_rows}`) と
+  `pane.scroll_changed` subscription event で権威ある scroll 状態を
+  push する。bridge は attach 中の全 pane に対してこの購読を張り、
+  `pane.scroll` RPC で絶対 offset を設定できる。
+- `SurfaceCore.hostScrollChanged` が受け取るたびに
+  `shift = offset_from_bottom - appends` を再計算する
+  (`appends` は scroll 中の scrollback 増加分 — pin された表示内容を
+  保つため)。`render_set_viewport_shift` effect として scene/renderer
+  へ伝え、selection/highlight の wash は
+  `viewportTop - shift` を投影原点に使う (TS `scene.ts` /
+  Rust `terminal-render`)。`cellAt`・mouse report 座標も同じ
+  effective top を使う。
+- **選択の y 座標は書き換えない** — `textOf`/copy が engine 履歴を
+  引くため、座標を動かすとコピー内容が壊れる。投影だけをずらす。
+- `viewport_rows` の変化 (resize/reflow) または `max` の縮小
+  (history prune) は座標の信頼性を失うため、selection と highlights
+  を明示的に invalidate する (残しておくと別の行を highlight する)。
+- **選択ドラッグ中の viewport 端オートスクロール (issue #433)**:
+  pointer がグリッド外へ出ても select drag は継続し、ポインタ位置を
+  cell 単位の float で保持する。最外周 1 行またはオーバーシュート
+  で edge zone に入り、`tick()` が `scroll_request {direction, lines}`
+  を毎フレーム発行する (速度はオーバーシュート距離で逓増、行数で
+  クランプ)。ホストはこれを `pane.scroll` へ写像し、結果は
+  `pane.scroll_changed` → `hostScrollChanged` で戻る。wheel 経路
+  (`AttachScroll`) は select drag 中には使わない — TUI の mouse
+  report との arbitration を避けるため。pointerup/cancel/dispose で
+  停止する。
+- アンカー契約は §5.2 (issue #427) を共有する: アンカーは engine
+  履歴座標で固定、移動端は pointer の cell 座標から effective
+  viewport top 経由で毎フレーム再導出するため、ホスト駆動の
+  スクロールに追従して選択が伸びる。
+- TS `surfaceCore` / Rust `terminal-surface` の両 adapter が同一
+  契約を持ち、differential scenario `terminal.surface-host-scroll`
+  (core) と `terminal.scene-viewport-shift` (投影) が固定する。
+
 ## 6. Paste / clipboard
 
 - `paste` event → `onPasteText` → herdr `pane.send_text` (issue #434)。

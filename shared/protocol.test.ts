@@ -45,12 +45,24 @@ describe("plugin contract frames (ADR-0011)", () => {
     expect(isClientFrame(base)).toBe(true);
     expect(isClientFrame({ ...base, args: ["w1:p1", "--until", "+1h"] })).toBe(true);
     expect(isClientFrame({ ...base, timeout_ms: 30_000 })).toBe(true);
+    // Issue #458: agent-path generation needs the 600s ceiling
+    // (textgen-v1 review_guide defaultTimeoutMs).
+    expect(isClientFrame({ ...base, timeout_ms: 600_000 })).toBe(true);
     expect(isClientFrame({ ...base, plugin: "" })).toBe(false);
     expect(isClientFrame({ ...base, command: "" })).toBe(false);
     expect(isClientFrame({ ...base, args: "x" })).toBe(false);
     expect(isClientFrame({ ...base, args: ["ok", 1] })).toBe(false);
     expect(isClientFrame({ ...base, timeout_ms: 100 })).toBe(false);
-    expect(isClientFrame({ ...base, timeout_ms: 200_000 })).toBe(false);
+    expect(isClientFrame({ ...base, timeout_ms: 700_000 })).toBe(false);
+  });
+
+  test("plugin_call validates bounded stdin (issue #458)", () => {
+    const base = { type: "plugin_call", id: "1", plugin: "rebuildup.textgen", command: "generate" };
+    expect(isClientFrame({ ...base, stdin: "{}" })).toBe(true);
+    expect(isClientFrame({ ...base, stdin: "x".repeat(262144) })).toBe(true);
+    expect(isClientFrame({ ...base, stdin: "x".repeat(262145) })).toBe(false);
+    expect(isClientFrame({ ...base, stdin: 42 })).toBe(false);
+    expect(isClientFrame({ ...base, stdin: null })).toBe(false);
   });
 });
 

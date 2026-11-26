@@ -302,7 +302,10 @@ describe("PluginService.call", () => {
       }
       delete process.env["HERDR_T3_KEEP_ME"];
     }
-  });
+    // Spawns a real `bun -e` child whose own budget is 15s — the default
+    // 5s test timeout fires first on a loaded machine before the child
+    // can even start (issue #417 CI flake).
+  }, 20_000);
 
   test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {
     const gitHost = fakeHost([
@@ -552,6 +555,38 @@ describe("PluginService.call", () => {
     expect(doc["error"]).toMatchObject({ kind: "partial_save" });
   });
 
+  test("exit-nonzero with ok:false stdout report and no stderr doc returns the report (secrets resolve)", async () => {
+    // secrets-v1 `resolve` exits 1 when any binding is unresolved and
+    // prints the per-binding report on stdout with ok:false — there is
+    // no stderr error document for per-binding failures (issue #454).
+    // The bridge must hand the report back as the result document with
+    // the exit status attached, not collapse it into a bare error.
+    const report = {
+      contract: "herdr-plugins.secrets/v1",
+      command: "resolve",
+      ok: false,
+      bindings: [
+        { name: "alpha", env: "ALPHA_KEY", ref: "infisical:dev:/:ALPHA", status: "resolved" },
+        { name: "missing", env: "MISSING_KEY", ref: "infisical:dev:/:MISSING", status: "unresolved", detail: "secret MISSING not found at dev:/" },
+      ],
+    };
+    const host = inboxHost([
+      {
+        match: (a) => a[3] === "settle",
+        outcome: { code: 1, stdout: JSON.stringify(report), stderr: "", timedOut: false },
+      },
+    ]);
+    const doc = await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "settle",
+      args: ["w1:p1"],
+    });
+    expect(doc["ok"]).toBe(false);
+    expect(doc["command"]).toBe("resolve");
+    expect((doc["bindings"] as unknown[]).length).toBe(2);
+    expect(doc["error"]).toMatchObject({ code: "plugin_exit", kind: "exit_1" });
+  });
+
   test("non-zero exit with stdout doc that is NOT ok:false still throws", async () => {
     const host = inboxHost([
       {
@@ -735,5 +770,28 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     );
     expect(outcome.code).toBe(0);
     expect(outcome.stdout.trim()).toBe(SOCKET);
-  });
+    // Real subprocess spawn; see the scrubbed-vars test above — the
+    // inner 15s budget needs headroom over the default 5s test timeout.
+  }, 20_000);
+
+  test("localPluginHost writes stdin payload and closes it (issue #458)", async () => {
+    const outcome = await localPluginHost().exec(
+      [
+        process.execPath,
+        "-e",
+        "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify({got:d})))",
+      ],
+      { timeoutMs: 15_000, stdin: '{"task":"commit_message"}' },
+    );
+    expect(outcome.code).toBe(0);
+    expect(JSON.parse(outcome.stdout)).toEqual({ got: '{"task":"commit_message"}' });
+    // No stdin → immediate EOF (a stdin-reading CLI must not hang).
+    const empty = await localPluginHost().exec(
+      [process.execPath, "-e", "process.stdin.resume();process.stdin.on('end',()=>console.log('eof'))"],
+      { timeoutMs: 15_000 },
+    );
+    expect(empty.code).toBe(0);
+    expect(empty.stdout.trim()).toBe("eof");
+    // Real subprocess spawns; same headroom as the tests above.
+  }, 20_000);
 });

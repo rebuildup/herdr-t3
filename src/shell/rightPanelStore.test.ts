@@ -187,6 +187,72 @@ describe("rightPanelStore", () => {
     expect(getPanelState(scope).surfaces).toHaveLength(0);
   });
 
+  test("handoffs surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:handoffs`;
+    openSurface(scope, { id: "handoffs", kind: "handoffs" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["handoffs"]);
+    expect(state.activeSurfaceId).toBe("handoffs");
+    toggleSurface(scope, { id: "handoffs", kind: "handoffs" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
+  test("controls surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:controls`;
+    openSurface(scope, { id: "controls", kind: "controls" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["controls"]);
+    expect(state.activeSurfaceId).toBe("controls");
+    toggleSurface(scope, { id: "controls", kind: "controls" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
+  test("textgen surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:textgen`;
+    openSurface(scope, { id: "textgen", kind: "textgen" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["textgen"]);
+    expect(state.activeSurfaceId).toBe("textgen");
+    toggleSurface(scope, { id: "textgen", kind: "textgen" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
+  test("secrets surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:secrets`;
+    openSurface(scope, { id: "secrets", kind: "secrets" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["secrets"]);
+    expect(state.activeSurfaceId).toBe("secrets");
+    toggleSurface(scope, { id: "secrets", kind: "secrets" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
+  test("machines surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:machines`;
+    openSurface(scope, { id: "machines", kind: "machines" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["machines"]);
+    expect(state.activeSurfaceId).toBe("machines");
+    toggleSurface(scope, { id: "machines", kind: "machines" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
+  test("mcp surface opens like other workspace-scoped surfaces", () => {
+    const scope = `${SCOPE}:mcp`;
+    openSurface(scope, { id: "mcp", kind: "mcp" });
+    const state = getPanelState(scope);
+    expect(state.isOpen).toBe(true);
+    expect(state.surfaces.map((s) => s.id)).toEqual(["mcp"]);
+    expect(state.activeSurfaceId).toBe("mcp");
+    toggleSurface(scope, { id: "mcp", kind: "mcp" });
+    expect(getPanelState(scope).surfaces).toHaveLength(0);
+  });
+
   test("scopes are independent", () => {
     const a = `${SCOPE}:a`;
     const b = `${SCOPE}:b`;

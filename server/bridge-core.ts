@@ -69,6 +69,38 @@ function statusSubscriptions(snapshot: SessionSnapshot): Record<string, unknown>
   return snapshot.panes.map((pane) => ({ type: "pane.agent_status_changed", pane_id: pane.pane_id }));
 }
 
+/**
+ * `pane.scroll_changed` for every pane with a live terminal attach
+ * (issues #433/#436): the selection contract needs the server's
+ * authoritative `offset_from_bottom`/`max_offset_from_bottom` to project
+ * highlights onto the rows the attach blit actually shows.
+ */
+function scrollSubscriptions(state: SessionState): Record<string, unknown>[] {
+  return [...state.terminals.keys()].map((pane_id) => ({
+    type: "pane.scroll_changed",
+    pane_id,
+  }));
+}
+
+/**
+ * Reopen the event subscription when the attached-pane set changed since
+ * the last open — herdr ignores a second subscribe on a live connection,
+ * so the full set (structure + status + scroll) goes out together.
+ */
+function syncScrollSubscriptions(state: SessionState): void {
+  if (!state.snapshot || !state.subscription) return;
+  const want = new Set(state.terminals.keys());
+  if (
+    want.size === state.scrollSubscribed.size &&
+    [...want].every((id) => state.scrollSubscribed.has(id))
+  ) {
+    return;
+  }
+  state.scrollSubscribed = want;
+  state.subscription.close();
+  state.subscription = openSubscription(state, state.snapshot);
+}
+
 export async function fetchSnapshot(endpoint?: BridgeEndpoint): Promise<SessionSnapshot> {
   const result = await herdrRpc<{ snapshot: SessionSnapshot }>(
     "session.snapshot",
@@ -92,6 +124,8 @@ interface SessionState {
   machine: string;
   subscription: Subscription | null;
   subscribedPaneIds: Set<string>;
+  /** pane ids the live subscription carries `pane.scroll_changed` for */
+  scrollSubscribed: Set<string>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
   /** True while a pushSnapshot fetch is in flight; a queued refetch runs after it. */
@@ -169,8 +203,13 @@ function reconcileSubscriptions(state: SessionState, snapshot: SessionSnapshot):
 function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subscription {
   state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
   metricInc("bridge.subscription.open");
+  state.scrollSubscribed = new Set(state.terminals.keys());
   return subscribeEvents(
-    [...STRUCTURE_SUBSCRIPTIONS, ...statusSubscriptions(snapshot)],
+    [
+      ...STRUCTURE_SUBSCRIPTIONS,
+      ...statusSubscriptions(snapshot),
+      ...scrollSubscriptions(state),
+    ],
     {
       onEvent: (frame: EventFrame) => {
         state.send({ type: "event", event: frame, machine: state.machine });
@@ -223,6 +262,7 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
   }
   const slot: TerminalSlot = { refs: 1, link: null, queue: [], gone: false };
   state.terminals.set(paneId, slot);
+  syncScrollSubscriptions(state);
 
   const pane = state.snapshot?.panes.find((p) => p.pane_id === paneId);
   const terminalId = pane?.terminal_id;
@@ -300,6 +340,7 @@ function releaseTerminal(state: SessionState, paneId: string): void {
   state.terminals.delete(paneId);
   slot.gone = true;
   slot.link?.close();
+  syncScrollSubscriptions(state);
 }
 
 function handleClientFrame(state: SessionState, frame: ClientFrame): void {
@@ -409,6 +450,7 @@ export function createBridgeSession(
     machine,
     subscription: null,
     subscribedPaneIds: new Set(),
+    scrollSubscribed: new Set(),
     snapshotTimer: null,
     pushTimer: null,
     fetchingSnapshot: false,

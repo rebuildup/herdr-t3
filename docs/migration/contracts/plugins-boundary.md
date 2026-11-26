@@ -10,9 +10,15 @@ CLI implementations.
 
 - `plugin_list` → installed plugins with contract id/version,
   `capability.commands`, `mutation_commands`, enabled state.
-- `plugin_call(plugin, command, args[])` → the contract's JSON document
-  on `rpc_result`; failures carry the plugin's own `error.kind` as the
-  code plus optional bounded `error.fields` extras (issue #257).
+- `plugin_call(plugin, command, args[], stdin?, timeout_ms?)` → the
+  contract's JSON document on `rpc_result`; failures carry the
+  plugin's own `error.kind` as the code plus optional bounded
+  `error.fields` extras (issue #257). `stdin` (issue #458) is a
+  bounded string (≤256 KiB, protocol- and codec-validated) written
+  to the plugin CLI's stdin and closed immediately — the only
+  portable payload channel for contracts that read input from
+  stdin/`--input FILE` (textgen-v1 `generate`). `timeout_ms` ceiling
+  is 600 s to cover agent-path generation; stdin is never logged.
 - Consumers gate every operation on the host's advertised
   `capability.commands`/`mutation_commands` — an unadvertised command
   is never offered.
@@ -22,7 +28,11 @@ CLI implementations.
 - Contract versions are pinned per integration (git-v1 @ `d057830`,
   projects/v1 @ `2dcb2abf`, inbox v0.1.0, checkpoints/v1 @ `ae4f214`,
   automations/v1 @ `6c1cfa5`, conversations/v1 @ `d23205af`,
-  usage/v1 @ `d23205af`, artifacts/v1 @ `d23205af`); a
+  usage/v1 @ `d23205af`, artifacts/v1 @ `d23205af`,
+  handoff/v1 @ `d23205af`, textgen/v1 @ `d23205af`,
+  controls/v1 @ `d23205af`,
+  secrets/v1 @ `d23205af`, machines/v1 @ `d23205af`,
+  mcp/v1 @ `d23205af`); a
   host running an older plugin build yields capability-gated UI, not
   errors.
 - git-v1 strict parsing (ADR-0018): only documented flags per command,
