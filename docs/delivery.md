@@ -31,6 +31,13 @@ Mechanical enforcement (issue #312, added after the PR #306 mis-merge):
   - requires zero approving reviews — deliberately unset so that
     `release-* -> main` keeps its human authorization boundary
     (ticket-merge authority never extends to release merges)
+  - `do_not_enforce_on_create: true` on the status-check rule: branch
+    *creation* is exempt because `integration-path` only runs on PRs —
+    enforcing it at creation made new release trains impossible to
+    bootstrap (verified: push rejected GH013, API ref create 422, UI
+    creation also blocked; no bypass actors exist). Updates to an
+    existing branch still require the check, and the pull-request rule
+    still blocks direct pushes, so PR protection is unchanged.
 
 ## Verified
 
