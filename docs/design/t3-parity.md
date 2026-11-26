@@ -28,6 +28,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
 | Progressive disclosure: collapsed shelf keeps route row; "Show N more" paging | [herdr] | #389 — T3 `routeThreadOnly` + settled tail / `ThreadDetailsMoreButton` port |
+| Shelf structure: per-section disclosure headers outside per-shelf scroll containers | [herdr] | #418 — dock shelves scroll independently so toggles never scroll away |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
 | Archived threads | [excluded] | thread lifecycle is orchestration state |
 
