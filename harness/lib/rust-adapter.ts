@@ -114,6 +114,42 @@ const INPUT_OPS = new Set([
   "input_composition",
 ]);
 
+/** terminal-surface state-machine ops (issue #301, contract terminal-surface@1). */
+const SURFACE_OPS = new Set([
+  "surface_new",
+  "surface_write",
+  "surface_measure",
+  "surface_scroll_to",
+  "surface_scroll_by",
+  "surface_scroll_to_bottom",
+  "surface_cell_at",
+  "surface_search",
+  "surface_search_step",
+  "surface_set_colors",
+  "surface_set_background_opacity",
+  "surface_set_font",
+  "surface_set_read_only",
+  "surface_set_mouse_capture",
+  "surface_tick",
+  "surface_blink_toggle",
+  "surface_report_focus",
+  "surface_composition_start",
+  "surface_composition_end",
+  "surface_before_input",
+  "surface_key_down",
+  "surface_key_up",
+  "surface_pointer_down",
+  "surface_pointer_move",
+  "surface_pointer_up",
+  "surface_pointer_cancel",
+  "surface_pointer_leave",
+  "surface_wheel",
+  "surface_paste",
+  "surface_get_selection_text",
+  "surface_clear_selection",
+  "surface_dispose",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -162,6 +198,14 @@ const BINS: RustBin[] = [
     envVar: "TERMINAL_INPUT_BIN",
     fileName: "terminal-input-adapter",
     label: "terminal-input-adapter",
+  },
+  {
+    ops: SURFACE_OPS,
+    path: null,
+    package: "terminal-surface",
+    envVar: "TERMINAL_SURFACE_BIN",
+    fileName: "terminal-surface-adapter",
+    label: "terminal-surface-adapter",
   },
 ];
 

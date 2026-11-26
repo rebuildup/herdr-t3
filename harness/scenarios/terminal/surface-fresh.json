@@ -1,0 +1,296 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.surface-fresh",
+  "capability": "terminal.surface",
+  "contract": "terminal-surface@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "surface_new",
+      "input": {
+        "cols": 10,
+        "rows": 3,
+        "colors": {
+          "foreground": "#fff",
+          "background": "#000",
+          "cursor": "#fff",
+          "ansi": []
+        },
+        "font_family": "monospace",
+        "font_size": 10
+      },
+      "note": "second surface: minimal options, no mouse callbacks, empty ansi palette",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_write",
+      "input": {
+        "text": "abc"
+      },
+      "note": "write on fresh surface",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 5,
+        "client_y": 10,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 100
+      },
+      "note": "no metrics yet -> attachCell null, selection still anchors?",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_measure",
+      "input": {
+        "host_width": 100,
+        "host_height": 60,
+        "advance": 10,
+        "probe_line_height": 20,
+        "dpr": 2
+      },
+      "note": "dpr=2 propagates into render_set_metrics",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_metrics",
+              "metrics": {
+                "cols": 10,
+                "rows": 3,
+                "cellW": 10,
+                "cellH": 20,
+                "dpr": 2
+              }
+            },
+            {
+              "type": "resize",
+              "cols": 10,
+              "rows": 3
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 5,
+        "client_y": 10,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 200
+      },
+      "note": "selection drag without app mouse mode -> select kind",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 45,
+        "client_y": 30,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 250
+      },
+      "note": "drag to bottom-right cell",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 0
+                },
+                "end": {
+                  "x": 4,
+                  "y": 1
+                }
+              }
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 45,
+        "client_y": 30,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 300
+      },
+      "note": "release -> selection range + text",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "selection_change",
+              "text": "abc"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_get_selection_text",
+      "input": {},
+      "note": "selected region text",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": "abc"
+        }
+      }
+    },
+    {
+      "op": "surface_key_down",
+      "input": {
+        "code": "ArrowUp",
+        "key": "ArrowUp",
+        "key_code": 38,
+        "repeat": false,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "arrow key -> CSI sequence input",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "prevent_default"
+            },
+            {
+              "type": "input",
+              "hex": "1b5b41"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_wheel",
+      "input": {
+        "delta_x": 0,
+        "delta_y": 53,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 50,
+        "client_y": 30,
+        "rect_left": 0,
+        "rect_top": 0
+      },
+      "note": "no app mouse mode, empty scrollback -> wheel may scroll or emit nothing",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_dispose",
+      "input": {},
+      "note": "final dispose",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    }
+  ]
+}
