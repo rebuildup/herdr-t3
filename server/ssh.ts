@@ -536,6 +536,25 @@ export async function resolveRemoteBun(endpoint: SshEndpoint): Promise<string | 
 
 /* ------------------------- windows remote discovery --------------------- */
 
+/**
+ * Buffered counterpart of `makePreambleDiscard` for one-shot execs
+ * (plugin host argv, remote probes): every Windows-bridged command
+ * prints a blank line plus the `herdr-remote-output-ready:1` marker
+ * before its payload, and `sshExecEndpoint` callers parse stdout as a
+ * bare document — without stripping, `JSON.parse` fails and every
+ * remote plugin call reports `plugin_bad_output` (issue #353). Returns
+ * stdout unchanged when the marker never arrived (the remote command
+ * died before PowerShell ran; error paths must still see the raw
+ * text).
+ */
+export function stripRemoteOutputPreamble(endpoint: SshEndpoint, stdout: string): string {
+  if (!isWindowsEndpoint(endpoint)) return stdout;
+  const marker = stdout.indexOf(REMOTE_OUTPUT_READY_MARKER);
+  if (marker === -1) return stdout;
+  const eol = stdout.indexOf("\n", marker + REMOTE_OUTPUT_READY_MARKER.length);
+  return eol === -1 ? "" : stdout.slice(eol + 1);
+}
+
 /** Run one ssh remote command to completion; resolves {code, stdout, stderr, timedOut}. */
 function sshExecEndpoint(
   endpoint: SshEndpoint,
@@ -552,17 +571,17 @@ function sshExecEndpoint(
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill();
-      resolve({ code: null, stdout, stderr: `${stderr}\n[timed out]`, timedOut });
+      resolve({ code: null, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr: `${stderr}\n[timed out]`, timedOut });
     }, timeoutMs);
     child.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
     child.stderr?.on("data", (c: Buffer) => (stderr = (stderr + c.toString("utf8")).slice(-STDERR_TAIL)));
     child.on("error", (err) => {
       clearTimeout(timer);
-      resolve({ code: null, stdout, stderr: `${stderr}${err.message}`, timedOut });
+      resolve({ code: null, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr: `${stderr}${err.message}`, timedOut });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut });
+      resolve({ code, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr, timedOut });
     });
   });
 }
