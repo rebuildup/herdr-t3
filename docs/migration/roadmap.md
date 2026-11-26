@@ -97,12 +97,22 @@ remaining work before old-path removal:
 
 | Capability | rust-implemented | switched (product consumer) | old impl removal |
 |---|---|---|---|
-| protocol.codec | #275/#277 | needs Rust bridge consumer | shared/protocol.ts codec path |
-| agent.projection | #281 (+#287 perf, #288 conformance) | needs Rust consumer | src/lib/workspace.ts, src/shell/agents.ts |
-| terminal.engine | #286 | needs Rust consumer | shared/ghostty engine/session TS path |
-| terminal.scene | #298 | needs Rust consumer | renderer.ts Canvas2D path |
-| terminal.input | #304 | needs Rust consumer | inputPolicy.ts/keys.ts call sites |
-| terminal.surface | #301 | needs Rust consumer | surfaceCore.ts/surface.ts product path |
+| protocol.codec | #275/#277 | wasm consumer in runtime (ADR-0025) — #315 | shared/protocol.ts codec path |
+| agent.projection | #281 (+#287 perf, #288 conformance) | wasm consumer in runtime (ADR-0025) — #316 | src/lib/workspace.ts, src/shell/agents.ts |
+| terminal.engine | #286 | no transitional consumer — switches with GPUI surface (ADR-0025) — #317 re-scoped | shared/ghostty engine/session TS path |
+| terminal.scene | #298 | no transitional consumer — switches with GPUI surface (ADR-0025) — #318 re-scoped | renderer.ts Canvas2D path |
+| terminal.input | #304 | wasm consumer in runtime (ADR-0025) — #319 | inputPolicy.ts/keys.ts call sites |
+| terminal.surface | #301 | no transitional consumer — switches with GPUI surface (ADR-0025) — #320 re-scoped | surfaceCore.ts/surface.ts product path |
+
+Connection mechanism decided by ADR-0025 (#314): small-data
+call-shaped capabilities consume Rust via wasm32 modules inside the
+consuming runtime (measured ~15 ns/call + payload serialization, no
+codesign delta); per-frame capabilities (`terminal.engine`/`scene`/
+`surface`) get **no** transitional consumer — their `switched` step is
+the GPUI surface cutover itself, since any bridge would mandate
+serialize+copy of frame-sized data the end-state does not need.
+Sidecar processes and napi+IPC were measured and rejected for these
+payload shapes.
 
 `equivalence-verified` additionally requires consumer-path
 differential evidence; `switched` flips the product path; removal
