@@ -1,0 +1,4 @@
+wrote C:\Users\rebui\ht3-perf\results-loaded\2febbbf-loaded-r1.json
+p50=321.0ms p95=327.0ms cv=0.9%
+scene p50=258.0ms p95=285.0ms cv=4.9% ops=16189
+condition loadavg=0.00/0.00/0.00

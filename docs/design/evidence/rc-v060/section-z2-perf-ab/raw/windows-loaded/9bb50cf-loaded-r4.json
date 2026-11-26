@@ -1,0 +1,63 @@
+{
+  "format": "herdr-t3/perf-baseline",
+  "version": 1,
+  "recorded_at": "2026-11-26T14:49:07.219Z",
+  "git_sha": "9bb50cf0f6bd58ee8ae62f75f9bd80ccbb33ff5c",
+  "host": {
+    "platform": "win32",
+    "arch": "x64",
+    "hostname": "UUU",
+    "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700H",
+    "cpu_count": 20,
+    "mem_total_bytes": 34078433280
+  },
+  "bun_version": "1.4.0",
+  "workload": {
+    "bench": "scripts/perf-terminal-bench.ts",
+    "seed": 42,
+    "ticks": 400,
+    "note": "ANSI streaming decode+frame, base64 bridge hop; fixed LCG seed 42 inside bench"
+  },
+  "bench": {
+    "command": "bun C:\\Users\\rebui\\ht3-perf\\repo\\scripts\\perf-terminal-bench.ts",
+    "iterations": 4,
+    "totals_ms": [
+      332,
+      341,
+      347,
+      358
+    ],
+    "p50_ms": 341,
+    "p95_ms": 358,
+    "min_ms": 332,
+    "max_ms": 358,
+    "cv": 0.027422995105502446,
+    "cells_decoded_total": 1912344
+  },
+  "scene": {
+    "command": "bun C:\\Users\\rebui\\ht3-perf\\repo\\scripts\\perf-scene-bench.ts",
+    "iterations": 4,
+    "totals_ms": [
+      267,
+      268,
+      283,
+      285
+    ],
+    "p50_ms": 268,
+    "p95_ms": 285,
+    "min_ms": 267,
+    "max_ms": 285,
+    "cv": 0.03005545685267593,
+    "cells_decoded_total": 0,
+    "ops_total": 16189,
+    "workload": {
+      "ticks": 200,
+      "note": "SurfaceCore.tick + GhosttyScene collect/render op emission, output storm + scroll jumps; Canvas2D rasterization excluded (DOM-bound)"
+    }
+  },
+  "condition": {
+    "loadavg_1m": 0,
+    "loadavg_5m": 0,
+    "loadavg_15m": 0
+  }
+}

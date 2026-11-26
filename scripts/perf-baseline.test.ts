@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkHostMatch,
   checkRegression,
+  cpuBusyFraction,
   parseBenchOutput,
   percentile,
   summarizeRuns,
@@ -107,6 +108,22 @@ describe("checkHostMatch", () => {
       workload: { bench: "b", seed: 7, ticks: 400, note: "" },
     });
     expect(checkHostMatch(report(100), otherSeed)).toContain("workload.seed");
+  });
+});
+
+describe("cpuBusyFraction", () => {
+  test("idle machine → ~0, saturated → ~1", () => {
+    // 10 cores, 1s interval: all idle
+    expect(cpuBusyFraction({ idle: 0, total: 0 }, { idle: 10, total: 10 })).toBe(0);
+    // all busy
+    expect(cpuBusyFraction({ idle: 0, total: 0 }, { idle: 0, total: 10 })).toBe(1);
+    // half busy
+    expect(cpuBusyFraction({ idle: 5, total: 10 }, { idle: 10, total: 20 })).toBeCloseTo(0.5);
+  });
+
+  test("rejects empty/invalid intervals", () => {
+    expect(cpuBusyFraction({ idle: 0, total: 0 }, { idle: 0, total: 0 })).toBeNull();
+    expect(cpuBusyFraction({ idle: 5, total: 10 }, { idle: 4, total: 20 })).toBeNull();
   });
 });
 

@@ -1,0 +1,38 @@
+{
+  "format": "herdr-t3/perf-baseline",
+  "version": 1,
+  "recorded_at": "2026-11-26T14:31:29.437Z",
+  "git_sha": "0e3c14eba55bf9a827f617cc78882bc524e69e1a",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "bun_version": "1.4.4",
+  "workload": {
+    "bench": "scripts/perf-terminal-bench.ts",
+    "seed": 42,
+    "ticks": 400,
+    "note": "ANSI streaming decode+frame, base64 bridge hop; fixed LCG seed 42 inside bench"
+  },
+  "bench": {
+    "command": "bun /private/tmp/ht3-ab/0e3c14e/scripts/perf-terminal-bench.ts",
+    "iterations": 5,
+    "totals_ms": [
+      774,
+      935,
+      1249,
+      1250,
+      1550
+    ],
+    "p50_ms": 1249,
+    "p95_ms": 1550,
+    "min_ms": 774,
+    "max_ms": 1550,
+    "cv": 0.23538378079010283,
+    "cells_decoded_total": 1912344
+  }
+}
