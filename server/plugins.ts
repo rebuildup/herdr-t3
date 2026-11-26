@@ -488,9 +488,25 @@ export class PluginService {
   private readonly hostFor: (machine: string) => Promise<PluginHost | null>;
   private readonly discovery = new Map<string, DiscoveryCacheEntry>();
   private readonly capabilities = new Map<string, CapabilityCacheEntry>();
+  /** In-flight operations keyed for single-flight coalescing (issue #424). */
+  private readonly inflight = new Map<string, Promise<unknown>>();
 
   constructor(hostFor: (machine: string) => Promise<PluginHost | null>) {
     this.hostFor = hostFor;
+  }
+
+  /**
+   * Single-flight per key (issue #424): identical concurrent requests share
+   * one in-flight operation instead of each spawning the plugin CLI. The
+   * entry is removed on settle, so only truly simultaneous callers dedup —
+   * nothing is cached and failures are never shared beyond the flight.
+   */
+  private coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = run().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, pending);
+    return pending;
   }
 
   /** Drop cached discovery/capability for a machine (disconnect/refresh). */
@@ -499,10 +515,21 @@ export class PluginService {
     for (const key of [...this.capabilities.keys()]) {
       if (key.startsWith(`${machine}\u0000`)) this.capabilities.delete(key);
     }
+    // Stop new callers from joining pre-invalidate in-flight work; the
+    // running operation itself is left to settle.
+    for (const key of [...this.inflight.keys()]) {
+      if (key === `list\u0000${machine}` || key.startsWith(`call\u0000${machine}\u0000`)) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   /** `herdr plugin list --json` on the target host → installed plugins. */
   async listPlugins(machine: string): Promise<PluginListResult> {
+    return this.coalesce(`list\u0000${machine}`, () => this.listPluginsInner(machine));
+  }
+
+  private async listPluginsInner(machine: string): Promise<PluginListResult> {
     const cached = this.discovery.get(machine);
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
       metricInc("plugin.discovery.hit");
@@ -566,6 +593,11 @@ export class PluginService {
    * The plugin's own JSON document is returned verbatim on success.
    */
   async call(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
+    const key = `call\u0000${machine}\u0000${request.plugin}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.timeoutMs ?? ""}`;
+    return this.coalesce(key, () => this.callInner(machine, request));
+  }
+
+  private async callInner(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
     const { plugins } = await this.listPlugins(machine);
     const entry = plugins.find((p) => p.plugin_id === request.plugin);
     if (!entry) {
