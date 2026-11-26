@@ -28,6 +28,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |
 | Shelf ordering bottom-anchored (settled at bottom) | [herdr] | UI fix, in flight |
 | Progressive disclosure: collapsed shelf keeps route row; "Show N more" paging | [herdr] | #389 — T3 `routeThreadOnly` + settled tail / `ThreadDetailsMoreButton` port |
+| Shelf structure: per-section disclosure headers outside per-shelf scroll containers | [herdr] | #418 — dock shelves scroll independently so toggles never scroll away |
 | Worktree base-branch picker | [cli]/[upstream] | cwd is known; branch ops need git |
 | Archived threads | [excluded] | thread lifecycle is orchestration state |
 
@@ -56,6 +57,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Conversations (indexed transcript sessions/history/search) | [plugin] | `herdr-plugins.conversations/v1` pinned @d23205af (ADR-0027): sessions list + expandable paged event history + search surface connected (#374, capability-gated per host; opaque `next_cursor` paging verbatim, stale/missing verdicts rendered as the plugin reports them); explicit `index` mutation gated on `mutation_commands`; `show` remains a separate ticket, `usage` aggregation is consumed via `herdr-plugins.usage` (#375) |
 | Automations (scheduled/event tasks) | [plugin] | `herdr-plugins.automations/v1` pinned @6c1cfa5 (ADR-0026): task/run surface connected (#361 read + #362 lifecycle mutations); driver commands remain out of scope |
 | Artifacts (generated-file registry: html/image/pdf/file/other) | [plugin] | `herdr-plugins.artifacts/v1` pinned @d23205af (ADR-0029): export/search/verify read surface connected (#396, capability-gated per host; `missing_ref`/`owner_stale`/`oversize`/`orphans`/`corrupt` rendered verbatim, empty registry is an honest empty state); `resolved_path` is text+copy only — no inline render, no shell-open bridge; mutations (`register`/`delete`/`deliver`/`gc`) gated off, separate ticket |
+| Handoffs / delegation records | [plugin] | `herdr-plugins.handoff/v1` pinned @d23205af (ADR-0030): list/status/resume-info read surface connected (#404 — record list with relationship kind, derived children, `transfer_check` staleness, execution target; on-demand `status` detail with `--no-reconcile` and owner-CLI payload-ref resolution, `resume-info` provider native-resume table); mutations (`create`/`execute`/`delegate`/`merge-back`) and `status --remote` remain separate tickets |
 | Text generation (thread titles, branch/commit/PR content, review guides, next prompts) | [plugin] | `herdr-plugins.textgen/v1` pinned @d23205af (ADR-0031): capability/git-context read surface connected (#442, capability-gated per host — task×path matrix, provider matrix, guards, git integration rendered verbatim); contract has no list/history/result commands so no generation history exists; `generate`/`watch-next-prompt`/config mutations gated off, results never auto-applied — generation ticket separate |
 
 > **Container rule (maintainer directive, #333):** plugin surfaces are docked
@@ -119,7 +121,10 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    cost/divergence reads; read-only contract, no mutations), artifacts
    surface via `herdr-plugins.artifacts` (#396 on the @d23205af pin —
    export/search/verify reads; advertised mutations gated off),
-   textgen surface via `herdr-plugins.textgen` (#442 on the @d23205af
+   handoffs surface via `herdr-plugins.handoff` (#404 on the
+   @d23205af pin — list/status/resume-info reads; mutations are
+   top-level commands gated off, separate ticket), textgen surface via
+   `herdr-plugins.textgen` (#442 on the @d23205af
    pin — capability/git-context reads; advertised mutations gated off),
    settings sections that map to existing data.
 3. **upstream-gated (any release):** issue/PR identity —

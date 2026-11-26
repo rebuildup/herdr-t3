@@ -23,6 +23,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
+  ArrowLeftRightIcon,
   CalendarClockIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
@@ -62,6 +63,7 @@ import { AutomationsSurface } from "~/components/AutomationsSurface";
 import { ConversationsSurface } from "~/components/ConversationsSurface";
 import { UsageSurface } from "~/components/UsageSurface";
 import { ArtifactsSurface } from "~/components/ArtifactsSurface";
+import { HandoffsSurface } from "~/components/HandoffsSurface";
 import { TextGenSurface } from "~/components/TextGenSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
@@ -110,6 +112,7 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   conversations: MessagesSquareIcon,
   usage: GaugeIcon,
   artifacts: PackageIcon,
+  handoffs: ArrowLeftRightIcon,
   textgen: SparklesIcon,
 };
 
@@ -123,6 +126,7 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   conversations: "Conversations",
   usage: "Usage",
   artifacts: "Artifacts",
+  handoffs: "Handoffs",
   textgen: "Text Generation",
 };
 
@@ -176,6 +180,8 @@ function SurfaceContent({
       return <UsageSurface machine={machine} />;
     case "artifacts":
       return <ArtifactsSurface machine={machine} />;
+    case "handoffs":
+      return <HandoffsSurface machine={machine} />;
     case "textgen":
       return <TextGenSurface machine={machine} />;
   }
@@ -532,6 +538,11 @@ export function RightPanel() {
       label: "Artifacts",
       icon: PackageIcon,
       run: () => openSurface(scope, { id: "artifacts", kind: "artifacts" }),
+    },
+    {
+      label: "Handoffs",
+      icon: ArrowLeftRightIcon,
+      run: () => openSurface(scope, { id: "handoffs", kind: "handoffs" }),
     },
     {
       label: "Text Generation",

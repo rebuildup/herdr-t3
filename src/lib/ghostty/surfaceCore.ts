@@ -171,6 +171,14 @@ export interface SurfaceCoreCallbacks {
         modifiers: number;
       }) => void)
     | undefined;
+  /**
+   * Paste text for hosts that deliver it through a mode-aware channel
+   * (herdr `pane.send_text` wraps `\x1b[200~…\x1b[201~` iff the pane enabled
+   * bracketed paste — the TerminalAnsi attach stream carries no mode state,
+   * so the local engine always encodes unbracketed, issue #434 / herdr#6215).
+   * When set, `paste` hands the raw text here instead of encoded bytes.
+   */
+  onPasteText?: ((text: string) => void) | undefined;
   onSelectionChange?: ((text: string | null) => void) | undefined;
   onScroll?: ((rowsAboveBottom: number) => void) | undefined;
   onResize?: ((cols: number, rows: number) => void) | undefined;
@@ -664,6 +672,13 @@ export class SurfaceCore {
             end: { x: this.selection.end.x, y: this.selection.end.y + delta },
           };
           effects.push({ type: "render_set_selection", range: this.selection });
+          // an in-flight drag anchor tracks the same content (issue #427)
+          if (this.drag) {
+            this.drag.anchor = {
+              x: this.drag.anchor.x,
+              y: this.drag.anchor.y + delta,
+            };
+          }
         }
       }
       this.lastViewportTop = top;
@@ -979,6 +994,10 @@ export class SurfaceCore {
   paste(text: string): CoreResult {
     const effects: SurfaceEffect[] = [];
     if (this.readOnly || !text) return ok(effects, undefined);
+    if (this.callbacks.onPasteText) {
+      this.callbacks.onPasteText(text);
+      return ok(effects, undefined);
+    }
     try {
       const bytes = this.session.encodePaste(text);
       this.emit(bytes, effects);
@@ -1049,7 +1068,10 @@ export class SurfaceCore {
       this.pendingDragMotion = { button: drag.button, point: cell, mods };
       this.schedule(effects);
     }
-    const range = ordered(this.selection?.start ?? drag.anchor, cell);
+    // the gesture anchor is fixed at pointer-down; the normalized
+    // selection start is the moving end and must not become the anchor
+    // (issue #427 — upward drags lost their anchor)
+    const range = ordered(drag.anchor, cell);
     this.selection = range;
     const empty = range.start.x === range.end.x && range.start.y === range.end.y;
     effects.push({ type: "render_set_selection", range: empty ? null : range });

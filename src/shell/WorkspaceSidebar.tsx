@@ -77,8 +77,6 @@ import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import {
   AGENT_SECTIONS,
   AGENT_SECTION_LABELS,
-  AGENT_SHELF_INITIAL_VISIBLE,
-  AGENT_SHELF_PAGE,
   COLLAPSIBLE_AGENT_SECTIONS,
   UNCAPPED_AGENT_SECTIONS,
   agentAuxStateLabels,
@@ -86,6 +84,8 @@ import {
   agentOrganizeKey,
   agentRowSignature,
   agentShelfEntryKey,
+  agentShelfInitialLimit,
+  agentShelfPage,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
@@ -870,8 +870,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     });
   };
   // Progressive disclosure inside expanded shelves (issue #389): capped
-  // sections start at AGENT_SHELF_INITIAL_VISIBLE rows and each "Show N
-  // more" adds AGENT_SHELF_PAGE. Session-scoped like T3's settledTail —
+  // sections start at their initial window (agentShelfInitialLimit —
+  // Working opens at 4 per issue #418) and each "Show N more" adds a
+  // page (agentShelfPage). Session-scoped like T3's settledTail —
   // not persisted; collapsing the shelf resets nothing because the count
   // only matters while expanded.
   const [agentShelfLimits, setAgentShelfLimits] = useState<
@@ -879,14 +880,14 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   >(() => {
     const initial = {} as Record<AgentSection, number>;
     for (const section of AGENT_SECTIONS) {
-      initial[section] = AGENT_SHELF_INITIAL_VISIBLE;
+      initial[section] = agentShelfInitialLimit(section);
     }
     return initial;
   });
   const showMoreShelfRows = (section: AgentSection) => {
     setAgentShelfLimits((prev) => ({
       ...prev,
-      [section]: prev[section] + AGENT_SHELF_PAGE,
+      [section]: prev[section] + agentShelfPage(section),
     }));
   };
   // The route-selected agent (T3 `routeThreadOnly`): the agent whose pane
@@ -909,19 +910,37 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   // FLIP motion for agent rows (issue #151, Sidebar.motion.ts port):
   // rows animate on add/move/remove and section collapse, keyed on the
   // rendered membership+order so unrelated renders do not re-measure.
-  // Two lists exist — the <md inline shelves and the md+ dock — and each
-  // gets its own motion instance since only one is visible at a time.
+  // Two list shapes exist — the <md inline shelves share one <ul> inside
+  // the sidebar scroll, while the md+ dock gives every expanded shelf its
+  // own scroll container so headers never scroll away (issue #418). Each
+  // dock <ul> gets its own motion instance since only one layout is
+  // visible at a time.
   const agentsMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
-  const agentsDockMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
+  const agentsDockMotionRefs = useRef(
+    new Map<AgentSection, ReturnType<typeof createSidebarListMotion>>(),
+  );
   const attachAgentsList = useCallback((node: HTMLUListElement | null) => {
     agentsMotionRef.current?.dispose();
     agentsMotionRef.current = node ? createSidebarListMotion(node) : null;
     agentsMotionRef.current?.update(false);
   }, []);
-  const attachAgentsDockList = useCallback((node: HTMLUListElement | null) => {
-    agentsDockMotionRef.current?.dispose();
-    agentsDockMotionRef.current = node ? createSidebarListMotion(node) : null;
-    agentsDockMotionRef.current?.update(false);
+  // Stable per-section ref callbacks (created once) so React does not
+  // detach/reattach — and recreate motion — on every render.
+  const agentsDockAttaches = useMemo(() => {
+    const attaches = {} as Record<
+      AgentSection,
+      (node: HTMLUListElement | null) => void
+    >;
+    for (const section of AGENT_SECTIONS) {
+      attaches[section] = (node) => {
+        const motions = agentsDockMotionRefs.current;
+        motions.get(section)?.dispose();
+        if (node) motions.set(section, createSidebarListMotion(node));
+        else motions.delete(section);
+        motions.get(section)?.update(false);
+      };
+    }
+    return attaches;
   }, []);
   const agentsLayoutKey = useMemo(() => {
     if (agentEntries.length === 0) return "";
@@ -938,7 +957,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   }, [agentEntries.length, agentSections, agentShelves, agentShelfLimits]);
   useLayoutEffect(() => {
     agentsMotionRef.current?.update(true);
-    agentsDockMotionRef.current?.update(true);
+    for (const motion of agentsDockMotionRefs.current.values()) {
+      motion.update(true);
+    }
   }, [agentsLayoutKey]);
 
   // FLIP motion for workspace rows (issue #154): same Sidebar.motion.ts
@@ -966,10 +987,27 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     workspacesMotionRef.current?.update(true);
   }, [workspacesLayoutKey]);
 
-  // One shelf block shared by the <md inline list and the md+ dock
-  // (issue #211): disclosure header + expanded rows. Attention keeps its
-  // warning tint through the header tone — the role the old always-visible
-  // AgentSectionLabel played.
+  // Disclosure header shared by the inline and dock shelf renderers.
+  // Attention keeps its warning tint through the header tone — the role
+  // the old always-visible AgentSectionLabel played.
+  const agentShelfHeader = (
+    section: AgentSection,
+    count: number,
+    expanded: boolean,
+  ) => (
+    <CollapsibleSectionHeader
+      chevron="leading"
+      expanded={expanded}
+      onClick={() => toggleAgentShelf(section)}
+      tone={section === "attention" ? "warning" : "muted"}
+      accessory={<span className="font-normal tabular-nums">{count}</span>}
+    >
+      {AGENT_SECTION_LABELS[section]}
+    </CollapsibleSectionHeader>
+  );
+
+  // One shelf block shared by the <md inline list — disclosure header +
+  // expanded rows inside the sidebar's single scroll region.
   const renderAgentShelf = (section: AgentSection) => {
     const list = agentSections[section];
     if (list.length === 0) return null;
@@ -977,9 +1015,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     const shelfKind =
       section === "settled" || section === "snoozed" ? section : undefined;
     // Progressive disclosure (issue #389): collapsed shelves keep only
-    // the route-selected row; expanded capped shelves show the first
-    // AGENT_SHELF_INITIAL_VISIBLE (+ pages) rows with the route row
-    // pinned. Attention is uncapped — blocked agents are never hidden.
+    // the route-selected row; expanded capped shelves show their initial
+    // window (+ pages) with the route row pinned. Attention is uncapped —
+    // blocked agents are never hidden.
     const capped = !UNCAPPED_AGENT_SECTIONS.includes(section);
     const { visible, hidden } = shelfRows(
       list,
@@ -990,29 +1028,64 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     return (
       <Fragment key={section}>
         <li className="list-none">
-          <CollapsibleSectionHeader
-            chevron="leading"
-            expanded={expanded}
-            onClick={() => toggleAgentShelf(section)}
-            tone={section === "attention" ? "warning" : "muted"}
-            accessory={
-              <span className="font-normal tabular-nums">{list.length}</span>
-            }
-          >
-            {AGENT_SECTION_LABELS[section]}
-          </CollapsibleSectionHeader>
+          {agentShelfHeader(section, list.length, expanded)}
         </li>
         {visible.map((entry) => renderAgentRow(entry, shelfKind))}
         {expanded && hidden > 0 ? (
           <li className="list-none">
             <ShowMoreButton
-              remaining={Math.min(hidden, AGENT_SHELF_PAGE)}
+              remaining={Math.min(hidden, agentShelfPage(section))}
               onToggle={() => showMoreShelfRows(section)}
               className="h-9"
             />
           </li>
         ) : null}
       </Fragment>
+    );
+  };
+
+  // Dock variant (md+, issue #418): the toggle/count header sits outside
+  // the row list's scroll container, so scrolling Working rows never
+  // carries the Working toggle away. Each expanded shelf's <ul> scrolls
+  // independently inside the dock's shared max-height — headers of every
+  // shelf stay reachable while the lists divide the available space.
+  const renderAgentShelfDock = (section: AgentSection) => {
+    const list = agentSections[section];
+    if (list.length === 0) return null;
+    const expanded = agentShelves[section];
+    const shelfKind =
+      section === "settled" || section === "snoozed" ? section : undefined;
+    const capped = !UNCAPPED_AGENT_SECTIONS.includes(section);
+    const { visible, hidden } = shelfRows(
+      list,
+      expanded,
+      capped ? agentShelfLimits[section] : null,
+      routeAgentKey,
+    );
+    return (
+      <div key={section} className="flex min-h-0 flex-col">
+        <div className="shrink-0">
+          {agentShelfHeader(section, list.length, expanded)}
+        </div>
+        {visible.length > 0 ? (
+          <ul
+            ref={agentsDockAttaches[section]}
+            className="flex min-h-0 flex-col gap-px overflow-y-auto"
+            role="list"
+          >
+            {visible.map((entry) => renderAgentRow(entry, shelfKind))}
+            {expanded && hidden > 0 ? (
+              <li className="list-none">
+                <ShowMoreButton
+                  remaining={Math.min(hidden, agentShelfPage(section))}
+                  onToggle={() => showMoreShelfRows(section)}
+                  className="h-9"
+                />
+              </li>
+            ) : null}
+          </ul>
+        ) : null}
+      </div>
     );
   };
 
@@ -1274,15 +1347,15 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
         </DialogContent>
       </Dialog>
     </SidebarContent>
-      {/* Pinned shelf dock (issues #204/#211): every Agents section is a
-          collapsible shelf whose header stays visible above the footer
-          regardless of how long the workspace list grows; expanded rows
-          scroll inside the dock's max-height. */}
+      {/* Pinned shelf dock (issues #204/#211/#418): every Agents section
+          is a collapsible shelf whose header stays visible above the
+          footer regardless of how long the workspace list grows. Each
+          expanded shelf's rows scroll inside their own container so the
+          toggles never scroll away; the lists share the dock's
+          max-height. */}
       {!searching && hasAgentEntries ? (
-        <div className="hidden max-h-[45%] shrink-0 overflow-y-auto border-t border-sidebar-border px-(--sidebar-content-inset) pb-(--sidebar-content-inset) pt-1 md:block">
-          <ul ref={attachAgentsDockList} className="flex flex-col gap-px" role="list">
-            {AGENT_SECTIONS.map(renderAgentShelf)}
-          </ul>
+        <div className="hidden max-h-[45%] shrink-0 flex-col border-t border-sidebar-border px-(--sidebar-content-inset) pb-(--sidebar-content-inset) pt-1 md:flex">
+          {AGENT_SECTIONS.map(renderAgentShelfDock)}
         </div>
       ) : null}
     </>
