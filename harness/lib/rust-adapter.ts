@@ -73,6 +73,7 @@ const PROJECTION_OPS = new Set([
   "derive_workspace",
   "agent_entries",
   "agent_partition",
+  "goto_eval",
 ]);
 
 /** terminal ops served by the product crate (issue #286). */

@@ -74,6 +74,7 @@ fn run_op(
                 "organize": Value::Object(result.organize),
             }))
         }
+        "goto_eval" => goto_eval(input),
         _ => Err(format!("unknown op \"{op}\"")),
     }
 }

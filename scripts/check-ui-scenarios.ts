@@ -22,6 +22,7 @@ const ACTIONS = new Set([
   "wait",
   "open",
   "close",
+  "dismiss",
 ]);
 const ASSERTS = new Set([
   "state.selected_workspace",
@@ -31,6 +32,12 @@ const ASSERTS = new Set([
   "state.theme_resolved",
   "state.settings_open",
   "state.focused_target",
+  "state.focused_pane",
+  "state.focused_tab",
+  "state.goto_open",
+  "goto.query",
+  "goto.rows",
+  "goto.row_count",
   "terminal.scroll_offset",
   "terminal.cursor_visible",
   "dialog.open",
@@ -43,6 +50,7 @@ const FIXTURES = new Set([
   "single-workspace",
   "two-workspaces-two-panes",
   "two-workspaces-with-scrollback",
+  "goto-picker",
   "default-settings",
 ]);
 const KNOWN_CAPABILITIES = /^(ui\.|settings\.|agent\.|workspace\.|terminal\.|protocol\.|bridge\.|machines\.|plugins\.|distribution\.|os\.)/;

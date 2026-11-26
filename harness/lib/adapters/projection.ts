@@ -18,6 +18,12 @@ import {
   type AgentOrganizeMap,
 } from "../../../src/shell/agents.ts";
 import { deriveWorkspace } from "../../../src/lib/workspace.ts";
+import {
+  buildGotoRows,
+  filterGotoRows,
+  parseGotoQuery,
+  type GotoRow,
+} from "../../../src/shell/goto.ts";
 import type { Adapter, Observation } from "../types.ts";
 
 function ok(value: unknown): Observation {
@@ -32,6 +38,7 @@ const OPS = new Set([
   "derive_workspace",
   "agent_entries",
   "agent_partition",
+  "goto_eval",
 ]);
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -139,6 +146,32 @@ export function createProjectionAdapter(): Adapter {
               },
               organize: result.organize,
             });
+          }
+          case "goto_eval": {
+            const entries = (input["entries"] ?? []) as {
+              machine: MachineInfo;
+              snapshot: SessionSnapshot;
+              branch_index?: Record<string, string>;
+            }[];
+            const machines = entries.map((e) => ({
+              machine: e.machine,
+              snapshot: e.snapshot,
+              branchIndex: new Map(Object.entries(e.branch_index ?? {})),
+            }));
+            const query = (input["query"] as string | undefined) ?? "";
+            const built = buildGotoRows(machines);
+            const parsed = parseGotoQuery(query);
+            const rows = query ? filterGotoRows(built, query) : built;
+            // Match the Rust JSON shape: absent optional fields, not
+            // `undefined` keys.
+            const clean = (row: GotoRow) => {
+              const out: Record<string, unknown> = { ...row };
+              for (const k of Object.keys(out)) {
+                if (out[k] === undefined) delete out[k];
+              }
+              return out;
+            };
+            return ok({ query: parsed, rows: rows.map(clean) });
           }
           default:
             return fail(`ts projection adapter: unknown op "${op}"`);

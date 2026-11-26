@@ -95,7 +95,9 @@ Edges denote "feeds". Nothing in `src/` reaches herdr except through
 6. **settings-modal**: settings sections + `settings-persistence`
    read/write path on the Rust side
 7. **goto-picker (vertical slice #1)**: port `goto.ts` to Rust, host a
-   picker view in `ui-test-host`, add ui-conformance scenario
+   picker view in `ui-test-host`, add ui-conformance scenario — **done
+   (#328)**: `state-projections` goto module + GPUI picker overlay +
+   `shell/goto-picker` ui-conformance scenario passing on both adapters
 8. **bridge-consumer**: `bridge.ts` transport on the transitional Rust
    host (#314) — gates every BRIDGE-side switch (#315/#316)
 

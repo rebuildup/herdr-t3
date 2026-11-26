@@ -22,11 +22,13 @@
 
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, Modifiers, Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext,
-    TouchPhase, VisualTestContext, Window,
+    Context, Entity, FocusHandle, KeyDownEvent, Modifiers, Point, Render, ScrollDelta,
+    ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
 };
+use protocol_codec::{MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use state_projections::{build_goto_rows, filter_goto_rows, GotoRow};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
 
 const PX_PER_ROW: f32 = 20.0;
@@ -45,6 +47,15 @@ struct WorkspaceT {
     panes: Vec<Pane>,
 }
 
+/// One goto-picker entry: machine + live snapshot + branch index, the
+/// same triple `buildGotoRows` consumes in the product (issue #328).
+#[derive(Clone)]
+struct GotoEntry {
+    machine: MachineInfo,
+    snapshot: SessionSnapshot,
+    branch_index: HashMap<String, String>,
+}
+
 struct HostState {
     workspaces: Vec<WorkspaceT>,
     selected: usize,
@@ -57,6 +68,15 @@ struct HostState {
     /// unmounted panes keep their offset, which is exactly the
     /// scroll-preservation contract under test.
     scroll: BTreeMap<String, i64>,
+    /// Go to picker (issue #328): open flag, live query text, the
+    /// snapshot entries rows are built from, and the last jump target —
+    /// the host's observable stand-in for `selectWorkspace` +
+    /// `tab.focus`/`pane.focus` (real RPCs on the Electron side).
+    goto_open: bool,
+    goto_query: String,
+    goto_entries: Vec<GotoEntry>,
+    last_goto_jump: Option<Value>,
+    focused_pane: Option<String>,
 }
 
 fn fixture_state(fixture: Option<&str>) -> HostState {
@@ -72,9 +92,25 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
         appearance_mode: "system".into(),
         theme_resolved: "light".into(),
         scroll: BTreeMap::new(),
+        goto_open: false,
+        goto_query: String::new(),
+        goto_entries: Vec::new(),
+        last_goto_jump: None,
+        focused_pane: None,
     };
     match fixture {
         Some("single-workspace") => {}
+        Some("goto-picker") => {
+            // Mirrors the Electron conformance seed (scripts/ui-electron.sh):
+            // two workspaces labeled ui-a/ui-b, each with one tab and one
+            // agent-less pane — so row counts, query results and jump
+            // targets line up across both adapters (issue #328).
+            state.workspaces = vec![
+                WorkspaceT { id: "w1".into(), panes: vec![Pane { id: "w1:p1".into(), scroll_max: 0 }] },
+                WorkspaceT { id: "w2".into(), panes: vec![Pane { id: "w2:p1".into(), scroll_max: 0 }] },
+            ];
+            state.goto_entries = goto_fixture_entries();
+        }
         Some("two-workspaces-with-scrollback") => {
             state.workspaces = vec![
                 WorkspaceT {
@@ -94,19 +130,117 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
     state
 }
 
+/// Goto-picker fixture (issue #328): mirrors the Electron conformance
+/// seed — one local machine, two workspaces labeled ui-a/ui-b, each
+/// with a single unlabeled tab and a single agent-less pane. Row counts
+/// and query outcomes therefore match the real seeded session; row ids
+/// still differ (herdr assigns workspace ids), which is why scenarios
+/// resolve rows via enumerate("goto.row") rather than literal ids.
+fn goto_fixture_entries() -> Vec<GotoEntry> {
+    let ws = |id: &str, label: &str, focused: bool| {
+        json!({
+            "workspace_id": id, "label": label, "number": 1,
+            "agent_status": "unknown", "focused": focused,
+            "pane_count": 1, "tab_count": 1, "active_tab_id": format!("{id}:t1"),
+            "worktree": null
+        })
+    };
+    let tab = |id: &str, focused: bool| {
+        json!({
+            "tab_id": format!("{id}:t1"), "workspace_id": id, "label": "",
+            "number": 1, "agent_status": "unknown", "focused": focused,
+            "pane_count": 1
+        })
+    };
+    let pane = |id: &str, focused: bool| {
+        json!({
+            "pane_id": format!("{id}:p1"), "tab_id": format!("{id}:t1"),
+            "workspace_id": id, "agent_status": "unknown", "focused": focused,
+            "revision": 1, "terminal_id": format!("term-{id}")
+        })
+    };
+    let snapshot = json!({
+        "version": "22", "protocol": 22,
+        "focused_workspace_id": "w1", "focused_tab_id": "w1:t1", "focused_pane_id": "w1:p1",
+        "workspaces": [ws("w1", "ui-a", true), ws("w2", "ui-b", false)],
+        "tabs": [tab("w1", true), tab("w2", false)],
+        "panes": [pane("w1", true), pane("w2", false)],
+        "agents": [],
+        "layouts": []
+    });
+    vec![GotoEntry {
+        machine: serde_json::from_value(json!({
+            "id": "local", "label": "This Mac", "kind": "local",
+            "enabled": true, "status": "online"
+        }))
+        .expect("fixture machine"),
+        snapshot: protocol_codec::parse_session_snapshot(&snapshot)
+            .expect("fixture snapshot"),
+        branch_index: HashMap::new(),
+    }]
+}
+
 /* ------------------------------ view ---------------------------------- */
 
 struct HostView {
     state: HostState,
     inject_fault: Option<String>,
+    /// Focus target for the goto picker's key handling — real GPUI
+    /// focus, so simulate_input keystrokes travel the same dispatch
+    /// path a user's keyboard does.
+    goto_focus: FocusHandle,
 }
 
 impl HostView {
-    fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
+    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             state: fixture_state(None),
             inject_fault: std::env::var("UI_INJECT_FAULT").ok(),
+            goto_focus: cx.focus_handle(),
         }
+    }
+
+    /// Rows for the current query — the same build+filter pair the
+    /// product dialog runs (state_projections mirrors goto.ts).
+    fn goto_rows(&self) -> Vec<GotoRow> {
+        let refs: Vec<(&MachineInfo, &SessionSnapshot, &HashMap<String, String>)> = self
+            .state
+            .goto_entries
+            .iter()
+            .map(|e| (&e.machine, &e.snapshot, &e.branch_index))
+            .collect();
+        let built = build_goto_rows(&refs);
+        filter_goto_rows(&built, &self.state.goto_query)
+    }
+
+    /// Jump semantics from GotoDialog.jumpTo: selectWorkspace always;
+    /// tab -> tab.focus, pane -> pane.focus. The host records the target
+    /// and moves sidebar selection when the workspace id is mounted.
+    fn goto_jump(&mut self, row: &GotoRow) {
+        if let Some(idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|w| w.id == row.workspace_id)
+        {
+            self.state.selected = idx;
+        }
+        self.state.focused_pane = if row.kind == state_projections::GotoKind::Pane {
+            row.pane_id.clone()
+        } else {
+            None
+        };
+        self.state.last_goto_jump = Some(json!({
+            "id": row.id,
+            "kind": row.kind.as_str(),
+            "machine": row.machine,
+            "workspaceId": row.workspace_id,
+            "tabId": row.tab_id,
+            "paneId": row.pane_id,
+        }));
+        self.state.goto_open = false;
+        // The product dialog keeps its query across close/reopen
+        // (GotoDialog stays mounted); mirror that — no reset here.
     }
 
     fn selected_workspace(&self) -> Option<&WorkspaceT> {
@@ -205,6 +339,26 @@ impl Render for HostView {
                 .child("≡")
                 .on_click(cx.listener(|view, _event, _window, cx| {
                     view.state.sidebar_open = !view.state.sidebar_open;
+                    cx.notify();
+                })),
+        );
+        header = header.child(
+            gpui::div()
+                .id("nav-goto")
+                .debug_selector(|| "nav.goto".to_string())
+                .h(gpui::px(24.0))
+                .w(gpui::px(80.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(gpui::px(4.0))
+                .cursor_pointer()
+                .text_color(gpui::rgb(0xdddddd))
+                .child("Go to")
+                .on_click(cx.listener(|view, _event, window, cx| {
+                    view.state.goto_open = true;
+                    let fh = view.goto_focus.clone();
+                    window.focus(&fh);
                     cx.notify();
                 })),
         );
@@ -318,6 +472,137 @@ impl Render for HostView {
             }
         }
 
+        // ---- goto picker overlay (issue #328) ------------------------
+        if self.state.goto_open {
+            let rows = self.goto_rows();
+            let query = self.state.goto_query.clone();
+            let mut list = gpui::div()
+                .id("goto-list")
+                .flex()
+                .flex_col()
+                .gap(gpui::px(1.0))
+                .flex_1()
+                .min_h(gpui::px(0.0))
+                .overflow_y_scroll();
+            if rows.is_empty() {
+                list = list.child(
+                    gpui::div()
+                        .id("goto-empty")
+                        .debug_selector(|| "goto.empty".to_string())
+                        .p(gpui::px(8.0))
+                        .text_color(gpui::rgb(0x888888))
+                        .child("No matches."),
+                );
+            }
+            for row in &rows {
+                let rid = row.id.clone();
+                let sel = rid.clone();
+                let detail = row
+                    .detail
+                    .clone()
+                    .map(|d| {
+                        if row.current {
+                            format!("{d} · current")
+                        } else {
+                            d
+                        }
+                    })
+                    .or_else(|| row.current.then(|| "current".to_string()));
+                let mut line = gpui::div()
+                    .flex()
+                    .flex_col()
+                    .min_w(gpui::px(0.0));
+                line = line.child(
+                    gpui::div().flex().flex_row().items_baseline().gap(gpui::px(8.0)).child(
+                        gpui::div().flex_1().min_w(gpui::px(0.0)).child(row.label.clone()),
+                    ),
+                );
+                if let Some(d) = detail {
+                    line = line.child(
+                        gpui::div()
+                            .text_size(gpui::px(11.0))
+                            .text_color(gpui::rgb(0x888888))
+                            .child(d),
+                    );
+                }
+                list = list.child(
+                    gpui::div()
+                        .id(gpui::SharedString::from(format!("goto-row-{rid}")))
+                        .debug_selector(move || format!("goto.row.{sel}"))
+                        .px(gpui::px(8.0))
+                        .py(gpui::px(4.0))
+                        .rounded(gpui::px(4.0))
+                        .cursor_pointer()
+                        .text_color(gpui::rgb(0xdddddd))
+                        .child(line)
+                        .on_click(cx.listener(move |view, _event, _window, cx| {
+                            if let Some(row) = view.goto_rows().into_iter().find(|r| r.id == rid) {
+                                view.goto_jump(&row);
+                            }
+                            cx.notify();
+                        })),
+                );
+            }
+
+            let panel = gpui::div()
+                .id("goto-panel")
+                .debug_selector(|| "goto.dialog".to_string())
+                .track_focus(&self.goto_focus)
+                .w(gpui::px(420.0))
+                .h(gpui::px(320.0))
+                .flex()
+                .flex_col()
+                .rounded(gpui::px(8.0))
+                .border_1()
+                .border_color(gpui::rgb(0x555555))
+                .bg(gpui::rgb(0x252526))
+                .on_key_down(cx.listener(|view, event: &KeyDownEvent, _window, cx| {
+                    let ks = &event.keystroke;
+                    if ks.key == "escape" {
+                        view.state.goto_open = false;
+                    } else if ks.key == "enter" {
+                        if let Some(row) = view.goto_rows().into_iter().next() {
+                            view.goto_jump(&row);
+                        }
+                    } else if ks.key == "backspace" {
+                        view.state.goto_query.pop();
+                    } else if let Some(c) = &ks.key_char {
+                        view.state.goto_query.push_str(c);
+                    } else {
+                        return;
+                    }
+                    cx.notify();
+                }));
+            let panel = panel
+                .child(
+                    gpui::div()
+                        .id("goto-input")
+                        .debug_selector(|| "goto.input".to_string())
+                        .h(gpui::px(32.0))
+                        .px(gpui::px(10.0))
+                        .flex()
+                        .items_center()
+                        .border_b_1()
+                        .border_color(gpui::rgb(0x444444))
+                        .text_color(gpui::rgb(0xeeeeee))
+                        .child(format!("> {query}")),
+                )
+                .child(gpui::div().flex_1().min_h(gpui::px(0.0)).p(gpui::px(4.0)).child(list));
+
+            root = root.child(
+                gpui::div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui::rgba(0x00000088))
+                    .child(panel),
+            );
+        }
+
         root.child(main)
     }
 }
@@ -360,6 +645,11 @@ fn state_of(vcx: &mut VisualTestContext, view: &Entity<HostView>) -> HostState {
         appearance_mode: v.state.appearance_mode.clone(),
         theme_resolved: v.state.theme_resolved.clone(),
         scroll: v.state.scroll.clone(),
+        goto_open: v.state.goto_open,
+        goto_query: v.state.goto_query.clone(),
+        goto_entries: v.state.goto_entries.clone(),
+        last_goto_jump: v.state.last_goto_jump.clone(),
+        focused_pane: v.state.focused_pane.clone(),
     })
 }
 
@@ -469,6 +759,10 @@ fn handle(
                     .collect(),
                 "pane" => mounted_pane_ids(&state),
                 "mode" => vec!["system".into(), "light".into(), "dark".into()],
+                "goto.row" => view
+                    .read_with(&vcx.cx, |v, _| {
+                        v.goto_rows().iter().map(|r| r.id.clone()).collect()
+                    }),
                 _ => return Err(format!("unknown kind {kind}")),
             };
             Ok(json!(list))
@@ -522,6 +816,22 @@ fn act(
             click_selector(vcx, "nav.sidebar-toggle")
         }
         ("activate", Some("nav.settings")) => click_selector(vcx, "nav.settings"),
+        ("activate", Some("nav.goto")) => click_selector(vcx, "nav.goto"),
+        ("select", Some("goto.row")) => {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+            click_selector(vcx, &format!("goto.row.{id}"))
+        }
+        ("type", Some("goto.input")) => {
+            let text = params.get("text").and_then(Value::as_str).unwrap_or("");
+            redraw(vcx);
+            vcx.simulate_input(text);
+            Ok(())
+        }
+        ("dismiss", Some("goto.dialog")) => {
+            redraw(vcx);
+            vcx.simulate_keystrokes("escape");
+            Ok(())
+        }
         ("activate", Some("nav.settings-appearance")) => {
             click_selector(vcx, "nav.settings-appearance")
         }
@@ -574,6 +884,16 @@ fn observe(
         } else {
             Value::Null
         }),
+        "state.goto_open" => Ok(json!(state.goto_open)),
+        "goto.query" => Ok(json!(state.goto_query)),
+        "goto.rows" => Ok(json!(view.read_with(&vcx.cx, |v, _| {
+            v.goto_rows().iter().map(|r| r.id.clone()).collect::<Vec<_>>()
+        }))),
+        "goto.row_count" => Ok(json!(view.read_with(&vcx.cx, |v, _| {
+            v.goto_rows().len()
+        }))),
+        "state.goto_jump" => Ok(state.last_goto_jump.clone().unwrap_or(Value::Null)),
+        "state.focused_pane" => Ok(state.focused_pane.clone().map(Value::String).unwrap_or(Value::Null)),
         "state.focused_target" => Ok(json!("none")),
         "terminal.scroll_offset" => {
             let id = params.get("id").and_then(Value::as_str).unwrap_or("");

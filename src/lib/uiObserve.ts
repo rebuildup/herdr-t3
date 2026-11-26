@@ -17,6 +17,9 @@ export interface UiState {
   theme_resolved: "dark" | "light";
   /** paneKey (`${machine}\n${paneId}`) -> rows scrolled above bottom */
   terminals: Record<string, number>;
+  /** snapshot-focused ids (local machine) — goto/tab/pane jump evidence */
+  focused_tab_id: string | null;
+  focused_pane_id: string | null;
 }
 
 type ScrollProbe = () => number | null;
@@ -44,6 +47,8 @@ function sidebarOpen(): boolean | null {
 export async function observeUi(): Promise<UiState> {
   const route = currentRoute();
   const terminals: Record<string, number> = {};
+  let focusedTabId: string | null = null;
+  let focusedPaneId: string | null = null;
   // Scroll offsets are server-authoritative: herdr owns scrollback and
   // AttachScroll moves the pane viewport, while the local ghostty engine
   // on an attach client never scrolls its own viewport. Read the live
@@ -54,6 +59,8 @@ export async function observeUi(): Promise<UiState> {
       | { snapshot?: SessionSnapshot }
       | SessionSnapshot;
     const snap = (res as { snapshot?: SessionSnapshot }).snapshot ?? (res as SessionSnapshot);
+    focusedTabId = snap?.focused_tab_id ?? null;
+    focusedPaneId = snap?.focused_pane_id ?? null;
     for (const pane of snap?.panes ?? []) {
       const offset = pane.scroll?.offset_from_bottom;
       if (typeof offset === "number") terminals[`${LOCAL_MACHINE}\n${pane.pane_id}`] = offset;
@@ -80,6 +87,8 @@ export async function observeUi(): Promise<UiState> {
     appearance_mode: getAppearanceMode(),
     theme_resolved: document.documentElement.classList.contains("dark") ? "dark" : "light",
     terminals,
+    focused_tab_id: focusedTabId,
+    focused_pane_id: focusedPaneId,
   };
 }
 

@@ -8,8 +8,8 @@
   "fixture": "single-workspace",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "13e562e907dfe1ce78a4ae441d3853e5a55feaaf",
-  "recorded_at": "2026-11-25T04:42:51.083Z",
+  "git_sha": "098dd3568a3ce6f9667141a11206ed6613698769",
+  "recorded_at": "2026-11-26T05:06:00.750Z",
   "steps": [
     {
       "index": 0,

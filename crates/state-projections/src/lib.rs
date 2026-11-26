@@ -21,7 +21,7 @@
 use protocol_codec::{
     AgentInfo, MachineInfo, PaneInfo, PaneLayoutSnapshot, SessionSnapshot, TabInfo, WorkspaceInfo,
 };
-use serde_json::{Map, Number, Value};
+use serde_json::{json, Map, Number, Value};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
@@ -957,4 +957,469 @@ pub fn workspace_view_json(view: &WorkspaceView) -> Value {
         },
     );
     Value::Object(m)
+}
+
+/* ------------------------------ goto.ts (#328) -------------------------- */
+//
+// Port of src/shell/goto.ts — the "Go to" picker model. Row building,
+// query parsing and filtering are pure functions over snapshot types;
+// the dialog stays a thin renderer on both sides.
+
+/// JS `Number` -> template string (`Tab ${n}`): integers print without a
+/// fraction; non-integers use the shortest round-trip form like JS.
+fn js_num_str(n: &Number) -> String {
+    if let Some(i) = n.as_i64() {
+        return i.to_string();
+    }
+    if let Some(u) = n.as_u64() {
+        return u.to_string();
+    }
+    let f = n.as_f64().unwrap_or(f64::NAN);
+    if f.fract() == 0.0 && f.abs() < 1e21 {
+        return format!("{}", f as i64);
+    }
+    // JS switches to exponent notation at >= 1e21; serde_json Numbers that
+    // large are rare in snapshots — format! matches for ordinary values.
+    format!("{f}")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GotoKind {
+    Workspace,
+    Tab,
+    Pane,
+}
+
+impl GotoKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GotoKind::Workspace => "workspace",
+            GotoKind::Tab => "tab",
+            GotoKind::Pane => "pane",
+        }
+    }
+}
+
+/// One navigator row — mirrors `GotoRow` (optional fields omitted when
+/// absent, like JSON.stringify dropping `undefined`).
+#[derive(Debug, Clone)]
+pub struct GotoRow {
+    pub id: String,
+    pub kind: GotoKind,
+    pub machine: String,
+    pub machine_label: String,
+    pub workspace_id: String,
+    pub tab_id: Option<String>,
+    pub pane_id: Option<String>,
+    pub label: String,
+    pub meta: Option<String>,
+    pub detail: Option<String>,
+    pub agent_kind: Option<String>,
+    pub status: Option<String>,
+    pub search_text: String,
+    pub current: bool,
+}
+
+fn agent_kind_of(agent: Option<&AgentInfo>) -> Option<String> {
+    agent.and_then(|a| a.agent.clone().or_else(|| a.display_agent.clone()))
+}
+
+/// `arr.filter(Boolean).join(" ").toLowerCase()` over optional strings.
+fn join_search(parts: &[Option<String>]) -> String {
+    parts
+        .iter()
+        .filter_map(|p| p.as_deref())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// `buildGotoRows` — machines in order, workspaces/tabs/panes in
+/// snapshot order.
+pub fn build_goto_rows<'a>(
+    entries: &[(&'a MachineInfo, &'a SessionSnapshot, &'a HashMap<String, String>)],
+) -> Vec<GotoRow> {
+    let mut rows = Vec::new();
+    let multi_machine = entries.len() > 1;
+
+    for (machine, snapshot, branch_index) in entries {
+        // `machine.id` / `ws.workspace_id` are required strings in the TS
+        // protocol; templ_id reproduces JS template `undefined` on the
+        // malformed path so branch lookup keys stay identical.
+        let machine_id = templ_id(&machine.id);
+        let machine_label = templ_id(&machine.label);
+        // JS Map keys are the raw ids (possibly `undefined`); templ_id
+        // reproduces that grouping — two missing ids collide exactly like
+        // `Map.set(undefined, ...)` does in TS.
+        let agents_by_pane: HashMap<String, &AgentInfo> = snapshot
+            .agents
+            .iter()
+            .flatten()
+            .map(|a| (templ_id(&a.pane_id), a))
+            .collect();
+        let mut tabs_by_ws: HashMap<String, Vec<&TabInfo>> = HashMap::new();
+        for tab in snapshot.tabs.iter().flatten() {
+            tabs_by_ws
+                .entry(templ_id(&tab.workspace_id))
+                .or_default()
+                .push(tab);
+        }
+        let mut panes_by_tab: HashMap<String, Vec<&PaneInfo>> = HashMap::new();
+        for pane in snapshot.panes.iter().flatten() {
+            panes_by_tab
+                .entry(templ_id(&pane.tab_id))
+                .or_default()
+                .push(pane);
+        }
+
+        for ws in snapshot.workspaces.iter().flatten() {
+            let ws_id = templ_id(&ws.workspace_id);
+            let branch = branch_index.get(&format!("{}\n{}", machine_id, ws_id));
+            let ws_title = workspace_title(ws, branch.map(String::as_str));
+            let ws_detail = ws
+                .worktree
+                .as_ref()
+                .and_then(|w| w.checkout_path.clone().or_else(|| w.repo_name.clone()))
+                .or_else(|| ws.workspace_id.clone());
+            let ws_search = join_search(&[
+                Some(ws_title.clone()),
+                ws.label.clone(),
+                branch.cloned(),
+                ws.worktree.as_ref().and_then(|w| w.repo_name.clone()),
+                ws.worktree.as_ref().and_then(|w| w.checkout_path.clone()),
+                ws.workspace_id.clone(),
+                machine.label.clone(),
+            ]);
+            rows.push(GotoRow {
+                id: format!("ws:{}:{}", machine_id, ws_id),
+                kind: GotoKind::Workspace,
+                machine: machine_id.clone(),
+                machine_label: machine_label.clone(),
+                workspace_id: ws_id.clone(),
+                tab_id: None,
+                pane_id: None,
+                label: ws_title.clone(),
+                meta: branch.cloned(),
+                detail: if multi_machine {
+                    Some(format!(
+                        "{} · {}",
+                        machine_label,
+                        ws_detail.clone().unwrap_or_else(|| "undefined".into())
+                    ))
+                } else {
+                    ws_detail.clone()
+                },
+                agent_kind: None,
+                status: None,
+                search_text: ws_search.clone(),
+                current: snapshot.focused_workspace_id.as_deref() == ws.workspace_id.as_deref()
+                    || ws.focused.unwrap_or(false),
+            });
+
+            for tab in tabs_by_ws.get(&ws_id).map(Vec::as_slice).unwrap_or(&[]) {
+                let tab_panes = panes_by_tab
+                    .get(&templ_id(&tab.tab_id))
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                let tab_label = match tab.label.as_deref().map(str::trim) {
+                    Some(l) if !l.is_empty() => tab.label.clone().unwrap(),
+                    _ => format!(
+                        "Tab {}",
+                        tab.number.as_ref().map(js_num_str).unwrap_or_else(|| "undefined".into())
+                    ),
+                };
+                rows.push(GotoRow {
+                    id: format!("tab:{}:{}", machine_id, templ_id(&tab.tab_id)),
+                    kind: GotoKind::Tab,
+                    machine: machine_id.clone(),
+                    machine_label: machine_label.clone(),
+                    workspace_id: ws_id.clone(),
+                    tab_id: tab.tab_id.clone(),
+                    pane_id: None,
+                    label: tab_label.clone(),
+                    meta: None,
+                    detail: Some(format!("{} / {}", ws_title, tab_label)),
+                    agent_kind: None,
+                    status: None,
+                    search_text: format!("{} {} {}", tab_label, ws_search, templ_id(&tab.tab_id))
+                        .to_lowercase(),
+                    current: (snapshot.focused_tab_id.as_deref() == tab.tab_id.as_deref()
+                        || tab.focused.unwrap_or(false))
+                        && snapshot.focused_workspace_id.as_deref() == ws.workspace_id.as_deref(),
+                });
+
+                for (index, pane) in tab_panes.iter().enumerate() {
+                    let agent = agents_by_pane.get(&templ_id(&pane.pane_id)).copied();
+                    let agent_kind = agent_kind_of(agent);
+                    let name = pane
+                        .label
+                        .clone()
+                        .or_else(|| agent.and_then(|a| a.name.clone()))
+                        .or_else(|| pane.terminal_title_stripped.clone())
+                        .or_else(|| pane.title.clone())
+                        .or_else(|| agent_kind.clone())
+                        .unwrap_or_else(|| "terminal".into());
+                    let label = if tab_panes.len() > 1 {
+                        format!("{} · {}", name, index + 1)
+                    } else {
+                        name.clone()
+                    };
+                    let cwd = pane
+                        .foreground_cwd
+                        .clone()
+                        .or_else(|| pane.cwd.clone());
+                    let title = agent
+                        .and_then(|a| a.title.clone())
+                        .or_else(|| pane.terminal_title_stripped.clone())
+                        .or_else(|| pane.title.clone());
+                    let pane_search = join_search(&[
+                        Some(label.clone()),
+                        Some(name.clone()),
+                        title,
+                        cwd.clone(),
+                        pane.cwd.clone(),
+                        agent_kind.clone(),
+                        agent.and_then(|a| a.display_agent.clone()),
+                        agent.and_then(|a| a.name.clone()),
+                        pane.pane_id.clone(),
+                        Some(tab_label.clone()),
+                        Some(ws_search.clone()),
+                        if multi_machine { Some(machine_label.clone()) } else { None },
+                    ]);
+                    rows.push(GotoRow {
+                        id: format!("pane:{}:{}", machine_id, templ_id(&pane.pane_id)),
+                        kind: GotoKind::Pane,
+                        machine: machine_id.clone(),
+                        machine_label: machine_label.clone(),
+                        workspace_id: ws_id.clone(),
+                        tab_id: tab.tab_id.clone(),
+                        pane_id: pane.pane_id.clone(),
+                        label,
+                        meta: cwd,
+                        detail: Some(format!(
+                            "{} / {} / {}",
+                            ws_title,
+                            tab_label,
+                            templ_id(&pane.pane_id)
+                        )),
+                        agent_kind,
+                        status: Some(
+                            agent
+                                .and_then(|a| a.agent_status.clone())
+                                .unwrap_or_else(|| "unknown".into()),
+                        ),
+                        search_text: pane_search,
+                        current: snapshot.focused_pane_id.as_deref() == pane.pane_id.as_deref()
+                            || (pane.focused.unwrap_or(false)
+                                && snapshot.focused_workspace_id.as_deref()
+                                    == ws.workspace_id.as_deref()),
+                    });
+                }
+            }
+        }
+    }
+    rows
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GotoStatusFilter {
+    Blocked,
+    Working,
+    Idle,
+    Done,
+}
+
+impl GotoStatusFilter {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GotoStatusFilter::Blocked => "blocked",
+            GotoStatusFilter::Working => "working",
+            GotoStatusFilter::Idle => "idle",
+            GotoStatusFilter::Done => "done",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GotoQuery {
+    pub status: Option<GotoStatusFilter>,
+    pub words: Vec<String>,
+}
+
+fn status_prefix(first: &str) -> Option<GotoStatusFilter> {
+    Some(match first {
+        "blocked" | "b" => GotoStatusFilter::Blocked,
+        "working" | "w" => GotoStatusFilter::Working,
+        "idle" | "i" => GotoStatusFilter::Idle,
+        "done" | "d" => GotoStatusFilter::Done,
+        _ => return None,
+    })
+}
+
+/// `parseGotoQuery` — leading status token + AND-ed lowercase words.
+pub fn parse_goto_query(query: &str) -> GotoQuery {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return GotoQuery::default();
+    }
+    let first_end = trimmed.find(char::is_whitespace);
+    let first = match first_end {
+        Some(i) => &trimmed[..i],
+        None => trimmed,
+    }
+    .to_lowercase();
+    let status = status_prefix(&first);
+    let rest = match first_end {
+        Some(i) => &trimmed[i + 1..],
+        None => "",
+    };
+    let effective = if status.is_some() { rest } else { trimmed };
+    GotoQuery {
+        status,
+        words: effective
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+    }
+}
+
+/// `filterGotoRows` — status filter keeps matching panes plus their
+/// workspace/tab grouping rows; text words must all match.
+pub fn filter_goto_rows(rows: &[GotoRow], query: &str) -> Vec<GotoRow> {
+    let parsed = parse_goto_query(query);
+    let text_match = |row: &GotoRow| {
+        parsed
+            .words
+            .iter()
+            .all(|w| row.search_text.contains(w.as_str()))
+    };
+    let Some(status) = parsed.status else {
+        return rows.iter().filter(|r| text_match(r)).cloned().collect();
+    };
+    let matching: Vec<&GotoRow> = rows
+        .iter()
+        .filter(|r| {
+            r.kind == GotoKind::Pane
+                && r.status.as_deref() == Some(status.as_str())
+                && text_match(r)
+        })
+        .collect();
+    let keep_ws: HashSet<&str> = matching.iter().map(|r| r.workspace_id.as_str()).collect();
+    let keep_tabs: HashSet<String> = matching
+        .iter()
+        .filter_map(|r| r.tab_id.as_deref().map(|t| format!("{}/{}", r.workspace_id, t)))
+        .collect();
+    let pane_ids: HashSet<&str> = matching.iter().map(|r| r.id.as_str()).collect();
+    rows.iter()
+        .filter(|row| {
+            if pane_ids.contains(row.id.as_str()) {
+                return true;
+            }
+            match row.kind {
+                GotoKind::Workspace => keep_ws.contains(row.workspace_id.as_str()),
+                GotoKind::Tab => keep_tabs.contains(&format!(
+                    "{}/{}",
+                    row.workspace_id,
+                    row.tab_id.as_deref().unwrap_or("")
+                )),
+                GotoKind::Pane => false,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+fn goto_row_json(row: &GotoRow) -> Value {
+    let mut m = Map::new();
+    m.insert("id".into(), Value::String(row.id.clone()));
+    m.insert("kind".into(), Value::String(row.kind.as_str().into()));
+    m.insert("machine".into(), Value::String(row.machine.clone()));
+    m.insert("machineLabel".into(), Value::String(row.machine_label.clone()));
+    m.insert("workspaceId".into(), Value::String(row.workspace_id.clone()));
+    if let Some(v) = &row.tab_id {
+        m.insert("tabId".into(), Value::String(v.clone()));
+    }
+    if let Some(v) = &row.pane_id {
+        m.insert("paneId".into(), Value::String(v.clone()));
+    }
+    m.insert("label".into(), Value::String(row.label.clone()));
+    if let Some(v) = &row.meta {
+        m.insert("meta".into(), Value::String(v.clone()));
+    }
+    if let Some(v) = &row.detail {
+        m.insert("detail".into(), Value::String(v.clone()));
+    }
+    if let Some(v) = &row.agent_kind {
+        m.insert("agentKind".into(), Value::String(v.clone()));
+    }
+    if let Some(v) = &row.status {
+        m.insert("status".into(), Value::String(v.clone()));
+    }
+    m.insert("searchText".into(), Value::String(row.search_text.clone()));
+    m.insert("current".into(), Value::Bool(row.current));
+    Value::Object(m)
+}
+
+/// Parse `entries` input: [{machine, snapshot, branch_index?}] and run
+/// build + optional filter. Returns {query, rows}.
+pub fn goto_eval(input: &Map<String, Value>) -> Result<Value, String> {
+    let entries_v = input
+        .get("entries")
+        .and_then(Value::as_array)
+        .ok_or("entries must be an array")?;
+    let mut machines = Vec::new();
+    let mut snapshots = Vec::new();
+    let mut branch_maps = Vec::new();
+    for entry in entries_v {
+        let machine: MachineInfo = serde_json::from_value(
+            entry.get("machine").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|e| format!("bad machine: {e}"))?;
+        let snapshot: SessionSnapshot = serde_json::from_value(
+            entry.get("snapshot").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|e| format!("bad snapshot: {e}"))?;
+        let branch_index = match entry.get("branch_index") {
+            Some(Value::Object(m)) => m
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect::<HashMap<_, _>>(),
+            _ => HashMap::new(),
+        };
+        machines.push(machine);
+        snapshots.push(snapshot);
+        branch_maps.push(branch_index);
+    }
+    let refs: Vec<(&MachineInfo, &SessionSnapshot, &HashMap<String, String>)> = machines
+        .iter()
+        .zip(snapshots.iter())
+        .zip(branch_maps.iter())
+        .map(|((m, s), b)| (m, s, b))
+        .collect();
+    let built = build_goto_rows(&refs);
+    let query = input.get("query").and_then(Value::as_str).unwrap_or("");
+    let parsed = parse_goto_query(query);
+    let rows = if query.is_empty() {
+        built
+    } else {
+        filter_goto_rows(&built, query)
+    };
+    let mut qm = Map::new();
+    qm.insert(
+        "status".into(),
+        parsed
+            .status
+            .map(|s| Value::String(s.as_str().into()))
+            .unwrap_or(Value::Null),
+    );
+    qm.insert(
+        "words".into(),
+        Value::Array(parsed.words.iter().map(|w| Value::String(w.clone())).collect()),
+    );
+    Ok(json!({
+        "query": Value::Object(qm),
+        "rows": rows.iter().map(goto_row_json).collect::<Vec<_>>(),
+    }))
 }
