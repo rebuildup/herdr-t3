@@ -157,6 +157,14 @@
    "spec": "docs/migration/contracts/plugin-conversations.md",
    "oracle": "conformance",
    "summary": "Indexed claude/codex/opencode transcripts via plugin_call: capability/sessions/history/search read surface plus the explicit index mutation consumed @d23205af (gated on mutation_commands + commands); show/usage remain out of scope (#364)."
+  },
+  {
+   "id": "plugin-usage",
+   "version": 1,
+   "title": "herdr-plugins.usage/v1 token usage, quota, cost and divergence",
+   "spec": "docs/migration/contracts/plugin-usage.md",
+   "oracle": "conformance",
+   "summary": "Read-only usage surface via plugin_call: capability/quota/usage/cost/divergence consumed @d23205af — quota provider windows + CLIProxyAPI hubs eagerly, index-dependent aggregation lazily with selector args; cache-token tri-state and cost estimates rendered verbatim; mutation_commands is empty so no writes are offered."
   }
  ],
  "capabilities": [
@@ -535,7 +543,8 @@
      "herdr-plugins.projects/v1 @2dcb2abf",
      "herdr-plugins.checkpoints/v1 @ae4f214",
      "herdr-plugins.automations/v1 @6c1cfa5",
-     "herdr-plugins.conversations/v1 @d23205af"
+     "herdr-plugins.conversations/v1 @d23205af",
+     "herdr-plugins.usage/v1 @d23205af"
     ],
     "excluded": false
    }
@@ -1381,11 +1390,77 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "show ref resolution and usage aggregation remain separate tickets (#364)",
+     "show ref resolution remains a separate ticket; usage aggregation is consumed via herdr-plugins.usage (#375)",
      "transcript bodies render as bounded event fields only — full-fidelity history is upstream-owned"
     ],
     "os_gaps": [],
     "upstream_deps": [
+     "herdr-plugins.conversations/v1 @d23205af",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "usage.surface",
+   "title": "Usage surface via herdr-plugins.usage/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.usage",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-usage@1",
+    "plugin-conversations@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (commands/mutation_commands/sources incl. conversations-index status)",
+    "quota provider windows (used_percent/resets_at/hubs) fetched eagerly per machine",
+    "usage token aggregation with provider/from/to filters + six breakdown dimensions (client-side selector)",
+    "cost estimate with verbatim disclaimer, estimate_complete and unpriced_models",
+    "divergence comparisons (verdict/window_alignment) + hub notes",
+    "cache-token tri-state (reported|unsupported|unknown) rendered verbatim, never zero",
+    "honest empty state + plugin hint when the conversations index is absent",
+    "snapshot/status/machines-triggered quota refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "conversations_unavailable -> unreachable; conversations_error/usage_error stay error with verbatim detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "quota failure keeps machine ready with quotaError; last-good quota retained"
+   ],
+   "side_effects": [
+    "plugin_call reads only — the contract is read-only (mutation_commands: []); local USAGE_MUTATION_COMMANDS allowlist stays empty so writes fail closed"
+   ],
+   "scenarios": [
+    "src/shell/usage.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/usage.ts",
+    "src/components/UsageSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-usage.md",
+    "docs/adr/ADR-0028.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "usage.sessions[] contributing-session detail is not rendered (conversations surface owns session drill-down)",
+     "modelPrices overrides and pricingUrl are plugin config-side, not consumed by the GUI"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.usage/v1 @d23205af",
      "herdr-plugins.conversations/v1 @d23205af",
      "bun on the plugin host"
     ],
