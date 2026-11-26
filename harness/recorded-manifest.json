@@ -1,19 +1,14 @@
 {
   "format": "herdr-t3/recorded-manifest",
   "version": 1,
-  "recorded_at": "2026-11-25T18:37:55.137Z",
+  "recorded_at": "2026-11-26T01:46:30.910Z",
   "bun": "1.4.4",
-  "git": "b7d20ae59a5bd964c439545cb5e2c5a9d1ac41e2",
+  "git": "cd7077f3e1ddabc2d1a053e78904e5396b8001e9",
   "scenarios": [
     {
-      "id": "codec.abnormal-inputs",
-      "path": "scenarios/codec/abnormal-inputs.json",
-      "input_sha256": "74ebe92c39370fd7dc5e503fc775cd48c0d85015c89190cae6bceef01fc6d2bc"
-    },
-    {
-      "id": "projection.abnormal-inputs",
-      "path": "scenarios/projection/abnormal-inputs.json",
-      "input_sha256": "f833250efb5f3535e4bae2c10daaff1cf97f428fe25b86ea8205c1ecd82d2b7b"
+      "id": "terminal.input-policy",
+      "path": "scenarios/terminal/input-policy.json",
+      "input_sha256": "7e7751285700c1fb446b32e529c815b2794d87e0e2dcaa49d97c6af1c62c7ffe"
     }
   ]
 }

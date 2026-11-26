@@ -15,7 +15,17 @@ import {
   type SceneMetrics,
   type SceneTextMetrics,
 } from "../../../src/lib/ghostty/scene.ts";
-import type { EngineKey, EngineMouse, ScreenRange } from "../../../shared/ghostty/engine.ts";
+import {
+  bypassesKeyEncoder,
+  CompositionTracker,
+  focusReport,
+  mouseReportCell,
+  pointerDragKind,
+  sendsHoverMotion,
+  wheelButton,
+} from "../../../src/lib/ghostty/inputPolicy.ts";
+import { engineKeyFor } from "../../../src/lib/ghostty/keys.ts";
+import type { EngineKey, EngineModes, EngineMouse, ScreenRange } from "../../../shared/ghostty/engine.ts";
 import type { Adapter, Observation } from "../types.ts";
 
 const WASM = join(import.meta.dir, "../../../shared/ghostty/ghostty-vt.wasm");
@@ -88,6 +98,18 @@ const SCENE_OPS = new Set([
   "scene_dispose",
 ]);
 
+/** DOM-free input-policy ops (issue #301, contract terminal-input@1). */
+const POLICY_OPS = new Set([
+  "input_bypass_key_encoder",
+  "input_focus_report",
+  "input_pointer_drag_kind",
+  "input_wheel_button",
+  "input_sends_hover_motion",
+  "input_mouse_report_cell",
+  "input_engine_key_for",
+  "input_composition",
+]);
+
 function hex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -127,13 +149,27 @@ const OPS = new Set([
   "drain_effects",
   "dispose",
   ...SCENE_OPS,
+  ...POLICY_OPS,
 ]);
+
+function str(input: Record<string, unknown>, key: string): string {
+  const v = input[key];
+  if (typeof v !== "string") throw new Error(`input.${key} must be a string`);
+  return v;
+}
+
+function bool(input: Record<string, unknown>, key: string): boolean {
+  const v = input[key];
+  if (typeof v !== "boolean") throw new Error(`input.${key} must be a boolean`);
+  return v;
+}
 
 export function createTerminalAdapter(): Adapter {
   const sessions = new Map<string, SessionState>();
   const sceneSessions = new Map<string, SceneState>();
   let nextHandle = 0;
   let sceneNextHandle = 0;
+  const composition = new CompositionTracker();
   let compiled: Promise<WebAssembly.Module> | null = null;
   const module = () => {
     compiled ??= Bun.file(WASM).arrayBuffer().then((b) => WebAssembly.compile(b));
@@ -384,6 +420,89 @@ export function createTerminalAdapter(): Adapter {
             s.scene.dispose();
             sceneSessions.delete(String(input["handle"]));
             return ok(null);
+          }
+          // ---- input policy (issue #301) ----------------------------------
+          case "input_bypass_key_encoder": {
+            const kittyAllKeys = bool(input, "kittyAllKeys");
+            return ok({
+              bypass: bypassesKeyEncoder(
+                {
+                  key: str(input, "key"),
+                  keyCode: num(input, "keyCode"),
+                  isComposing: bool(input, "isComposing"),
+                  ctrlKey: bool(input, "ctrlKey"),
+                  metaKey: bool(input, "metaKey"),
+                  altKey: bool(input, "altKey"),
+                },
+                () => kittyAllKeys,
+              ),
+            });
+          }
+          case "input_focus_report": {
+            const bytes = focusReport(bool(input, "focused"), bool(input, "reportsEnabled"));
+            return ok({ bytes: bytes ? hex(bytes) : null });
+          }
+          case "input_pointer_drag_kind": {
+            return ok({
+              kind: pointerDragKind(bool(input, "shiftKey"), bool(input, "mouseReporting")),
+            });
+          }
+          case "input_wheel_button": {
+            return ok({ button: wheelButton(num(input, "deltaX"), num(input, "deltaY")) });
+          }
+          case "input_sends_hover_motion": {
+            return ok({ send: sendsHoverMotion(str(input, "mouseMode") as EngineModes["mouse"]) });
+          }
+          case "input_mouse_report_cell": {
+            const cell = mouseReportCell(
+              { x: num(input, "x"), y: num(input, "y") },
+              num(input, "viewportTop"),
+              num(input, "cols"),
+              num(input, "rows"),
+            );
+            return ok({ cell });
+          }
+          case "input_engine_key_for": {
+            const action = str(input, "action");
+            if (action !== "press" && action !== "repeat" && action !== "release") {
+              throw new Error('input.action must be "press" | "repeat" | "release"');
+            }
+            const event = {
+              code: str(input, "code"),
+              key: str(input, "key"),
+              shiftKey: bool(input, "shiftKey"),
+              ctrlKey: bool(input, "ctrlKey"),
+              altKey: bool(input, "altKey"),
+              metaKey: bool(input, "metaKey"),
+            } as unknown as KeyboardEvent;
+            return ok({ key: engineKeyFor(event, action) });
+          }
+          case "input_composition": {
+            // One synchronous sequence per step: the TS echo window is a
+            // same-turn setTimeout(0), so splitting events across steps
+            // would make the timer boundary nondeterministic.
+            const events = input["events"];
+            if (!Array.isArray(events)) throw new Error("input.events must be an array");
+            const results = events.map((ev) => {
+              if (!isRecord(ev)) throw new Error("composition event must be an object");
+              const data = typeof ev["data"] === "string" ? (ev["data"] as string) : "";
+              switch (ev["type"]) {
+                case "start":
+                  composition.start();
+                  return { text: null, active: composition.active };
+                case "end": {
+                  const text = composition.end(data);
+                  return { text, active: composition.active };
+                }
+                case "before_input": {
+                  const text = composition.beforeInputText(data);
+                  return { text, active: composition.active };
+                }
+                default:
+                  throw new Error(`unknown composition event "${String(ev["type"])}"`);
+              }
+            });
+            return ok({ results });
           }
           default:
             return fail(`ts terminal adapter: unknown op "${op}"`);

@@ -1,0 +1,10 @@
+[package]
+name = "terminal-input"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Runtime-independent terminal input policy (issue #301, contract terminal-input@1). Ports src/lib/ghostty/inputPolicy.ts + keys.ts: keydown bypass decisions, IME composition lifecycle with commit dedupe, focus-report gating, pointer/wheel -> mouse-report mapping, and DOM KeyboardEvent -> EngineKey mapping."
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }

@@ -76,6 +76,14 @@
    "summary": "Ordered PaintOp list per frame: row cache/dirty tracking, text batching, selection/search/cursor overlay, Kitty image and background-image compositing; pixel output via ui-conformance."
   },
   {
+   "id": "terminal-input",
+   "version": 1,
+   "title": "Terminal input policy (IME, keys, mouse, focus)",
+   "spec": "docs/migration/contracts/terminal-input.md",
+   "oracle": "differential",
+   "summary": "Keydown bypass decisions, IME composition lifecycle with commit dedupe, focus reports, pointer/wheel mouse-report mapping, KeyboardEvent->EngineKey."
+  },
+  {
    "id": "settings-persistence",
    "version": 1,
    "title": "Settings and persistence",
@@ -1309,6 +1317,60 @@
     "crates/terminal-render/tests/scene.rs",
     "harness/scenarios/terminal/scene-render.json",
     "docs/migration/contracts/terminal-render.md"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "terminal.input",
+   "title": "Runtime-independent terminal input policy (DOM-free decisions)",
+   "area": "terminal",
+   "owner": "app",
+   "boundary": "B4",
+   "contracts": [
+    "terminal-input@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "keydown bypass decision (IME markers, dead keys, printable text, kitty all-keys)",
+    "IME composition lifecycle with same-turn commit-echo dedupe",
+    "DECSET 1004 focus report gating",
+    "pointer drag select-vs-report decision",
+    "wheel delta -> button mapping",
+    "hover-motion gating per mouse mode",
+    "screen point -> viewport mouse-report cell",
+    "KeyboardEvent fields -> EngineKey (code map, mods, text/unshifted)"
+   ],
+   "errors": [
+    "policy helpers are total; engine errors surface via the session path"
+   ],
+   "side_effects": [],
+   "scenarios": [
+    "src/lib/ghostty/inputPolicy.test.ts",
+    "src/lib/ghostty/keys.test.ts",
+    "crates/terminal-input/tests/input.rs",
+    "harness/scenarios/terminal/input-policy.json"
+   ],
+   "evidence": [
+    "src/lib/ghostty/inputPolicy.ts",
+    "src/lib/ghostty/keys.ts",
+    "crates/terminal-input/src/lib.rs",
+    "crates/terminal-input/src/bin/terminal-input-adapter.rs",
+    "crates/terminal-input/tests/input.rs",
+    "harness/scenarios/terminal/input-policy.json",
+    "docs/migration/contracts/terminal-input.md"
    ],
    "stage": "rust-implemented",
    "status": {
