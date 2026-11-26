@@ -12,6 +12,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { socketConnector, type Connector, type SocketHandlers } from "./socket.ts";
+import { metricTimed } from "./metrics.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** Per-line ceilings. herdr sets no finite max; these bound what we accept. */
@@ -157,7 +158,7 @@ export function herdrRpc<T = unknown>(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const id = nextId();
 
-  return new Promise<T>((resolve, reject) => {
+  return metricTimed("herdr.rpc", () => new Promise<T>((resolve, reject) => {
     let settled = false;
     let stream: { write(data: string | Uint8Array): unknown; end(): unknown } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -225,7 +226,7 @@ export function herdrRpc<T = unknown>(
       }
     }, (err: Error) =>
       finish(() => reject(new HerdrError("connect_failed", `cannot reach herdr at ${socketPath}: ${err.message}`))));
-  });
+  }), { method });
 }
 
 export interface EventFrame {

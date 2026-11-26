@@ -15,6 +15,7 @@ import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
 import { fetchSnapshot } from "./bridge-core.ts";
 import { MachineManager } from "./machine-manager.ts";
+import { metricsSnapshot } from "./metrics.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
@@ -103,6 +104,7 @@ Bun.serve({
       return new Response("forbidden host or origin", { status: 403 });
     }
     if (url.pathname === "/api/health") return health();
+    if (url.pathname === "/api/metrics") return Response.json(metricsSnapshot());
     if (url.pathname === "/api/session" && req.method === "GET") {
       return fetchSnapshot()
         .then((snapshot) => Response.json({ snapshot }))
