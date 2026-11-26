@@ -15,6 +15,7 @@
 //!   16 MiB otherwise.
 
 pub mod io;
+pub mod session;
 pub mod mem;
 
 use io::{ConnEvent, Connection, Connector};
