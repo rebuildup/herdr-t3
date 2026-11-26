@@ -1,104 +1,14 @@
 {
   "format": "herdr-t3/recorded-manifest",
   "version": 1,
-  "recorded_at": "2026-11-26T14:30:37.114Z",
+  "recorded_at": "2026-11-26T18:05:35.589Z",
   "bun": "1.4.4",
-  "git": "4ce254cf4a6ee504a77cc74be40e2f244111e101",
+  "git": "f6594a67c45f92ad4ee44e306a96f20a0b1dcf6b",
   "scenarios": [
     {
-      "id": "codec.abnormal-inputs",
-      "path": "scenarios/codec/abnormal-inputs.json",
-      "input_sha256": "74ebe92c39370fd7dc5e503fc775cd48c0d85015c89190cae6bceef01fc6d2bc"
-    },
-    {
-      "id": "codec.client-messages",
-      "path": "scenarios/codec/client-messages.json",
-      "input_sha256": "991549dd1c4c8a4b8a88598437457292a5a3dc41bbce121e87c0cdc5faecd441"
-    },
-    {
-      "id": "codec.json-frames",
-      "path": "scenarios/codec/json-frames.json",
-      "input_sha256": "368d86e7a719072050b2bbee1ebdc5bf1ecd3b7a1d69413b7168779c548890a0"
-    },
-    {
-      "id": "codec.server-messages",
-      "path": "scenarios/codec/server-messages.json",
-      "input_sha256": "bd16887f4272b858f8a061b50d32e3c2f3f543c15d932e86afe6803e624cec1b"
-    },
-    {
-      "id": "codec.varint-roundtrip",
-      "path": "scenarios/codec/varint.json",
-      "input_sha256": "b9660426f01666428ebbe9174fa7b4092c45756bfde748981a8e7686c01e24d4"
-    },
-    {
-      "id": "projection.abnormal-inputs",
-      "path": "scenarios/projection/abnormal-inputs.json",
-      "input_sha256": "f833250efb5f3535e4bae2c10daaff1cf97f428fe25b86ea8205c1ecd82d2b7b"
-    },
-    {
-      "id": "projection.agent-entries-partition",
-      "path": "scenarios/projection/agents.json",
-      "input_sha256": "f35fb79ed9a93e00dd02d54a227f72f4b86b54d8d1a5debcbc20300eced33ab8"
-    },
-    {
-      "id": "projection.agent-organize",
-      "path": "scenarios/projection/agents-organize.json",
-      "input_sha256": "973729475ca0c802ec7cbbbed23a0722fd35413df6c81d3f78a517212021831f"
-    },
-    {
-      "id": "projection.derive-workspace",
-      "path": "scenarios/projection/workspace.json",
-      "input_sha256": "42f912c39ee66b28dd790fee2f0c847086cc9b61dec2f90965aa9d873195d580"
-    },
-    {
-      "id": "projection.goto",
-      "path": "scenarios/projection/goto.json",
-      "input_sha256": "1ccacc619385e879c7b6135cbd62f8e68d1faab30a36c00a7804fa48e410a5d6"
-    },
-    {
-      "id": "terminal.basic-screen",
-      "path": "scenarios/terminal/basic-screen.json",
-      "input_sha256": "f3376e5919f15806f7b49340c03f4b16cc32be6b323c1a03cc582920949c8b73"
-    },
-    {
-      "id": "terminal.callbacks-and-scroll",
-      "path": "scenarios/terminal/callbacks-and-scroll.json",
-      "input_sha256": "2852e822264d356f024b5c557f4b62564943ff41e78fe0b0bfd66fdd7f3078ba"
-    },
-    {
-      "id": "terminal.input-policy",
-      "path": "scenarios/terminal/input-policy.json",
-      "input_sha256": "982973aaeba777e58bdee79578d46eabbfdb4855e29b391dd12423e81073277a"
-    },
-    {
-      "id": "terminal.modes-and-input-encoding",
-      "path": "scenarios/terminal/modes-and-input.json",
-      "input_sha256": "a13b9d9e8d6098d948857f546149e82cdb692587b8b71e1eee0556788013f0cf"
-    },
-    {
-      "id": "terminal.scene-render",
-      "path": "scenarios/terminal/scene-render.json",
-      "input_sha256": "270e2ecc8ea504ac3f3566aa6dc483984e28054b0564dadaa600c818764880f6"
-    },
-    {
-      "id": "terminal.scrollback-resize-alt",
-      "path": "scenarios/terminal/scrollback-resize.json",
-      "input_sha256": "6e8724311f2ae17acf2954c2bfe635660775a7bd247952accb1e0cc0204138a2"
-    },
-    {
-      "id": "terminal.surface",
-      "path": "scenarios/terminal/surface.json",
-      "input_sha256": "a13cb4845580db5c25ddeb627c631a0307429794e9170cda8aceb519a0ea7325"
-    },
-    {
-      "id": "terminal.surface-fresh",
-      "path": "scenarios/terminal/surface-fresh.json",
-      "input_sha256": "e26503ad73ea7a193ffe7d9680a83dd58d521bc646db4c77c0185995e38eea16"
-    },
-    {
-      "id": "terminal.wide-chars",
-      "path": "scenarios/terminal/wide-chars.json",
-      "input_sha256": "6cbf34fea5bac97db276b6dbe590028ef412b87966562e7f5cfe177a9eb6b78e"
+      "id": "terminal.surface-select-reverse",
+      "path": "scenarios/terminal/surface-select-reverse.json",
+      "input_sha256": "d7b70c150a71a94a267bdf763e384f6b2c58299911d841ce361bf22d2204fe5e"
     }
   ]
 }

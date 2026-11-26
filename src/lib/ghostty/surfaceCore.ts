@@ -664,6 +664,13 @@ export class SurfaceCore {
             end: { x: this.selection.end.x, y: this.selection.end.y + delta },
           };
           effects.push({ type: "render_set_selection", range: this.selection });
+          // an in-flight drag anchor tracks the same content (issue #427)
+          if (this.drag) {
+            this.drag.anchor = {
+              x: this.drag.anchor.x,
+              y: this.drag.anchor.y + delta,
+            };
+          }
         }
       }
       this.lastViewportTop = top;
@@ -1049,7 +1056,10 @@ export class SurfaceCore {
       this.pendingDragMotion = { button: drag.button, point: cell, mods };
       this.schedule(effects);
     }
-    const range = ordered(this.selection?.start ?? drag.anchor, cell);
+    // the gesture anchor is fixed at pointer-down; the normalized
+    // selection start is the moving end and must not become the anchor
+    // (issue #427 — upward drags lost their anchor)
+    const range = ordered(drag.anchor, cell);
     this.selection = range;
     const empty = range.start.x === range.end.x && range.start.y === range.end.y;
     effects.push({ type: "render_set_selection", range: empty ? null : range });

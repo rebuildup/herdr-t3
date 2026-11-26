@@ -141,6 +141,14 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   モードでのみ有効 (現行維持)。
 - テキスト選択のコピーは `copy` event 経路 (Cmd/Ctrl+C) で DOM selection
   ではなく engine の `textOf(selection)` を使う (現行維持)。
+- ドラッグ選択のアンカーは pointer-down 時点のセルに固定し、移動端点と
+  独立して保持する。表示・コピー時のみ `ordered()` で正規化する
+  (issue #427 — 正規化済み start を次のアンカーに再利用すると逆方向
+  ドラッグで開始点が失われる)。viewportTop の追従 (selection carry)
+  が走るときは進行中ドラッグのアンカーも同じ delta で移し、出力追記で
+  アンカーが取り残されないようにする。TS `surfaceCore` と Rust
+  `terminal-surface` および differential scenario
+  `terminal.surface-select-reverse` がこの契約を共有する。
 
 ### 5.3 GUI が握り潰してはいけないもの
 
