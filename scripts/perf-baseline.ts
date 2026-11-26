@@ -69,6 +69,13 @@ export interface PerfReport {
     loadavg_1m: number;
     loadavg_5m: number;
     loadavg_15m: number;
+    /**
+     * System-wide CPU busy fraction (0..1) measured from os.cpus() time
+     * deltas across the whole bench run. loadavg is always 0 on win32, so
+     * this is the only real load signal there; on POSIX it complements
+     * loadavg with a utilization figure instead of a run-queue depth.
+     */
+    cpu_busy?: number;
   };
 }
 
@@ -202,6 +209,35 @@ function condition(): NonNullable<PerfReport["condition"]> {
   return { loadavg_1m: l1, loadavg_5m: l5, loadavg_15m: l15 };
 }
 
+/** Aggregated os.cpus() jiffies; deltas across a run give real CPU busy. */
+export interface CpuTimes {
+  idle: number;
+  total: number;
+}
+
+export function cpuTimes(): CpuTimes {
+  let idle = 0;
+  let total = 0;
+  for (const cpu of cpus()) {
+    const t = cpu.times;
+    idle += t.idle;
+    total += t.user + t.nice + t.sys + t.idle + t.irq;
+  }
+  return { idle, total };
+}
+
+/**
+ * Busy fraction (0..1) between two cpuTimes() snapshots, summed across
+ * all cores — i.e. machine-wide utilization, not per-core. Returns null
+ * when the interval had no measurable time (should not happen).
+ */
+export function cpuBusyFraction(before: CpuTimes, after: CpuTimes): number | null {
+  const dTotal = after.total - before.total;
+  const dIdle = after.idle - before.idle;
+  if (!(dTotal > 0) || dIdle < 0) return null;
+  return Math.min(1, Math.max(0, 1 - dIdle / dTotal));
+}
+
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
   const arg = (name: string, dflt: string) => {
@@ -212,12 +248,16 @@ async function main(): Promise<number> {
   if (cmd === "record") {
     const iterations = Number(arg("--iterations", "7"));
     const out = arg("--out", join(REPO_ROOT, "perf-reports", `baseline-${gitSha().slice(0, 8)}.json`));
+    const cpuBefore = cpuTimes();
     const { totals, cells } = collect(iterations, BENCH);
     const sceneRun = collect(iterations, SCENE_BENCH);
     const e = env();
     const stats = summarizeRuns(totals);
     stats.cells_decoded_total = cells;
     const sceneStats = { ...summarizeRuns(sceneRun.totals), ops_total: sceneRun.ops };
+    const cond = condition();
+    const cpuBusy = cpuBusyFraction(cpuBefore, cpuTimes());
+    if (cpuBusy !== null) cond.cpu_busy = cpuBusy;
     const report: PerfReport = {
       format: REPORT_FORMAT,
       version: REPORT_VERSION,
@@ -252,7 +292,7 @@ async function main(): Promise<number> {
           note: "SurfaceCore.tick + GhosttyScene collect/render op emission, output storm + scroll jumps; Canvas2D rasterization excluded (DOM-bound)",
         },
       },
-      condition: condition(),
+      condition: cond,
     };
     const { writeFileSync, mkdirSync } = await import("node:fs");
     mkdirSync(join(out, ".."), { recursive: true });
@@ -262,7 +302,7 @@ async function main(): Promise<number> {
     if (report.scene) {
       console.log(`scene p50=${report.scene.p50_ms.toFixed(1)}ms p95=${report.scene.p95_ms.toFixed(1)}ms cv=${(report.scene.cv * 100).toFixed(1)}% ops=${report.scene.ops_total ?? 0}`);
     }
-    console.log(`condition loadavg=${report.condition?.loadavg_1m.toFixed(2)}/${report.condition?.loadavg_5m.toFixed(2)}/${report.condition?.loadavg_15m.toFixed(2)}`);
+    console.log(`condition loadavg=${report.condition?.loadavg_1m.toFixed(2)}/${report.condition?.loadavg_5m.toFixed(2)}/${report.condition?.loadavg_15m.toFixed(2)} cpu_busy=${report.condition?.cpu_busy?.toFixed(3) ?? "n/a"}`);
     return 0;
   }
 
@@ -276,6 +316,7 @@ async function main(): Promise<number> {
     const { readFileSync } = await import("node:fs");
     const baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as PerfReport;
     const iterations = Number(arg("--iterations", "7"));
+    const cpuBefore = cpuTimes();
     const { totals, cells } = collect(iterations, BENCH);
     // The scene bench runs only when the baseline has a scene section —
     // reports recorded before #354 compare decode-only.
@@ -283,6 +324,9 @@ async function main(): Promise<number> {
     const e = env();
     const stats = summarizeRuns(totals);
     stats.cells_decoded_total = cells;
+    const cond = condition();
+    const cpuBusy = cpuBusyFraction(cpuBefore, cpuTimes());
+    if (cpuBusy !== null) cond.cpu_busy = cpuBusy;
     const current: PerfReport = {
       format: REPORT_FORMAT,
       version: REPORT_VERSION,
@@ -295,7 +339,7 @@ async function main(): Promise<number> {
       bun_version: e.bun,
       workload: baseline.workload,
       bench: { command: `bun ${BENCH}`, iterations: totals.length, ...stats },
-      condition: condition(),
+      condition: cond,
     };
     // The scene bench exists only in reports recorded after #354; when the
     // baseline lacks it the comparison is decode-only (documented, not a

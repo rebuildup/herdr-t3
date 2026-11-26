@@ -1,0 +1,4 @@
+wrote C:\Users\rebui\ht3-perf\results\2febbbf-idle-r3.json
+p50=405.0ms p95=425.0ms cv=6.0%
+scene p50=323.0ms p95=328.0ms cv=3.8% ops=16189
+condition loadavg=0.00/0.00/0.00
