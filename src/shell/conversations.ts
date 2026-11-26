@@ -1,16 +1,17 @@
 /*
- * Plugin-backed conversations store (ADR-0011 boundary; issue #374).
+ * Plugin-backed conversations store (ADR-0011 boundary; issues #374/#457).
  *
  * `rebuildup.conversations` on each target host owns the provider
  * transcript index (claude/codex/opencode) through the
  * `herdr-plugins.conversations/v1` contract, pinned at
  * rebuildup/herdr-plugins@d23205af (v0.9.0,
  * docs/contracts/conversations-v1.md). This module consumes the read
- * surface (`capability`, `sessions`, `history`, `search`) plus the
- * explicit `index`/`refresh` mutations — both advertised in the
- * capability document's `mutation_commands` field and gated on it.
- * `show`/`usage` stay unconsumed (`usage` is issue #364; `show`
- * resolves structured refs the surface does not render yet).
+ * surface (`capability`, `sessions`, `history`, `search`, `show`)
+ * plus the explicit `index`/`refresh` mutations — both advertised in
+ * the capability document's `mutation_commands` field and gated on
+ * it. `index`/`refresh` are the ONLY mutations the v1 contract
+ * advertises (issue #457 verified against the pinned cli.ts); `usage`
+ * stays unconsumed (issue #364).
  *
  * Session/event documents are defensive projections: a foreign
  * contract, a missing `sessions`/`events`/`results` array, or a
@@ -205,6 +206,30 @@ export interface ConversationsSearchPage {
   malformed_lines: number;
   duplicates_skipped: number;
   restarted_sessions: string[];
+  sessions: ConversationsSession[];
+}
+
+/** One `show` result row: matched event + session key + matched fields. */
+export interface ConversationsShowMatch {
+  session_key: string;
+  matched_fields: string[];
+  event: ConversationsEvent | null;
+}
+
+/**
+ * `show` response: ref echo, the plugin's `resolved.kind` verdict,
+ * matched events (capped at 200 upstream — `truncated` flags the cap),
+ * and the scanned session coverage. There is no cursor: narrowing is
+ * via the selectors.
+ */
+export interface ConversationsShowPage {
+  ref: string | null;
+  /** `resolved.kind`: `event_id` | `tool_use_id` | `turn_index` (open string). */
+  resolvedKind: string | null;
+  selector_note: string | null;
+  results: ConversationsShowMatch[];
+  matched: number | null;
+  truncated: boolean;
   sessions: ConversationsSession[];
 }
 
@@ -525,6 +550,52 @@ export function conversationsSearchFromDoc(
   };
 }
 
+function showMatchFromDoc(raw: unknown): ConversationsShowMatch | null {
+  if (!isRecord(raw)) return null;
+  const sessionKey = str(raw["session_key"]);
+  if (sessionKey === null || sessionKey === "") return null;
+  return {
+    session_key: sessionKey,
+    matched_fields: strArray(raw["matched_fields"]),
+    event: conversationsEventFromDoc(raw["event"]),
+  };
+}
+
+/**
+ * `show` document: `{contract, ref, resolved:{kind}, selector_note,
+ * results:[{session_key, matched_fields, event}], matched, truncated,
+ * sessions:[…]}`. Unlike search there is no `page`/cursor — results
+ * are capped at 200 upstream and `truncated` reports the cap.
+ */
+export function conversationsShowFromDoc(
+  doc: Record<string, unknown>,
+): ConversationsShowPage | null {
+  if (!contractAllowed(doc)) return null;
+  const resultsRaw = doc["results"];
+  const sessionsRaw = doc["sessions"];
+  if (!Array.isArray(resultsRaw) || !Array.isArray(sessionsRaw)) return null;
+  const results: ConversationsShowMatch[] = [];
+  for (const raw of resultsRaw) {
+    const match = showMatchFromDoc(raw);
+    if (match !== null) results.push(match);
+  }
+  const sessions: ConversationsSession[] = [];
+  for (const raw of sessionsRaw) {
+    const session = conversationsSessionFromDoc(raw);
+    if (session !== null) sessions.push(session);
+  }
+  const resolvedRaw = doc["resolved"];
+  return {
+    ref: str(doc["ref"]),
+    resolvedKind: isRecord(resolvedRaw) ? str(resolvedRaw["kind"]) : null,
+    selector_note: str(doc["selector_note"]),
+    results,
+    matched: num(doc["matched"]),
+    truncated: doc["truncated"] === true,
+    sessions,
+  };
+}
+
 function providerFromDoc(raw: unknown): ConversationsProviderInfo | null {
   if (!isRecord(raw)) return null;
   const id = str(raw["id"]);
@@ -742,6 +813,56 @@ export function conversationsSearchArgs(
   return args;
 }
 
+/**
+ * `show <ref> [--session-id REF] [--pane PANE] [--provider ID]
+ * [--offline]` (issue #457). `<ref>` is one positional: a bare value
+ * (exact `event_id` or `tool_use_id`), `tool:<tool_use_id>`, or
+ * `turn:<n>`. Selectors combine as AND filters across indexed
+ * sessions; the plugin caps results at 200 and reports `truncated`.
+ */
+export function conversationsShowArgs(
+  ref: string,
+  options: {
+    paneId?: string | undefined;
+    sessionId?: string | undefined;
+    provider?: string | undefined;
+    offline?: boolean | undefined;
+  } = {},
+): string[] {
+  const args: string[] = [ref];
+  if (options.sessionId !== undefined && options.sessionId !== "") {
+    args.push("--session-id", options.sessionId);
+  }
+  if (options.paneId !== undefined && options.paneId !== "") {
+    args.push("--pane", options.paneId);
+  }
+  if (options.provider !== undefined && options.provider !== "") {
+    args.push("--provider", options.provider);
+  }
+  if (options.offline === true) args.push("--offline");
+  return args;
+}
+
+/**
+ * Stable `show` reference for an indexed event (contract §show):
+ * tool events resolve the call/result pair via `tool:<tool_use_id>`,
+ * turn boundaries resolve the whole turn via `turn:<n>`, everything
+ * else resolves the bare `event_id`. Null when the event carries no
+ * stable reference — never a fabricated ref.
+ */
+export function conversationsShowRef(event: ConversationsEvent): string | null {
+  if (event.tool_use_id !== null && event.tool_use_id !== "") {
+    return `tool:${event.tool_use_id}`;
+  }
+  if (event.type === "turn" && event.turn_index !== null) {
+    return `turn:${event.turn_index}`;
+  }
+  if (event.event_id !== null && event.event_id !== "") {
+    return event.event_id;
+  }
+  return null;
+}
+
 /* -------------------------------- reads -------------------------------- */
 
 async function callConversations(
@@ -817,6 +938,27 @@ export async function fetchConversationsSearch(
   );
   const page = conversationsSearchFromDoc(doc);
   if (page === null) throw badOutput("search");
+  return page;
+}
+
+/** `show` — resolve a stable event/tool/turn reference to matching events. */
+export async function fetchConversationsShow(
+  machine: string,
+  ref: string,
+  options: {
+    paneId?: string | undefined;
+    sessionId?: string | undefined;
+    provider?: string | undefined;
+    offline?: boolean | undefined;
+  } = {},
+): Promise<ConversationsShowPage> {
+  const doc = await callConversations(
+    machine,
+    "show",
+    conversationsShowArgs(ref, options),
+  );
+  const page = conversationsShowFromDoc(doc);
+  if (page === null) throw badOutput("show");
   return page;
 }
 

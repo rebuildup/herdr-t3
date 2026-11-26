@@ -7,6 +7,7 @@
  */
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -18,6 +19,7 @@ import {
   GitBranchIcon,
   HistoryIcon,
   InfoIcon,
+  KeyRoundIcon,
   Maximize2,
   MessagesSquareIcon,
   MessageSquareTextIcon,
@@ -25,8 +27,10 @@ import {
   MousePointerClickIcon,
   PackageIcon,
   PencilIcon,
+  PlugIcon,
   PlusIcon,
   Rows2,
+  ServerIcon,
   SquarePlayIcon,
   SquareSplitHorizontalIcon,
   SparklesIcon,
@@ -704,9 +708,29 @@ export function WorkspaceHeader() {
                 <ArrowLeftRightIcon /> Handoffs
               </DropdownMenuItem>
               <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "controls", kind: "controls" })}
+              >
+                <BotIcon /> Controls
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={() => openPanelSurface({ id: "textgen", kind: "textgen" })}
               >
                 <SparklesIcon /> Text Generation
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "secrets", kind: "secrets" })}
+              >
+                <KeyRoundIcon /> Secrets
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "machines", kind: "machines" })}
+              >
+                <ServerIcon /> Machines
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "mcp", kind: "mcp" })}
+              >
+                <PlugIcon /> MCP
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab

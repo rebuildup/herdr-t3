@@ -14,6 +14,9 @@ import {
   conversationsSessionFromDoc,
   conversationsSessionsArgs,
   conversationsSessionsFromDoc,
+  conversationsShowArgs,
+  conversationsShowFromDoc,
+  conversationsShowRef,
   conversationsSupports,
   conversationsSupportsMutation,
   classifyConversationsError,
@@ -175,6 +178,27 @@ describe("conversations argv builders (herdr-plugins.conversations/v1 @d23205af)
       "--pane",
       "w1:p1",
     ]);
+
+    // show <ref> [--session-id ID] [--pane PANE] [--provider ID] [--offline]
+    expect(conversationsShowArgs("tool-1")).toEqual(["tool-1"]);
+    expect(
+      conversationsShowArgs("turn:3", {
+        sessionId: "claude:sess-1",
+        paneId: "w1:p1",
+        provider: "codex",
+        offline: true,
+      }),
+    ).toEqual([
+      "turn:3",
+      "--session-id",
+      "claude:sess-1",
+      "--pane",
+      "w1:p1",
+      "--provider",
+      "codex",
+      "--offline",
+    ]);
+    expect(conversationsShowArgs("u-1", { sessionId: "" })).toEqual(["u-1"]);
   });
 });
 
@@ -336,6 +360,43 @@ describe("conversations doc parsers", () => {
     expect(conversationsSearchFromDoc({ contract: "x/v9", results: [], sessions: [] })).toBeNull();
   });
 
+  test("show parses ref resolution, matches and coverage (no cursor)", () => {
+    const page = conversationsShowFromDoc({
+      contract: CONTRACT,
+      command: "show",
+      ref: "tool-1",
+      resolved: { kind: "tool_use_id" },
+      selector_note: null,
+      results: [
+        {
+          session_key: "claude:sess-1",
+          matched_fields: ["tool_use_id"],
+          event: TOOL_EVENT,
+        },
+        { session_key: "claude:sess-1", matched_fields: ["tool_use_id"], event: { junk: true } },
+        { junk: true },
+      ],
+      matched: 2,
+      truncated: false,
+      sessions: [{ ...SESSION, events_present: true }],
+      generated_at: "2026-01-01T00:05:00.000Z",
+    });
+    expect(page).not.toBeNull();
+    expect(page?.ref).toBe("tool-1");
+    expect(page?.resolvedKind).toBe("tool_use_id");
+    expect(page?.matched).toBe(2);
+    expect(page?.truncated).toBe(false);
+    expect(page?.results).toHaveLength(2);
+    expect(page?.results[0]?.matched_fields).toEqual(["tool_use_id"]);
+    expect(page?.results[0]?.event?.tool_name).toBe("Bash");
+    // Malformed event payloads keep the row but null the event — never fabricated.
+    expect(page?.results[1]?.event).toBeNull();
+    expect(page?.sessions[0]?.events_present).toBe(true);
+    expect(conversationsShowFromDoc({ contract: "other/v1", results: [], sessions: [] })).toBeNull();
+    expect(conversationsShowFromDoc({ contract: CONTRACT, results: [] })).toBeNull();
+    expect(conversationsShowFromDoc({ contract: CONTRACT, results: [], sessions: [] })).not.toBeNull();
+  });
+
   test("index summary parses indexed/skipped verbatim", () => {
     const summary = conversationsIndexFromDoc({
       contract: CONTRACT,
@@ -463,6 +524,39 @@ describe("conversations capability", () => {
     // Probe states mirror conversationsSupports: undefined = probing.
     expect(conversationsSupportsMutation(undefined, "index")).toBeNull();
     expect(conversationsSupportsMutation(null, "index")).toBe(false);
+  });
+});
+
+describe("conversationsShowRef", () => {
+  const base = conversationsEventFromDoc(EVENT);
+  const tool = conversationsEventFromDoc(TOOL_EVENT);
+
+  test("tool events resolve the call/result pair via tool:<id>", () => {
+    expect(tool).not.toBeNull();
+    expect(conversationsShowRef(tool as NonNullable<typeof tool>)).toBe("tool:tool-1");
+  });
+
+  test("turn boundaries resolve the whole turn via turn:<n>", () => {
+    const turn = conversationsEventFromDoc({
+      ...EVENT,
+      event_id: "t-1",
+      type: "turn",
+      text: null,
+      turn_index: 2,
+    });
+    expect(turn).not.toBeNull();
+    expect(conversationsShowRef(turn as NonNullable<typeof turn>)).toBe("turn:2");
+  });
+
+  test("other events resolve the bare event_id", () => {
+    expect(base).not.toBeNull();
+    expect(conversationsShowRef(base as NonNullable<typeof base>)).toBe("u-1");
+  });
+
+  test("events without a stable reference return null", () => {
+    const bare = conversationsEventFromDoc({ type: "system", subtype: "compact_boundary" });
+    expect(bare).not.toBeNull();
+    expect(conversationsShowRef(bare as NonNullable<typeof bare>)).toBeNull();
   });
 });
 
