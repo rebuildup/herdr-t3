@@ -68,10 +68,12 @@ report.
    `terminal.scene-render` scenario passes on TS + Rust and 9 Rust
    integration tests cover op ordering, dirty-row repaints, styles,
    washes, cursor and background-image geometry. New registry entry
-   `terminal.scene` at `rust-implemented`. Remaining: the `surface.ts`
-   orchestration layer (selection/scroll/IME coalescing) and the
-   ui-conformance render assertions once a Rust surface consumer
-   exists.
+   `terminal.scene` at `rust-implemented`. `terminal.input` likewise
+   landed (#304): `crates/terminal-input` ports `inputPolicy.ts` +
+   `keys.ts` under contract `terminal-input@1`.
+   Remaining: the `surface.ts` orchestration layer (selection/scroll/
+   IME coalescing) — #301 open — then a Rust surface consumer and the
+   ui-conformance render assertions.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
    (Electron + GPUI host evidence recorded); remaining prerequisite is
    the terminal/render pipeline (boundary 4) it renders.
@@ -79,6 +81,27 @@ report.
    persistence-compat migration plan execution + pc-setup coordination
    (upstream dependency, explicit Issue required before any pc-setup
    change).
+
+### Product-path audit (post-#304)
+
+`rust-implemented` means: product-intended crate + harness adapter +
+differential/scenario/unit evidence. **No capability is `switched`** —
+no Rust crate is consumed by the shipping bridge or UI yet; the TS
+implementations remain the product path everywhere. Per-capability
+remaining work before old-path removal:
+
+| Capability | rust-implemented | switched (product consumer) | old impl removal |
+|---|---|---|---|
+| protocol.codec | #275/#277 | needs Rust bridge consumer | shared/protocol.ts codec path |
+| agent.projection | #281 (+#287 perf, #288 conformance) | needs Rust consumer | src/lib/workspace.ts, src/shell/agents.ts |
+| terminal.engine | #286 | needs Rust consumer | shared/ghostty engine/session TS path |
+| terminal.scene | #298 | needs Rust consumer | renderer.ts Canvas2D path |
+| terminal.input | #304 | needs Rust consumer | inputPolicy.ts/keys.ts call sites |
+
+`equivalence-verified` additionally requires consumer-path
+differential evidence; `switched` flips the product path; removal
+deletes the TS implementation per standing rules — none of these
+steps are claimed yet.
 
 Each stage exit criteria: contract scenarios pass differentially,
 performance within recorded threshold, persistence round-trip where
