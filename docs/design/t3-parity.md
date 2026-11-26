@@ -52,6 +52,12 @@ source of truth. Each feature is classified by where its data comes from:
 | Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh; shell-family `--shell` selector + `shell_family`/`shell_source` display per #269/ADR-0020); auto triggers upstream-gated (herdr-plugins#60) |
 | Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @ae4f214 (ADR-0016/0017/0021/0024): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); multi-repo save groups + restore-group + bounded gc/prune connected (#279: `group_id` badges/`--group` filter, mandatory dry-run preview, per-repo partial results via the bridge stdout-report convention); per-turn capture remains upstream-gated |
 
+> **Container rule (maintainer directive, #333):** plugin surfaces are docked
+> right-panel tabs in the T3 `ChatRightPanel`/`RightPanelTabs` pattern — a
+> small non-modal control panel — never bespoke modal dialogs. The current
+> `*Dialog.tsx` implementations are interim containers pending migration to
+> the right-panel host.
+
 ## Issues / pull requests
 
 | T3 feature | Class | Notes |
