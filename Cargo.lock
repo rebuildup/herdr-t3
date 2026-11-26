@@ -5866,6 +5866,7 @@ name = "ui-test-host"
 version = "0.0.0"
 dependencies = [
  "gpui",
+ "herdr-bridge",
  "protocol-codec",
  "serde_json",
  "state-projections",

@@ -25,12 +25,15 @@ use gpui::{
     Context, Entity, FocusHandle, KeyDownEvent, Modifiers, Point, Render, ScrollDelta,
     ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
 };
+use herdr_bridge::session::BridgeSession;
 use protocol_codec::{MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
 use state_projections::{build_goto_rows, filter_goto_rows, GotoRow};
 use ui_kit::{primitives::{Badge, BadgeVariant, Button, ButtonVariant, Input, Kbd, Separator}, tokens};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
 
 const PX_PER_ROW: f32 = 20.0;
 
@@ -83,6 +86,35 @@ struct HostState {
     primitives_open: bool,
     primitives_clicks: Vec<String>,
     primitives_disabled_clicks: u32,
+    /// Live herdr bridge (issue #329): real BridgeSession feeding
+    /// state-projections view models. `None` for fixture states.
+    live: Option<LiveState>,
+}
+
+/// Messages from the BridgeSession threads into the GPUI host. The host
+/// is command-driven (stdin JSON-lines), so `drain_live` runs on every
+/// command — observe polls are the refresh mechanism, matching how the
+/// harness drives the Electron adapter.
+enum LiveMsg {
+    Started(BridgeSession),
+    Snapshot(Value),
+    Error(String),
+}
+
+#[derive(Default)]
+struct LiveState {
+    rx: Option<Receiver<LiveMsg>>,
+    session: Option<BridgeSession>,
+    connected: bool,
+    error: Option<String>,
+    /// Latest raw session snapshot (protocol Value, same object
+    /// state-projections consumes).
+    snapshot: Option<Value>,
+    /// View-model outputs recomputed per snapshot.
+    workspace_vm: Option<Value>,
+    agents_vm: Option<Value>,
+    /// Snapshot deliveries seen (incl. debounced refetches).
+    updates: u64,
 }
 
 fn fixture_state(fixture: Option<&str>) -> HostState {
@@ -106,6 +138,7 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
         primitives_open: false,
         primitives_clicks: Vec::new(),
         primitives_disabled_clicks: 0,
+        live: None,
     };
     match fixture {
         Some("single-workspace") => {}
@@ -136,6 +169,10 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
             ];
         }
         Some("default-settings") => {}
+        Some("live-herdr") => {
+            // Wired by HostView::start_live — the fixture only marks the
+            // state slot; the session spawns on the setup command.
+        }
         Some(other) => panic!("unknown fixture {other}"),
         None => {}
     }
@@ -253,6 +290,92 @@ impl HostView {
         self.state.goto_open = false;
         // The product dialog keeps its query across close/reopen
         // (GotoDialog stays mounted); mirror that — no reset here.
+    }
+
+    /// `live-herdr` fixture (issue #329): connect to the real herdr
+    /// socket via herdr-bridge and feed snapshots through the
+    /// state-projections view-model ops — the GPUI-side equivalent of
+    /// the Electron bridge store.
+    fn start_live(&mut self, _cx: &mut Context<Self>) {
+        self.state = fixture_state(Some("live-herdr"));
+        let (tx, rx) = channel::<LiveMsg>();
+        self.state.live = Some(LiveState {
+            rx: Some(rx),
+            ..LiveState::default()
+        });
+        std::thread::spawn(move || {
+            let connector: Arc<dyn herdr_bridge::io::Connector> =
+                Arc::new(herdr_bridge::local_connector());
+            let tx_snap = tx.clone();
+            let tx_err = tx.clone();
+            match BridgeSession::start(
+                connector,
+                Arc::new(move |snap| {
+                    let _ = tx_snap.send(LiveMsg::Snapshot(snap));
+                }),
+                Arc::new(move |_event| {}),
+                Some(Arc::new(move |e| {
+                    let _ = tx_err.send(LiveMsg::Error(format!("{}: {}", e.code, e.message)));
+                })),
+            ) {
+                Ok(session) => {
+                    let _ = tx.send(LiveMsg::Started(session));
+                }
+                Err(e) => {
+                    let _ = tx.send(LiveMsg::Error(format!("start: {}: {}", e.code, e.message)));
+                }
+            }
+        });
+    }
+
+    /// Drain pending bridge messages and recompute view models. Called on
+    /// every host command so observe/act see fresh state.
+    fn drain_live(&mut self) -> bool {
+        let Some(live) = &mut self.state.live else {
+            return false;
+        };
+        let Some(rx) = live.rx.as_ref() else {
+            return false;
+        };
+        let mut msgs = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            msgs.push(msg);
+        }
+        if msgs.is_empty() {
+            return false;
+        }
+        for msg in msgs {
+            match msg {
+                LiveMsg::Started(session) => {
+                    live.connected = true;
+                    live.session = Some(session);
+                }
+                LiveMsg::Snapshot(snap) => {
+                    live.snapshot = Some(snap.clone());
+                    live.updates += 1;
+                    // state-projections view-model ops: workspace VM for
+                    // the active workspace, agent VM for the sidebar
+                    // sections — same ops the Electron facade calls.
+                    let mut winput = Map::new();
+                    winput.insert("snapshot".into(), snap.clone());
+                    live.workspace_vm =
+                        state_projections::workspace_view_model(&winput).ok();
+                    let mut ainput = Map::new();
+                    ainput.insert(
+                        "machines".into(),
+                        json!([{
+                            "id": "local", "kind": "local", "label": "Local",
+                            "enabled": true, "status": "online",
+                        }]),
+                    );
+                    ainput.insert("snapshots".into(), json!({ "local": snap }));
+                    live.agents_vm =
+                        state_projections::agent_view_model(&ainput).ok();
+                }
+                LiveMsg::Error(e) => live.error = Some(e),
+            }
+        }
+        true
     }
 
     fn selected_workspace(&self) -> Option<&WorkspaceT> {
@@ -393,6 +516,188 @@ impl Render for HostView {
                 })),
         );
         main = main.child(header);
+
+        // ---- live herdr panel (issue #329) ------------------------------
+        // Real BridgeSession snapshots rendered through the
+        // state-projections view-model ops: workspace rows from the raw
+        // snapshot, agent rows from agent_view_model sections.
+        if let Some(live) = &self.state.live {
+            let theme = tokens::light();
+            let mut panel = gpui::div()
+                .flex()
+                .flex_col()
+                .gap(gpui::px(4.0))
+                .px(gpui::px(12.0))
+                .py(gpui::px(6.0))
+                .border_b(gpui::px(1.0))
+                .border_color(gpui::rgb(0x333333));
+            // Connection status line.
+            let status_text = if live.connected {
+                format!("herdr: connected ({} updates)", live.updates)
+            } else if let Some(err) = &live.error {
+                format!("herdr: error — {err}")
+            } else {
+                "herdr: connecting…".to_string()
+            };
+            let status_color = if live.connected {
+                0x66bb6a
+            } else if live.error.is_some() {
+                0xef5350
+            } else {
+                0xffa726
+            };
+            panel = panel.child(
+                gpui::div()
+                    .id("live-status")
+                    .debug_selector(|| "live.status".to_string())
+                    .text_size(gpui::px(11.0))
+                    .text_color(gpui::rgb(status_color))
+                    .child(status_text),
+            );
+            // Workspace rows from the raw snapshot.
+            if let Some(snap) = &live.snapshot {
+                if let Some(workspaces) = snap.get("workspaces").and_then(Value::as_array) {
+                    for w in workspaces {
+                        let id = w
+                            .get("workspace_id")
+                            .or_else(|| w.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("?")
+                            .to_string();
+                        let label = w
+                            .get("label")
+                            .or_else(|| w.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or(&id)
+                            .to_string();
+                        let focused = w.get("focused").and_then(Value::as_bool) == Some(true);
+                        let row_id = id.clone();
+                        let mut row = gpui::div()
+                            .id(gpui::SharedString::from(format!("live-ws-{id}")))
+                            .debug_selector(move || format!("live.workspace.{row_id}"))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(gpui::px(6.0))
+                            .child(
+                                gpui::div()
+                                    .text_size(gpui::px(12.0))
+                                    .text_color(if focused { gpui::rgb(0xffffff) } else { gpui::rgb(0xbbbbbb) })
+                                    .child(label),
+                            );
+                        if focused {
+                            row = row.child(
+                                Badge::new("live-ws-focus", "focused")
+                                    .variant(BadgeVariant::Secondary)
+                                    .render(&theme),
+                            );
+                        }
+                        panel = panel.child(row);
+                    }
+                }
+                // Active-workspace detail from workspace_view_model —
+                // proves the view-model op output reaches the render
+                // path, not just the raw snapshot (issue #329).
+                if let Some(vm) = &live.workspace_vm {
+                    let ws_label = vm
+                        .get("workspace")
+                        .and_then(|w| w.get("label"))
+                        .or_else(|| vm.get("workspace").and_then(|w| w.get("workspace_id")))
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_string();
+                    let tab_label = vm
+                        .get("activeTab")
+                        .and_then(|t| t.get("label"))
+                        .or_else(|| vm.get("activeTab").and_then(|t| t.get("tab_id")))
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string();
+                    let pane_count = vm
+                        .get("tabPanes")
+                        .and_then(Value::as_array)
+                        .map(|p| p.len())
+                        .unwrap_or(0);
+                    let focused = vm
+                        .get("focusedPane")
+                        .and_then(|p| p.get("pane_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string();
+                    panel = panel.child(
+                        gpui::div()
+                            .id("live-ws-vm")
+                            .debug_selector(|| "live.workspace-vm".to_string())
+                            .text_size(gpui::px(11.0))
+                            .text_color(gpui::rgb(0x999999))
+                            .child(format!(
+                                "{ws_label} · tab {tab_label} · {pane_count} panes · focus {focused}"
+                            )),
+                    );
+                }
+                // Agent rows from agent_view_model sections.
+                if let Some(sections) = live
+                    .agents_vm
+                    .as_ref()
+                    .and_then(|vm| vm.get("sections"))
+                    .and_then(Value::as_object)
+                {
+                    for (section, rows) in sections {
+                        let Some(rows) = rows.as_array() else { continue };
+                        if rows.is_empty() {
+                            continue;
+                        }
+                        panel = panel.child(
+                            gpui::div()
+                                .text_size(gpui::px(10.0))
+                                .text_color(gpui::rgb(0x777777))
+                                .child(section.to_uppercase()),
+                        );
+                        for agent in rows {
+                            let name = agent
+                                .get("display_name")
+                                .or_else(|| agent.get("name"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("agent")
+                                .to_string();
+                            let state_label = agent
+                                .get("state_label")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            let key = agent
+                                .get("key")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            let row_key = key.clone();
+                            let mut row = gpui::div()
+                                .id(gpui::SharedString::from(format!("live-agent-{key}")))
+                                .debug_selector(move || format!("live.agent.{row_key}"))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(gpui::px(6.0))
+                                .child(
+                                    gpui::div()
+                                        .text_size(gpui::px(12.0))
+                                        .text_color(gpui::rgb(0xdddddd))
+                                        .child(name),
+                                );
+                            if !state_label.is_empty() {
+                                row = row.child(
+                                    Badge::new("live-agent-state", state_label.clone())
+                                        .variant(BadgeVariant::Outline)
+                                        .render(&theme),
+                                );
+                            }
+                            panel = panel.child(row);
+                        }
+                    }
+                }
+            }
+            main = main.child(panel);
+        }
 
         if self.state.settings_open {
             // Settings surface: section nav + content, mirroring the real
@@ -707,6 +1012,7 @@ fn state_of(vcx: &mut VisualTestContext, view: &Entity<HostView>) -> HostState {
         primitives_open: v.state.primitives_open,
         primitives_clicks: v.state.primitives_clicks.clone(),
         primitives_disabled_clicks: v.state.primitives_disabled_clicks,
+        live: None,
     })
 }
 
@@ -780,6 +1086,15 @@ fn main() {
         };
         let id = req.get("id").and_then(Value::as_u64).unwrap_or(0);
         let cmd = req.get("cmd").and_then(Value::as_str).unwrap_or("");
+        // Live bridge (issue #329): drain pending snapshot/event
+        // messages before every command so observe sees fresh state.
+        vcx.cx.update(|app| {
+            view.update(app, |v, cx| {
+                if v.drain_live() {
+                    cx.notify();
+                }
+            });
+        });
         let result = handle(&mut vcx, &view, cmd, &req);
         match result {
             Ok(value) => {
@@ -824,6 +1139,25 @@ fn handle(
                     .read_with(&vcx.cx, |v, _| {
                         v.goto_rows().iter().map(|r| r.id.clone()).collect()
                     }),
+                "live.workspace" => view.read_with(&vcx.cx, |v, _| {
+                    v.state
+                        .live
+                        .as_ref()
+                        .and_then(|l| l.snapshot.as_ref())
+                        .and_then(|s| s.get("workspaces"))
+                        .and_then(Value::as_array)
+                        .map(|ws| {
+                            ws.iter()
+                                .filter_map(|w| {
+                                    w.get("workspace_id")
+                                        .or_else(|| w.get("id"))
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                }),
                 _ => return Err(format!("unknown kind {kind}")),
             };
             Ok(json!(list))
@@ -832,7 +1166,11 @@ fn handle(
             let fixture = req.get("fixture").and_then(Value::as_str);
             vcx.cx.update(|app| {
                 view.update(app, |v, cx| {
-                    v.state = fixture_state(fixture);
+                    if fixture == Some("live-herdr") {
+                        v.start_live(cx);
+                    } else {
+                        v.state = fixture_state(fixture);
+                    }
                     cx.notify();
                 });
             });
@@ -962,6 +1300,75 @@ fn observe(
         "state.focused_target" => Ok(json!("none")),
         "state.primitives_open" => Ok(json!(state.primitives_open)),
         "state.primitives_clicks" => Ok(json!(state.primitives_clicks)),
+        "state.live.connected" => Ok(json!(view.read_with(&vcx.cx, |v, _| {
+            v.state.live.as_ref().map(|l| l.connected).unwrap_or(false)
+        }))),
+        "state.live.updates" => Ok(json!(view.read_with(&vcx.cx, |v, _| {
+            v.state.live.as_ref().map(|l| l.updates).unwrap_or(0)
+        }))),
+        "state.live.error" => Ok(view.read_with(&vcx.cx, |v, _| {
+            v.state
+                .live
+                .as_ref()
+                .and_then(|l| l.error.clone())
+                .map(Value::String)
+                .unwrap_or(Value::Null)
+        })),
+        "state.live.workspace_ids" => Ok(view.read_with(&vcx.cx, |v, _| {
+            v.state
+                .live
+                .as_ref()
+                .and_then(|l| l.snapshot.as_ref())
+                .and_then(|s| s.get("workspaces"))
+                .and_then(Value::as_array)
+                .map(|ws| {
+                    json!(ws.iter()
+                        .filter_map(|w| {
+                            w.get("workspace_id")
+                                .or_else(|| w.get("id"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                        })
+                        .collect::<Vec<_>>())
+                })
+                .unwrap_or(json!([]))
+        })),
+        "state.live.agent_count" => Ok(view.read_with(&vcx.cx, |v, _| {
+            let count = v
+                .state
+                .live
+                .as_ref()
+                .and_then(|l| l.agents_vm.as_ref())
+                .and_then(|vm| vm.get("sections"))
+                .and_then(Value::as_object)
+                .map(|sections| {
+                    sections
+                        .values()
+                        .filter_map(Value::as_array)
+                        .map(|rows| rows.len())
+                        .sum::<usize>()
+                })
+                .unwrap_or(0);
+            json!(count)
+        })),
+        "state.live.workspace_vm" => Ok(view.read_with(&vcx.cx, |v, _| {
+            v.state
+                .live
+                .as_ref()
+                .and_then(|l| l.workspace_vm.as_ref())
+                .map(|vm| {
+                    json!({
+                        "workspace_id": vm.pointer("/workspace/workspace_id"),
+                        "active_tab_id": vm.pointer("/activeTab/tab_id"),
+                        "tab_pane_count": vm.pointer("/tabPanes").and_then(Value::as_array).map(|a| a.len()),
+                        "focused_pane_id": vm.pointer("/focusedPane/pane_id"),
+                    })
+                })
+                .unwrap_or(Value::Null)
+        })),
+        "state.live.agents_vm" => Ok(json!(view.read_with(&vcx.cx, |v, _| {
+            v.state.live.as_ref().and_then(|l| l.agents_vm.as_ref()).is_some()
+        }))),
         "terminal.scroll_offset" => {
             let id = params.get("id").and_then(Value::as_str).unwrap_or("");
             let mounted = mounted_pane_ids(&state);
