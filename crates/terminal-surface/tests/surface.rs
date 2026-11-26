@@ -12,6 +12,7 @@ fn colors() -> SurfaceColors {
         foreground: "#eeeeee".into(),
         background: "#101010".into(),
         cursor: "#ffcc00".into(),
+        cursor_text: None,
         ansi: vec!["#000000".into(); 16],
     }
 }

@@ -58,6 +58,12 @@ export interface GhosttySceneOptions {
   foreground: string;
   background: string;
   cursor: string;
+  /**
+   * `cursor-text`: the colour block-cursor cell text is redrawn in.
+   * Accepts a CSS colour or the Ghostty keywords `cell-foreground` /
+   * `cell-background`; unset defaults to `background` (issue #382).
+   */
+  cursorText?: string | undefined;
   /** selection and search-match washes, as CSS colours with alpha */
   selection?: string;
   search?: string;
@@ -144,7 +150,7 @@ export class GhosttyScene {
     this.cursorOn = visible;
   }
 
-  setColors(colors: Partial<Pick<GhosttySceneOptions, "foreground" | "background" | "cursor" | "selection" | "search">>): void {
+  setColors(colors: Partial<Pick<GhosttySceneOptions, "foreground" | "background" | "cursor" | "cursorText" | "selection" | "search">>): void {
     Object.assign(this.options, colors);
     this.invalidate();
   }
@@ -467,24 +473,96 @@ export class GhosttyScene {
     }
   }
 
+  /**
+   * The cell covering viewport column `col` on row `y`, with its run's
+   * style. Wide characters occupy two columns through their head cell —
+   * spacer tails are not emitted as cells, so a lookup on the tail
+   * column returns the head.
+   */
+  private cellInfoAt(
+    y: number,
+    col: number,
+  ): { run: GhosttyRun; cell: { text: string; wide: boolean }; startCol: number } | null {
+    for (const run of this.rows.get(y) ?? []) {
+      let cx = run.x;
+      for (const cell of run.cells) {
+        const w = cell.wide ? 2 : 1;
+        if (col >= cx && col < cx + w) return { run, cell, startCol: cx };
+        cx += w;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A `cursor-color`/`cursor-text` spec resolved against the cursor
+   * cell's effective colours (post-INVERSE). The Ghostty keywords
+   * `cell-foreground`/`cell-background` name those colours; anything
+   * else is a literal CSS colour, and an unset spec falls back.
+   */
+  private resolveCursorColor(
+    spec: string | undefined,
+    effective: { fg: string; bg: string },
+    fallback: string,
+  ): string {
+    const v = (spec ?? "").trim().toLowerCase();
+    if (v === "cell-foreground") return effective.fg;
+    if (v === "cell-background") return effective.bg;
+    return spec !== undefined && spec.trim() !== "" ? spec : fallback;
+  }
+
   private paintCursor(out: PaintOp[], m: SceneMetrics): void {
     const cursor = this.session.cursorState();
     if (!cursor.visible || cursor.x >= m.cols || cursor.y >= m.rows) return;
-    const x = cursor.x * m.cellW, y = cursor.y * m.cellH;
-    const w = m.cellW, h = m.cellH;
-    const color = this.options.cursor;
+    // A cursor on a wide character's tail column covers both cells
+    // (ghostty `cursor_wide`); normalize to the head column.
+    const headX = cursor.wideTail ? Math.max(0, cursor.x - 1) : cursor.x;
+    const head = this.cellInfoAt(cursor.y, headX);
+    const span = cursor.wideTail || head?.cell.wide ? 2 : 1;
+    const run = head?.run;
+    const fg = run?.fg ?? this.options.foreground;
+    const bg = run?.bg ?? this.options.background;
+    const inverse = (run?.flags ?? 0) & STYLE_INVERSE;
+    const effective = inverse ? { fg: bg, bg: fg } : { fg, bg };
+    const color = this.resolveCursorColor(this.options.cursor, effective, this.options.foreground);
+    const x = headX * m.cellW, y = cursor.y * m.cellH;
+    const h = m.cellH;
     switch (cursor.style) {
       case "bar":
-        out.push({ op: "fill_rect", rect: { x, y, w: Math.max(2, w * 0.12), h }, color, alpha: 1 });
+        out.push({ op: "fill_rect", rect: { x, y, w: Math.max(2, m.cellW * 0.12), h }, color, alpha: 1 });
         break;
       case "underline":
-        out.push({ op: "fill_rect", rect: { x, y: y + h * 0.82, w, h: Math.max(1, h * 0.12) }, color, alpha: 1 });
+        out.push({ op: "fill_rect", rect: { x, y: y + h * 0.82, w: m.cellW, h: Math.max(1, h * 0.12) }, color, alpha: 1 });
         break;
       case "hollow":
-        out.push({ op: "stroke_rect", rect: { x: x + 0.5, y: y + 0.5, w: w - 1, h: h - 1 }, color, lineWidth: 1 });
+        out.push({ op: "stroke_rect", rect: { x: x + 0.5, y: y + 0.5, w: span * m.cellW - 1, h: h - 1 }, color, lineWidth: 1 });
         break;
-      default:
-        out.push({ op: "fill_rect", rect: { x, y, w, h }, color, alpha: 0.35 });
+      default: {
+        // Ghostty block cursor: the cell is filled opaquely with
+        // `cursor-color` and its text is redrawn in `cursor-text`
+        // (default: the background colour) — a true fg/bg inversion,
+        // not a translucent wash (issue #382).
+        out.push({ op: "fill_rect", rect: { x, y, w: span * m.cellW, h }, color, alpha: 1 });
+        const textColor = this.resolveCursorColor(this.options.cursorText, effective, this.options.background);
+        const baseline = this.baselineFor(y);
+        const seen = new Set<{ text: string; wide: boolean }>();
+        for (let i = 0; i < span; i++) {
+          const info = this.cellInfoAt(cursor.y, headX + i);
+          if (!info || seen.has(info.cell)) continue;
+          seen.add(info.cell);
+          if (info.run.flags & STYLE_INVISIBLE) continue;
+          if (info.cell.text === "" || info.cell.text === " ") continue;
+          out.push({
+            op: "fill_text",
+            x: info.startCol * m.cellW,
+            y: baseline,
+            text: info.cell.text,
+            font: this.fontFor(info.run.flags),
+            color: textColor,
+            alpha: 1,
+          });
+        }
+      }
     }
   }
 

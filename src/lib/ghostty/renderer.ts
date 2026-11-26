@@ -25,6 +25,8 @@ export interface GhosttyRendererOptions {
   foreground: string;
   background: string;
   cursor: string;
+  /** `cursor-text` for the block cursor (issue #382); unset = background */
+  cursorText?: string | undefined;
   /** selection and search-match washes, as CSS colours with alpha */
   selection?: string;
   search?: string;
@@ -112,7 +114,7 @@ export class GhosttyRenderer {
   }
 
   /** the theme changed: the defaults unnamed runs and the cursor are drawn with, and the washes */
-  setColors(colors: Partial<Pick<GhosttyRendererOptions, "foreground" | "background" | "cursor" | "selection" | "search">>): void {
+  setColors(colors: Partial<Pick<GhosttyRendererOptions, "foreground" | "background" | "cursor" | "cursorText" | "selection" | "search">>): void {
     this.scene.setColors(colors);
   }
 

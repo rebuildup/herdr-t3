@@ -138,6 +138,10 @@ fn run_op(
                 foreground: get("foreground", "#d4d4d4"),
                 background: get("background", "#1e1e1e"),
                 cursor: get("cursor", "#ffffff"),
+                cursor_text: options
+                    .and_then(|o| o.get("cursorText"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 selection: options
                     .and_then(|o| o.get("selection"))
                     .and_then(Value::as_str)
@@ -231,6 +235,7 @@ fn run_op(
                     own("foreground"),
                     own("background"),
                     own("cursor"),
+                    own("cursorText"),
                     own("selection"),
                     own("search"),
                 );

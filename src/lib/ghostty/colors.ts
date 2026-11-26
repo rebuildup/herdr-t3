@@ -9,6 +9,12 @@ export interface GhosttyThemeColors {
   foreground: string;
   background: string;
   cursor: string;
+  /**
+   * `cursor-text` (issue #382): block-cursor text colour. A CSS colour or
+   * the Ghostty keywords `cell-foreground`/`cell-background`; render-only,
+   * never sent to the engine. Unset defaults to `background`.
+   */
+  cursorText?: string | undefined;
   ansi: readonly string[];
 }
 

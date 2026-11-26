@@ -87,6 +87,9 @@ pub enum SurfaceEffect {
         foreground: String,
         background: String,
         cursor: String,
+        /// `cursor-text` for the block cursor (issue #382); render-only
+        #[serde(rename = "cursorText", skip_serializing_if = "Option::is_none")]
+        cursor_text: Option<String>,
     },
     /// renderer: background opacity
     RenderSetBackgroundOpacity { alpha: f64 },
@@ -261,6 +264,8 @@ pub struct SurfaceColors {
     pub foreground: String,
     pub background: String,
     pub cursor: String,
+    /// `cursor-text` for the block cursor (issue #382); render-only
+    pub cursor_text: Option<String>,
     pub ansi: Vec<String>,
 }
 
@@ -813,6 +818,7 @@ impl SurfaceCore {
             foreground: self.colors.foreground.clone(),
             background: self.colors.background.clone(),
             cursor: self.colors.cursor.clone(),
+            cursor_text: self.colors.cursor_text.clone(),
         });
         self.schedule(&mut effects);
         void_result(effects)
@@ -1766,6 +1772,10 @@ fn parse_colors(input: &JsonMap<String, Value>) -> Result<SurfaceColors, String>
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string(),
+        cursor_text: obj
+            .get("cursorText")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         ansi,
     })
 }

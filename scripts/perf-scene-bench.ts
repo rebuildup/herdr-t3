@@ -207,6 +207,7 @@ async function main(): Promise<void> {
             foreground: effect.foreground,
             background: effect.background,
             cursor: effect.cursor,
+            cursorText: effect.cursorText,
           });
           break;
         case "render_set_background_opacity":

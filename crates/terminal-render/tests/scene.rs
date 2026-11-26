@@ -36,6 +36,7 @@ fn options() -> GhosttySceneOptions {
         foreground: "#d4d4d4".into(),
         background: "#1e1e1e".into(),
         cursor: "#ffffff".into(),
+        cursor_text: None,
         selection: Some("rgba(120,160,255,0.28)".into()),
         search: Some("rgba(250,204,21,0.22)".into()),
     }
@@ -77,12 +78,76 @@ fn first_collect_marks_every_row_and_render_paints_text() {
     let joined = texts(&frame.text).join("|");
     assert!(joined.contains("hi"), "{joined}");
     assert!(joined.contains("there"), "{joined}");
-    // overlay always clears then draws the block cursor
+    // overlay always clears then draws the block cursor: an opaque
+    // cursor-colour cell fill (issue #382 — no more alpha-0.35 wash)
     assert!(matches!(frame.overlay.first(), Some(PaintOp::Clear { .. })));
-    assert!(frame
-        .overlay
-        .iter()
-        .any(|o| matches!(o, PaintOp::FillRect { alpha: 0.35, .. })));
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, alpha: 1.0, .. } if color == "#ffffff"
+    )));
+    assert!(!frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { alpha, .. } if (*alpha - 0.35).abs() < f64::EPSILON
+    )));
+}
+
+#[test]
+fn block_cursor_fills_cell_and_redraws_text_in_cursor_text() {
+    let mut s = scene(20, 4);
+    s.session().write(b"hi").unwrap();
+    // park the cursor on 'h'
+    s.session().write(b"\x1b[1;1H").unwrap();
+    s.set_metrics(metrics(20, 4));
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    // opaque one-cell fill in the cursor colour
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { rect, color, alpha: 1.0, .. }
+            if color == "#ffffff" && (rect.w - 8.0).abs() < f64::EPSILON && (rect.h - 16.0).abs() < f64::EPSILON
+    )));
+    // the glyph is redrawn in cursor-text; unset defaults to background
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, alpha: 1.0, .. } if text == "h" && color == "#1e1e1e"
+    )));
+}
+
+#[test]
+fn cursor_text_option_and_cell_keywords_resolve() {
+    let mut s = scene(20, 4);
+    s.session().write(b"hi").unwrap();
+    s.session().write(b"\x1b[1;1H").unwrap();
+    s.set_metrics(metrics(20, 4));
+    s.collect().unwrap();
+    // explicit cursor-text wins over the background default
+    // (set_colors invalidates the row cache — collect repopulates it)
+    s.set_colors(None, None, None, Some("#123456".into()), None, None);
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, .. } if text == "h" && color == "#123456"
+    )));
+    // cell-foreground resolves against the cursor cell's effective fg
+    s.set_colors(
+        None,
+        None,
+        Some("cell-foreground".into()),
+        Some("cell-background".into()),
+        None,
+        None,
+    );
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, .. } if color == "#d4d4d4"
+    )));
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, .. } if text == "h" && color == "#1e1e1e"
+    )));
 }
 
 #[test]
@@ -187,12 +252,12 @@ fn selection_highlights_and_cursor_hidden() {
         .collect();
     assert!(washes.iter().any(|c| c.contains("120,160,255")), "{washes:?}");
     assert!(washes.iter().any(|c| c.contains("250,204,21")), "{washes:?}");
-    // cursor hidden -> overlay keeps the clear + washes but no cursor block
+    // cursor hidden -> overlay keeps the clear + washes but no cursor ops
     s.set_cursor_visible(false);
     let frame = s.render().unwrap();
     assert!(!frame.overlay.iter().any(|o| matches!(
         o,
-        PaintOp::FillRect { color, alpha: 0.35, .. } if color == "#ffffff"
+        PaintOp::FillRect { color, .. } if color == "#ffffff"
     )));
 }
 

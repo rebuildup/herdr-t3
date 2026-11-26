@@ -51,6 +51,10 @@ pub struct GhosttySceneOptions {
     pub foreground: String,
     pub background: String,
     pub cursor: String,
+    /// `cursor-text` (issue #382): block-cursor text colour — a CSS colour
+    /// or the Ghostty keywords `cell-foreground`/`cell-background`; unset
+    /// defaults to `background`. Render-only, never sent to the engine.
+    pub cursor_text: Option<String>,
     pub selection: Option<String>,
     pub search: Option<String>,
 }
@@ -232,6 +236,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
         foreground: Option<String>,
         background: Option<String>,
         cursor: Option<String>,
+        cursor_text: Option<String>,
         selection: Option<String>,
         search: Option<String>,
     ) {
@@ -243,6 +248,9 @@ impl<M: TextMetrics> GhosttyScene<M> {
         }
         if let Some(c) = cursor {
             self.options.cursor = c;
+        }
+        if let Some(c) = cursor_text {
+            self.options.cursor_text = Some(c);
         }
         if let Some(c) = selection {
             self.options.selection = Some(c);
@@ -678,37 +686,131 @@ impl<M: TextMetrics> GhosttyScene<M> {
         }
     }
 
+    /// The cell covering viewport column `col` on row `y`, with its run's
+    /// style and the column the cell starts at — port of `cellInfoAt`.
+    /// Wide characters occupy two columns through their head cell; spacer
+    /// tails are not emitted, so a tail-column lookup returns the head.
+    fn cell_info_at(&self, y: u16, col: usize) -> Option<(&GhosttyRun, &terminal_core::RunCell, usize)> {
+        for run in self.rows.get(&y).map(Vec::as_slice).unwrap_or(&[]) {
+            let mut cx = run.x;
+            for cell in &run.cells {
+                let w = if cell.wide { 2 } else { 1 };
+                if col >= cx && col < cx + w {
+                    return Some((run, cell, cx));
+                }
+                cx += w;
+            }
+        }
+        None
+    }
+
     fn paint_cursor(&mut self, out: &mut Vec<PaintOp>, m: &SceneMetrics) -> Result<(), String> {
         let cursor = self.session.cursor_state()?;
         if !cursor.visible || cursor.x as u32 >= m.cols || cursor.y as u32 >= m.rows {
             return Ok(());
         }
-        let x = cursor.x as f64 * m.cell_w;
+        // A cursor on a wide character's tail column covers both cells
+        // (ghostty `cursor_wide`); normalize to the head column.
+        let head_x = if cursor.wide_tail {
+            (cursor.x as usize).saturating_sub(1)
+        } else {
+            cursor.x as usize
+        };
+        let head_wide = self
+            .cell_info_at(cursor.y, head_x)
+            .map(|(_, cell, _)| cell.wide)
+            .unwrap_or(false);
+        let span = if cursor.wide_tail || head_wide { 2 } else { 1 };
+        let (fg, bg, flags) = match self.cell_info_at(cursor.y, head_x) {
+            Some((run, _, _)) => {
+                let fg = run_color_string(run.fg.as_ref())
+                    .unwrap_or_else(|| self.options.foreground.clone());
+                let bg = run_color_string(run.bg.as_ref())
+                    .unwrap_or_else(|| self.options.background.clone());
+                (fg, bg, run.flags)
+            }
+            None => (
+                self.options.foreground.clone(),
+                self.options.background.clone(),
+                0,
+            ),
+        };
+        let (eff_fg, eff_bg) = if flags & STYLE_INVERSE != 0 { (bg, fg) } else { (fg, bg) };
+        let color = resolve_cursor_color(
+            Some(self.options.cursor.as_str()),
+            &eff_fg,
+            &eff_bg,
+            &self.options.foreground,
+        );
+        let x = head_x as f64 * m.cell_w;
         let y = cursor.y as f64 * m.cell_h;
-        let w = m.cell_w;
         let h = m.cell_h;
-        let color = self.options.cursor.clone();
         match cursor.style {
             CursorStyle::Bar => out.push(PaintOp::FillRect {
-                rect: Rect { x, y, w: (w * 0.12).max(2.0), h },
+                rect: Rect { x, y, w: (m.cell_w * 0.12).max(2.0), h },
                 color,
                 alpha: 1.0,
             }),
             CursorStyle::Underline => out.push(PaintOp::FillRect {
-                rect: Rect { x, y: y + h * 0.82, w, h: (h * 0.12).max(1.0) },
+                rect: Rect { x, y: y + h * 0.82, w: m.cell_w, h: (h * 0.12).max(1.0) },
                 color,
                 alpha: 1.0,
             }),
             CursorStyle::Hollow => out.push(PaintOp::StrokeRect {
-                rect: Rect { x: x + 0.5, y: y + 0.5, w: w - 1.0, h: h - 1.0 },
+                rect: Rect { x: x + 0.5, y: y + 0.5, w: span as f64 * m.cell_w - 1.0, h: h - 1.0 },
                 color,
                 line_width: 1.0,
             }),
-            _ => out.push(PaintOp::FillRect {
-                rect: Rect { x, y, w, h },
-                color,
-                alpha: 0.35,
-            }),
+            _ => {
+                // Ghostty block cursor (issue #382): the cell is filled
+                // opaquely with `cursor-color` and its text redrawn in
+                // `cursor-text` (default: the background colour) — a true
+                // fg/bg inversion, not a translucent wash.
+                out.push(PaintOp::FillRect {
+                    rect: Rect { x, y, w: span as f64 * m.cell_w, h },
+                    color,
+                    alpha: 1.0,
+                });
+                let text_color = resolve_cursor_color(
+                    self.options.cursor_text.as_deref(),
+                    &eff_fg,
+                    &eff_bg,
+                    &self.options.background,
+                );
+                // covered cell texts, deduped across the wide head/tail
+                // pair — collected owned so the font/baseline caches can
+                // borrow self mutably afterwards
+                let mut covered: Vec<(usize, String, u16)> = Vec::new();
+                let mut seen: HashSet<*const terminal_core::RunCell> = HashSet::new();
+                for i in 0..span {
+                    if let Some((run, cell, start_col)) = self.cell_info_at(cursor.y, head_x + i) {
+                        if !seen.insert(cell as *const _) {
+                            continue;
+                        }
+                        if run.flags & STYLE_INVISIBLE != 0 {
+                            continue;
+                        }
+                        if cell.text.is_empty() || cell.text == " " {
+                            continue;
+                        }
+                        covered.push((start_col, cell.text.clone(), run.flags));
+                    }
+                }
+                if !covered.is_empty() {
+                    let baseline = self.baseline_for(y, m);
+                    for (start_col, text, cell_flags) in covered {
+                        let font = self.font_for(cell_flags);
+                        out.push(PaintOp::FillText {
+                            x: start_col as f64 * m.cell_w,
+                            y: baseline,
+                            text,
+                            font,
+                            color: text_color.clone(),
+                            alpha: 1.0,
+                        });
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -739,5 +841,27 @@ fn run_color_string(color: Option<&RunColor>) -> Option<String> {
     match color {
         Some(RunColor::Hex(s)) => Some(s.clone()),
         _ => None,
+    }
+}
+
+/// A `cursor-color`/`cursor-text` spec resolved against the cursor cell's
+/// effective colours (post-INVERSE) — port of `resolveCursorColor`. The
+/// Ghostty keywords `cell-foreground`/`cell-background` name those
+/// colours; anything else is a literal CSS colour, and an unset/empty
+/// spec falls back.
+fn resolve_cursor_color(spec: Option<&str>, eff_fg: &str, eff_bg: &str, fallback: &str) -> String {
+    let Some(raw) = spec else {
+        return fallback.to_string();
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cell-foreground" => eff_fg.to_string(),
+        "cell-background" => eff_bg.to_string(),
+        _ => {
+            if raw.trim().is_empty() {
+                fallback.to_string()
+            } else {
+                raw.to_string()
+            }
+        }
     }
 }
