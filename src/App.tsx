@@ -31,6 +31,7 @@ import { initConversations } from "./shell/conversations";
 import { initUsage } from "./shell/usage";
 import { initArtifacts } from "./shell/artifacts";
 import { initHandoffs } from "./shell/handoffs";
+import { initControls } from "./shell/controls";
 import { initTextgen } from "./shell/textgen";
 
 import { onSnapshot } from "./lib/api";
@@ -51,6 +52,7 @@ export default function App() {
     initUsage();
     initArtifacts();
     initHandoffs();
+    initControls();
     initTextgen();
 
     // Attention toasts (issue #113): diff each machine's pushed snapshots

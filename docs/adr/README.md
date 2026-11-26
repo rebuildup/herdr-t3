@@ -33,3 +33,4 @@
 | [ADR-0029](./ADR-0029.md) | Accepted | Artifacts surface: artifacts-v1 contract pin @d23205af and read-surface adoption |
 | [ADR-0030](./ADR-0030.md) | Accepted | Handoffs surface: handoff-v1 contract pin @d23205af and read-only adoption (mutations incl. top-level commands gated off) |
 | [ADR-0031](./ADR-0031.md) | Accepted | TextGen surface: textgen-v1 contract pin @d23205af and read-surface adoption |
+| [ADR-0032](./ADR-0032.md) | Accepted | Controls surface: controls-v1 contract pin @d23205af and gated mutation adoption (send/rename/read stay bridge-owned) |
