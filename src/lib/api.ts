@@ -403,25 +403,59 @@ export function machineUpdate(
 
 /* ------------------------- plugin contract calls ---------------------- */
 
-/** Installed-plugin discovery on one host (ADR-0011). */
+/**
+ * Single-flight for plugin calls (issue #424): identical concurrent requests
+ * share one bridge round-trip instead of each spawning the plugin CLI on the
+ * host. Entries are removed on settle — only simultaneous callers dedup,
+ * nothing is cached. Opt-in via `coalesce`: only read call sites set it,
+ * because the plugin contract does not declare per-command side effects
+ * and mutations must never be merged.
+ */
+const pluginCallInflight = new Map<string, Promise<unknown>>();
+
+function pluginSingleFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const existing = pluginCallInflight.get(key);
+  if (existing) return existing as Promise<T>;
+  const pending = run();
+  pluginCallInflight.set(key, pending);
+  const cleanup = () => pluginCallInflight.delete(key);
+  pending.then(cleanup, cleanup);
+  return pending;
+}
+
+/** Installed-plugin discovery on one host (ADR-0011); always read-only. */
 export function pluginList(machine: string): Promise<PluginListResult> {
-  return machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>;
+  return pluginSingleFlight(`list ${machine}`, () =>
+    machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>,
+  );
 }
 
 /** One plugin contract command on one host; result is the plugin's JSON document. */
 export function pluginCall(
   machine: string,
-  request: { plugin: string; command: string; args?: string[]; timeout_ms?: number },
+  request: {
+    plugin: string;
+    command: string;
+    args?: string[];
+    timeout_ms?: number;
+    /** Set only for reads; mutations must never coalesce (issue #424). */
+    coalesce?: boolean;
+  },
 ): Promise<PluginCallResult> {
-  return machineCommand({
-    type: "plugin_call",
-    id: "",
-    machine,
-    plugin: request.plugin,
-    command: request.command,
-    ...(request.args !== undefined ? { args: request.args } : {}),
-    ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
-  }) as Promise<PluginCallResult>;
+  const run = () =>
+    machineCommand({
+      type: "plugin_call",
+      id: "",
+      machine,
+      plugin: request.plugin,
+      command: request.command,
+      ...(request.args !== undefined ? { args: request.args } : {}),
+      ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
+      ...(request.coalesce === true ? { coalesce: true } : {}),
+    }) as Promise<PluginCallResult>;
+  if (request.coalesce !== true) return run();
+  const key = `call ${machine} ${request.plugin} ${request.command} ${JSON.stringify(request.args ?? [])} ${request.timeout_ms ?? ""}`;
+  return pluginSingleFlight(key, run);
 }
 
 /** Launch-at-login state; only the desktop preload exposes these. */

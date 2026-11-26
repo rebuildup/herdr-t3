@@ -275,6 +275,13 @@ export interface PluginCallRequest {
   command: string;
   args?: string[] | undefined;
   timeoutMs?: number | undefined;
+  /**
+   * Caller asserts this is a read whose concurrent identical invocations
+   * may share one execution (issue #424). Mutations must never set it —
+   * coalescing is opt-in precisely because the contract does not (yet)
+   * declare per-command side effects.
+   */
+  coalesce?: boolean | undefined;
 }
 
 interface DiscoveryCacheEntry {
@@ -488,9 +495,25 @@ export class PluginService {
   private readonly hostFor: (machine: string) => Promise<PluginHost | null>;
   private readonly discovery = new Map<string, DiscoveryCacheEntry>();
   private readonly capabilities = new Map<string, CapabilityCacheEntry>();
+  /** In-flight operations keyed for single-flight coalescing (issue #424). */
+  private readonly inflight = new Map<string, Promise<unknown>>();
 
   constructor(hostFor: (machine: string) => Promise<PluginHost | null>) {
     this.hostFor = hostFor;
+  }
+
+  /**
+   * Single-flight per key (issue #424): identical concurrent requests share
+   * one in-flight operation instead of each spawning the plugin CLI. The
+   * entry is removed on settle, so only truly simultaneous callers dedup —
+   * nothing is cached and failures are never shared beyond the flight.
+   */
+  private coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = run().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, pending);
+    return pending;
   }
 
   /** Drop cached discovery/capability for a machine (disconnect/refresh). */
@@ -499,10 +522,21 @@ export class PluginService {
     for (const key of [...this.capabilities.keys()]) {
       if (key.startsWith(`${machine}\u0000`)) this.capabilities.delete(key);
     }
+    // Stop new callers from joining pre-invalidate in-flight work; the
+    // running operation itself is left to settle.
+    for (const key of [...this.inflight.keys()]) {
+      if (key === `list\u0000${machine}` || key.startsWith(`call\u0000${machine}\u0000`)) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   /** `herdr plugin list --json` on the target host → installed plugins. */
   async listPlugins(machine: string): Promise<PluginListResult> {
+    return this.coalesce(`list\u0000${machine}`, () => this.listPluginsInner(machine));
+  }
+
+  private async listPluginsInner(machine: string): Promise<PluginListResult> {
     const cached = this.discovery.get(machine);
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
       metricInc("plugin.discovery.hit");
@@ -566,6 +600,10 @@ export class PluginService {
    * The plugin's own JSON document is returned verbatim on success.
    */
   async call(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
+    return this.callInner(machine, request);
+  }
+
+  private async callInner(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
     const { plugins } = await this.listPlugins(machine);
     const entry = plugins.find((p) => p.plugin_id === request.plugin);
     if (!entry) {
@@ -596,16 +634,34 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
     argv.push(...pluginTargetArgs(host));
-    const outcome = await metricTimed(
-      "plugin.exec",
-      () =>
-        host.exec(argv, {
-          cwd: entry.plugin_root,
-          timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
-          envRemove: PLUGIN_ENV_SCRUB,
-        }),
-      { what: "plugin_call", command: request.command },
-    );
+    const exec = () =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec(argv, {
+            cwd: entry.plugin_root,
+            timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
+            envRemove: PLUGIN_ENV_SCRUB,
+          }),
+        { what: "plugin_call", command: request.command },
+      );
+    // Single-flight at the spawn boundary (issue #424). The capability
+    // document's `mutation_commands` is the contract's own read/write
+    // declaration: a command absent from it is a read and may share an
+    // in-flight execution; a declared mutation never coalesces, even if a
+    // caller sets the flag. Plugins that omit the field fail closed —
+    // only an explicit caller `coalesce` opt-in applies.
+    const mutationCommands = capability.doc?.["mutation_commands"];
+    const declaredMutation =
+      Array.isArray(mutationCommands) && mutationCommands.includes(request.command);
+    const contractRead = Array.isArray(mutationCommands) && !declaredMutation;
+    const mayCoalesce = !declaredMutation && (contractRead || request.coalesce === true);
+    const outcome = mayCoalesce
+      ? await this.coalesce(
+          `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
+          exec,
+        )
+      : await exec();
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;
     if (!isRecord(parsed.doc)) {

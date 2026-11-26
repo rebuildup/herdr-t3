@@ -988,12 +988,14 @@ async function callUsage(
   command: string,
   args: string[] = [],
   timeoutMs?: number,
+  coalesce = false,
 ): Promise<Record<string, unknown>> {
   return pluginCall(machine, {
     plugin: USAGE_PLUGIN_ID,
     command,
     args,
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+    ...(coalesce ? { coalesce: true } : {}),
   });
 }
 
@@ -1012,7 +1014,7 @@ export async function fetchUsageQuota(
     timeoutMs?: number | undefined;
   } = {},
 ): Promise<UsageQuotaReport> {
-  const doc = await callUsage(machine, "quota", usageQuotaArgs(options));
+  const doc = await callUsage(machine, "quota", usageQuotaArgs(options), undefined, true);
   const report = usageQuotaFromDoc(doc);
   if (report === null) throw badOutput("quota");
   return report;
@@ -1036,7 +1038,7 @@ export async function fetchUsageReport(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageReport> {
-  const doc = await callUsage(machine, "usage", usageAggregationArgs(options));
+  const doc = await callUsage(machine, "usage", usageAggregationArgs(options), undefined, true);
   const report = usageReportFromDoc(doc);
   if (report === null) throw badOutput("usage");
   return report;
@@ -1047,7 +1049,7 @@ export async function fetchUsageCost(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageCostReport> {
-  const doc = await callUsage(machine, "cost", usageAggregationArgs(options));
+  const doc = await callUsage(machine, "cost", usageAggregationArgs(options), undefined, true);
   const report = usageCostFromDoc(doc);
   if (report === null) throw badOutput("cost");
   return report;
@@ -1058,7 +1060,7 @@ export async function fetchUsageDivergence(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageDivergenceReport> {
-  const doc = await callUsage(machine, "divergence", usageAggregationArgs(options));
+  const doc = await callUsage(machine, "divergence", usageAggregationArgs(options), undefined, true);
   const report = usageDivergenceFromDoc(doc);
   if (report === null) throw badOutput("divergence");
   return report;
@@ -1251,6 +1253,7 @@ export async function refreshUsage(machine: string): Promise<void> {
       const capability = await pluginCall(machine, {
         plugin: USAGE_PLUGIN_ID,
         command: "capability",
+        coalesce: true,
       });
       const cap = capabilityOk(capability);
       if (!cap) {
