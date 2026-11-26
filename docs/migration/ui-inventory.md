@@ -25,6 +25,9 @@ Electron→GPUI migration. Categories:
 | `SettingsModal.tsx` | VIEW | settings sections host |
 | `NoticeToasts.tsx` | VIEW | toast stack renderer (model: `notices.ts`) |
 | `AgentHoverCard.tsx` | VIEW | hover card (data: `agents.ts`) |
+| `PaneContextCard.tsx` | VIEW | context card — inline/popover `ThreadDetailsCard` port (issue #390); state in `contextCardStore.ts`, data in `useContextCardData.ts` |
+| `contextCardStore.ts` | VM | per-workspace card open/anchor state — port candidate |
+| `useContextCardData.ts` | VM | card section fetch aggregation over `shell/*.ts` plugin helpers — port candidate |
 | `agents.ts` | VM | agent entries/partition — **DONE** (`state-projections`, #281) |
 | `agentOrganizeStore.ts` | VM | organize record accumulation — DONE (projection abnormal-inputs cover records) |
 | `attention.ts` | VM | attention/ badge derivation — port candidate |

@@ -39,7 +39,7 @@ source of truth. Each feature is classified by where its data comes from:
 | Breadcrumb / workspace header | [herdr] | exists; polish to T3 pattern |
 | Command palette (⌘K) | [herdr] | actions over existing panes/workspaces |
 | Keyboard shortcuts / keybindings settings | [herdr] | client-side |
-| Thread details card/panel (context popover) | [herdr] | #390 — T3 `ThreadDetailsCard`/`Panel`/`Control` port: density stepping, conditional sections, item visibility, popover placement; pane-scoped and separate from the docked RightPanel |
+| Thread details card/panel (context card) | [herdr] | #390 — T3 `ThreadDetailsCard`/`Panel`/`Section`/`ItemsMenu`/`threadDetailsCardLayout` port: inline card primary + popover fallback, measured density stepping, plugin-backed sections (git/scripts/checkpoints/automations/agents/usage), per-workspace visibility store; pane-scoped and separate from the docked RightPanel |
 
 ## Right panel / surfaces
 

@@ -1,17 +1,27 @@
 /*
- * Pane context card item visibility (issue #390) — port of T3 Code's
- * `threadDetailsItems.ts` (`components/chat/`) adapted to herdr's pane
- * domain. Item ids are persisted, so never rename one. Only choices
- * that differ from the default are stored, so a later default change
- * reaches everyone else (same rule as upstream).
+ * Context card item visibility (issue #390) — port of T3 Code's
+ * `threadDetailsItems.ts` (`components/chat/`) adapted to herdr's
+ * workspace/pane domain. Item ids are persisted, so never rename one.
+ * Only choices that differ from the default are stored, so a later
+ * default change reaches everyone else (same rule as upstream).
+ *
+ * Sections mirror the herdr-plugins capabilities the card can actually
+ * show: workspace identity (snapshot), related/past agents
+ * (snapshot + rebuildup.conversations), git/PR (rebuildup.git),
+ * project scripts (rebuildup.projects), checkpoints
+ * (rebuildup.checkpoints), automations (rebuildup.automations) and
+ * usage (rebuildup.usage, default off like T3's usage/context items).
  */
 import { getLocalStorageJson, setLocalStorageJson } from "./localStorage";
 
 export const DETAILS_CARD_ITEMS = [
-  { id: "agent", label: "Agent and pane", defaultVisible: true },
   { id: "workspace", label: "Workspace", defaultVisible: true },
-  { id: "process", label: "Process", defaultVisible: true },
-  { id: "agentState", label: "Agent state", defaultVisible: true },
+  { id: "agents", label: "Agents", defaultVisible: true },
+  { id: "git", label: "Git and pull requests", defaultVisible: true },
+  { id: "scripts", label: "Project scripts", defaultVisible: true },
+  { id: "checkpoints", label: "Checkpoints", defaultVisible: true },
+  { id: "automations", label: "Automations", defaultVisible: true },
+  { id: "usage", label: "Usage", defaultVisible: false },
 ] as const;
 
 export type DetailsCardItemId = (typeof DETAILS_CARD_ITEMS)[number]["id"];

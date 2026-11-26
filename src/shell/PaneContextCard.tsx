@@ -1,43 +1,67 @@
 /*
  * Pane context card (issue #390) — herdr-t3's port of T3 Code's
- * `ThreadDetailsPanel` / `ThreadDetailsCard` (`components/chat/`):
- * an independent popover card anchored to the workspace header that
- * summarizes the focused pane's context and related actions.
+ * `ThreadDetailsCard` / `ThreadDetailsPanel` (`components/chat/`):
+ * an independent context surface for the workspace's current work
+ * environment — workspace identity, related and past agents, Git/PR,
+ * project scripts, checkpoints, automations and usage — with direct
+ * actions and links into the docked RightPanel surfaces.
  *
- * Role boundary (info-architecture.md): this card is the glanceable
- * context surface; `PaneDetailsDialog` keeps internal IDs and deep
- * diagnostics; `RightPanel` keeps docked plugin surfaces. Card data
- * comes from the snapshot, the shared `usePaneDiagnostics` RPC hook
- * and existing store helpers — no new canonical sources.
+ * Presentation follows T3's canvas layout: the card is an inline
+ * floating card at the canvas's top-right when the container has room
+ * (`resolveContextCardPlacement`), and falls back to a popover
+ * anchored to the header trigger when it does not. Density steps
+ * full -> compact -> essential from *measured* content heights, so it
+ * follows available space in both directions.
  *
- * Ported T3 pieces: density stepping (full -> compact -> essential)
- * measured against the popup's available height, empty-section
- * collapse, per-item visibility with a "Choose what to show"
- * disclosure, and the panel row styles in paneContextCardStyles.ts.
+ * Role boundary (info-architecture.md §9): this card summarizes and
+ * acts; `PaneDetailsDialog` keeps internal IDs and low-level
+ * diagnostics; `RightPanel` keeps the docked plugin surfaces. All card
+ * data comes from the snapshot and the existing `src/shell/*.ts`
+ * plugin helpers — no new canonical sources.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  CalendarClockIcon,
   CopyIcon,
+  FileTerminalIcon,
   FolderGit2Icon,
   FolderOpenIcon,
+  GitBranchIcon,
+  GitPullRequestIcon,
   HistoryIcon,
   InfoIcon,
   LayoutGridIcon,
   MessageSquareTextIcon,
   MonitorIcon,
+  PencilIcon,
+  PlayIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
-import {
-  Popover,
-  PopoverPopup,
-  PopoverTrigger,
-} from "~/components/ui/popover";
+import { Popover, PopoverPopup } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { Switch } from "~/components/ui/switch";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuCheckboxItem,
+  MenuPopup,
+  MenuSeparator,
+} from "~/components/ui/menu";
 import { statusIcon } from "~/components/statusIcons";
 import { AgentProviderIcon } from "~/components/agentIcons";
 import { agentStatusLabel } from "~/components/AgentStatusBadge";
@@ -49,7 +73,7 @@ import {
   agentStateLabel,
   agentWorkTarget,
 } from "./agents";
-import { usePaneDiagnostics } from "../lib/paneDiagnostics";
+import { callRpc } from "./bridge";
 import {
   DETAILS_CARD_ITEMS,
   isDefaultDetailsCardVisibility,
@@ -59,23 +83,41 @@ import {
   type DetailsCardItemId,
   type DetailsCardVisibility,
 } from "../lib/detailsCardItems";
-import { openSurface } from "./rightPanelStore";
+import {
+  CONTEXT_CARD_GAP,
+  resolveContextCardDensity,
+  resolveContextCardPlacement,
+  type ContextCardDensity,
+} from "../lib/contextCardLayout";
+import {
+  setContextCardAnchor,
+  setContextCardOpen,
+  toggleContextCard,
+  useContextCardState,
+} from "./contextCardStore";
+import { openSurface, type RightPanelSurface } from "./rightPanelStore";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
   THREAD_DETAILS_PANEL_ROW_CLASS,
 } from "../components/paneContextCardStyles";
+import { relatedAgents, useContextCardData } from "./useContextCardData";
+import { runProjectScript, type ProjectScript } from "./projectScripts";
+import {
+  refreshAutomations,
+  runAutomationsTaskNow,
+  setAutomationsTaskEnabled,
+  automationsScheduleSummary,
+  type AutomationsTask,
+} from "./automations";
+import type { GitStatusReport } from "./git";
+import type { UsageQuotaReport } from "./usage";
+import { pushNotice } from "./notices";
 
-type Density = "full" | "compact" | "essential";
+const AGENT_PREVIEW_COUNT = 6;
+const SCRIPT_PREVIEW_COUNT = 6;
 
-/** Sections each density still renders (T3 resolves the same ladder from measured heights). */
-const DENSITY_SECTIONS: Record<Density, ReadonlySet<DetailsCardItemId>> = {
-  full: new Set(["agent", "workspace", "process", "agentState"]),
-  compact: new Set(["agent", "workspace"]),
-  essential: new Set(["agent"]),
-};
-
-const PROCESS_PREVIEW_COUNT = 6;
+/* ------------------------------ rows --------------------------------- */
 
 function InfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
@@ -88,33 +130,108 @@ function InfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   );
 }
 
-/** Port of T3 `ThreadDetailsSection`: heading + rows. `separated` draws the
- * divider a section gets when a rendered section precedes it — callers pass
- * false for the first visible block. */
-function CardSection({
+/** Two-line row for automation tasks (title + schedule summary). */
+function TaskInfoRow({
+  icon,
   title,
-  separated = true,
+  detail,
+  trailing,
+}: {
+  icon: ReactNode;
+  title: ReactNode;
+  detail?: ReactNode;
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-8 w-full items-center gap-2.5 rounded-lg px-2.5 py-1 text-[13px]">
+      <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-foreground/80">{title}</span>
+        {detail ? (
+          <span className="block truncate text-2xs text-muted-foreground">{detail}</span>
+        ) : null}
+      </span>
+      {trailing}
+    </div>
+  );
+}
+
+/** Clickable info row that navigates to a docked surface. */
+function LinkRow({
+  icon,
+  onClick,
   children,
 }: {
+  icon: ReactNode;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    // oxlint-disable-next-line herdr-t3/no-raw-control -- panel row control, same exception as the card's ActionRow
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-foreground/80 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]"
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+    </button>
+  );
+}
+
+/** Port of T3 `ThreadDetailsSection`: heading + rows with automatic
+ * empty-section collapse and preceding-content dividers. The last
+ * child must be a single content div that is `:empty` when no row
+ * renders — callers pass rows as that div's children. */
+function CardSection({
+  headingId,
+  title,
+  actions,
+  separated = true,
+  showHeading = true,
+  children,
+}: {
+  headingId: string;
   title: string;
+  actions?: ReactNode;
   separated?: boolean;
+  showHeading?: boolean;
   children: ReactNode;
 }) {
   return (
     <section
-      aria-label={title}
-      className={cn("px-2 pt-2 pb-2.5", separated && "border-t border-border/65")}
+      aria-labelledby={showHeading ? headingId : undefined}
+      aria-label={showHeading ? undefined : title}
+      className={cn(
+        "px-2 pt-2 pb-2.5 has-[>div:last-child:empty]:hidden",
+        separated &&
+          "border-border/65 [section:not(:has(>div:last-child:empty))~&]:border-t",
+      )}
     >
-      <div className="mb-1 flex min-h-8 min-w-0 items-center px-2.5">
-        <h3 className="min-w-0 truncate text-2xs font-medium text-muted-foreground select-none">
+      <div
+        className={cn(
+          "mb-1 flex min-h-8 min-w-0 items-center justify-between gap-2 px-2.5",
+          !showHeading && "hidden",
+        )}
+      >
+        <h3
+          id={headingId}
+          className="min-w-0 truncate text-2xs font-medium text-muted-foreground select-none"
+        >
           {title}
         </h3>
+        {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
       </div>
       <div className="flex flex-col">{children}</div>
     </section>
   );
 }
 
+/** Port of T3 `ThreadDetailsControl part="row"`: a full-width panel row. */
 function ActionRow({
   icon,
   label,
@@ -123,7 +240,7 @@ function ActionRow({
 }: {
   icon: ReactNode;
   label: string;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
 }) {
   return (
@@ -146,71 +263,178 @@ function ActionRow({
   );
 }
 
-function VisibilityMenu({
+/** Small icon-only panel action (T3 `part="icon"`: run/edit/settings). */
+function IconAction({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          // oxlint-disable-next-line herdr-t3/no-raw-control -- icon action inside a panel row, same exception as T3 ThreadDetailsControl part="icon"
+          <button
+            type="button"
+            aria-label={label}
+            disabled={disabled}
+            onClick={onClick}
+            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground/80 disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-white/[0.1] [&_svg]:size-3.5"
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup side="left">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/* ------------------------- items visibility -------------------------- */
+
+/** Port of T3 `ThreadDetailsItemsMenu`: checkbox list + reset, opened
+ * from the card's "Choose what to show" row and its context menu. */
+function DetailsItemsMenuItems({
   visibility,
   onChange,
 }: {
   visibility: DetailsCardVisibility;
   onChange: (next: DetailsCardVisibility) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const setItem = (item: (typeof DETAILS_CARD_ITEMS)[number], visible: boolean) => {
     setDetailsCardItem(item, visible);
     onChange(resolveDetailsCardVisibility());
   };
   return (
-    <div className="px-2 pt-1 pb-2">
-      {/* oxlint-disable-next-line herdr-t3/no-raw-control -- disclosure row inside the card, same exception as ShowMoreButton */}
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]"
+    <>
+      <MenuGroup>
+        <MenuGroupLabel>Show in context card</MenuGroupLabel>
+        {DETAILS_CARD_ITEMS.map((item) => (
+          <MenuCheckboxItem
+            key={item.id}
+            checked={visibility[item.id]}
+            onCheckedChange={(checked) => setItem(item, checked === true)}
+          >
+            {item.label}
+          </MenuCheckboxItem>
+        ))}
+      </MenuGroup>
+      <MenuSeparator />
+      <MenuItem
+        disabled={isDefaultDetailsCardVisibility(visibility)}
+        onClick={() => {
+          resetDetailsCardItems();
+          onChange(resolveDetailsCardVisibility());
+        }}
       >
-        <SlidersHorizontalIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
-        <span className={cn("min-w-0 flex-1 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
-          Choose what to show
-        </span>
-      </button>
-      {open ? (
-        <div className="mt-1 flex flex-col">
-          {DETAILS_CARD_ITEMS.map((item) => (
-            // oxlint-disable-next-line herdr-t3/no-raw-control -- checkbox row inside the card's inline disclosure
-            <button
-              key={item.id}
-              type="button"
-              role="checkbox"
-              aria-checked={visibility[item.id]}
-              onClick={() => setItem(item, !visibility[item.id])}
-              className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-foreground/80 transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]"
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded border text-[10px]",
-                  visibility[item.id]
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border",
-                )}
-              >
-                {visibility[item.id] ? "✓" : ""}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            </button>
-          ))}
-          <ActionRow
-            icon={null}
-            label="Reset to default"
-            disabled={isDefaultDetailsCardVisibility(visibility)}
-            onClick={() => {
-              resetDetailsCardItems();
-              onChange(resolveDetailsCardVisibility());
-            }}
-          />
-        </div>
-      ) : null}
-    </div>
+        Reset to default
+      </MenuItem>
+    </>
   );
+}
+
+/* ---------------------------- sections -------------------------------- */
+
+function formatRowTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function GitChangesRows({ status }: { status: GitStatusReport }) {
+  const { staged, unstaged, untracked, conflicted } = status.changes;
+  const parts: string[] = [];
+  if (conflicted > 0) parts.push(`${conflicted} conflicted`);
+  if (staged > 0) parts.push(`${staged} staged`);
+  if (unstaged > 0) parts.push(`${unstaged} unstaged`);
+  if (untracked > 0) parts.push(`${untracked} untracked`);
+  return (
+    <InfoRow icon={null}>
+      <span className="text-muted-foreground">
+        {parts.length === 0 ? "working tree clean" : parts.join(" · ")}
+      </span>
+    </InfoRow>
+  );
+}
+
+function usageHasContent(report: UsageQuotaReport): boolean {
+  return (
+    report.providers.some((p) => p.windows.length > 0) ||
+    report.hubs.some((h) => h.accounts.some((a) => a.windows.length > 0))
+  );
+}
+
+function UsageRows({ report }: { report: UsageQuotaReport }) {
+  const rows: ReactNode[] = [];
+  for (const provider of report.providers) {
+    for (const window of provider.windows) {
+      if (window.used_percent === null) continue;
+      rows.push(
+        <InfoRow
+          key={`p:${provider.provider}:${window.id ?? window.label ?? "w"}`}
+          icon={null}
+        >
+          <span className="text-muted-foreground">
+            {provider.provider}
+            {window.label ? ` · ${window.label}` : ""} —{" "}
+            {Math.round(window.used_percent)}% used
+          </span>
+        </InfoRow>,
+      );
+    }
+  }
+  for (const hub of report.hubs) {
+    for (const account of hub.accounts) {
+      for (const window of account.windows) {
+        if (window.used_percent === null) continue;
+        rows.push(
+          <InfoRow
+            key={`h:${hub.id ?? "hub"}:${account.account ?? "acct"}:${window.id ?? window.label ?? "w"}`}
+            icon={null}
+          >
+            <span className="text-muted-foreground">
+              {account.provider ?? hub.id ?? "hub"}
+              {account.account ? ` · ${account.account}` : ""}
+              {window.label ? ` · ${window.label}` : ""} —{" "}
+              {Math.round(window.used_percent)}% used
+            </span>
+          </InfoRow>,
+        );
+      }
+    }
+  }
+  return <>{rows}</>;
+}
+
+/* ------------------------------ body ---------------------------------- */
+
+interface CardBodyProps {
+  machine: string;
+  pane: PaneInfo;
+  agent: AgentInfo | undefined;
+  workspace: WorkspaceInfo | undefined;
+  branch: string | undefined;
+  machineLabel: string;
+  showMachine: boolean;
+  agents: readonly AgentInfo[];
+  density: ContextCardDensity;
+  visibility: DetailsCardVisibility;
+  onOpenItemsMenu: (position: { x: number; y: number }) => void;
+  panelScope: string;
+  onPrompt: (() => void) | undefined;
+  onDetails: (() => void) | undefined;
 }
 
 function CardBody({
@@ -221,59 +445,146 @@ function CardBody({
   branch,
   machineLabel,
   showMachine,
+  agents,
+  density,
+  visibility,
+  onOpenItemsMenu,
   panelScope,
   onPrompt,
   onDetails,
-  requestClose,
-}: {
-  machine: string;
-  pane: PaneInfo;
-  agent: AgentInfo | undefined;
-  workspace: WorkspaceInfo | undefined;
-  branch: string | undefined;
-  machineLabel: string;
-  showMachine: boolean;
-  panelScope: string;
-  onPrompt: (() => void) | undefined;
-  onDetails: (() => void) | undefined;
-  requestClose: () => void;
-}) {
-  const [density, setDensity] = useState<Density>("full");
-  const [visibility, setVisibility] = useState<DetailsCardVisibility>(() =>
-    resolveDetailsCardVisibility(),
-  );
-  const [showAllProcesses, setShowAllProcesses] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const densityRef = useRef(density);
-  densityRef.current = density;
-  const isAgent = agent !== undefined || Boolean(pane.agent);
-  // The card shows explain state but not recent output — skip agent.read.
-  const diagnostics = usePaneDiagnostics(pane.pane_id, machine, isAgent, false);
+}: CardBodyProps) {
+  const [showAllAgents, setShowAllAgents] = useState(false);
+  const [showAllScripts, setShowAllScripts] = useState(false);
+  const [busyScript, setBusyScript] = useState<string | null>(null);
+  const [busyAutomation, setBusyAutomation] = useState<string | null>(null);
+  const directory =
+    agent?.foreground_cwd ?? agent?.cwd ?? pane.foreground_cwd ?? pane.cwd ?? null;
+  const data = useContextCardData({ machine, pane, workspace, directory });
 
-  // Density stepping (T3 ThreadDetailsCard): when the content is taller
-  // than the popup's available height, drop one rung — full hides the
-  // diagnostic sections first, essential keeps only the agent block.
-  // The popup viewport scrolls if even essential overflows.
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const popup = el.closest<HTMLElement>("[data-slot='popover-popup']");
-    const check = () => {
-      const host = popup ?? el.closest<HTMLElement>("[data-slot='popover-popup']");
-      if (!host) return;
-      if (el.scrollHeight > host.clientHeight + 1 && densityRef.current !== "essential") {
-        setDensity((d) => (d === "full" ? "compact" : "essential"));
-      }
-    };
-    check();
-    // Content growth (diagnostics landing) and popup resize (viewport
-    // constraint) both re-run the density check.
-    return observeResize(popup ? [el, popup] : el, check);
-  }, []);
+  /* Section visibility: item toggle AND density rung AND actual
+   * content, so no empty section steals the divider rule (T3's `show`
+   * flags do the same before the `:empty` collapse). */
+  const related = relatedAgents(agents, pane, workspace);
+  const pastSessions =
+    data.sessions.kind === "ready"
+      ? data.sessions.data.filter((s) => s.live?.pane_id !== pane.pane_id)
+      : [];
+  const gitReady = data.git.kind !== "loading";
+  const pr = data.pr.kind === "ready" ? data.pr.data.pr : null;
+  const scriptsReady =
+    data.project !== null &&
+    data.scripts.kind === "ready" &&
+    data.scripts.data.length > 0;
+  const checkpointsReady =
+    data.checkpoints.kind === "ready" && data.checkpoints.data.length > 0;
+  const automationsReady =
+    data.automations.kind === "ready" && data.automations.data.length > 0;
+  const usageReady = data.usage.kind === "ready" && usageHasContent(data.usage.data);
 
-  const act = (fn: () => void) => () => {
-    requestClose();
-    fn();
+  const allowed: Record<DetailsCardItemId, boolean> = {
+    workspace: density === "full",
+    agents: density === "full",
+    git: true,
+    scripts: density !== "essential",
+    checkpoints: density !== "essential",
+    automations: density === "full",
+    usage: true,
+  };
+  const show = {
+    workspace: visibility.workspace && allowed.workspace,
+    agents:
+      visibility.agents &&
+      allowed.agents &&
+      (related.length > 0 || pastSessions.length > 0),
+    git: visibility.git && allowed.git && gitReady,
+    scripts: visibility.scripts && allowed.scripts && scriptsReady,
+    checkpoints:
+      visibility.checkpoints && allowed.checkpoints && checkpointsReady,
+    automations:
+      visibility.automations && allowed.automations && automationsReady,
+    usage: visibility.usage && allowed.usage && usageReady,
+  };
+  // `separated` = a section renders before this one.
+  const prior =
+    show.workspace ||
+    show.git ||
+    show.scripts ||
+    show.checkpoints ||
+    show.automations ||
+    show.agents ||
+    show.usage;
+
+  const openPanel = (surface: Parameters<typeof openSurface>[1]) => () =>
+    openSurface(panelScope, surface);
+
+  const runScript = async (script: ProjectScript) => {
+    if (data.project === null || busyScript !== null) return;
+    setBusyScript(script.name);
+    try {
+      await runProjectScript(machine, data.project.id, script.name, {
+        repo:
+          data.project.repos.length > 1
+            ? data.git.kind === "ready"
+              ? data.git.status.repo.root
+              : undefined
+            : undefined,
+      });
+      pushNotice({ kind: "info", title: `Started "${script.name}"` });
+    } catch (error) {
+      pushNotice({
+        kind: "error",
+        title: `Could not run "${script.name}"`,
+        body: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyScript(null);
+    }
+  };
+
+  const toggleAutomation = async (task: AutomationsTask, enabled: boolean) => {
+    if (busyAutomation !== null) return;
+    setBusyAutomation(task.task_id);
+    try {
+      await setAutomationsTaskEnabled(machine, task.task_id, enabled);
+      await refreshAutomations(machine);
+    } catch (error) {
+      pushNotice({
+        kind: "error",
+        title: "Could not update automation",
+        body: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyAutomation(null);
+    }
+  };
+
+  const runAutomation = async (task: AutomationsTask) => {
+    if (busyAutomation !== null || task.schedule.type === "webhook") return;
+    setBusyAutomation(task.task_id);
+    try {
+      await runAutomationsTaskNow(machine, task.task_id);
+      await refreshAutomations(machine);
+      pushNotice({ kind: "info", title: `Ran "${task.name}"` });
+    } catch (error) {
+      pushNotice({
+        kind: "error",
+        title: `Could not run "${task.name}"`,
+        body: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyAutomation(null);
+    }
+  };
+
+  const gitSurface: RightPanelSurface = {
+    id: `git:${pane.pane_id}`,
+    kind: "git",
+    paneId: pane.pane_id,
+  };
+  const checkpointsSurface: RightPanelSurface = {
+    id: "checkpoints",
+    kind: "checkpoints",
+    paneId: pane.pane_id,
   };
 
   const stateLabel = agent ? agentStateLabel(agent) : agentStatusLabel(pane.agent_status);
@@ -281,41 +592,25 @@ function CardBody({
   const title = agent
     ? (agentWorkTarget(agent, pane) ?? agentDisplayName(agent))
     : paneTitle(pane);
-  const directory =
-    agent?.foreground_cwd ?? agent?.cwd ?? pane.foreground_cwd ?? pane.cwd ?? null;
   const wsTitle = workspace ? workspaceTitle(workspace, branch) : null;
-  const allowed = DENSITY_SECTIONS[density];
-  const show = {
-    agent: visibility.agent && allowed.has("agent"),
-    workspace: visibility.workspace && allowed.has("workspace") && wsTitle !== null,
-    process:
-      visibility.process &&
-      allowed.has("process") &&
-      (diagnostics.processInfo !== null || diagnostics.processError !== null),
-    agentState:
-      visibility.agentState &&
-      allowed.has("agentState") &&
-      isAgent &&
-      explainEntries(diagnostics.explain).length > 0,
-  };
-  const processes = diagnostics.processInfo?.foreground_processes ?? [];
-  const visibleProcesses = showAllProcesses
-    ? processes
-    : processes.slice(0, PROCESS_PREVIEW_COUNT);
-  // `separated` = a section renders before this one (first block has none).
-  const priorAgent = show.agent;
-  const priorWorkspace = priorAgent || show.workspace;
-  const priorProcess = priorWorkspace || show.process;
-  const priorInfo = priorProcess || show.agentState;
 
   return (
-    <div ref={contentRef} data-density={density} className="flex flex-col">
-      {show.agent ? (
-        <CardSection title="Agent" separated={false}>
-          <InfoRow icon={statusIcon(pane.agent_status)}>
-            {stateLabel}
-            {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
-          </InfoRow>
+    <div data-density={density} className="flex flex-col">
+      {/* Workspace: identity rows only (T3's heading-less first
+          section). Internal IDs never render as rows. */}
+      {show.workspace ? (
+        <CardSection
+          headingId="context-card-workspace-heading"
+          title="Workspace"
+          separated={false}
+          showHeading={false}
+        >
+          {agent || pane.agent ? (
+            <InfoRow icon={statusIcon(pane.agent_status)}>
+              {stateLabel}
+              {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
+            </InfoRow>
+          ) : null}
           {agent ? (
             <InfoRow
               icon={<AgentProviderIcon agent={agent.agent} className="size-4" />}
@@ -330,147 +625,593 @@ function CardBody({
             <span className="font-medium text-foreground">{title}</span>
           </InfoRow>
           {directory ? <InfoRow icon={<FolderOpenIcon />}>{directory}</InfoRow> : null}
-        </CardSection>
-      ) : null}
-
-      {show.workspace && workspace ? (
-        <CardSection title="Workspace" separated={priorAgent}>
-          <InfoRow icon={<LayoutGridIcon />}>
-            <span className="font-medium text-foreground">{wsTitle}</span>
-          </InfoRow>
+          {wsTitle ? (
+            <InfoRow icon={<LayoutGridIcon />}>
+              <span className="font-medium text-foreground">{wsTitle}</span>
+            </InfoRow>
+          ) : null}
           {branch && wsTitle !== branch ? (
-            <InfoRow icon={null}>
+            <InfoRow icon={<GitBranchIcon />}>
               <span className="text-muted-foreground">{branch}</span>
             </InfoRow>
           ) : null}
           {showMachine ? (
             <InfoRow icon={<MonitorIcon />}>{machineLabel}</InfoRow>
           ) : null}
-          <InfoRow icon={null}>
-            <span className="text-muted-foreground">
-              {workspace.tab_count} tabs · {workspace.pane_count} panes
-            </span>
-          </InfoRow>
-        </CardSection>
-      ) : null}
-
-      {show.process ? (
-        <CardSection title="Process" separated={priorWorkspace}>
-          {diagnostics.processError !== null ? (
+          {workspace ? (
             <InfoRow icon={null}>
               <span className="text-muted-foreground">
-                process info unavailable: {diagnostics.processError}
+                {workspace.tab_count} tabs · {workspace.pane_count} panes
               </span>
             </InfoRow>
-          ) : diagnostics.processInfo ? (
-            <>
-              {diagnostics.processInfo.shell_pid !== undefined &&
-              diagnostics.processInfo.shell_pid !== null ? (
-                <InfoRow icon={null}>
-                  <span className="text-muted-foreground">
-                    shell pid {diagnostics.processInfo.shell_pid}
-                  </span>
-                </InfoRow>
-              ) : null}
-              {diagnostics.processInfo.tty ? (
-                <InfoRow icon={null}>
-                  <span className="text-muted-foreground">{diagnostics.processInfo.tty}</span>
-                </InfoRow>
-              ) : null}
-              {visibleProcesses.map((p) => (
-                <InfoRow key={p.pid} icon={null}>
-                  <span className="tabular-nums text-muted-foreground">{p.pid}</span>{" "}
-                  <span className="text-foreground/75">
-                    {p.cmdline ?? p.argv?.join(" ") ?? p.argv0 ?? p.name}
-                  </span>
-                </InfoRow>
-              ))}
-              {processes.length > PROCESS_PREVIEW_COUNT ? (
-                <ShowMoreButton
-                  remaining={processes.length - PROCESS_PREVIEW_COUNT}
-                  expanded={showAllProcesses}
-                  onToggle={() => setShowAllProcesses((v) => !v)}
-                  className="h-8"
-                />
-              ) : null}
-            </>
           ) : null}
         </CardSection>
       ) : null}
 
-      {show.agentState ? (
-        <CardSection title="Agent state" separated={priorProcess}>
-          {explainEntries(diagnostics.explain).map(([key, value]) => (
-            <InfoRow key={key} icon={null}>
-              <span className="text-muted-foreground">{key}</span>{" "}
-              <span className="text-foreground/75">{String(value)}</span>
+      {/* Version Control: branch, change counts, PR — summary rows
+          with a link into the docked git surface. */}
+      {show.git ? (
+        <CardSection
+          headingId="context-card-version-control-heading"
+          title="Version Control"
+          actions={
+            <IconAction label="Open Source Control" onClick={openPanel(gitSurface)}>
+              <FolderGit2Icon />
+            </IconAction>
+          }
+          separated={show.workspace}
+        >
+          {data.git.kind === "ready" ? (
+            <>
+              <InfoRow icon={<GitBranchIcon />}>
+                {data.git.status.branch.detached
+                  ? `${data.git.status.branch.name} (detached)`
+                  : data.git.status.branch.name}
+              </InfoRow>
+              <GitChangesRows status={data.git.status} />
+              {data.git.status.branch.upstream !== null &&
+              ((data.git.status.branch.ahead ?? 0) > 0 ||
+                (data.git.status.branch.behind ?? 0) > 0) ? (
+                <InfoRow icon={null}>
+                  <span className="text-muted-foreground">
+                    {(data.git.status.branch.ahead ?? 0) > 0
+                      ? `↑${data.git.status.branch.ahead} `
+                      : ""}
+                    {(data.git.status.branch.behind ?? 0) > 0
+                      ? `↓${data.git.status.branch.behind}`
+                      : ""}
+                  </span>
+                </InfoRow>
+              ) : null}
+            </>
+          ) : data.git.kind === "repo_error" || data.git.kind === "unavailable" ? (
+            <InfoRow icon={null}>
+              <span className="text-muted-foreground">
+                {data.git.kind === "repo_error"
+                  ? `git error: ${data.git.detail}`
+                  : `git status unavailable: ${data.git.detail}`}
+              </span>
             </InfoRow>
+          ) : null}
+          {pr ? (
+            <LinkRow icon={<GitPullRequestIcon />} onClick={openPanel(gitSurface)}>
+              <span className="text-muted-foreground">#{pr.number}</span> {pr.title}
+              {pr.isDraft ? " (draft)" : ""}
+            </LinkRow>
+          ) : null}
+        </CardSection>
+      ) : null}
+
+      {/* Project scripts: run rows into the pane's project repo. */}
+      {show.scripts && data.scripts.kind === "ready" ? (
+        <CardSection
+          headingId="context-card-scripts-heading"
+          title="Project scripts"
+          actions={
+            data.project ? (
+              <IconAction
+                label="Open Project scripts"
+                onClick={openPanel({ id: "scripts", kind: "scripts" })}
+              >
+                <FileTerminalIcon />
+              </IconAction>
+            ) : null
+          }
+          separated={show.workspace || show.git}
+        >
+          {(showAllScripts
+            ? data.scripts.data
+            : data.scripts.data.slice(0, SCRIPT_PREVIEW_COUNT)
+          ).map((script) => (
+            <div
+              key={script.id}
+              className="flex h-8 min-w-0 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-foreground/80"
+            >
+              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+                <PlayIcon />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{script.name}</span>
+                <span className="block truncate text-2xs text-muted-foreground">
+                  {script.command}
+                </span>
+              </span>
+              <IconAction
+                label={`Run ${script.name}`}
+                disabled={busyScript !== null}
+                onClick={() => void runScript(script)}
+              >
+                <PlayIcon />
+              </IconAction>
+            </div>
+          ))}
+          {data.scripts.data.length > SCRIPT_PREVIEW_COUNT ? (
+            <ShowMoreButton
+              remaining={data.scripts.data.length - SCRIPT_PREVIEW_COUNT}
+              expanded={showAllScripts}
+              onToggle={() => setShowAllScripts((v) => !v)}
+              className="h-8"
+            />
+          ) : null}
+        </CardSection>
+      ) : null}
+
+      {/* Checkpoints: recent entries; rows open the docked surface. */}
+      {show.checkpoints && data.checkpoints.kind === "ready" ? (
+        <CardSection
+          headingId="context-card-checkpoints-heading"
+          title="Checkpoints"
+          actions={
+            <IconAction label="Open Checkpoints" onClick={openPanel(checkpointsSurface)}>
+              <HistoryIcon />
+            </IconAction>
+          }
+          separated={show.workspace || show.git || show.scripts}
+        >
+          {data.checkpoints.data.map((entry) => (
+            <LinkRow
+              key={entry.id}
+              icon={<HistoryIcon />}
+              onClick={openPanel(checkpointsSurface)}
+            >
+              {entry.label ?? entry.kind}
+              <span className="text-muted-foreground">
+                {" "}
+                · {formatRowTime(entry.created_at) ?? entry.created_at}
+              </span>
+            </LinkRow>
           ))}
         </CardSection>
       ) : null}
 
-      <CardSection title="Actions" separated={priorInfo}>
-        <div className="flex flex-col">
-          {isAgent && onPrompt ? (
+      {/* Automations: pane/workspace-bound tasks — enable switch,
+          run-now and edit into the docked surface (T3
+          ThreadAutomationsPanel rows). */}
+      {show.automations && data.automations.kind === "ready" ? (
+        <CardSection
+          headingId="context-card-automations-heading"
+          title="Automations"
+          actions={
+            <IconAction
+              label="Open Automations"
+              onClick={openPanel({ id: "automations", kind: "automations" })}
+            >
+              <CalendarClockIcon />
+            </IconAction>
+          }
+          separated={
+            show.workspace || show.git || show.scripts || show.checkpoints
+          }
+        >
+          <ul
+            data-context-card-scroll
+            className="m-0 max-h-[13.5rem] list-none overflow-y-auto p-0"
+          >
+            {data.automations.data.map((task) => (
+              <li key={task.task_id} className="py-1">
+                <TaskInfoRow
+                  icon={<CalendarClockIcon />}
+                  title={task.name}
+                  detail={`${automationsScheduleSummary(task.schedule)}${
+                    task.enabled
+                      ? task.next_run_at
+                        ? ` · next ${formatRowTime(task.next_run_at) ?? task.next_run_at}`
+                        : ""
+                      : " · paused"
+                  }`}
+                  trailing={
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      {task.schedule.type !== "webhook" ? (
+                        <IconAction
+                          label={`Run ${task.name} now`}
+                          disabled={busyAutomation !== null}
+                          onClick={() => void runAutomation(task)}
+                        >
+                          <PlayIcon />
+                        </IconAction>
+                      ) : null}
+                      <IconAction
+                        label={`Edit ${task.name}`}
+                        onClick={openPanel({
+                          id: "automations",
+                          kind: "automations",
+                        })}
+                      >
+                        <PencilIcon />
+                      </IconAction>
+                      <Switch
+                        aria-label={`Enable ${task.name}`}
+                        checked={task.enabled}
+                        disabled={busyAutomation !== null}
+                        onCheckedChange={(checked) =>
+                          void toggleAutomation(task, checked)
+                        }
+                      />
+                    </span>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </CardSection>
+      ) : null}
+
+      {/* Agents: other live agents in this workspace plus past agent
+          sessions bound to this pane/directory (T3 lineage + side
+          chats). */}
+      {show.agents ? (
+        <CardSection
+          headingId="context-card-agents-heading"
+          title="Agents"
+          separated={prior}
+        >
+          <div>
+            {(showAllAgents ? related : related.slice(0, AGENT_PREVIEW_COUNT)).map(
+              (a) => (
+                <LinkRow
+                  key={a.pane_id}
+                  icon={statusIcon(a.agent_status)}
+                  onClick={() =>
+                    void callRpc(machine, "pane.focus", { pane_id: a.pane_id })
+                  }
+                >
+                  {agentWorkTarget(a) ?? agentDisplayName(a)}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {agentStateLabel(a)}
+                  </span>
+                </LinkRow>
+              ),
+            )}
+            {related.length > AGENT_PREVIEW_COUNT ? (
+              <ShowMoreButton
+                remaining={related.length - AGENT_PREVIEW_COUNT}
+                expanded={showAllAgents}
+                onToggle={() => setShowAllAgents((v) => !v)}
+                className="h-8"
+              />
+            ) : null}
+          </div>
+          {pastSessions.length > 0 ? (
+            <div>
+              {pastSessions.map((s) => (
+                <LinkRow
+                  key={s.key}
+                  icon={<HistoryIcon />}
+                  onClick={openPanel({ id: "conversations", kind: "conversations" })}
+                >
+                  {s.provider} · {s.session_id}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {formatRowTime(s.last_event_at) ?? ""}
+                  </span>
+                </LinkRow>
+              ))}
+            </div>
+          ) : null}
+        </CardSection>
+      ) : null}
+
+      {/* Usage: provider quota windows (default hidden, T3's
+          usage/context items). */}
+      {show.usage && data.usage.kind === "ready" ? (
+        <CardSection
+          headingId="context-card-usage-heading"
+          title="Usage"
+          separated={prior}
+        >
+          <UsageRows report={data.usage.data} />
+        </CardSection>
+      ) : null}
+
+      {/* Actions: the card's direct operations. Internal diagnostics
+          stay in Details (info-architecture §9). */}
+      <CardSection
+        headingId="context-card-actions-heading"
+        title="Actions"
+        separated={prior}
+      >
+        {agent || pane.agent ? (
+          onPrompt ? (
             <ActionRow
               icon={<MessageSquareTextIcon />}
               label="Prompt agent…"
-              onClick={act(onPrompt)}
+              onClick={() => onPrompt()}
             />
-          ) : null}
-          {onDetails ? (
-            <ActionRow icon={<InfoIcon />} label="Details…" onClick={act(onDetails)} />
-          ) : null}
-          <ActionRow
-            icon={<FolderGit2Icon />}
-            label="Source Control"
-            onClick={act(() =>
-              openSurface(panelScope, {
-                id: `git:${pane.pane_id}`,
-                kind: "git",
-                paneId: pane.pane_id,
-              }),
-            )}
-          />
-          <ActionRow
-            icon={<HistoryIcon />}
-            label="Checkpoints"
-            onClick={act(() =>
-              openSurface(panelScope, {
-                id: "checkpoints",
-                kind: "checkpoints",
-                paneId: pane.pane_id,
-              }),
-            )}
-          />
+          ) : null
+        ) : null}
+        {onDetails ? (
+          <ActionRow icon={<InfoIcon />} label="Details…" onClick={() => onDetails()} />
+        ) : null}
+        <ActionRow
+          icon={<FolderGit2Icon />}
+          label="Source Control"
+          onClick={openPanel(gitSurface)}
+        />
+        <ActionRow
+          icon={<HistoryIcon />}
+          label="Checkpoints"
+          onClick={openPanel(checkpointsSurface)}
+        />
+        <ActionRow
+          icon={<CopyIcon />}
+          label="Copy pane ID"
+          onClick={() => void navigator.clipboard?.writeText(pane.pane_id)}
+        />
+        {workspace ? (
           <ActionRow
             icon={<CopyIcon />}
-            label="Copy pane ID"
-            onClick={act(() => void navigator.clipboard?.writeText(pane.pane_id))}
+            label="Copy workspace ID"
+            onClick={() =>
+              void navigator.clipboard?.writeText(workspace.workspace_id)
+            }
           />
-          {workspace ? (
-            <ActionRow
-              icon={<CopyIcon />}
-              label="Copy workspace ID"
-              onClick={act(() => void navigator.clipboard?.writeText(workspace.workspace_id))}
-            />
-          ) : null}
-        </div>
+        ) : null}
       </CardSection>
 
-      <VisibilityMenu visibility={visibility} onChange={setVisibility} />
+      {/* "Choose what to show" (T3 ThreadDetailsPanel footer). */}
+      <div className="px-2 pt-1 pb-2">
+        <ActionRow
+          icon={<SlidersHorizontalIcon />}
+          label="Choose what to show"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            onOpenItemsMenu({ x: rect.left, y: rect.bottom });
+          }}
+        />
+      </div>
     </div>
   );
 }
 
-function explainEntries(explain: Record<string, unknown> | null): [string, unknown][] {
-  if (!explain) return [];
-  return Object.entries(explain).filter(
-    ([, v]) => v === null || ["string", "number", "boolean"].includes(typeof v),
+/* ---------------------------- card frame ------------------------------ */
+
+interface CardSurfaceProps
+  extends Omit<
+    CardBodyProps,
+    "density" | "visibility" | "onOpenItemsMenu"
+  > {
+  scope: string;
+  mode: "inline" | "popover";
+  placement: { right: number; top: number; width: number; height: number } | null;
+  availableHeight: number;
+}
+
+/**
+ * Owns the card chrome (inline aside / popover popup), the per-item
+ * visibility state, the items menu and the density measurement —
+ * T3's `ThreadDetailsCard` + `ThreadDetailsPanel` split.
+ */
+function CardSurface({
+  scope,
+  mode,
+  placement,
+  availableHeight,
+  ...bodyProps
+}: CardSurfaceProps) {
+  const { open, anchor } = useContextCardState(scope);
+  const [visibility, setVisibility] = useState<DetailsCardVisibility>(() =>
+    resolveDetailsCardVisibility(),
+  );
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [contentElement, setContentElement] = useState<HTMLDivElement | null>(null);
+
+  /* Density (T3 ThreadDetailsCard): each density's content height is
+   * measured once it renders; resolveContextCardDensity picks the
+   * densest rung that fits, and space returning restores `full`. */
+  const contentKey = DETAILS_CARD_ITEMS.filter((item) => visibility[item.id])
+    .map((item) => item.id)
+    .join(",");
+  const measurementKey = `${scope}:${bodyProps.pane.pane_id}:${contentKey}`;
+  const [measurements, setMeasurements] = useState({
+    key: measurementKey,
+    heights: { full: 0, compact: 0 },
+  });
+  const contentHeights =
+    measurements.key === measurementKey
+      ? measurements.heights
+      : { full: 0, compact: 0 };
+  const density = resolveContextCardDensity(availableHeight, contentHeights);
+  useLayoutEffect(() => {
+    const element = contentElement;
+    if (!element || density === "essential") return;
+    const measure = () => {
+      const frame = element.closest<HTMLElement>("[data-context-card]");
+      const next =
+        element.offsetHeight + (frame ? frame.offsetHeight - frame.clientHeight : 0);
+      // Rows that scroll internally don't count toward density.
+      const lists = element.querySelectorAll<HTMLElement>("[data-context-card-scroll]");
+      const fittingHeight =
+        next -
+        Array.from(lists).reduce((sum, list) => sum + list.offsetHeight, 0);
+      setMeasurements((current) => {
+        const heights =
+          current.key === measurementKey ? current.heights : { full: 0, compact: 0 };
+        return current.key === measurementKey && heights[density] === fittingHeight
+          ? current
+          : { key: measurementKey, heights: { ...heights, [density]: fittingHeight } };
+      });
+    };
+    measure();
+    return observeResize(element, measure);
+  }, [contentElement, density, measurementKey]);
+
+  const onCardContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    // Popups the card opens bubble here through React; they, fields,
+    // links and selected text keep their own menus (T3's handler).
+    const target = event.target;
+    const selection = window.getSelection();
+    if (
+      !(target instanceof Element) ||
+      !event.currentTarget.contains(target) ||
+      target.closest("input, textarea, [contenteditable], a[href]") ||
+      (selection &&
+        !selection.isCollapsed &&
+        (event.currentTarget.contains(selection.anchorNode) ||
+          event.currentTarget.contains(selection.focusNode)))
+    ) {
+      return;
+    }
+    event.preventDefault();
+    setMenuPosition({ x: event.clientX, y: event.clientY });
+  };
+
+  const card = open ? (
+    <div
+      data-context-card
+      onContextMenu={onCardContextMenu}
+      className="dropdown-glass isolate contain-paint flex h-full max-h-full min-h-0 flex-col overflow-hidden rounded-2xl"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={setContentElement}>
+          <CardBody
+            {...bodyProps}
+            density={density}
+            visibility={visibility}
+            onOpenItemsMenu={setMenuPosition}
+          />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      {mode === "inline" && placement && open ? (
+        <aside
+          aria-label="Context card"
+          className="absolute z-20"
+          style={{
+            right: placement.right,
+            top: placement.top,
+            width: placement.width,
+            maxHeight: placement.height,
+          }}
+        >
+          {card}
+        </aside>
+      ) : null}
+      {/* Rendered in both modes: base-ui keeps a popup that unmounts
+          mid-open mounted, because its exit animation never finishes.
+          Staying in the tree lets it close cleanly when the card
+          switches inline (T3's ThreadDetailsCard comment). */}
+      <PopoverPopup
+        role="dialog"
+        aria-label="Context card"
+        anchor={anchor ?? undefined}
+        align="end"
+        alignOffset={CONTEXT_CARD_GAP - 8}
+        collisionAvoidance={{
+          side: "shift",
+          align: "shift",
+          fallbackAxisSide: "none",
+        }}
+        side="bottom"
+        sideOffset={CONTEXT_CARD_GAP}
+        padding="none"
+        width="md"
+      >
+        {mode === "popover" ? card : null}
+      </PopoverPopup>
+      <Menu
+        open={menuPosition !== null}
+        onOpenChange={(next) => {
+          if (!next) setMenuPosition(null);
+        }}
+      >
+        <MenuPopup
+          anchor={
+            menuPosition
+              ? {
+                  getBoundingClientRect: () =>
+                    new DOMRect(menuPosition.x, menuPosition.y, 0, 0),
+                }
+              : undefined
+          }
+          align="start"
+          side="bottom"
+        >
+          <DetailsItemsMenuItems
+            visibility={visibility}
+            onChange={setVisibility}
+          />
+        </MenuPopup>
+      </Menu>
+    </>
   );
 }
 
-export function PaneContextCard({
+/* ------------------------------ exports ------------------------------- */
+
+/** Header trigger (T3's PanelLayoutControls toggle): registers its
+ * element as the popover-mode anchor and toggles the card's open
+ * state in `contextCardStore`. */
+export function ContextCardTrigger({
+  scope,
+  disabled,
+}: {
+  scope: string;
+  disabled?: boolean;
+}) {
+  const { open } = useContextCardState(scope);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const el = buttonRef.current;
+    setContextCardAnchor(scope, el);
+    return () => setContextCardAnchor(scope, null);
+  }, [scope]);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            ref={buttonRef}
+            size="icon-sm"
+            variant={open ? "secondary" : "ghost"}
+            aria-label="Context card"
+            aria-pressed={open}
+            disabled={disabled}
+            onClick={() => toggleContextCard(scope)}
+            className="[-webkit-app-region:no-drag]"
+          />
+        }
+      >
+        <InfoIcon className="size-4" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">Context</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * The card itself, rendered inside the workspace canvas's relative
+ * container. Inline mode floats at the container's top-right; when
+ * the container is too narrow the same content renders in a popover
+ * anchored to the header trigger (T3's `ThreadDetailsCard` modes).
+ */
+export function WorkspaceContextCard({
   machine,
   machineLabel,
   showMachine,
@@ -478,69 +1219,75 @@ export function PaneContextCard({
   agent,
   workspace,
   branch,
+  agents,
+  containerRef,
   onPrompt,
   onDetails,
 }: {
   machine: string;
   machineLabel: string;
   showMachine: boolean;
-  pane: PaneInfo | null;
+  pane: PaneInfo;
   agent: AgentInfo | undefined;
   workspace: WorkspaceInfo | undefined;
   branch: string | undefined;
+  agents: readonly AgentInfo[];
+  /** The canvas's inner relative container the inline card positions in. */
+  containerRef: RefObject<HTMLElement | null>;
   onPrompt: (() => void) | undefined;
   onDetails: (() => void) | undefined;
 }) {
-  const [open, setOpen] = useState(false);
-  const panelScope = `${machine}\n${workspace?.workspace_id ?? ""}`;
-  const requestClose = () => setOpen(false);
+  const scope = `${machine}\n${workspace?.workspace_id ?? ""}`;
+  const { open } = useContextCardState(scope);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = (entries: readonly ResizeObserverEntry[]) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setContainerSize({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      });
+    };
+    // ResizeObserver delivers the initial size on observe.
+    return observeResize(el, measure);
+  }, [containerRef]);
+
+  const placement = resolveContextCardPlacement({ container: containerSize });
+  const mode = placement ? "inline" : "popover";
+  // T3 measures density against the inline height when placed, else
+  // the container height minus gaps (the popover positioner adds its
+  // own viewport constraint on top).
+  const availableHeight =
+    placement?.height ?? Math.max(0, containerSize.height - CONTEXT_CARD_GAP * 2);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <PopoverTrigger
-              render={
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="Pane context"
-                  disabled={pane === null}
-                  className="[-webkit-app-region:no-drag]"
-                />
-              }
-            />
-          }
-        >
-          <InfoIcon className="size-4" />
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">Context</TooltipPopup>
-      </Tooltip>
-      <PopoverPopup
-        side="bottom"
-        align="end"
-        sideOffset={6}
-        padding="none"
-        width="md"
-        collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}
-      >
-        {pane ? (
-          <CardBody
-            machine={machine}
-            pane={pane}
-            agent={agent}
-            workspace={workspace}
-            branch={branch}
-            machineLabel={machineLabel}
-            showMachine={showMachine}
-            panelScope={panelScope}
-            onPrompt={onPrompt}
-            onDetails={onDetails}
-            requestClose={requestClose}
-          />
-        ) : null}
-      </PopoverPopup>
+    <Popover
+      open={mode === "popover" && open}
+      onOpenChange={(next) => {
+        if (!next) setContextCardOpen(scope, false);
+      }}
+    >
+      <CardSurface
+        scope={scope}
+        mode={mode}
+        placement={placement}
+        availableHeight={availableHeight}
+        machine={machine}
+        machineLabel={machineLabel}
+        showMachine={showMachine}
+        pane={pane}
+        agent={agent}
+        workspace={workspace}
+        branch={branch}
+        agents={agents}
+        panelScope={scope}
+        onPrompt={onPrompt}
+        onDetails={onDetails}
+      />
     </Popover>
   );
 }
