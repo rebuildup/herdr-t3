@@ -21,16 +21,16 @@
 import type { GhosttySession } from "./session.ts";
 import type { GhosttyThemeColors } from "./colors.ts";
 import { engineColors } from "./colors.ts";
-import { engineKeyFor } from "./keys.ts";
 import {
   bypassesKeyEncoder,
   CompositionTracker,
+  engineKeyFor,
   focusReport,
   mouseReportCell,
   pointerDragKind,
   sendsHoverMotion,
   wheelButton,
-} from "./inputPolicy.ts";
+} from "./inputRuntime.ts";
 import type {
   EngineKey,
   EngineMods,

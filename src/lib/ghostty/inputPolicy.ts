@@ -104,6 +104,11 @@ export class CompositionTracker {
     return wasEcho ? null : text;
   }
 
+  /** Force the echo window closed now (the wasm consumer's explicit timer, issue #319). */
+  expireEcho(): void {
+    this.clearEcho();
+  }
+
   private clearEcho(): void {
     if (this.echoTimer) clearTimeout(this.echoTimer);
     this.echoTimer = null;

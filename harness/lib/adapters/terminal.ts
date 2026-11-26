@@ -542,6 +542,9 @@ export function createTerminalAdapter(): Adapter {
                   const text = composition.beforeInputText(data);
                   return { text, active: composition.active };
                 }
+                case "expire":
+                  composition.expireEcho();
+                  return { text: null, active: composition.active };
                 default:
                   throw new Error(`unknown composition event "${String(ev["type"])}"`);
               }
