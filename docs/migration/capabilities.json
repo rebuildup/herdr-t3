@@ -506,7 +506,10 @@
     "known_issues": [],
     "os_gaps": [],
     "upstream_deps": [
-     "herdr-plugins contracts (inbox v0.1.0, git/v1 @d057830)"
+     "rebuildup.inbox v0.1.0",
+     "herdr-plugins.git/v1 @d057830",
+     "herdr-plugins.projects/v1 @2dcb2abf",
+     "herdr-plugins.checkpoints/v1 @ae4f214"
     ],
     "excluded": false
    }
@@ -1222,11 +1225,11 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "per-turn auto-capture/multi-repo orchestration/GC are non-goals (herdr-plugins#75+); auto-capture granularity is agent_status work-units"
+     "per-turn auto-capture remains a non-goal (upstream gap); auto-capture granularity is agent_status work-units. multi-repo save groups and bounded gc/prune are implemented @ae4f214 (herdr-plugins#75 closed)"
     ],
     "os_gaps": [],
     "upstream_deps": [
-     "herdr-plugins.checkpoints/v1 @55df8d0a",
+     "herdr-plugins.checkpoints/v1 @ae4f214",
      "git + bun on the plugin host"
     ],
     "excluded": false

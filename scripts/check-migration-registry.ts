@@ -15,6 +15,9 @@
  *  - referenced repo paths (spec/scenarios/evidence/parity/spec_ref)
  *    exist; issue:/pr:/url:/note: prefixed refs are exempt
  *  - os/boundary/owner fields use known vocabularies
+ *  - herdr-plugins pins in status.upstream_deps match the canonical pin
+ *    list in docs/migration/contracts/plugins-boundary.md, and every
+ *    plugin-owned capability declares a pin for its plugin (#285 audit)
  *
  * Usage: bun scripts/check-migration-registry.ts [--self-test]
  */
@@ -23,6 +26,7 @@ import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const REGISTRY_PATH = join(REPO_ROOT, "docs/migration/capabilities.json");
+const PLUGINS_BOUNDARY_PATH = join(REPO_ROOT, "docs/migration/contracts/plugins-boundary.md");
 
 const STAGES = [
   "not-started",
@@ -177,6 +181,85 @@ function validate(reg: Registry): void {
     for (const ref of cap.evidence ?? []) checkRef(`${where} evidence`, ref);
     if (cap.spec_ref) checkRef(`${where} spec_ref`, cap.spec_ref);
     if (cap.parity) checkRef(`${where} parity`, cap.parity);
+  }
+
+  checkPluginPins(reg);
+}
+
+/* ---------------- plugin pin consistency (#285 audit) ---------------- */
+
+/**
+ * Canonical plugin pins live in plugins-boundary.md as a parenthesized
+ * list like "(git-v1 @ `d057830`, projects/v1 @ `2dcb2abf`, inbox v0.1.0,
+ * checkpoints/v1 @ `ae4f214`)". capabilities.json must reference the same
+ * pins — a stale @sha or a missing pin is a ledger defect.
+ */
+interface PluginPins {
+  /** plugin key -> pinned ref (sha or semver) */
+  pins: Map<string, string>;
+}
+
+function loadPluginPins(): PluginPins | null {
+  if (!existsSync(PLUGINS_BOUNDARY_PATH)) return null;
+  const text = readFileSync(PLUGINS_BOUNDARY_PATH, "utf8");
+  const m = text.match(/pinned per integration \(([^)]+)\)/);
+  if (!m) return null;
+  const pins = new Map<string, string>();
+  for (const entry of m[1].split(",")) {
+    const e = entry.trim();
+    // "git-v1 @ `d057830`" / "checkpoints/v1 @ `ae4f214`" / "inbox v0.1.0"
+    const sha = e.match(/^([\w-]+?)(?:\/v\d+)?\s+@\s+`([0-9a-f]{7,40})`$/);
+    if (sha) {
+      pins.set(sha[1].replace(/-v\d+$/, ""), sha[2]);
+      continue;
+    }
+    const ver = e.match(/^([\w-]+?)\s+(v[\d.]+)$/);
+    if (ver) pins.set(ver[1], ver[2]);
+  }
+  return pins.size > 0 ? { pins } : null;
+}
+
+const DEP_SHA_RE = /herdr-plugins\.([\w-]+?)\/v\d+\s*@\s*([0-9a-f]{7,40})/g;
+const DEP_VER_RE = /rebuildup\.([\w-]+)\s+(v[\d.]+)/g;
+
+function checkPluginPins(reg: Registry): void {
+  const canonical = loadPluginPins();
+  if (!canonical) {
+    fail(`cannot parse canonical plugin pins from ${PLUGINS_BOUNDARY_PATH}`);
+    return;
+  }
+  for (const cap of reg.capabilities ?? []) {
+    const where = `capability ${cap.id}`;
+    const deps = cap.status?.upstream_deps ?? [];
+    const joined = deps.join("\n");
+    const covered = new Set<string>();
+
+    for (const m of joined.matchAll(DEP_SHA_RE)) {
+      const [, plugin, sha] = m;
+      covered.add(plugin);
+      const want = canonical.pins.get(plugin);
+      if (want === undefined) {
+        fail(`${where}: upstream_deps pins unknown plugin "${plugin}"`);
+      } else if (want !== sha) {
+        fail(`${where}: stale pin for ${plugin}: deps @${sha} but plugins-boundary.md pins @${want}`);
+      }
+    }
+    for (const m of joined.matchAll(DEP_VER_RE)) {
+      const [, plugin, ver] = m;
+      covered.add(plugin);
+      const want = canonical.pins.get(plugin);
+      if (want === undefined) {
+        fail(`${where}: upstream_deps pins unknown plugin "${plugin}"`);
+      } else if (want !== ver) {
+        fail(`${where}: stale pin for ${plugin}: deps ${ver} but plugins-boundary.md pins ${want}`);
+      }
+    }
+
+    // plugin-owned capabilities must declare a pin for their plugin
+    const ownerMatch = cap.owner?.match(/^plugin:rebuildup\.([\w-]+)$/);
+    if (ownerMatch && !covered.has(ownerMatch[1])) {
+      fail(`${where}: plugin-owned capability missing upstream_deps pin for "${ownerMatch[1]}"`);
+    }
   }
 }
 
