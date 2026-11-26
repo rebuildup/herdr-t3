@@ -1,0 +1,9 @@
+4 plugins installed:
+- rebuildup.checkpoints (Checkpoints) enabled [github:rebuildup/herdr-plugins/plugins/checkpoints@ae4f214c523d05128354a8c4ba493b62cd8e843f]
+  config: /Users/rebui/.config/herdr/plugins/config/rebuildup.checkpoints
+- rebuildup.git (Git) enabled [github:rebuildup/herdr-plugins/plugins/git@d0578307a856e53af210775f9cb95c9f593d6f87]
+  config: /Users/rebui/.config/herdr/plugins/config/rebuildup.git
+- rebuildup.inbox (Inbox) enabled [github:rebuildup/herdr-plugins/plugins/inbox@414e87dea9faa5c221fb27508e5828f086849836]
+  config: /Users/rebui/.config/herdr/plugins/config/rebuildup.inbox
+- rebuildup.projects (Projects) enabled [github:rebuildup/herdr-plugins/plugins/projects@2dcb2abfa57b0adcf5d1109f76087e19b3dfae07]
+  config: /Users/rebui/.config/herdr/plugins/config/rebuildup.projects
