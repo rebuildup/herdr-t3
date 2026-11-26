@@ -3,7 +3,7 @@
 export const UI_SCENARIO_FORMAT = "herdr-t3/ui-scenario";
 export const UI_SCENARIO_VERSION = 1;
 
-export type UiKind = "workspace" | "pane" | "target" | "mode";
+export type UiKind = "workspace" | "pane" | "target" | "mode" | "goto.row";
 
 export interface UiStep {
   action?: string;

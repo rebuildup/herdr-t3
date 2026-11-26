@@ -20,10 +20,12 @@ export function* scenarioFiles(dir: string): Generator<string> {
 }
 
 /** kind implied by a step's target/assert/params for symbolic ref resolution */
-function kindFor(step: UiStep): "workspace" | "pane" | "mode" | "target" {
+function kindFor(step: UiStep): import("./types.ts").UiKind {
   if (step.target === "workspace.item" || step.assert === "state.selected_workspace") return "workspace";
   if (step.target === "terminal.pane" || step.target === "terminal.surface" || step.assert === "terminal.scroll_offset") return "pane";
   if (step.target === "theme.mode-tiles") return "mode";
+  if (step.target === "goto.row" || step.assert === "goto.rows") return "goto.row";
+  if (step.assert === "state.focused_pane") return "pane";
   return "target";
 }
 

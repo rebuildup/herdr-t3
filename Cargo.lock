@@ -5851,7 +5851,9 @@ name = "ui-test-host"
 version = "0.0.0"
 dependencies = [
  "gpui",
+ "protocol-codec",
  "serde_json",
+ "state-projections",
 ]
 
 [[package]]

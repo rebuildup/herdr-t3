@@ -66,6 +66,9 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
 
   await send("Runtime.enable");
   await send("Page.enable");
+  // The dev window is routinely occluded/unfocused on a developer machine;
+  // without focus emulation Chromium silently drops dispatched key events.
+  await send("Emulation.setFocusEmulationEnabled", { enabled: true });
 
   async function evaluate<T>(expr: string): Promise<T> {
     const r = (await send("Runtime.evaluate", {
@@ -96,6 +99,21 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   async function observeState(): Promise<Record<string, unknown>> {
     return evaluate<Record<string, unknown>>(`window.__herdrT3Ui.observe()`);
   }
+
+  /** Raw CDP key transition for non-text keys. On macOS the
+   *  nativeVirtualKeyCode must be the macOS virtual keycode (k=40,
+   *  Escape=53) — the Windows VK value is silently dropped. */
+  async function pressKey(key: string, code: string, modifiers: number, vk: number, macVk?: number) {
+    const native = process.platform === "darwin" ? (macVk ?? vk) : vk;
+    for (const type of ["rawKeyDown", "keyUp"] as const) {
+      await send("Input.dispatchKeyEvent", {
+        type, key, code, modifiers,
+        windowsVirtualKeyCode: vk, nativeVirtualKeyCode: native,
+      });
+    }
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   // Scroll-loss fault state: models a real "scroll not preserved" bug.
   // The offset is reported intact until a workspace is re-selected after
@@ -138,9 +156,17 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             `[...document.querySelectorAll('[data-sidebar-workspace]')].map(e => e.getAttribute('data-sidebar-workspace'))`,
           );
         case "pane": {
-          const state = await observeState();
-          return Object.keys((state["terminals"] as Record<string, unknown>) ?? {});
+          // Mounted panes only: [data-ui-terminal] exists solely for the
+          // routed workspace's panes — the same "currently visible"
+          // semantics the GPUI host's mounted_pane_ids reports.
+          return evaluate<string[]>(
+            `[...document.querySelectorAll('[data-ui-terminal]')].map(e => e.getAttribute('data-ui-terminal'))`,
+          );
         }
+        case "goto.row":
+          return evaluate<string[]>(
+            `[...document.querySelectorAll('[data-goto-row]')].map(e => e.getAttribute('data-goto-row'))`,
+          );
         case "mode":
           return ["system", "light", "dark"];
         default:
@@ -181,6 +207,13 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
               if (!aria) return { ok: false, error: `unknown mode "${mode}"` };
               return clickSelector(`button[aria-label="${aria}"]`);
             }
+            if (target === "goto.row") {
+              const id = String(params["id"] ?? "");
+              const r = await clickSelector(`[data-goto-row=${JSON.stringify(id)}]`);
+              if (!r.ok) return r;
+              await sleep(200);
+              return { ok: true };
+            }
             return { ok: false, error: `select not supported for target ${target}` };
           }
           case "activate": {
@@ -193,7 +226,60 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             if (target === "nav.settings-appearance") {
               return clickSelector(`[data-settings-section="appearance"]`);
             }
+            if (target === "nav.goto") {
+              // Real key path: ⌘K/Ctrl+K opens the command palette, type
+              // the action query, then click the palette's Go to item —
+              // the same route a user takes (issue #328).
+              const meta = process.platform === "darwin" ? 4 : 2;
+              await pressKey("k", "KeyK", meta, 75, 40);
+              // Wait for the palette input before typing the query.
+              const pDeadline = Date.now() + 5000;
+              for (;;) {
+                const ready = await evaluate<boolean>(
+                  `(() => { const el = document.querySelector('[data-command-palette] input'); return !!el && document.activeElement === el; })()`,
+                ).catch(() => false);
+                if (ready || Date.now() > pDeadline) break;
+                await sleep(100);
+              }
+              // The palette query persists across opens; clear it so the
+              // "goto" filter is deterministic on repeat activations.
+              await evaluate(
+                `(() => { const el = document.querySelector('[data-command-palette] input'); if (!el) return; const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+              );
+              await sleep(100);
+              await send("Input.insertText", { text: "goto" });
+              await sleep(250);
+              const r = await clickSelector(`[data-palette-action="goto"]`);
+              if (!r.ok) return r;
+              // Wait for the goto dialog to mount and autofocus.
+              const deadline = Date.now() + 5000;
+              for (;;) {
+                const open = await evaluate<boolean>(
+                  `!!document.querySelector('[data-goto-dialog]')`,
+                ).catch(() => false);
+                if (open || Date.now() > deadline) break;
+                await sleep(100);
+              }
+              return { ok: true };
+            }
             return { ok: false, error: `activate not supported for target ${target}` };
+          }
+          case "type": {
+            if (target === "goto.input") {
+              const text = String(params["text"] ?? "");
+              await send("Input.insertText", { text });
+              await sleep(150);
+              return { ok: true };
+            }
+            return { ok: false, error: `type not supported for target ${target}` };
+          }
+          case "dismiss": {
+            if (target === "goto.dialog") {
+              await pressKey("Escape", "Escape", 0, 27, 53);
+              await sleep(150);
+              return { ok: true };
+            }
+            return { ok: false, error: `dismiss not supported for target ${target}` };
           }
           case "terminal.scroll": {
             const key = String(params["id"] ?? "");
@@ -261,6 +347,31 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             const terminals = (state["terminals"] ?? {}) as Record<string, number>;
             return { ok: true, value: terminals[key] ?? null };
           }
+          case "state.goto_open":
+            return { ok: true, value: await evaluate<boolean>(
+              `!!document.querySelector('[data-goto-dialog]')`,
+            ) };
+          case "goto.query":
+            return { ok: true, value: await evaluate<string | null>(
+              `(() => { const el = document.querySelector('[data-goto-input] input, [data-goto-input], [data-goto-dialog] input'); return el ? el.value : null; })()`,
+            ) };
+          case "goto.rows":
+            return { ok: true, value: await evaluate<string[]>(
+              `[...document.querySelectorAll('[data-goto-row]')].map(e => e.getAttribute('data-goto-row'))`,
+            ) };
+          case "goto.row_count":
+            return { ok: true, value: await evaluate<number>(
+              `document.querySelectorAll('[data-goto-row]').length`,
+            ) };
+          case "state.focused_pane": {
+            // Canonical pane key (`${machine}\n${paneId}`), same shape as
+            // [data-ui-terminal] — the seeded conformance session is
+            // local-machine only.
+            const id = state["focused_pane_id"];
+            return { ok: true, value: typeof id === "string" ? `local\n${id}` : null };
+          }
+          case "state.focused_tab":
+            return { ok: true, value: state["focused_tab_id"] ?? null };
           case "terminal.cursor_visible":
           case "dialog.open":
           case "element.visible":
@@ -295,7 +406,7 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
         }
         return;
       }
-      if (fixture === "single-workspace" || fixture === "two-workspaces-with-scrollback") {
+      if (fixture === "single-workspace" || fixture === "two-workspaces-with-scrollback" || fixture === "goto-picker") {
         // Deterministic shell preconditions: sidebar open, home route.
         // Workspace/scrollback content comes from the seeded isolated
         // herdr session (scripts/ui-electron.sh) — never the live session.

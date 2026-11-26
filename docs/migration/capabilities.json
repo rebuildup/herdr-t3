@@ -2844,15 +2844,20 @@
    "scenarios": [
     "src/shell/goto.test.ts",
     "crates/state-projections/tests/goto.rs",
-    "harness/scenarios/projection/goto.json"
+    "harness/scenarios/projection/goto.json",
+    "harness/ui/scenarios/shell/goto-picker.json"
    ],
    "evidence": [
     "src/shell/goto.ts",
+    "src/shell/GotoDialog.tsx",
     "crates/state-projections/src/lib.rs",
     "crates/state-projections/src/bin/state-projections-adapter.rs",
     "crates/state-projections/tests/goto.rs",
+    "crates/ui-test-host/src/main.rs",
     "harness/lib/adapters/projection.ts",
-    "harness/scenarios/projection/goto.json"
+    "harness/scenarios/projection/goto.json",
+    "harness/ui/adapters/electron.ts",
+    "harness/ui/adapters/gpui.ts"
    ],
    "stage": "rust-implemented",
    "status": {

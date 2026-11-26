@@ -422,6 +422,7 @@ export function CommandMenu({
                     <CommandItem
                       key={item.id}
                       value={item.id}
+                      data-palette-action={item.id}
                       onClick={() => {
                         item.run();
                         if (item.refocusPane) {

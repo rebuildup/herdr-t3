@@ -1,0 +1,166 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "gpui",
+  "scenario": "shell.goto-picker-navigation",
+  "capability": "ui.goto-picker",
+  "contract": "ui-shell@1",
+  "fixture": "goto-picker",
+  "pass": true,
+  "injected_fault": null,
+  "git_sha": "098dd3568a3ce6f9667141a11206ed6613698769",
+  "recorded_at": "2026-11-26T05:06:30.628Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "assert",
+      "name": "state.goto_open",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "action",
+      "name": "activate nav.goto",
+      "ok": true
+    },
+    {
+      "index": 2,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true
+    },
+    {
+      "index": 3,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true
+    },
+    {
+      "index": 4,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 5,
+      "kind": "action",
+      "name": "type goto.input",
+      "ok": true
+    },
+    {
+      "index": 6,
+      "kind": "wait",
+      "name": "wait goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 7,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true
+    },
+    {
+      "index": 8,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 9,
+      "kind": "action",
+      "name": "select goto.row",
+      "ok": true
+    },
+    {
+      "index": 10,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true
+    },
+    {
+      "index": 11,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 12,
+      "kind": "assert",
+      "name": "state.selected_workspace",
+      "ok": true
+    },
+    {
+      "index": 13,
+      "kind": "wait",
+      "name": "wait state.focused_pane",
+      "ok": true
+    },
+    {
+      "index": 14,
+      "kind": "assert",
+      "name": "state.focused_pane",
+      "ok": true
+    },
+    {
+      "index": 15,
+      "kind": "action",
+      "name": "activate nav.goto",
+      "ok": true
+    },
+    {
+      "index": 16,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true
+    },
+    {
+      "index": 17,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true
+    },
+    {
+      "index": 18,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 19,
+      "kind": "action",
+      "name": "type goto.input",
+      "ok": true
+    },
+    {
+      "index": 20,
+      "kind": "wait",
+      "name": "wait goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 21,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true
+    },
+    {
+      "index": 22,
+      "kind": "action",
+      "name": "dismiss goto.dialog",
+      "ok": true
+    },
+    {
+      "index": 23,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true
+    },
+    {
+      "index": 24,
+      "kind": "assert",
+      "name": "state.selected_workspace",
+      "ok": true
+    }
+  ],
+  "error": null
+}

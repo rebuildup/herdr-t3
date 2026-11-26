@@ -51,6 +51,23 @@
     "theme.mode-tiles": {
       "kind": "control",
       "evidence": ["src/components/ThemeModeTiles.tsx", "src/lib/theme.ts"]
+    },
+    "nav.goto": {
+      "kind": "control",
+      "evidence": ["src/shell/CommandMenu.tsx data-palette-action=goto", "issue #328"]
+    },
+    "goto.dialog": {
+      "kind": "dialog",
+      "evidence": ["src/shell/GotoDialog.tsx data-goto-dialog", "crates/ui-test-host/src/main.rs"]
+    },
+    "goto.input": {
+      "kind": "control",
+      "evidence": ["src/shell/GotoDialog.tsx data-goto-input", "crates/ui-test-host/src/main.rs"]
+    },
+    "goto.row": {
+      "kind": "item",
+      "selectable": true,
+      "evidence": ["src/shell/GotoDialog.tsx data-goto-row", "crates/ui-test-host/src/main.rs"]
     }
   }
 }
