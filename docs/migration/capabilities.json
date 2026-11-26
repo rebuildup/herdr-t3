@@ -165,6 +165,14 @@
    "spec": "docs/migration/contracts/plugin-usage.md",
    "oracle": "conformance",
    "summary": "Read-only usage surface via plugin_call: capability/quota/usage/cost/divergence consumed @d23205af — quota provider windows + CLIProxyAPI hubs eagerly, index-dependent aggregation lazily with selector args; cache-token tri-state and cost estimates rendered verbatim; mutation_commands is empty so no writes are offered."
+  },
+  {
+   "id": "plugin-artifacts",
+   "version": 1,
+   "title": "herdr-plugins.artifacts/v1 artifact registry read surface",
+   "spec": "docs/migration/contracts/plugin-artifacts.md",
+   "oracle": "conformance",
+   "summary": "Read-only artifacts surface via plugin_call: capability/export/search/verify consumed @d23205af — export is the contract-designated client read surface (annotated records + orphans/corrupt honesty fields) fetched eagerly, search (metadata-only, since/until bounds) and verify (ok|corrupt|missing + issues) lazy; missing_ref/owner_stale/oversize rendered verbatim; advertised mutation_commands gated off by an empty local allowlist; resolved_path is text+copy only (no inline render, no shell-open bridge)."
   }
  ],
  "capabilities": [
@@ -554,7 +562,8 @@
      "herdr-plugins.checkpoints/v1 @ae4f214",
      "herdr-plugins.automations/v1 @6c1cfa5",
      "herdr-plugins.conversations/v1 @d23205af",
-     "herdr-plugins.usage/v1 @d23205af"
+     "herdr-plugins.usage/v1 @d23205af",
+     "herdr-plugins.artifacts/v1 @d23205af"
     ],
     "excluded": false
    }
@@ -1468,6 +1477,70 @@
     "upstream_deps": [
      "herdr-plugins.usage/v1 @d23205af",
      "herdr-plugins.conversations/v1 @d23205af",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "artifacts.surface",
+   "title": "Artifacts surface via herdr-plugins.artifacts/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.artifacts",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-artifacts@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (commands/mutation_commands/kinds/storage_modes)",
+    "export read surface (annotated records + returned/complete/filters echo + orphans/corrupt) fetched eagerly, refetched with kind/pane/created-by filters",
+    "search free-text over metadata with since/until ISO bounds (submit-triggered)",
+    "verify integrity report (ok|corrupt|missing + issues + checks) on demand — re-hashes payloads plugin-side",
+    "kind badges, resolved_path text + copy affordance (no inline render, no shell-open bridge), honest missing_ref/owner_stale/oversize/orphans/corrupt rendering",
+    "empty registry renders as honest empty state (producers may not exist)",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "session_unreachable -> unreachable; state_corrupt/lock_timeout/artifact_not_found stay error with verbatim detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "export failure keeps machine ready with reportError; last-good registry retained"
+   ],
+   "side_effects": [
+    "plugin_call reads only — mutation_commands (register/delete/deliver/gc) are advertised but gated off by the empty local ARTIFACTS_MUTATION_COMMANDS allowlist"
+   ],
+   "scenarios": [
+    "src/shell/artifacts.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/artifacts.ts",
+    "src/components/ArtifactsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-artifacts.md",
+    "docs/adr/ADR-0029.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "resolved_path has no open action — no shell-open bridge exists; copy affordance only, html never rendered inline (client-side isolated rendering is a later concern)",
+     "record-session --session filter is unusable upstream (CLI consumes it as the herdr session selector) — not emitted",
+     "list/get commands remain unconsumed (export is the designated client read surface); mutations (register/delete/deliver/gc) are a separate ticket"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.artifacts/v1 @d23205af",
      "bun on the plugin host"
     ],
     "excluded": false
