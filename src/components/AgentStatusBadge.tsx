@@ -1,5 +1,6 @@
 import type { AgentStatus, PaneInfo } from "../../shared/protocol";
 import { cn } from "../lib/utils";
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { Circle, CircleCheck, CircleDashed, CircleX, Loader2 } from "lucide-react";
 
 const LABELS: Record<string, string> = {
@@ -38,7 +39,10 @@ export function AgentStatusBadge({ status, className }: { status: AgentStatus; c
             : CircleDashed;
   return (
     <span className={cn("inline-flex items-center gap-1 text-2xs transition-colors", color, className)}>
-      <Icon className={cn("size-3", status === "working" && "motion-safe:animate-spin")} />
+      <Icon
+        ref={status === "working" ? observeVisibleAnimation : undefined}
+        className={cn("size-3", status === "working" && "motion-safe:visible-animate-spin")}
+      />
       {agentStatusLabel(status)}
     </span>
   );

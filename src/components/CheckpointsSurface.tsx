@@ -39,7 +39,7 @@
  *   `ok:false` entry visible — never collapsed into a generic error.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshIcon } from "./ui/refresh-icon";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -2192,7 +2192,7 @@ export function CheckpointsSurface({
                     }}
                     disabled={listLoading}
                   >
-                    <RefreshCwIcon className={listLoading ? "animate-spin" : undefined} />
+                    <RefreshIcon refreshing={listLoading} />
                     Refresh
                   </Button>
                 </div>

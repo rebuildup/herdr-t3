@@ -10,11 +10,35 @@ import {
   WifiOff,
 } from "lucide-react";
 import type { AgentStatus, MachineStatus } from "../../shared/protocol";
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
+
+/* Spinning status glyphs go through `visible-animate-spin` +
+   `observeVisibleAnimation` (issue #381, T3 `visibleAnimation.ts`):
+   the animation only runs while the icon is on-screen in a visible
+   document with motion allowed, so collapsed/off-screen rows stop
+   animating. */
+function WorkingSpinner() {
+  return (
+    <Loader2
+      ref={observeVisibleAnimation}
+      className="size-3.5 transition-colors text-primary motion-safe:visible-animate-spin"
+    />
+  );
+}
+
+function ConnectingSpinner() {
+  return (
+    <RefreshCw
+      ref={observeVisibleAnimation}
+      className="size-3 transition-colors motion-safe:visible-animate-spin text-muted-foreground"
+    />
+  );
+}
 
 export function statusIcon(status: AgentStatus) {
   switch (status) {
     case "working":
-      return <Loader2 className="size-3.5 transition-colors text-primary motion-safe:animate-spin" />;
+      return <WorkingSpinner />;
     case "blocked":
       return <CircleX className="size-3.5 transition-colors text-warning" />;
     case "done":
@@ -32,7 +56,7 @@ export function machineStatusIcon(status: MachineStatus) {
       return <Wifi className="size-3.5 transition-colors text-success" />;
     case "connecting":
     case "reconnecting":
-      return <RefreshCw className="size-3 transition-colors motion-safe:animate-spin text-muted-foreground" />;
+      return <ConnectingSpinner />;
     case "auth_required":
       return <CircleX className="size-3.5 transition-colors text-warning" />;
     case "disabled":

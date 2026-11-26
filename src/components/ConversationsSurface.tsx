@@ -23,12 +23,12 @@ import {
   ChevronDownIcon,
   DatabaseIcon,
   MessagesSquareIcon,
-  RefreshCwIcon,
   SearchIcon,
 } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { RefreshIcon } from "./ui/refresh-icon";
 import { Input } from "./ui/input";
 import { DialogPanel } from "./ui/dialog";
 import { cn } from "~/lib/utils";
@@ -529,7 +529,7 @@ export function ConversationsSurface({ machine }: { machine: string }) {
               disabled={refreshing}
               aria-label="Refresh conversations"
             >
-              <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+              <RefreshIcon refreshing={refreshing} />
               Refresh
             </Button>
           </div>

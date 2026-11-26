@@ -19,7 +19,7 @@
  *   the repo selector is explicit and nothing is auto-picked.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshIcon } from "./ui/refresh-icon";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -618,7 +618,7 @@ function RunsPane({
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-medium">Runs</div>
         <Button size="xs" variant="ghost" onClick={onRefresh} disabled={loading}>
-          <RefreshCwIcon className={loading ? "animate-spin" : undefined} />
+          <RefreshIcon refreshing={loading} />
           Refresh
         </Button>
       </div>
@@ -810,7 +810,7 @@ export function ProjectScriptsSurface({
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium">Projects</div>
                   <Button size="xs" variant="ghost" onClick={loadProjects} disabled={projectsLoading}>
-                    <RefreshCwIcon className={projectsLoading ? "animate-spin" : undefined} />
+                    <RefreshIcon refreshing={projectsLoading} />
                     Refresh
                   </Button>
                 </div>
