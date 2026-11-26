@@ -6,6 +6,7 @@
  * the pushed snapshot is what updates the UI.
  */
 import {
+  ArrowLeftRightIcon,
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -677,6 +678,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "artifacts", kind: "artifacts" })}
               >
                 <PackageIcon /> Artifacts
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "handoffs", kind: "handoffs" })}
+              >
+                <ArrowLeftRightIcon /> Handoffs
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
