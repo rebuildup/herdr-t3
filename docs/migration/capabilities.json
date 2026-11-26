@@ -1371,7 +1371,8 @@
     "src/lib/ghostty/inputPolicy.test.ts",
     "src/lib/ghostty/keys.test.ts",
     "crates/terminal-input/tests/input.rs",
-    "harness/scenarios/terminal/input-policy.json"
+    "harness/scenarios/terminal/input-policy.json",
+    "src/lib/ghostty/inputWasm.test.ts"
    ],
    "evidence": [
     "src/lib/ghostty/inputPolicy.ts",
@@ -1380,12 +1381,20 @@
     "crates/terminal-input/src/bin/terminal-input-adapter.rs",
     "crates/terminal-input/tests/input.rs",
     "harness/scenarios/terminal/input-policy.json",
-    "docs/migration/contracts/terminal-input.md"
+    "docs/migration/contracts/terminal-input.md",
+    "src/lib/ghostty/inputRuntime.ts",
+    "src/lib/ghostty/inputWasm.ts",
+    "src/lib/ghostty/terminal-input.wasm",
+    "scripts/terminal-input/build-wasm.sh",
+    "src/lib/ghostty/inputWasm.test.ts",
+    "docs/adr/ADR-0025.md"
    ],
-   "stage": "rust-implemented",
+   "stage": "switched",
    "status": {
     "implemented": true,
-    "known_issues": [],
+    "known_issues": [
+     "wasm consumer is transitional (ADR-0025): JSON op boundary ~90ns/call vs ~3ns TS — immaterial at input-event rates; removed with the GPUI cutover"
+    ],
     "os_gaps": [
      "windows-11"
     ],

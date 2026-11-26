@@ -101,7 +101,7 @@ remaining work before old-path removal:
 | agent.projection | #281 (+#287 perf, #288 conformance) | wasm consumer in runtime (ADR-0025) — #316 | src/lib/workspace.ts, src/shell/agents.ts |
 | terminal.engine | #286 | no transitional consumer — switches with GPUI surface (ADR-0025) — #317 re-scoped | shared/ghostty engine/session TS path |
 | terminal.scene | #298 | no transitional consumer — switches with GPUI surface (ADR-0025) — #318 re-scoped | renderer.ts Canvas2D path |
-| terminal.input | #304 | wasm consumer in runtime (ADR-0025) — #319 | inputPolicy.ts/keys.ts call sites |
+| terminal.input | #304 + #319 (**switched**: inputRuntime facade → terminal-input.wasm; TS fallback retained for rollback) | old impl removal — #348 | inputPolicy.ts/keys.ts call sites |
 | terminal.surface | #301 | no transitional consumer — switches with GPUI surface (ADR-0025) — #320 re-scoped | surfaceCore.ts/surface.ts product path |
 
 Connection mechanism decided by ADR-0025 (#314): small-data
