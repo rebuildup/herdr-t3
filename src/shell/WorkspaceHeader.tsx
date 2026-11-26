@@ -7,6 +7,7 @@
  */
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -201,7 +202,12 @@ export function WorkspaceHeader() {
             scrolls internally; the surrounding header space stays draggable.
             The new-tab action sits outside the scroller so it never slides
             out of view on narrow widths. */}
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        {/* min-w-11 floors the strip at its fixed chrome (hairline +
+            gap + the size-8/size-7 new-tab button ≈ 41/37px): without it
+            flex-1 + min-w-0 let the container collapse to ~0 and the
+            shrink-0 "+" overflowed rightward onto the pane-summary text
+            (issue #417). The scroller still scrolls internally. */}
+        <div className="flex min-w-11 flex-1 items-center gap-1">
           {/* Hairline separating the workspace breadcrumb from the tab
               strip — at narrow widths the two read as one run without it
               (issue #130). */}
@@ -426,19 +432,32 @@ export function WorkspaceHeader() {
         </div>
 
         {/* Focused pane summary + actions. Shrinks (label truncates) before
-            the tab strip does, so narrow widths keep tabs readable. */}
+            the tab strip does, so narrow widths keep tabs readable. The
+            summary is capped so its "title · agent" text gives up width
+            (agent metadata truncates first — it is the tail of the single
+            truncating node) before the workspace breadcrumb does
+            (issue #417). Below `md` it hides entirely: at ~480–700px
+            windows it could only render "r…"/"devin.exe: re…", and the
+            workspace/session breadcrumb is the higher-value label there
+            (issue #417 Windows leg). */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
           <Tooltip>
             <TooltipTrigger
               render={
-                <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+                <div className="flex min-w-0 max-w-48 items-center gap-2 text-xs text-secondary-label max-md:hidden" />
               }
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">
-                  {focusedTitle}
-                  {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
-                </span>
+                {/* The pane title keeps priority inside the cap; the agent
+                    name is capped and truncates first so a long agent
+                    label cannot starve the title (issue #417 Windows
+                    leg). */}
+                <span className="min-w-0 truncate">{focusedTitle}</span>
+                {focusedPane?.agent ? (
+                  <span className="min-w-0 max-w-28 shrink truncate">
+                    · {focusedPane.agent}
+                  </span>
+                ) : null}
               </span>
               {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
                 <AgentStatusBadge status={focusedPane.agent_status} />
@@ -687,6 +706,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "handoffs", kind: "handoffs" })}
               >
                 <ArrowLeftRightIcon /> Handoffs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "controls", kind: "controls" })}
+              >
+                <BotIcon /> Controls
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => openPanelSurface({ id: "textgen", kind: "textgen" })}

@@ -302,7 +302,10 @@ describe("PluginService.call", () => {
       }
       delete process.env["HERDR_T3_KEEP_ME"];
     }
-  });
+    // Spawns a real `bun -e` child whose own budget is 15s — the default
+    // 5s test timeout fires first on a loaded machine before the child
+    // can even start (issue #417 CI flake).
+  }, 20_000);
 
   test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {
     const gitHost = fakeHost([
@@ -767,5 +770,7 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     );
     expect(outcome.code).toBe(0);
     expect(outcome.stdout.trim()).toBe(SOCKET);
-  });
+    // Real subprocess spawn; see the scrubbed-vars test above — the
+    // inner 15s budget needs headroom over the default 5s test timeout.
+  }, 20_000);
 });

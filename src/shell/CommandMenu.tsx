@@ -6,6 +6,7 @@
  */
 import {
   ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
@@ -122,6 +123,13 @@ export function CommandMenu({
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
   const [gotoOpen, setGotoOpen] = useState(false);
+
+  // Fresh query on every open: the palette stays mounted, so without a
+  // reset the next session's typing concatenates onto the stale query
+  // ("usagesource control", issue #417).
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
 
   // Explicit Escape fallback: the footer advertises "Esc Close", so closing
   // must not depend solely on the dialog primitive's dismissal path (issue #94).
@@ -270,6 +278,14 @@ export function CommandMenu({
           icon: <ArrowLeftRightIcon className="size-4" />,
           keywords: "handoffs delegation transfer records resume lineage plugin",
           run: panelSurface({ id: "handoffs", kind: "handoffs" }),
+        },
+        {
+          id: "panel-controls",
+          label: "Controls",
+          group: "Actions",
+          icon: <BotIcon className="size-4" />,
+          keywords: "controls agent command slash interrupt wait start launch plugin",
+          run: panelSurface({ id: "controls", kind: "controls" }),
         },
         {
           id: "panel-textgen",
@@ -585,19 +601,26 @@ export function CommandMenu({
           </CommandPanel>
           <CommandFooter className="max-sm:flex-col max-sm:items-start">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-              <KbdGroup>
-                <Kbd variant="outline">
-                  <ArrowUpIcon />
-                </Kbd>
-                <Kbd variant="outline">
-                  <ArrowDownIcon />
-                </Kbd>
-                <span>Navigate</span>
-              </KbdGroup>
-              <KbdGroup>
-                <Kbd variant="outline">Enter</Kbd>
-                <span>Select</span>
-              </KbdGroup>
+              {/* Selection hints only make sense when there is something
+                  to select — an empty result list leaves just Esc
+                  (issue #417). */}
+              {groups.length > 0 ? (
+                <>
+                  <KbdGroup>
+                    <Kbd variant="outline">
+                      <ArrowUpIcon />
+                    </Kbd>
+                    <Kbd variant="outline">
+                      <ArrowDownIcon />
+                    </Kbd>
+                    <span>Navigate</span>
+                  </KbdGroup>
+                  <KbdGroup>
+                    <Kbd variant="outline">Enter</Kbd>
+                    <span>Select</span>
+                  </KbdGroup>
+                </>
+              ) : null}
               <KbdGroup>
                 <Kbd variant="outline">Esc</Kbd>
                 <span>Close</span>

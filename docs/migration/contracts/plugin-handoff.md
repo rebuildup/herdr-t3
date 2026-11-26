@@ -1,21 +1,29 @@
-# Contract: handoff read surface — list/status/resume-info (B3)
+# Contract: handoff surface — reads + execute/delegate/merge-back
 
-Version: 1. Scope: consuming `herdr-plugins.handoff/v1` through
+Version: 2. Scope: consuming `herdr-plugins.handoff/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
 `rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`). The plugin owns handoff/delegation records — payload
 *references* (never transcript copies) bound to a source
 pane/agent generation, a `pending|ready|delivered|done|failed|
 superseded` lifecycle, execution targets, and derived lineage; this
-client consumes the read surface only (issue #404). Upstream spec:
+client consumes the read surface (`list`/`status`/`resume-info`,
+issue #404) plus the mutation commands `execute`/`delegate`/
+`merge-back` (issue #451). Upstream spec:
 `herdr-plugins/docs/contracts/handoff-v1.md` (**v1 stable** since
 herdr-plugins v0.6.0 / plugin v0.6.0).
 
-The contract DOES advertise writes — `create`, `execute`, `delegate`,
-`merge-back` are top-level commands, not `mutation_commands` entries.
-This surface never calls them: `HANDOFF_MUTATION_COMMANDS` is an empty
-allowlist and `handoffsSupportsMutation` fails closed, so a mutation
-ticket must extend the allowlist deliberately.
+Mutation advertisement differs across plugin versions: every v1 build
+lists `execute`/`delegate`/`merge-back`/`create` as top-level
+`commands`, and plugin v0.7.0+ (herdr-plugins#224, release-0-10-0 —
+unpublished at the pin) additionally lists the persisting commands in
+a `mutation_commands` capability field. Gating
+(`handoffsSupportsMutation`) therefore requires the command in the
+local `HANDOFF_MUTATION_COMMANDS` allowlist (`execute`/`delegate`/
+`merge-back` only — `create` stays agent-side) AND in `commands`, plus
+`mutation_commands` membership when the field is present; the pinned
+v0.9.0 build lacks the field, so its absence falls back to the
+allowlist + `commands` check.
 
 ## Operations consumed
 
@@ -24,10 +32,12 @@ JSON document `{contract:"herdr-plugins.handoff/v1", command, …}` on
 stdout (`capability` emits the bare discovery document):
 
 - `capability` → `{contract, plugin:"rebuildup.handoff", version,
-  commands:[…], execution:"same_host_and_remote_saved_machines",
-  lineage:{…}, execution_surface:{…}, limits:{…}}`. This client
-  requires `list`, `status`, `resume-info` in `commands` (the read
-  surface); `create`/`execute`/`delegate`/`merge-back`/`remote-probe`
+  commands:[…], mutation_commands?:[…], execution:
+  "same_host_and_remote_saved_machines", lineage:{…},
+  execution_surface:{…}, limits:{…}}`. This client requires `list`,
+  `status`, `resume-info` in `commands` (the read surface);
+  `mutation_commands` (plugin ≥ v0.7.0) is tracked via
+  `hasMutationCommands` for mutation gating; `create`/`remote-probe`
   are recognized but never invoked.
 - `list [--status S] [--limit N]` → `{total, count, truncated, items[],
   state_file, generated_at}`. Eager per-machine store read (fetched
@@ -78,21 +88,60 @@ stdout (`capability` emits the bare discovery document):
   placeholder, `model_flag`, `notes`). `unknown` is honest
   non-support — rendered verbatim, never upgraded. On-demand fetch
   behind a Load/Hide toggle.
+- `execute <handoff-id> [target flags] [--remote MACHINE]
+  [--provider H] [--model M] [--wait-ms MS] [--cleanup-on-failure]` →
+  `{command:"execute", outcome:"delivered"|"done", handoff,
+  remote?}`. Runs the handoff end-to-end behind a confirmation dialog
+  naming the record's source identity (host/session/pane/agent) and,
+  for `--remote`, the saved-machine label/id verbatim. The remote
+  input renders only when `capability.execution` advertises remote
+  machines (`same_host_and_remote_saved_machines`); the plugin probes
+  the machine BEFORE any mutation, so an unreachable/disabled machine
+  is a pre-mutation refusal leaving the record `pending`. Offered
+  only for `pending`/`ready` records (the plugin's own gate) when
+  `handoffsSupportsMutation(cap,"execute")` holds; a non-`ok`
+  `transfer_check` is warned about in the dialog. `outcome:"failed"`
+  arrives as a plugin error (`execution_failed`) with the record
+  persisted `failed` + `execution.error` — surfaced verbatim, never
+  relabelled.
+- `delegate <parent-handoff-id> [--task T] [--strategy S]
+  [--link-note N] [execute flags] [--no-execute]` → `{command:
+  "delegate", outcome, handoff, parent}`. subagent_spawn: child record
+  + normal execute pipeline. Same-session only in v1 — `--remote` is
+  never emitted (plugin usage error). Offered on any record when
+  gated on; the dialog offers task/note text, strategy
+  (`native_resume`/`portable_context`/record default — `checkpoint_ref`/
+  `manual` are refused by the execute pipeline and not offered),
+  target surface, provider/model, wait-ms, cleanup-on-failure, and a
+  "record only" (`--no-execute`) switch.
+- `merge-back <child-handoff-id> [--task T] [--wait-ms MS]
+  [--link-note N] [--no-execute]` → `{command:"merge-back", outcome,
+  handoff, child, parent}`. subagent_result/merge_back result record
+  delivered via `agent.prompt` to the delegating agent's EXISTING
+  pane — `agent.start` is never called on a busy pane. Offered only
+  on records with a `relationship` link; the dialog offers result
+  text, wait-ms, link note, and "record only".
+
+All three mutations refresh the record list and the open detail after
+success; the returned record is displayed verbatim and never
+auto-applied anywhere (generation/application stay separated).
+Mutation calls use the 120s `plugin_call` ceiling — `agent.start` +
+prompt delivery can be slow.
 
 ## Operations NOT consumed
 
-- All mutations: `create`, `execute`, `delegate`, `merge-back`,
-  `remote-probe` (a read but mutation-adjacent probe — out of scope
-  for this surface). They are separate tickets; the empty local
-  mutation allowlist fails closed regardless of what `commands`
-  advertises.
+- `create` — record authoring stays agent-side (CLI/MCP); it is
+  deliberately absent from `HANDOFF_MUTATION_COMMANDS`.
+- `remote-probe` — a read but mutation-adjacent probe; out of scope.
+  `execute --remote` takes a free-text saved-machine label/id and
+  lets the plugin's own probe gate it.
+- `--dry-run` previews — the builders never emit the flag; this
+  client always performs the real operation behind confirmation.
 - `status --remote <machine>` — remote target checks require the
   saved-machine probe; remote-executed records render their
   `remote_check`/`target_check` verdicts verbatim from a local
   `status` call (`remote_target_requires_flag`/`remote_mismatch` stay
-  honest), but the client never passes `--remote`.
-- `create`/`execute`/`delegate`/`merge-back` argv builders — not
-  implemented at all; there is no code path that could emit them.
+  honest), but the client never passes `--remote` to `status`.
 
 ## Errors and freshness
 

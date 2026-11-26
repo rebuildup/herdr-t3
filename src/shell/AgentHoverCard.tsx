@@ -50,7 +50,17 @@ export function AgentHoverCard({
   // title when present, never the raw pane id fallback paneTitle()
   // would produce for untitled panes (issue #204 review: "w1:p7" as a
   // heading duplicated the pane-id row and contradicted the row label).
-  const title = agentWorkTarget(agent, pane) ?? agentDisplayName(agent);
+  const workTarget = agentWorkTarget(agent, pane) ?? agentDisplayName(agent);
+  // Agent CLIs prefix their terminal titles with the kind ("devin: …"),
+  // which printed the provider name twice — once in the heading and
+  // again on the identity row below (issue #417). Strip a leading
+  // "<kind>:" echo; the row keeps the canonical provider label.
+  const kindPrefix = agent.agent ? `${agent.agent.toLowerCase()}:` : null;
+  const stripped =
+    kindPrefix !== null && workTarget.toLowerCase().startsWith(kindPrefix)
+      ? workTarget.slice(kindPrefix.length).trimStart()
+      : "";
+  const title = stripped.length > 0 ? stripped : workTarget;
   const displayName = agentDisplayName(agent);
   const stateLabel = agentStateLabel(agent);
   const auxLabels = agentAuxStateLabels(agent);

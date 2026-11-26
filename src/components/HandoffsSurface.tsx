@@ -6,26 +6,40 @@
  * a source pane/agent generation, a status lifecycle, execution
  * targets, and derived lineage.
  *
- * READ SURFACE ONLY. `list` is fetched eagerly by the store per
- * machine; `status` (full record + transfer/target checks + per-ref
- * owner-CLI resolution) and `resume-info` (provider native-resume
- * table) are fetched on demand — `status` is deliberately slow because
- * it resolves refs through owner plugin CLIs, and it is always invoked
- * with `--no-reconcile` so this surface never triggers the plugin's
- * lazy `delivered → done` state write. Mutations (`create`, `execute`,
- * `delegate`, `merge-back`) are a separate ticket; the store's
- * mutation allowlist is empty so they can never be offered.
+ * MUTATIONS (issue #451): `execute`/`delegate`/`merge-back` are offered
+ * per host capability through `handoffsSupportsMutation` — the local
+ * allowlist intersected with the advertised `commands` list, plus
+ * `mutation_commands` membership when the plugin advertises that field
+ * (plugin ≥ v0.7.0; the pinned v0.9.0 build predates it and falls back
+ * to the allowlist + `commands` check). Every mutation confirms through
+ * a dialog that names the target identity (host/session/agent/worktree,
+ * plus the remote saved machine for `execute --remote`) before invoking
+ * `plugin_call`; results are displayed verbatim and failures surface
+ * the plugin's own error. Handoff results are never auto-applied
+ * anywhere — generation/application stay separated. `create` is never
+ * offered (records are authored by agents via CLI/MCP) and `status`
+ * reads always pass `--no-reconcile`.
  *
  * Records are created by agents via CLI/MCP, so an empty registry is
  * the honest common case. `transfer_check.state` is rendered verbatim
  * (`ok`/`stale`/`unchecked` + the plugin's reason) — a foreign-session
  * or snapshot-less record is `unchecked`, never guessed stale.
  */
-import { useCallback, useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GitForkIcon, MergeIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   Select,
   SelectContent,
@@ -33,26 +47,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { DialogPanel } from "./ui/dialog";
+import { Switch } from "./ui/switch";
 import { cn } from "~/lib/utils";
 import {
+  HANDOFF_STRATEGIES,
   classifyHandoffError,
+  delegateHandoff,
+  executeHandoff,
   fetchHandoffList,
   fetchHandoffResumeInfo,
   fetchHandoffStatus,
   handoffCapability,
   handoffErrorHint,
+  handoffsSupportsMutation,
+  mergeBackHandoff,
   refreshHandoffs,
   useHandoffState,
   type HandoffCapability,
   type HandoffCheck,
+  type HandoffExecuteFlags,
   type HandoffListItem,
   type HandoffListReport,
+  type HandoffMutationResult,
   type HandoffPayloadRef,
   type HandoffRecord,
   type HandoffRefResolution,
   type HandoffResumeInfoReport,
   type HandoffStatusReport,
+  type HandoffTargetChoice,
   type HandoffTargetCheck,
   type HandoffUnavailableReason,
 } from "../shell/handoffs";
@@ -479,24 +501,648 @@ function ExecutionSection({ record }: { record: HandoffRecord }) {
   );
 }
 
+/* --------------------------- record mutations -------------------------- */
+
+type HandoffMutationAction = "execute" | "delegate" | "merge-back";
+
+const MUTATION_TITLES: Record<HandoffMutationAction, string> = {
+  execute: "Execute handoff?",
+  delegate: "Delegate from handoff?",
+  "merge-back": "Merge result back?",
+};
+
+const MUTATION_CONFIRM: Record<HandoffMutationAction, string> = {
+  execute: "Execute",
+  delegate: "Delegate",
+  "merge-back": "Merge back",
+};
+
+const MUTATION_DESCRIPTIONS: Record<HandoffMutationAction, string> = {
+  execute:
+    "Runs the handoff end-to-end: staleness gate → strategy decision → target surface (optionally a remote saved machine) → agent.start → payload prompt → delivered. The record must be pending/ready with an ok transfer check; the plugin refuses stale sources before any mutation.",
+  delegate:
+    "Creates a child handoff record (subagent_spawn) bound to this record's pane, then runs the normal execute pipeline as a new agent — unless 'record only' is set. Same-session only in v1; --remote is never sent.",
+  "merge-back":
+    "Creates a result record (subagent_result/merge_back) reporting on this child and delivers it via agent.prompt to the delegating agent's EXISTING pane — agent.start is never called on a pane that already runs an agent — unless 'record only' is set.",
+};
+
+/** Compact target-identity line for the confirmation dialog. */
+function mutationIdentityLines(record: HandoffRecord): string[] {
+  const transfer = record.transfer;
+  const lines: string[] = [`record ${record.id} (${record.status})`];
+  if (transfer !== null) {
+    const parts: string[] = [];
+    if (transfer.pane_id !== null) parts.push(`pane ${transfer.pane_id}`);
+    if (transfer.workspace_id !== null) parts.push(`ws ${transfer.workspace_id}`);
+    if (transfer.host !== null) parts.push(`host ${transfer.host}`);
+    if (transfer.herdr_session !== null) parts.push(`session ${transfer.herdr_session}`);
+    if (parts.length > 0) lines.push(`source: ${parts.join(" · ")}`);
+    if (transfer.provider_kind !== null) lines.push(`provider ${transfer.provider_kind}`);
+    if (transfer.cwd !== null) lines.push(`cwd ${transfer.cwd}`);
+    if (transfer.agent_session?.value != null) {
+      lines.push(`agent_session ${transfer.agent_session.value}`);
+    }
+  }
+  if (record.relationship !== null) {
+    lines.push(`lineage ${record.relationship.kind} → parent ${record.relationship.parent_id}`);
+  }
+  return lines;
+}
+
+/**
+ * Confirmation + options dialog for one mutation. The identity block
+ * always names host/session/agent/worktree context before anything is
+ * sent; the remote saved-machine field appears only when the contract
+ * advertises remote execution, and is echoed verbatim in the summary.
+ * On success the plugin's own outcome/record is rendered — never
+ * auto-applied anywhere.
+ */
+function HandoffMutationDialog({
+  machine,
+  action,
+  record,
+  transferCheck,
+  cap,
+  onClose,
+  onMutated,
+}: {
+  machine: string;
+  action: HandoffMutationAction;
+  record: HandoffRecord;
+  transferCheck: HandoffCheck;
+  cap: HandoffCapability | null;
+  onClose: () => void;
+  onMutated: () => void;
+}) {
+  const [task, setTask] = useState("");
+  const [linkNote, setLinkNote] = useState("");
+  const [strategy, setStrategy] = useState<string>("inherit");
+  const [targetMode, setTargetMode] = useState<string>("auto");
+  const [paneId, setPaneId] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [worktreeBranch, setWorktreeBranch] = useState("");
+  const [worktreeBase, setWorktreeBase] = useState("");
+  const [provider, setProvider] = useState("");
+  const [model, setModel] = useState("");
+  const [waitMs, setWaitMs] = useState("");
+  const [remote, setRemote] = useState("");
+  const [cleanup, setCleanup] = useState(false);
+  const [noExecute, setNoExecute] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<HandoffMutationResult | null>(null);
+
+  const isExecute = action === "execute";
+  const isDelegate = action === "delegate";
+  const showsExecuteFlags = isExecute || isDelegate;
+  const remoteSupported =
+    isExecute && cap !== null && (cap.execution ?? "").includes("remote");
+
+  const waitRaw = waitMs.trim();
+  const waitNum = waitRaw === "" ? undefined : Number(waitRaw);
+  const waitValid =
+    waitNum === undefined || (Number.isInteger(waitNum) && waitNum >= 0);
+  const targetValid =
+    (targetMode !== "pane" || paneId.trim() !== "") &&
+    (targetMode !== "workspace" || workspaceId.trim() !== "");
+  const formValid = waitValid && targetValid;
+
+  const targetChoice = (): HandoffTargetChoice => {
+    switch (targetMode) {
+      case "pane":
+        return { kind: "pane", paneId: paneId.trim() };
+      case "workspace":
+        return { kind: "workspace", workspaceId: workspaceId.trim() };
+      case "new-workspace":
+        return { kind: "new-workspace" };
+      case "worktree":
+        return {
+          kind: "worktree",
+          branch: worktreeBranch.trim() === "" ? undefined : worktreeBranch.trim(),
+          base: worktreeBase.trim() === "" ? undefined : worktreeBase.trim(),
+        };
+      default:
+        return { kind: "auto" };
+    }
+  };
+
+  const execFlags = (): HandoffExecuteFlags => ({
+    target: targetChoice(),
+    provider: provider.trim() === "" ? undefined : provider.trim(),
+    model: model.trim() === "" ? undefined : model.trim(),
+    waitMs: waitNum,
+    cleanupOnFailure: cleanup,
+  });
+
+  const submit = async () => {
+    if (busy || !formValid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let next: HandoffMutationResult;
+      if (isExecute) {
+        next = await executeHandoff(machine, record.id, {
+          ...execFlags(),
+          remote: remote.trim() === "" ? undefined : remote.trim(),
+        });
+      } else if (isDelegate) {
+        next = await delegateHandoff(machine, record.id, {
+          ...execFlags(),
+          task: task.trim() === "" ? undefined : task.trim(),
+          strategy:
+            strategy === "inherit" ||
+            !(HANDOFF_STRATEGIES as readonly string[]).includes(strategy)
+              ? undefined
+              : strategy,
+          linkNote: linkNote.trim() === "" ? undefined : linkNote.trim(),
+          noExecute,
+        });
+      } else {
+        next = await mergeBackHandoff(machine, record.id, {
+          task: task.trim() === "" ? undefined : task.trim(),
+          waitMs: waitNum,
+          linkNote: linkNote.trim() === "" ? undefined : linkNote.trim(),
+          noExecute,
+        });
+      }
+      setResult(next);
+      // The record changed plugin-side; refresh the list AND this detail.
+      onMutated();
+    } catch (e: unknown) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const close = () => {
+    if (busy) return;
+    onClose();
+  };
+
+  const exec = result?.record.execution ?? null;
+  const remoteTarget = remote.trim();
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{MUTATION_TITLES[action]}</DialogTitle>
+          <DialogDescription>{MUTATION_DESCRIPTIONS[action]}</DialogDescription>
+        </DialogHeader>
+
+        <DialogPanel>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
+              {mutationIdentityLines(record).map((line) => (
+                <p key={line} className="text-2xs text-muted-foreground">
+                  {line}
+                </p>
+              ))}
+              {isExecute && remoteSupported && remoteTarget !== "" ? (
+                <p className="text-2xs text-warning">
+                  remote target: saved machine &quot;{remoteTarget}&quot; on this
+                  host — probed before any mutation; the remote snapshot drives
+                  target planning
+                </p>
+              ) : null}
+              {showsExecuteFlags && targetMode !== "auto" ? (
+                <p className="text-2xs text-muted-foreground">
+                  target:{" "}
+                  {targetMode === "pane"
+                    ? `pane ${paneId.trim()}`
+                    : targetMode === "workspace"
+                      ? `workspace ${workspaceId.trim()}`
+                      : targetMode === "new-workspace"
+                        ? "new workspace"
+                        : `worktree${worktreeBranch.trim() !== "" ? ` branch ${worktreeBranch.trim()}` : ""}`}
+                </p>
+              ) : null}
+            </div>
+
+            {showsExecuteFlags ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                  Target surface
+                  <Select value={targetMode} onValueChange={(v) => setTargetMode(v)}>
+                    <SelectTrigger aria-label="Target surface" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">plugin default</SelectItem>
+                      <SelectItem value="new-workspace">new workspace</SelectItem>
+                      <SelectItem value="worktree">new worktree</SelectItem>
+                      <SelectItem value="pane">existing pane…</SelectItem>
+                      <SelectItem value="workspace">workspace tab…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                {targetMode === "pane" ? (
+                  <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                    Pane id
+                    <Input
+                      size="sm"
+                      font="mono"
+                      value={paneId}
+                      onChange={(e) => setPaneId(e.target.value)}
+                      placeholder="w1:p2"
+                    />
+                  </label>
+                ) : null}
+                {targetMode === "workspace" ? (
+                  <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                    Workspace id
+                    <Input
+                      size="sm"
+                      font="mono"
+                      value={workspaceId}
+                      onChange={(e) => setWorkspaceId(e.target.value)}
+                      placeholder="w2"
+                    />
+                  </label>
+                ) : null}
+                {targetMode === "worktree" ? (
+                  <>
+                    <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                      Worktree branch (optional)
+                      <Input
+                        size="sm"
+                        font="mono"
+                        value={worktreeBranch}
+                        onChange={(e) => setWorktreeBranch(e.target.value)}
+                        placeholder="handoff/x"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                      Worktree base (optional)
+                      <Input
+                        size="sm"
+                        font="mono"
+                        value={worktreeBase}
+                        onChange={(e) => setWorktreeBase(e.target.value)}
+                        placeholder="HEAD"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                  Provider hint (optional)
+                  <Input
+                    size="sm"
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value)}
+                    placeholder={record.target?.provider_hint ?? "e.g. claude"}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                  Model (optional)
+                  <Input
+                    size="sm"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="provider model flag value"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                  Wait for agent ms (optional)
+                  <Input
+                    size="sm"
+                    font="mono"
+                    value={waitMs}
+                    onChange={(e) => setWaitMs(e.target.value)}
+                    placeholder="e.g. 30000"
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {isExecute && remoteSupported ? (
+              <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                Remote machine (optional — saved herdr machine label or id on
+                this host)
+                <Input
+                  size="sm"
+                  font="mono"
+                  value={remote}
+                  onChange={(e) => setRemote(e.target.value)}
+                  placeholder="e.g. lab-box"
+                />
+              </label>
+            ) : null}
+
+            {isDelegate ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                  Strategy
+                  <Select value={strategy} onValueChange={(v) => setStrategy(v)}>
+                    <SelectTrigger aria-label="Delegate strategy" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inherit">record default</SelectItem>
+                      <SelectItem value="native_resume">native_resume</SelectItem>
+                      <SelectItem value="portable_context">portable_context</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+            ) : null}
+
+            {isDelegate || action === "merge-back" ? (
+              <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                {isDelegate ? "Task / note for the child (optional)" : "Result summary for the parent (optional)"}
+                <Input
+                  size="sm"
+                  value={task}
+                  onChange={(e) => setTask(e.target.value)}
+                  placeholder={
+                    isDelegate
+                      ? "bounded task description — becomes the payload excerpt"
+                      : "what the child accomplished — delivered to the delegating agent"
+                  }
+                />
+              </label>
+            ) : null}
+
+            {isDelegate || action === "merge-back" ? (
+              <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                Link note (optional)
+                <Input
+                  size="sm"
+                  value={linkNote}
+                  onChange={(e) => setLinkNote(e.target.value)}
+                  placeholder="annotates the lineage link"
+                />
+              </label>
+            ) : null}
+
+            {action === "merge-back" ? (
+              <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+                Wait for agent ms (optional)
+                <Input
+                  size="sm"
+                  font="mono"
+                  value={waitMs}
+                  onChange={(e) => setWaitMs(e.target.value)}
+                  placeholder="e.g. 30000"
+                />
+              </label>
+            ) : null}
+
+            <div className="flex flex-col gap-2">
+              {showsExecuteFlags ? (
+                <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+                  <Switch
+                    size="sm"
+                    checked={cleanup}
+                    onCheckedChange={(checked) => setCleanup(checked === true)}
+                    aria-label="Clean up created surface on failure"
+                  />
+                  <span>
+                    Clean up the created surface on failure — only panes the
+                    plugin created are closed; reused panes are never closed
+                  </span>
+                </div>
+              ) : null}
+              {!isExecute ? (
+                <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+                  <Switch
+                    size="sm"
+                    checked={noExecute}
+                    onCheckedChange={(checked) => setNoExecute(checked === true)}
+                    aria-label="Record intent only"
+                  />
+                  <span>
+                    Record intent only — skip the execute/delivery pipeline
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {showsExecuteFlags && transferCheck.state !== "ok" ? (
+              <p className="text-2xs text-warning">
+                source check: {transferCheck.state}
+                {transferCheck.reason !== null ? ` (${transferCheck.reason})` : ""} —
+                the plugin will refuse until the source pane/agent generation
+                matches
+              </p>
+            ) : null}
+            {!waitValid ? (
+              <p className="text-2xs text-destructive">
+                wait ms must be a non-negative integer
+              </p>
+            ) : null}
+            {error !== null ? (
+              <p className="text-2xs text-destructive">mutation failed: {error}</p>
+            ) : null}
+
+            {result !== null ? (
+              <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-2xs">
+                <div className="flex items-center gap-2">
+                  <Badge size="sm" variant={statusVariant(result.record.status)}>
+                    {result.record.status}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    {result.command} → {result.outcome ?? "completed"}
+                    {result.dryRun ? " (dry run)" : ""}
+                  </span>
+                </div>
+                <div className="font-mono text-muted-foreground">
+                  record {result.record.id}
+                  {result.parentId !== null ? ` · parent ${result.parentId}` : ""}
+                  {result.childId !== null ? ` · child ${result.childId}` : ""}
+                </div>
+                {exec !== null ? (
+                  <div className="flex flex-col gap-0.5 text-muted-foreground">
+                    {exec.strategy_used !== null ? (
+                      <span>strategy {exec.strategy_used}</span>
+                    ) : null}
+                    {exec.target !== null ? (
+                      <span className="font-mono">
+                        target {exec.target.pane_id ?? "?"}
+                        {exec.target.workspace_id !== null
+                          ? ` ws ${exec.target.workspace_id}`
+                          : ""}
+                        {exec.target.created ? " (created)" : " (reused)"}
+                      </span>
+                    ) : null}
+                    {exec.agent !== null ? (
+                      <span>
+                        agent {exec.agent.name ?? "?"} ({exec.agent.kind ?? "?"})
+                        {exec.agent.agent_status !== null
+                          ? ` · ${exec.agent.agent_status}`
+                          : ""}
+                      </span>
+                    ) : null}
+                    {exec.prompt !== null ? (
+                      <span>
+                        prompt {exec.prompt.chars !== null ? `${exec.prompt.chars} chars` : "delivered"}
+                      </span>
+                    ) : null}
+                    {exec.error !== null ? (
+                      <span className="text-destructive">
+                        failed at {exec.error.step ?? "?"}: {exec.error.message ?? "unknown"}
+                      </span>
+                    ) : null}
+                    {exec.worktree !== null ? (
+                      <span className="font-mono">
+                        worktree {exec.worktree.path ?? "?"}
+                        {exec.worktree.branch !== null ? ` @ ${exec.worktree.branch}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {result.remote !== null ? (
+                  <div className="text-muted-foreground">
+                    remote {result.remote.label ?? result.remote.machine_id ?? "?"}
+                    {result.remote.target !== null ? ` (${result.remote.target})` : ""}
+                    {result.remote.session !== null
+                      ? ` · session ${result.remote.session}`
+                      : ""}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </DialogPanel>
+
+        <DialogFooter>
+          <Button size="sm" variant="ghost" onClick={close} disabled={busy}>
+            {result !== null ? "Done" : "Cancel"}
+          </Button>
+          {result === null ? (
+            <Button
+              size="sm"
+              disabled={busy || !formValid}
+              onClick={() => void submit()}
+            >
+              {busy ? "Working…" : MUTATION_CONFIRM[action]}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Mutation action row for one record. Buttons render only when the
+ * host capability allows the command AND the record shape fits
+ * (execute needs pending/ready — the plugin's own gate; merge-back
+ * needs a lineage link). `cap === undefined` (probing) or `null`
+ * (unavailable) hides everything.
+ */
+function HandoffActions({
+  machine,
+  record,
+  transferCheck,
+  cap,
+  onMutated,
+}: {
+  machine: string;
+  record: HandoffRecord;
+  transferCheck: HandoffCheck;
+  cap: HandoffCapability | null | undefined;
+  onMutated: () => void;
+}) {
+  const [action, setAction] = useState<HandoffMutationAction | null>(null);
+  const canExecute =
+    handoffsSupportsMutation(cap, "execute") === true &&
+    (record.status === "pending" || record.status === "ready");
+  const canDelegate = handoffsSupportsMutation(cap, "delegate") === true;
+  const canMergeBack =
+    handoffsSupportsMutation(cap, "merge-back") === true &&
+    record.relationship !== null;
+
+  if (!canExecute && !canDelegate && !canMergeBack) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1">
+        {canExecute ? (
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => setAction("execute")}
+          >
+            <PlayIcon />
+            Execute
+          </Button>
+        ) : null}
+        {canDelegate ? (
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => setAction("delegate")}
+          >
+            <GitForkIcon />
+            Delegate
+          </Button>
+        ) : null}
+        {canMergeBack ? (
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => setAction("merge-back")}
+          >
+            <MergeIcon />
+            Merge back
+          </Button>
+        ) : null}
+      </div>
+      {action !== null && cap !== null && cap !== undefined ? (
+        <HandoffMutationDialog
+          machine={machine}
+          action={action}
+          record={record}
+          transferCheck={transferCheck}
+          cap={cap}
+          onClose={() => setAction(null)}
+          onMutated={onMutated}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function HandoffDetail({
   machine,
   handoffId,
+  cap,
+  refreshNonce,
+  onMutated,
   onSelectChild,
 }: {
   machine: string;
   handoffId: string;
+  cap: HandoffCapability | null | undefined;
+  /** Bumped after a mutation so status refetches the post-mutation record. */
+  refreshNonce: number;
+  onMutated: () => void;
   onSelectChild: (id: string) => void;
 }) {
   const [report, setReport] = useState<HandoffStatusReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The fetched record is keyed on machine+handoffId; a nonce-only
+  // refetch (post-mutation) keeps the previous report rendered so the
+  // mutation dialog — a child of this component — is not unmounted.
+  const detailKeyRef = useRef(`${machine}\n${handoffId}`);
 
   useEffect(() => {
+    const detailKey = `${machine}\n${handoffId}`;
+    if (detailKeyRef.current !== detailKey) {
+      detailKeyRef.current = detailKey;
+      setReport(null);
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setReport(null);
     fetchHandoffStatus(machine, handoffId)
       .then((next) => {
         if (!cancelled) setReport(next);
@@ -510,7 +1156,8 @@ function HandoffDetail({
     return () => {
       cancelled = true;
     };
-  }, [machine, handoffId]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- refreshNonce is the explicit invalidation signal after a mutation; the fetch is keyed on machine + handoffId
+  }, [machine, handoffId, refreshNonce]);
 
   if (loading && report === null) {
     return (
@@ -543,6 +1190,14 @@ function HandoffDetail({
         <span>created {formatTime(record.created_at)}</span>
         <span>updated {formatTime(record.updated_at)}</span>
       </div>
+
+      <HandoffActions
+        machine={machine}
+        record={record}
+        transferCheck={report.transfer_check}
+        cap={cap}
+        onMutated={onMutated}
+      />
 
       {transfer !== null ? (
         <section className="flex flex-col gap-0.5">
@@ -813,6 +1468,8 @@ export function HandoffsSurface({ machine }: { machine: string }) {
     error: string | null;
   } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Bumped after a mutation so the open record detail refetches status.
+  const [detailNonce, setDetailNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -872,9 +1529,9 @@ export function HandoffsSurface({ machine }: { machine: string }) {
             Handoff and delegation records from the rebuildup.handoff
             plugin — payload references bound to a source pane/agent
             generation with a status lifecycle, execution targets, and
-            lineage. Read surface only: records are created by agents via
-            the plugin CLI; execute/delegate/merge-back are not offered
-            here.
+            lineage. execute/delegate/merge-back are offered per host
+            capability behind a confirmation dialog; create stays
+            agent-side (CLI/MCP).
           </p>
           <Button
             size="xs"
@@ -986,6 +1643,12 @@ export function HandoffsSurface({ machine }: { machine: string }) {
                 <HandoffDetail
                   machine={machine}
                   handoffId={selectedId}
+                  cap={cap}
+                  refreshNonce={detailNonce}
+                  onMutated={() => {
+                    setDetailNonce((n) => n + 1);
+                    void refreshHandoffs(machine);
+                  }}
                   onSelectChild={(id) => {
                     if (id !== "") setSelectedId(id);
                   }}

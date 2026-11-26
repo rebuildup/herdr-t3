@@ -24,6 +24,7 @@ CLI implementations.
   automations/v1 @ `6c1cfa5`, conversations/v1 @ `d23205af`,
   usage/v1 @ `d23205af`, artifacts/v1 @ `d23205af`,
   handoff/v1 @ `d23205af`, textgen/v1 @ `d23205af`,
+  controls/v1 @ `d23205af`,
   secrets/v1 @ `d23205af`, machines/v1 @ `d23205af`,
   mcp/v1 @ `d23205af`); a
   host running an older plugin build yields capability-gated UI, not

@@ -31,6 +31,7 @@ import { initConversations } from "./shell/conversations";
 import { initUsage } from "./shell/usage";
 import { initArtifacts } from "./shell/artifacts";
 import { initHandoffs } from "./shell/handoffs";
+import { initControls } from "./shell/controls";
 import { initTextgen } from "./shell/textgen";
 import { initSecrets } from "./shell/secrets";
 import { initMachines } from "./shell/machines";
@@ -54,6 +55,7 @@ export default function App() {
     initUsage();
     initArtifacts();
     initHandoffs();
+    initControls();
     initTextgen();
     initSecrets();
     initMachines();
