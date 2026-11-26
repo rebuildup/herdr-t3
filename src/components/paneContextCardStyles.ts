@@ -23,3 +23,8 @@ const THREAD_DETAILS_PANEL_CONTROL_CLASS = `h-8 min-w-0 rounded-lg border-transp
 export const THREAD_DETAILS_PANEL_ROW_CLASS = `${THREAD_DETAILS_PANEL_CONTROL_CLASS} w-full justify-start ${THREAD_DETAILS_PANEL_ROW_SURFACE_CLASS}`;
 
 export const THREAD_DETAILS_PANEL_ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
+
+/* T3's panel rows use a 13px control size that sits between text-xs and
+   text-sm; upstream keeps it inside threadDetailsPanelStyles.ts class
+   constants, so it lives here rather than as an arbitrary value in JSX. */
+export const THREAD_DETAILS_PANEL_TEXT_CLASS = "text-[13px]";

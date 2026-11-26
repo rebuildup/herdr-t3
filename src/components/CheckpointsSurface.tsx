@@ -52,7 +52,7 @@ import {
   DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
-import { Input, Label, Textarea } from "./ui/input";
+import { Input, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
 import {
   Select,
