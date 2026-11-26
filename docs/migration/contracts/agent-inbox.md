@@ -35,6 +35,22 @@ inbox model (ADR-0008/0009).
 - Stale machines (hard-down status) are excluded from live lists but
   their organize records are preserved, not pruned.
 
+## Malformed input (projection adapter boundary)
+
+- `agent_entries`/`agent_partition` adapter inputs (`machines`,
+  `snapshots`, `stale`, `branch_index`, `organize`,
+  `unresolved_machines`) must have the declared JSON container types.
+  The Rust adapter rejects non-conforming inputs where the TS adapter
+  coerces some of them (e.g. a non-object `organize` yields an empty
+  organize view in TS). Both reject the clearly invalid cases; the
+  accept/reject decision can differ on out-of-contract input, which is
+  excluded from differential scenarios.
+- On sparse snapshots the TS projection can throw (e.g. a referenced
+  snapshot missing `workspaces` hits `snap.workspaces.map`); the Rust
+  port returns the empty projection. herdr snapshots always carry
+  these arrays, so this is unreachable on contract-conforming data —
+  documented as an intentional divergence (#288).
+
 ## Errors
 
 - Plugin organize call failure → UI keeps last known state and

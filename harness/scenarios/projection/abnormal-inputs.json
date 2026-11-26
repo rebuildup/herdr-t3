@@ -1,0 +1,287 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "projection.abnormal-inputs",
+  "capability": "agent.projection",
+  "contract": "agent-inbox@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "agent_entries",
+      "input": {},
+      "expect_error": "expected a JSON object",
+      "note": "missing snapshots object rejected by both"
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [],
+        "snapshots": {}
+      },
+      "note": "explicit empty inputs -> empty entries",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": []
+        }
+      }
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "m1",
+            "label": "One",
+            "status": "connected",
+            "future_machine_field": {
+              "x": [
+                1
+              ]
+            }
+          }
+        ],
+        "snapshots": {
+          "m1": {
+            "version": "22",
+            "protocol": 22,
+            "workspaces": [],
+            "tabs": [],
+            "panes": [],
+            "agents": [],
+            "layouts": [],
+            "future_snapshot_field": "keep-me"
+          }
+        },
+        "stale": "mr",
+        "branch_index": {}
+      },
+      "note": "unknown fields on machines/snapshots tolerated; stale charset string; empty branch index",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": []
+        }
+      }
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "m1",
+            "label": "One",
+            "status": "connected"
+          },
+          {
+            "id": "ghost",
+            "label": "Ghost",
+            "status": "connected"
+          }
+        ],
+        "snapshots": {
+          "m1": {
+            "version": "22",
+            "protocol": 22,
+            "workspaces": [],
+            "tabs": [],
+            "panes": [],
+            "agents": [
+              {
+                "pane_id": "w1:p1",
+                "agent_status": "working",
+                "state_change_seq": 3,
+                "revision": 7
+              }
+            ],
+            "layouts": []
+          }
+        },
+        "stale": [
+          "ghost"
+        ]
+      },
+      "note": "stale machine without snapshot contributes nothing; live machine still projects",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": [
+            {
+              "key": "m1\nw1:p1",
+              "machine_id": "m1",
+              "pane_id": "w1:p1",
+              "status": "working",
+              "seq": 3,
+              "display_name": "agent",
+              "work_target": null,
+              "tab_label": null,
+              "state_label": "working",
+              "aux_labels": [],
+              "row_signature": "m1\u001f\u001f\u001fagent\u001f"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "agent_entries",
+      "input": {
+        "machines": [
+          {
+            "id": "m1",
+            "label": "One",
+            "status": "connected"
+          }
+        ],
+        "snapshots": {
+          "m1": {
+            "version": "22",
+            "protocol": 22,
+            "workspaces": [],
+            "tabs": [],
+            "panes": [],
+            "agents": [],
+            "layouts": [],
+            "agents_extra": null
+          }
+        }
+      },
+      "note": "snapshot with null-valued unknown field",
+      "expect": {
+        "ok": true,
+        "value": {
+          "entries": []
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "m1\np1": {
+            "kind": "bogus_kind",
+            "seq": 1,
+            "extra": true
+          },
+          "m1\np2": {
+            "kind": "snooze",
+            "until": "2026-01-01T00:00:00Z",
+            "extra": [
+              1
+            ]
+          },
+          "m2\np9": {
+            "kind": "settle",
+            "seq": 4,
+            "extra": {
+              "note": "kept"
+            }
+          }
+        },
+        "unresolved_machines": [
+          "m2"
+        ]
+      },
+      "note": "records for unresolved machines preserved verbatim (incl. extras); records for unknown machines/kinds pruned identically",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [],
+            "working": [],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": []
+          },
+          "organize": {
+            "m2\np9": {
+              "kind": "settle",
+              "seq": 4,
+              "extra": {
+                "note": "kept"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {},
+        "unresolved_machines": []
+      },
+      "note": "empty organize and unresolved lists",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [],
+            "working": [],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": []
+          },
+          "organize": {}
+        }
+      }
+    },
+    {
+      "op": "agent_partition",
+      "input": {
+        "organize": {
+          "m1\tp1": null
+        }
+      },
+      "note": "null organize record value",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sections": {
+            "attention": [],
+            "working": [],
+            "done": [],
+            "idle": [],
+            "snoozed": [],
+            "settled": []
+          },
+          "organize": {}
+        }
+      }
+    },
+    {
+      "op": "derive_workspace",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w-missing",
+          "workspaces": [],
+          "tabs": [],
+          "panes": [],
+          "agents": [],
+          "layouts": []
+        },
+        "workspace_id": "w-missing"
+      },
+      "note": "well-formed snapshot, unknown workspace id -> empty projection",
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_id": null,
+          "tabs": [],
+          "active_tab_id": null,
+          "pane_ids": [],
+          "focused_pane_id": null,
+          "layout": null
+        }
+      }
+    }
+  ]
+}

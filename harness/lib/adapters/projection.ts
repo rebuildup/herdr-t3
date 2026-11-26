@@ -42,7 +42,7 @@ function asRecord(v: unknown): Record<string, unknown> {
 }
 
 function summarizeEntry(entry: AgentListEntry): Record<string, unknown> {
-  return {
+  const summary: Record<string, unknown> = {
     key: agentOrganizeKey(entry.machine.id, entry.agent.pane_id),
     machine_id: entry.machine.id,
     pane_id: entry.agent.pane_id,
@@ -56,6 +56,12 @@ function summarizeEntry(entry: AgentListEntry): Record<string, unknown> {
     aux_labels: agentAuxStateLabels(entry.agent),
     row_signature: agentRowSignature(entry),
   };
+  // Match the serialized/Rust shape: absent optional fields, not
+  // `undefined` keys that JSON.stringify would drop anyway.
+  for (const k of Object.keys(summary)) {
+    if (summary[k] === undefined) delete summary[k];
+  }
+  return summary;
 }
 
 export function createProjectionAdapter(): Adapter {
