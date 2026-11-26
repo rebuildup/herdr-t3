@@ -453,18 +453,6 @@ describe("partitionAgents organize overlay (issue #173)", () => {
   });
 });
 
-function visibleAgentPanes(
-  sections: ReturnType<typeof partitionAgents>["sections"],
-): string[] {
-  return [
-    ...sections.attention,
-    ...sections.working,
-    ...sections.done,
-    ...sections.idle,
-    ...sections.snoozed,
-    ...sections.settled,
-  ].map((e) => e.agent.pane_id);
-}
 
 describe("agentRowSignature / shortPaneId", () => {
   test("identical rendered rows share a signature; pane id alone does not split it", () => {

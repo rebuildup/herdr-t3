@@ -6,6 +6,8 @@ import { cn } from "../../src/lib/utils";
 // the product lint run (`oxlint src`) and only exercised by
 // scripts/lint-ui.test.ts, which asserts each rule fires.
 export function BadFixture({ color }: { color: string }) {
+  const observer = new ResizeObserver(() => {});
+  observer.disconnect();
   return (
     <div>
       <select className="rounded border px-2 py-1">

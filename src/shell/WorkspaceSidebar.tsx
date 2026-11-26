@@ -192,10 +192,10 @@ function WorkspaceRow({
         // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
         // rows): identity on line 1, branch/meta on line 2 — never squeezed
         // into one truncating row (issue #153).
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] py-1.5 text-left outline-none transition-colors",
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) py-1.5 text-left outline-none transition-colors",
         inFolder
-          ? "ps-7 pe-[var(--sidebar-row-content-inset)]"
-          : "px-[var(--sidebar-row-content-inset)]",
+          ? "ps-7 pe-(--sidebar-row-content-inset)"
+          : "px-(--sidebar-row-content-inset)",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         isActive &&
           // Tinted neutral fill, no ring: a white bordered card on the
@@ -292,7 +292,7 @@ function MachineFolderHeader({
             type="button"
             aria-expanded={!collapsed}
             onClick={onToggle}
-            className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
             {offline ? (
               <WifiOffIcon className="size-4 shrink-0 text-sidebar-muted-foreground" />
@@ -469,7 +469,7 @@ function AgentRow({
       data-sidebar-row={agent.pane_id}
       onClick={focusAgent}
       className={cn(
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-left outline-none transition-colors",
+        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) py-1.5 text-left outline-none transition-colors",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         agent.focused && "bg-foreground/[0.06] font-medium text-sidebar-foreground",
       )}
@@ -1354,7 +1354,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
           toggles never scroll away; the lists share the dock's
           max-height. */}
       {!searching && hasAgentEntries ? (
-        <div className="hidden max-h-[45%] shrink-0 flex-col border-t border-sidebar-border px-[var(--sidebar-content-inset)] pb-[var(--sidebar-content-inset)] pt-1 md:flex">
+        <div className="hidden max-h-[45%] shrink-0 flex-col border-t border-sidebar-border px-(--sidebar-content-inset) pb-(--sidebar-content-inset) pt-1 md:flex">
           {AGENT_SECTIONS.map(renderAgentShelfDock)}
         </div>
       ) : null}
