@@ -21,6 +21,7 @@ import { localPluginHost, PluginService, type PluginHost } from "./plugins.ts";
 import {
   classifySshFailure,
   endpointFromMachine,
+  resolveRemoteBun,
   resolveRemoteHerdr,
   sshApiConnector,
   sshClientConnector,
@@ -385,6 +386,7 @@ export class MachineManager {
     }
     if (!this.generationCurrent(machine, generation)) return;
 
+    await this.resolvePluginRuntime(endpoint);
     this.pluginHosts.set(machine, sshPluginHost(endpoint, saved.session));
     const bridgeEndpoint: BridgeEndpoint = {
       api: sshApiConnector(endpoint),
@@ -597,6 +599,23 @@ export class MachineManager {
     }
   }
 
+  /**
+   * Best-effort remote bun resolution for plugin CLIs (issue #339).
+   * Non-login ssh PATH often lacks user-level bun installs; a resolved
+   * absolute path is attached to the endpoint so `sshPluginHost` execs do
+   * not depend on PATH. Probe failures leave `remoteBun` unset — plugin
+   * calls then fail with the remote's own error instead of breaking
+   * connect/plugin-host creation.
+   */
+  private async resolvePluginRuntime(endpoint: SshEndpoint): Promise<void> {
+    try {
+      const bun = await resolveRemoteBun(endpoint);
+      if (bun !== null) endpoint.remoteBun = bun;
+    } catch {
+      // Probe transport errors are non-fatal; see resolveRemoteBun.
+    }
+  }
+
   /** PluginHost for one machine: local spawn, or ssh argv on the endpoint. */
   private async pluginHost(machine: string): Promise<PluginHost | null> {
     if (machine === LOCAL_ID) return localPluginHost();
@@ -610,6 +629,7 @@ export class MachineManager {
       const metadata = loadMachineMetadata(machine);
       const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
       const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
+      await this.resolvePluginRuntime(endpoint);
       const host = sshPluginHost(endpoint, saved.session);
       this.pluginHosts.set(machine, host);
       return host;
