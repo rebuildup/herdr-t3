@@ -149,6 +149,14 @@
    "spec": "docs/migration/contracts/plugin-automations.md",
    "oracle": "conformance",
    "summary": "Automations task registry + run history via plugin_call: capability/list/get/runs read surface plus set-enabled/run-now/delete/reconcile mutations consumed @6c1cfa5 (gated on flat commands + local allowlist — no mutation_commands field); create/update and driver commands remain out of scope."
+  },
+  {
+   "id": "plugin-conversations",
+   "version": 1,
+   "title": "herdr-plugins.conversations/v1 provider transcript index",
+   "spec": "docs/migration/contracts/plugin-conversations.md",
+   "oracle": "conformance",
+   "summary": "Indexed claude/codex/opencode transcripts via plugin_call: capability/sessions/history/search read surface plus the explicit index mutation consumed @d23205af (gated on mutation_commands + commands); show/usage remain out of scope (#364)."
   }
  ],
  "capabilities": [
@@ -526,7 +534,8 @@
      "herdr-plugins.git/v1 @d057830",
      "herdr-plugins.projects/v1 @2dcb2abf",
      "herdr-plugins.checkpoints/v1 @ae4f214",
-     "herdr-plugins.automations/v1 @6c1cfa5"
+     "herdr-plugins.automations/v1 @6c1cfa5",
+     "herdr-plugins.conversations/v1 @d23205af"
     ],
     "excluded": false
    }
@@ -1316,6 +1325,68 @@
     "os_gaps": [],
     "upstream_deps": [
      "herdr-plugins.automations/v1 @6c1cfa5",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "conversations.surface",
+   "title": "Conversations surface via herdr-plugins.conversations/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.conversations",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-conversations@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (commands/mutation_commands/providers/event_types)",
+    "sessions list with verbatim status/error/stale/transcript_present verdicts",
+    "history event paging per session via opaque next_cursor byte offset (load more)",
+    "search across indexed transcripts via opaque next_cursor token + matched_fields",
+    "explicit Index now mutation (index; refresh alias unused) with progress + plugin-reported counts",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "session_not_found/cursor_invalid/read_failed and contract kind passthrough as error detail",
+    "structured error.hint surfaced verbatim (suggests index on selector misses)",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "index failures surface classified error.kind + detail verbatim"
+   ],
+   "side_effects": [
+    "plugin_call reads plus the explicit index mutation that rewrites plugin-side event logs/state only (never herdr or provider files); refreshConversations after every index"
+   ],
+   "scenarios": [
+    "src/shell/conversations.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/conversations.ts",
+    "src/components/ConversationsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-conversations.md",
+    "docs/adr/ADR-0027.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "show ref resolution and usage aggregation remain separate tickets (#364)",
+     "transcript bodies render as bounded event fields only — full-fidelity history is upstream-owned"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.conversations/v1 @d23205af",
      "bun on the plugin host"
     ],
     "excluded": false

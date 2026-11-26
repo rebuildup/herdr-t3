@@ -28,6 +28,7 @@ import {
   FolderKanbanIcon,
   GitBranchIcon,
   HistoryIcon,
+  MessagesSquareIcon,
   PanelLeftCloseIcon,
   PlusIcon,
   SquarePlayIcon,
@@ -55,6 +56,7 @@ import { ProjectScriptsSurface } from "~/components/ProjectScriptsSurface";
 import { CheckpointsSurface } from "~/components/CheckpointsSurface";
 import { WorktreesSurface } from "~/components/WorktreesSurface";
 import { AutomationsSurface } from "~/components/AutomationsSurface";
+import { ConversationsSurface } from "~/components/ConversationsSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -99,6 +101,7 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   checkpoints: HistoryIcon,
   worktrees: GitBranchIcon,
   automations: CalendarClockIcon,
+  conversations: MessagesSquareIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -108,6 +111,7 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   checkpoints: "Checkpoints",
   worktrees: "Worktrees",
   automations: "Automations",
+  conversations: "Conversations",
 };
 
 function surfaceTitle(
@@ -154,6 +158,8 @@ function SurfaceContent({
       return <WorktreesSurface machine={machine} workspace={workspace} />;
     case "automations":
       return <AutomationsSurface machine={machine} />;
+    case "conversations":
+      return <ConversationsSurface machine={machine} />;
   }
 }
 
@@ -493,6 +499,11 @@ export function RightPanel() {
       label: "Automations",
       icon: CalendarClockIcon,
       run: () => openSurface(scope, { id: "automations", kind: "automations" }),
+    },
+    {
+      label: "Conversations",
+      icon: MessagesSquareIcon,
+      run: () => openSurface(scope, { id: "conversations", kind: "conversations" }),
     },
   ];
   const frame = (

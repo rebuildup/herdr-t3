@@ -12,6 +12,7 @@ import {
   GitBranchIcon,
   HistoryIcon,
   Maximize2Icon,
+  MessagesSquareIcon,
   MonitorIcon,
   MoonIcon,
   PanelLeftIcon,
@@ -230,6 +231,14 @@ export function CommandMenu({
           icon: <CalendarClockIcon className="size-4" />,
           keywords: "automations scheduled tasks cron plugin runs",
           run: panelSurface({ id: "automations", kind: "automations" }),
+        },
+        {
+          id: "panel-conversations",
+          label: "Conversations",
+          group: "Actions",
+          icon: <MessagesSquareIcon className="size-4" />,
+          keywords: "conversations transcripts sessions history search index plugin",
+          run: panelSurface({ id: "conversations", kind: "conversations" }),
         },
       );
       list.push(
