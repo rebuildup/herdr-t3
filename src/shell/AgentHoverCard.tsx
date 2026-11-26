@@ -14,6 +14,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { PaneInfo } from "../../shared/protocol";
+import { isAgentKindName } from "~/components/agentKind";
 import { AgentProviderIcon } from "~/components/agentIcons";
 import { statusIcon } from "~/components/statusIcons";
 import {
@@ -61,7 +62,7 @@ export function AgentHoverCard({
   // Agent identity dedupes against the title (issue #165): when the pane
   // title already is the agent name, "pi · pi" adds nothing.
   const agentParts = [displayName];
-  if (agent.agent && agent.agent !== displayName) agentParts.push(agent.agent);
+  if (agent.agent && !isAgentKindName(displayName, agent.agent)) agentParts.push(agent.agent);
   const agentLabel = agentParts.join(" · ");
 
   return (

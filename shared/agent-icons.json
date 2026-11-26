@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "comment": "Canonical herdr agent-kind -> icon-source manifest (issue #335). Single source of truth for kind identity normalization, icon resolution and vendored-asset provenance; the GPUI renderer must consume this file rather than duplicating the table. `icon` selects the renderer family: `t3` = path data in src/components/agentIconData.ts, `svg` = bundled monochrome SVG in src/components/agent-icons/ (recolored via SVG filter), `generic` = lucide Bot fallback. `source` names the provenance pin recorded in THIRD_PARTY_NOTICES.md.",
+  "provenance": {
+    "t3Code": "t3code @ 9cc4018c75ff4c61be8e86a6391d49a6c2d79830",
+    "acpRegistry": "agentclientprotocol/registry @ b150ba592b85f8ee5f9f3457ce080197e3a1922e",
+    "ohMyPi": "can1357/oh-my-pi @ 2be354322dee0cdd95bc42fc61c72ef9767b653b",
+    "mastra": "mastra-ai/mastra @ 7707dd7fe9cdd24f693ceed7b9732e00365ea574"
+  },
+  "aliases": {
+    "antigravity": "agy",
+    "github-copilot": "copilot",
+    "github-copilot-cli": "copilot",
+    "kimi-code": "kimi",
+    "factory-droid": "droid",
+    "amp-acp": "amp",
+    "qoder": "qodercli",
+    "qwen-code": "qwen",
+    "oh-my-pi": "omp",
+    "mastra-code": "mastracode",
+    "mastra code": "mastracode",
+    "hermes-agent": "hermes",
+    "letta-code": "letta"
+  },
+  "agents": {
+    "agy": { "icon": "svg", "source": "acpRegistry" },
+    "amp": { "icon": "svg", "source": "acpRegistry" },
+    "claude": { "icon": "t3" },
+    "cline": { "icon": "svg", "source": "acpRegistry" },
+    "codex": { "icon": "t3" },
+    "copilot": { "icon": "svg", "source": "acpRegistry" },
+    "cursor": { "icon": "t3" },
+    "devin": { "icon": "svg", "source": "acpRegistry" },
+    "droid": { "icon": "svg", "source": "acpRegistry" },
+    "gemini": { "icon": "svg", "source": "acpRegistry" },
+    "grok": { "icon": "t3" },
+    "hermes": { "icon": "generic" },
+    "kilo": { "icon": "svg", "source": "acpRegistry" },
+    "kimi": { "icon": "svg", "source": "acpRegistry" },
+    "kiro": { "icon": "t3" },
+    "letta": { "icon": "generic" },
+    "maki": { "icon": "generic" },
+    "mastracode": { "icon": "svg", "source": "mastra" },
+    "muse": { "icon": "t3" },
+    "omp": { "icon": "svg", "source": "ohMyPi" },
+    "opencode": { "icon": "t3" },
+    "pi": { "icon": "t3" },
+    "qodercli": { "icon": "svg", "source": "acpRegistry" },
+    "qwen": { "icon": "svg", "source": "acpRegistry" }
+  }
+}

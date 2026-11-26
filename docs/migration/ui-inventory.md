@@ -46,7 +46,7 @@ Electron→GPUI migration. Categories:
 |---|---|---|
 | `PaneTerminal.tsx` | VIEW | the only `GhosttySurface` consumer — terminal surface host |
 | `WorkspaceBreadcrumb.tsx` | VIEW | header breadcrumb |
-| `AgentStatusBadge.tsx`, `agentIcons.tsx`, `statusIcons.tsx`, `agentIconData.ts` | VIEW | status iconography (icons are assets, semantics in contract) |
+| `AgentStatusBadge.tsx`, `agentIcons.tsx`, `statusIcons.tsx`, `agentIconData.ts`, `agentKind.ts`, `agent-icons/` | VIEW | status iconography; kind→icon mapping is canonical in `shared/agent-icons.json` (GPUI consumes the same manifest) |
 | `ThemeModeTiles.tsx` | VIEW | appearance picker (settings-persistence contract) |
 | `CheckpointsDialog.tsx` … `WorktreesDialog.tsx`, `RenameDialog.tsx`, `PaneDetailsDialog.tsx`, `PaneMessageDialog.tsx`, `MachineDialog.tsx`, `ProjectsDialog.tsx`, `ProjectScriptsDialog.tsx`, `GitDialog.tsx` | VIEW | dialog suite; models live in `src/shell/*.ts` |
 | `ui/*` (19 primitives: button, dialog, menu, select, input, sidebar, command, …) | VIEW | T3 Code design-system primitives — GPUI equivalents; semantics canonical in `docs/design/`, DOM structure is not |

@@ -3,7 +3,7 @@
  * T3 Code @ 9cc4018c: provider package client.ts icon data and the
  * bundled OpenAI/Claude SVGs in components/Icons.tsx. See
  * THIRD_PARTY_NOTICES.md for attribution. Harnesses without a T3 brand
- * asset resolve through agentIconUrls.ts (ACP Registry SVGs) or the
+ * asset resolve through agentKind.ts / agent-icons/*.svg or the
  * generic glyph (AgentProviderIcon).
  */
 export interface AgentIconPath {
