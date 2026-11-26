@@ -5,6 +5,7 @@
  * action is a whitelisted herdr RPC or shell navigation.
  */
 import {
+  CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
   FolderKanbanIcon,
@@ -221,6 +222,14 @@ export function CommandMenu({
           icon: <GitBranchIcon className="size-4" />,
           keywords: "git worktree branch checkout repo",
           run: panelSurface({ id: "worktrees", kind: "worktrees" }),
+        },
+        {
+          id: "panel-automations",
+          label: "Automations",
+          group: "Actions",
+          icon: <CalendarClockIcon className="size-4" />,
+          keywords: "automations scheduled tasks cron plugin runs",
+          run: panelSurface({ id: "automations", kind: "automations" }),
         },
       );
       list.push(

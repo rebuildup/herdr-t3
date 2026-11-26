@@ -17,7 +17,8 @@ export type RightPanelSurface =
   | { id: "projects"; kind: "projects" }
   | { id: "scripts"; kind: "scripts" }
   | { id: "checkpoints"; kind: "checkpoints"; paneId: string | null }
-  | { id: "worktrees"; kind: "worktrees" };
+  | { id: "worktrees"; kind: "worktrees" }
+  | { id: "automations"; kind: "automations" };
 
 export interface RightPanelScopeState {
   isOpen: boolean;
@@ -80,6 +81,7 @@ function isSurface(value: unknown): value is RightPanelSurface {
     case "projects":
     case "scripts":
     case "worktrees":
+    case "automations":
       return s.id === s.kind;
     default:
       return false;

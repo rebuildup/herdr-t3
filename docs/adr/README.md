@@ -27,3 +27,4 @@
 | [ADR-0023](./ADR-0023.md) | Accepted | plugin exec env scrub: no ambient GIT_* repo/config/transport targeting vars |
 | [ADR-0024](./ADR-0024.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @ae4f214 and save/restore-group/gc/prune adoption (partial-report bridge convention) |
 | [ADR-0025](./ADR-0025.md) | Accepted | Transitional Rust consumer: wasm-in-runtime for small-data capabilities; no transitional consumer for per-frame paths |
+| [ADR-0026](./ADR-0026.md) | Accepted | Automations surface: automations-v1 contract pin @6c1cfa5 and read-only adoption |

@@ -23,6 +23,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
+  CalendarClockIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
   GitBranchIcon,
@@ -53,6 +54,7 @@ import { ProjectsSurface } from "~/components/ProjectsSurface";
 import { ProjectScriptsSurface } from "~/components/ProjectScriptsSurface";
 import { CheckpointsSurface } from "~/components/CheckpointsSurface";
 import { WorktreesSurface } from "~/components/WorktreesSurface";
+import { AutomationsSurface } from "~/components/AutomationsSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -96,6 +98,7 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   scripts: SquarePlayIcon,
   checkpoints: HistoryIcon,
   worktrees: GitBranchIcon,
+  automations: CalendarClockIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -104,6 +107,7 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   scripts: "Project Scripts",
   checkpoints: "Checkpoints",
   worktrees: "Worktrees",
+  automations: "Automations",
 };
 
 function surfaceTitle(
@@ -148,6 +152,8 @@ function SurfaceContent({
       );
     case "worktrees":
       return <WorktreesSurface machine={machine} workspace={workspace} />;
+    case "automations":
+      return <AutomationsSurface machine={machine} />;
   }
 }
 
@@ -482,6 +488,11 @@ export function RightPanel() {
       label: "Worktrees",
       icon: GitBranchIcon,
       run: () => openSurface(scope, { id: "worktrees", kind: "worktrees" }),
+    },
+    {
+      label: "Automations",
+      icon: CalendarClockIcon,
+      run: () => openSurface(scope, { id: "automations", kind: "automations" }),
     },
   ];
   const frame = (

@@ -101,7 +101,10 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    (#252/#253 on the @2dcb2abf pin), checkpoints via
    `herdr-plugins.checkpoints` (#260/#264 on the @c8dc3b3 pin,
    work-unit auto-capture on the @55df8d0a pin via #268, save groups +
-   retention on the @ae4f214 pin via #279), settings sections
+   retention on the @ae4f214 pin via #279), automations read surface
+   via `herdr-plugins.automations` (#361 on the @6c1cfa5 pin —
+   scheduled tasks are plugin-owned; the GUI renders task/run state
+   read-only), settings sections
    that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
@@ -109,5 +112,7 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
 
 ## Explicit exclusions (ADR-0009)
 
-Thread/checkpoint lifecycle ownership, scheduled tasks, provider
+Thread/checkpoint lifecycle ownership, scheduled-task orchestration
+(plugin-owned via `rebuildup.automations`; herdr-t3 renders the read
+surface only — mutations/drivers are separate tickets), provider
 execution settings, cloud sync, mobile — herdr or out of product scope.
