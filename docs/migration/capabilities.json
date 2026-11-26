@@ -181,6 +181,14 @@
    "spec": "docs/migration/contracts/plugin-handoff.md",
    "oracle": "conformance",
    "summary": "Read-only handoff surface via plugin_call: capability/list/status/resume-info consumed @d23205af — list eager per machine (relationship kind, child_count, transfer_check staleness, execution target), status on-demand with --no-reconcile and owner-CLI ref resolution, resume-info provider table on demand; mutations are top-level commands gated off by an empty allowlist."
+  },
+  {
+   "id": "plugin-textgen",
+   "version": 1,
+   "title": "herdr-plugins.textgen/v1 structured text generation read surface",
+   "spec": "docs/migration/contracts/plugin-textgen.md",
+   "oracle": "conformance",
+   "summary": "Read-only textgen surface via plugin_call: capability/git-context consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; contract has no list/history/result commands so no generation history exists to render; advertised mutation_commands (generate/watch-next-prompt/config writes) gated off by an empty local allowlist; results are never auto-applied."
   }
  ],
  "capabilities": [
@@ -571,8 +579,7 @@
      "herdr-plugins.automations/v1 @6c1cfa5",
      "herdr-plugins.conversations/v1 @d23205af",
      "herdr-plugins.usage/v1 @d23205af",
-     "herdr-plugins.artifacts/v1 @d23205af",
-     "herdr-plugins.handoff/v1 @d23205af"
+     "herdr-plugins.artifacts/v1 @d23205af"
     ],
     "excluded": false
    }
@@ -1618,6 +1625,71 @@
      "herdr-plugins.handoff/v1 @d23205af",
      "herdr-plugins.conversations/v1 @d23205af",
      "herdr-plugins.checkpoints/v1 @ae4f214",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "textgen.surface",
+   "title": "Text Generation surface via herdr-plugins.textgen/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.textgen",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-textgen@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (tasks×paths matrix, agent/api provider matrix, guards, integrations.git, redacted config, config_warnings) fetched eagerly",
+    "git-context read-only preview (collected task input + repo_root/branch + sources + warnings) on submit — no provider invoked",
+    "task rows: kind/description/paths/input_fields/required_input/output shape/max_output_chars/requires_opt_in verbatim",
+    "provider rows: agent availability (manifest|not_in_manifests|unverified) + warnings, api enabled + credential_configured booleans (never key material), cli unsupported status",
+    "guards section: expensiveTaskOptIn, quota check enabled/max_used_percent/provider, agent_manifests reachability",
+    "git integration resolved/unavailable rendered verbatim; collected input JSON with copy affordance",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (git_unavailable/task_not_opted_in/quota_exceeded/provider_*/output_invalid_json/usage) stay error with verbatim detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "capability failure retains last-good document; unavailable states are honest"
+   ],
+   "side_effects": [
+    "plugin_call reads only — mutation_commands (generate/watch-next-prompt/config writes) are advertised but gated off by the empty local TEXTGEN_MUTATION_COMMANDS allowlist; generation results are never auto-applied"
+   ],
+   "scenarios": [
+    "src/shell/textgen.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/textgen.ts",
+    "src/components/TextGenSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-textgen.md",
+    "docs/adr/ADR-0031.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "contract has no list/history/result commands — generation results are not persisted plugin-side, so no history surface exists; a generation ticket must design its own result retention/review flow",
+     "generate/watch-next-prompt (agent-pane mutations) and config writes are gated off — separate ticket",
+     "next_prompt composer presentation is a separate concern (watch path records pane metadata upstream)"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.textgen/v1 @d23205af",
+     "rebuildup.git plugin for git-context collection (soft dependency — unresolved renders as unavailable)",
      "bun on the plugin host"
     ],
     "excluded": false

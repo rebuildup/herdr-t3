@@ -23,7 +23,7 @@ CLI implementations.
   projects/v1 @ `2dcb2abf`, inbox v0.1.0, checkpoints/v1 @ `ae4f214`,
   automations/v1 @ `6c1cfa5`, conversations/v1 @ `d23205af`,
   usage/v1 @ `d23205af`, artifacts/v1 @ `d23205af`,
-  handoff/v1 @ `d23205af`); a
+  handoff/v1 @ `d23205af`, textgen/v1 @ `d23205af`); a
   host running an older plugin build yields capability-gated UI, not
   errors.
 - git-v1 strict parsing (ADR-0018): only documented flags per command,

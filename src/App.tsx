@@ -31,6 +31,8 @@ import { initConversations } from "./shell/conversations";
 import { initUsage } from "./shell/usage";
 import { initArtifacts } from "./shell/artifacts";
 import { initHandoffs } from "./shell/handoffs";
+import { initTextgen } from "./shell/textgen";
+
 import { onSnapshot } from "./lib/api";
 import type { SessionSnapshot } from "../shared/protocol";
 import { isElectron } from "./lib/env";
@@ -49,6 +51,8 @@ export default function App() {
     initUsage();
     initArtifacts();
     initHandoffs();
+    initTextgen();
+
     // Attention toasts (issue #113): diff each machine's pushed snapshots
     // for agent blocked/done transitions. The first snapshot per machine
     // is a baseline and never notifies.

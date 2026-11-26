@@ -29,6 +29,7 @@ import {
   Rows2,
   SquarePlayIcon,
   SquareSplitHorizontalIcon,
+  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -683,6 +684,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "handoffs", kind: "handoffs" })}
               >
                 <ArrowLeftRightIcon /> Handoffs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "textgen", kind: "textgen" })}
+              >
+                <SparklesIcon /> Text Generation
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
