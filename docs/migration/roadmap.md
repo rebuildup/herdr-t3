@@ -98,7 +98,7 @@ remaining work before old-path removal:
 | Capability | rust-implemented | switched (product consumer) | old impl removal |
 |---|---|---|---|
 | protocol.codec | #275/#277 + #315 (**switched**: ingress guards → protocol-codec.wasm via shared/protocolWasm.ts; encode/decode ops have no product call sites) | old impl removal — #359 | shared/protocol.ts codec path |
-| agent.projection | #281 (+#287 perf, #288 conformance) | wasm consumer in runtime (ADR-0025) — #316 | src/lib/workspace.ts, src/shell/agents.ts |
+| agent.projection | #281 (+#287 perf, #288 conformance) + #316 (**equivalence-verified**: agent_view_model/workspace_view_model ops + facade + consumer-path tests; wasm consumer measured ~21ms/~10ms per call at 200 agents vs ~0.8ms/~0.05ms TS — state-scale payloads are outside ADR-0025 small-data scope, Electron keeps TS) | switched with GPUI cutover — Rust runs natively | src/lib/workspace.ts, src/shell/agents.ts |
 | terminal.engine | #286 | no transitional consumer — switches with GPUI surface (ADR-0025) — #317 re-scoped | shared/ghostty engine/session TS path |
 | terminal.scene | #298 | no transitional consumer — switches with GPUI surface (ADR-0025) — #318 re-scoped | renderer.ts Canvas2D path |
 | terminal.input | #304 + #319 (**switched**: inputRuntime facade → terminal-input.wasm; TS fallback retained for rollback) | old impl removal — #348 | inputPolicy.ts/keys.ts call sites |

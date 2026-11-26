@@ -913,12 +913,20 @@
     "crates/state-projections/tests/projections.rs",
     "harness/scenarios/projection/workspace.json",
     "harness/scenarios/projection/agents.json",
-    "harness/scenarios/projection/agents-organize.json"
+    "harness/scenarios/projection/agents-organize.json",
+    "src/lib/projectionRuntime.ts",
+    "src/lib/projectionRuntime.test.ts",
+    "src/lib/state-projections.wasm",
+    "scripts/state-projections/build-wasm.sh",
+    "docs/adr/ADR-0025.md",
+    "crates/state-projections/src/bin/state-projections-adapter.rs"
    ],
-   "stage": "rust-implemented",
+   "stage": "equivalence-verified",
    "status": {
     "implemented": true,
-    "known_issues": [],
+    "known_issues": [
+     "wasm consumer evaluated and rejected for the Electron product path (issue #316): agent_view_model ~21ms/call and workspace_view_model ~10ms/call at a 200-agent snapshot vs ~0.8ms/~0.05ms TS — JSON boundary serialization dominates state-scale payloads, outside ADR-0025 small-data consumer scope. Ops + facade + consumer-path equivalence tests landed; stage equivalence-verified. switched awaits the GPUI cutover where state-projections runs natively (no serialization)."
+    ],
     "os_gaps": [],
     "upstream_deps": [],
     "excluded": false

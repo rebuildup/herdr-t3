@@ -75,6 +75,17 @@ fn run_op(
             }))
         }
         "goto_eval" => goto_eval(input),
+        // Product ViewModel ops (issue #316): same functions the wasm
+        // surface exports — native timing/differential coverage shares
+        // the product path.
+        "workspace_view_model" | "agent_view_model" => {
+            let f = if op == "workspace_view_model" {
+                workspace_view_model
+            } else {
+                agent_view_model
+            };
+            f(input)
+        }
         _ => Err(format!("unknown op \"{op}\"")),
     }
 }
