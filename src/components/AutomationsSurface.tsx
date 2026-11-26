@@ -28,12 +28,12 @@ import {
   HistoryIcon,
   PlayIcon,
   PowerIcon,
-  RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { RefreshIcon } from "./ui/refresh-icon";
 import {
   Dialog,
   DialogContent,
@@ -549,7 +549,7 @@ export function AutomationsSurface({ machine }: { machine: string }) {
               disabled={refreshing}
               aria-label="Refresh automations"
             >
-              <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+              <RefreshIcon refreshing={refreshing} />
               Refresh
             </Button>
           </div>

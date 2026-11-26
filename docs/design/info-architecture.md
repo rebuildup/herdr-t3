@@ -9,7 +9,7 @@ herdr-t3 の各 surface が「何を」「なぜ」表示するかの正本。�
 | Surface | 役割 | 置く情報 | 置かない情報 |
 | --- | --- | --- | --- |
 | Sidebar (workspace list) | 「どの workspace に注意/作業があるか」の一覧・選択・並び替え | workspace の人間向け識別名 (label/branch/repo)、集約 agent_status、tab/pane 数、接続状態 (machine offline 等) | pane/tab の詳細、内部 ID の常時表示 |
-| Sidebar (agents 一覧, v0.5.0) | 「どこで・何の作業が・どの状態か」の動的一覧 (§6) | agent_status セクション、帰属 (machine/workspace/tab)、状態ラベル、作業対象 (terminal_title/agent 種別) | エージェントツール名を最上位にしない、内部 ID |
+| Sidebar (agents 一覧, v0.5.0) | 「どこで・何の作業が・どの状態か」の動的一覧 (§6) | agent_status セクション、帰属 (machine/workspace/tab)、作業対象 (terminal_title/agent 種別)。状態名は icon/棚/hover/aria で表現し、行へは印字しない (§4) | エージェントツール名を最上位にしない、内部 ID |
 | Workspace header (breadcrumb + tab strip) | 「今どの workspace/tab を見ているか」と tab 操作 | machine › workspace 名、tab 一覧 (label + status + zoom)、pane 操作 (split/zoom/swap/close) | 内部 ID、診断詳細 |
 | Pane chrome (canvas 内) | 「この pane は何で・どの状態か」の最小表示 | 必要時のみ: pane title/agent 種別/status の控えめな表示、focus 表現、split 境界 | 常時のラベル行で canvas を削ること、過剰な枠線 |
 | Status/utility 領域 | 「システム全体の状態と操作」(endpoint 状態、通知、モードヒント相当) | bridge/connection 状態、集約 attention (blocked agent 数)、update/診断への導線 | — |
@@ -79,6 +79,14 @@ machine ごとの worktree 一覧を cache して workspace→branch を解決�
 参照可能にする。表示は herdr の `AgentStatus` 5値
 (idle/working/blocked/done/unknown) に限定し、独自の状態を捏造しない。
 
+**状態名の重複禁止 (issue #381, T3 `SidebarThreadRow` 準拠)**: 同じ
+状態を icon・色・アニメーション・セクション棚名・hover 詳細・aria の
+複数チャネルで既に表現している場合、行へ状態名テキストを重ねて印字
+しない。状態名が情報を足す場所 (focused pane badge のように棚を持た
+ない文脈、hover card、支援技術向け accessible name) にのみ置く。
+種別名・作業タイトル・警告・固有の状態説明など、他チャネルが運ば
+ない情報は削らない。
+
 ## 5. 内部情報の置き場
 
 `workspace_id`/`pane_id`/`tab_id`/`terminal_id`/`cwd`/`foreground_cwd`/
@@ -111,7 +119,7 @@ herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設
 
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
-| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) + 状態テキスト (state_labels 解決値、行末) | 「どこで・どの状態か」— T3 card variant の context 行 + status slot に相当し、secondary weight |
+| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ)。状態名テキストは印字せず、icon + 棚名 + hover card + aria が担う (issue #381) | 「どこで・どの状態か」— T3 card variant の context 行に相当し、secondary weight |
 | 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label + provider/harness アイコン | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
@@ -178,10 +186,11 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   進行で戻る — herdr には run 完了と状態遷移を区別する信号がない
   ための既知の単純化。snoozed 棚内のソートも T3 の `snoozedUntil`
   昇順ではなく、他棚と同じ status 優先度 + seq 降順。
-- `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
-  テキスト (現 status の label) と行2末尾の補助 label (status 以外の
+- `state_labels` (herdr が提供する状態別カスタム label) は hover card
+  と aria (現 status の label) および行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に
-  限定する (§4 と同じ規則)。
+  限定する (§4 と同じ規則)。現 status の label は行へ印字しない
+  (issue #381)。
 - Attention 棚の header は他棚と同じ disclosure 付きだが、warning 色の
   tone で強調する (issue #165 の注意喚起を棚化後も維持、issue #211)。
 

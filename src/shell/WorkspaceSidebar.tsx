@@ -388,8 +388,9 @@ function formatSnoozeUntil(iso: string): string | null {
 /**
  * One agent row in the Agents shelves. Two lines per T3
  * `SidebarThreadRow`'s hierarchy (issue #200,
- * info-architecture.md §6.1): line 1 is context + state at secondary
- * weight (status icon, workspace/tab/machine, resolved state label),
+ * info-architecture.md §6.1): line 1 is context at secondary weight
+ * (status icon, workspace/tab/machine) — the resolved state name is
+ * icon/section/hover-card/aria only, never printed text (issue #381) —
  * line 2 leads with the work target — the live pane's terminal title —
  * with agent identity, pane disambiguator and auxiliary labels as meta.
  * Clicking jumps to the agent's workspace and focuses its pane
@@ -476,7 +477,13 @@ function AgentRow({
           {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
           {multiMachine ? ` · ${machine.label}` : null}
         </span>
-        <span className="shrink-0">{stateLabel}</span>
+        {/* The state name lives in the hover card and in the accessible
+            name only (issue #381): the icon's color/animation and the
+            section shelf already carry it, so printing "working" beside
+            the Working shelf triple-reports the same fact (T3
+            SidebarThreadRow shows the status slot only when it adds
+            information the row does not already have). */}
+        <span className="sr-only">{stateLabel}</span>
       </span>
       {/* ps-6 aligns line 2 with line 1's text: size-4 icon (16px) +
           gap-2 (8px) = 24px. ps-6.5 left a 2px rail mismatch (issue

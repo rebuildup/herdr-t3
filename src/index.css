@@ -613,6 +613,16 @@
   }
 }
 
+/* Ported from t3code apps/web/src/index.css `visible-animate-spin`
+   (issue #381): the spin runs only while `observeVisibleAnimation`
+   reports the element on-screen, the document visible, and motion
+   allowed — collapsed shelves and hidden surfaces stop animating. */
+@utility visible-animate-spin {
+  animation: var(--animate-spin);
+  animation-play-state: var(--visible-animation-state, paused);
+  will-change: var(--visible-animation-will-change, auto);
+}
+
 /* Reduced motion (issue #115, docs/design/interaction.md §2): every
    transition and animation collapses to an instant state change —
    position and color switch immediately instead of animating. The
