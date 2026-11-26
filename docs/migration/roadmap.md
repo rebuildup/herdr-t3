@@ -125,6 +125,21 @@ state is involved, OS evidence per `os.*` capability rows, and the
 capability's registry `stage` advanced with evidence refs (the
 readiness checker rejects stage claims without them).
 
+## Release trains (issue #386)
+
+The GPUI migration program (#233 and children) targets the **next**
+release train once v0.6.0 RC converges: ticket PRs for #305, #322–#329,
+#317/#318/#320, and deferred removals #348/#359 target `release-0-7-0`,
+not `release-0-6-0`. Work already merged into `release-0-6-0` (e.g.
+`crates/herdr-bridge`, ui-kit, state-projections view-model ops) is the
+shared foundation and is not reverted.
+
+Train-to-train propagation uses the release-sync path added to
+`release-path.yml`: an older `release-*` may merge into a newer one
+(numeric version order enforced), so v0.6.0 fixes flow into
+`release-0-7-0` via sync PRs. `release-* -> main` keeps its explicit
+maintainer authorization boundary.
+
 ## Standing rules
 
 - **No permanent dual implementation.** Each boundary moves

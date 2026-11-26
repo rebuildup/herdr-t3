@@ -47,8 +47,20 @@ jobs:
             release-*)
               case "$HEAD" in
                 release-*)
-                  echo "FAIL: release branches do not merge into each other; target main for the release PR"
-                  exit 1
+                  # Release-train sync (issue #386): an older train may
+                  # merge into a newer one so v-x-y-z fixes propagate
+                  # forward. Version order is compared numerically;
+                  # newer->older, equal, and non-release heads are
+                  # rejected. `release-* -> main` still requires explicit
+                  # authorization and ticket->release is unchanged.
+                  bv=$(echo "$BASE" | sed -E 's/^release-//' | tr '-' ' ')
+                  hv=$(echo "$HEAD" | sed -E 's/^release-//' | tr '-' ' ')
+                  if [ "$hv" != "$bv" ] && [ "$(printf '%s\n%s\n' "$hv" "$bv" | sort -V | head -1)" = "$hv" ]; then
+                    echo "OK: release-train sync ($HEAD -> $BASE)"
+                  else
+                    echo "FAIL: only an older release-* may sync into a newer release-*; got $HEAD -> $BASE"
+                    exit 1
+                  fi
                   ;;
                 *)
                   echo "OK: ticket PR ($HEAD -> $BASE)"
