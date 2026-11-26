@@ -2814,6 +2814,57 @@
     "excluded": true
    },
    "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "ui.goto-picker",
+   "title": "Go to picker model (rows, query parse, status/text filter)",
+   "area": "ui",
+   "owner": "app",
+   "boundary": "B6",
+   "contracts": [
+    "ui-shell@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "buildGotoRows: workspace/tab/pane rows in snapshot order across machines",
+    "branch/worktree-derived workspace titles and search blobs",
+    "agent status/kind/cwd propagation to pane rows",
+    "parseGotoQuery: leading status token (blocked/working/idle/done + b/w/i/d)",
+    "filterGotoRows: AND text words; status filter keeps matching panes + ancestors"
+   ],
+   "errors": [
+    "no-match -> empty row set, not error",
+    "missing ids reproduce JS template 'undefined' semantics"
+   ],
+   "side_effects": [],
+   "scenarios": [
+    "src/shell/goto.test.ts",
+    "crates/state-projections/tests/goto.rs",
+    "harness/scenarios/projection/goto.json"
+   ],
+   "evidence": [
+    "src/shell/goto.ts",
+    "crates/state-projections/src/lib.rs",
+    "crates/state-projections/src/bin/state-projections-adapter.rs",
+    "crates/state-projections/tests/goto.rs",
+    "harness/lib/adapters/projection.ts",
+    "harness/scenarios/projection/goto.json"
+   ],
+   "stage": "rust-implemented",
+   "status": {
+    "implemented": true,
+    "known_issues": [],
+    "os_gaps": [
+     "windows-11"
+    ],
+    "upstream_deps": [],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
   }
  ]
 }
