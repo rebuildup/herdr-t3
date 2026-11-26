@@ -222,9 +222,12 @@ pub fn is_client_frame(value: &Value) -> bool {
                             && items.iter().all(|i| matches!(i, Value::String(s)
                                 if js_len(s) <= 4096 && !s.contains('\0'))))
                 })
+                && frame.get("stdin").is_none_or(|s| {
+                    matches!(s, Value::String(t) if js_len(t) <= 262_144)
+                })
                 && frame.get("timeout_ms").is_none_or(|t| {
                     is_finite_number(t) && is_integer(t)
-                        && t.as_f64().is_some_and(|n| (500.0..=120_000.0).contains(&n))
+                        && t.as_f64().is_some_and(|n| (500.0..=600_000.0).contains(&n))
                 })
         }
         _ => false,
@@ -788,6 +791,8 @@ pub enum ClientFrame {
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stdin: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<Number>,
         #[serde(flatten)]

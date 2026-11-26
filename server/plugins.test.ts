@@ -741,4 +741,25 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     // Real subprocess spawn; see the scrubbed-vars test above — the
     // inner 15s budget needs headroom over the default 5s test timeout.
   }, 20_000);
+
+  test("localPluginHost writes stdin payload and closes it (issue #458)", async () => {
+    const outcome = await localPluginHost().exec(
+      [
+        process.execPath,
+        "-e",
+        "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify({got:d})))",
+      ],
+      { timeoutMs: 15_000, stdin: '{"task":"commit_message"}' },
+    );
+    expect(outcome.code).toBe(0);
+    expect(JSON.parse(outcome.stdout)).toEqual({ got: '{"task":"commit_message"}' });
+    // No stdin → immediate EOF (a stdin-reading CLI must not hang).
+    const empty = await localPluginHost().exec(
+      [process.execPath, "-e", "process.stdin.resume();process.stdin.on('end',()=>console.log('eof'))"],
+      { timeoutMs: 15_000 },
+    );
+    expect(empty.code).toBe(0);
+    expect(empty.stdout.trim()).toBe("eof");
+    // Real subprocess spawns; same headroom as the tests above.
+  }, 20_000);
 });

@@ -326,6 +326,10 @@ export type ClientFrame =
    * `<plugin_root>/src/cli.ts <command> [args]` as argv — never through
    * a forwarded socket and never by reading plugin state files.
    * `args` are argv elements; the bridge adds no shell interpolation.
+   * `stdin` is written to the child's stdin and closed immediately —
+   * contracts that read a payload from stdin (e.g. textgen-v1 `generate`)
+   * need it because `--input FILE` has no remote write channel; it is
+   * bounded and never logged.
    */
   | {
       type: "plugin_call";
@@ -334,6 +338,7 @@ export type ClientFrame =
       plugin: string;
       command: string;
       args?: string[];
+      stdin?: string;
       timeout_ms?: number;
     };
 
@@ -576,11 +581,13 @@ export function isClientFrame(value: unknown): value is ClientFrame {
             frame["args"].every(
               (a) => typeof a === "string" && a.length <= 4096 && !a.includes("\0"),
             ))) &&
+        (frame["stdin"] === undefined ||
+          (typeof frame["stdin"] === "string" && frame["stdin"].length <= 262144)) &&
         (frame["timeout_ms"] === undefined ||
           (typeof frame["timeout_ms"] === "number" &&
             Number.isInteger(frame["timeout_ms"]) &&
             frame["timeout_ms"] >= 500 &&
-            frame["timeout_ms"] <= 120_000))
+            frame["timeout_ms"] <= 600_000))
       );
     default:
       return false;
