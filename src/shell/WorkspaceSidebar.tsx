@@ -66,6 +66,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { CollapsibleSectionHeader } from "~/components/ui/collapsible-section-header";
+import { ShowMoreButton } from "~/components/ui/show-more-button";
 import { AgentHoverCard } from "./AgentHoverCard";
 import { getGeneralSettings } from "~/lib/settings";
 import { getLocalStorageBoolean, setLocalStorageBoolean } from "~/lib/localStorage";
@@ -76,15 +77,20 @@ import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import {
   AGENT_SECTIONS,
   AGENT_SECTION_LABELS,
+  AGENT_SHELF_INITIAL_VISIBLE,
+  AGENT_SHELF_PAGE,
   COLLAPSIBLE_AGENT_SECTIONS,
+  UNCAPPED_AGENT_SECTIONS,
   agentAuxStateLabels,
   agentDisplayName,
   agentOrganizeKey,
   agentRowSignature,
+  agentShelfEntryKey,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
+  shelfRows,
   shortPaneId,
   type AgentListEntry,
   type AgentSection,
@@ -825,8 +831,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
   };
 
   // Rows that would render identically get a pane-id disambiguator
-  // (issue #165): count agentRowSignature across rendered entries only —
-  // shelves render their rows when expanded, so shelved rows count too.
+  // (issue #165): count agentRowSignature across section membership —
+  // disclosure paging must not change a row's content as it reveals
+  // (issue #389), so hidden rows still count toward ambiguity.
   const visibleAgentEntries = useMemo(
     () => AGENT_SECTIONS.flatMap((section) => agentSections[section]),
     [agentSections],
@@ -862,6 +869,38 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
       return next;
     });
   };
+  // Progressive disclosure inside expanded shelves (issue #389): capped
+  // sections start at AGENT_SHELF_INITIAL_VISIBLE rows and each "Show N
+  // more" adds AGENT_SHELF_PAGE. Session-scoped like T3's settledTail —
+  // not persisted; collapsing the shelf resets nothing because the count
+  // only matters while expanded.
+  const [agentShelfLimits, setAgentShelfLimits] = useState<
+    Record<AgentSection, number>
+  >(() => {
+    const initial = {} as Record<AgentSection, number>;
+    for (const section of AGENT_SECTIONS) {
+      initial[section] = AGENT_SHELF_INITIAL_VISIBLE;
+    }
+    return initial;
+  });
+  const showMoreShelfRows = (section: AgentSection) => {
+    setAgentShelfLimits((prev) => ({
+      ...prev,
+      [section]: prev[section] + AGENT_SHELF_PAGE,
+    }));
+  };
+  // The route-selected agent (T3 `routeThreadOnly`): the agent whose pane
+  // is focused in the routed workspace's active tab. Collapsed shelves
+  // keep this one row reachable; capped shelves never hide it behind the
+  // disclosure either.
+  const routeAgentKey = useMemo(() => {
+    const paneId = view.focusedPane?.pane_id;
+    if (!view.workspace || paneId === undefined) return null;
+    const entry = agentEntries.find(
+      (e) => e.machine.id === routeMachine && e.agent.pane_id === paneId,
+    );
+    return entry ? agentShelfEntryKey(entry) : null;
+  }, [agentEntries, routeMachine, view.workspace, view.focusedPane]);
   const [agentDetails, setAgentDetails] = useState<{
     machine: string;
     pane: PaneInfo;
@@ -888,7 +927,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     if (agentEntries.length === 0) return "";
     return AGENT_SECTIONS.map(
       (section) =>
-        `${section}:${agentShelves[section] ? 1 : 0}:` +
+        `${section}:${agentShelves[section] ? 1 : 0}:${agentShelfLimits[section]}:` +
         agentSections[section]
           .map(
             (e) =>
@@ -896,7 +935,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
           )
           .join(","),
     ).join("|");
-  }, [agentEntries.length, agentSections, agentShelves]);
+  }, [agentEntries.length, agentSections, agentShelves, agentShelfLimits]);
   useLayoutEffect(() => {
     agentsMotionRef.current?.update(true);
     agentsDockMotionRef.current?.update(true);
@@ -937,6 +976,17 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     const expanded = agentShelves[section];
     const shelfKind =
       section === "settled" || section === "snoozed" ? section : undefined;
+    // Progressive disclosure (issue #389): collapsed shelves keep only
+    // the route-selected row; expanded capped shelves show the first
+    // AGENT_SHELF_INITIAL_VISIBLE (+ pages) rows with the route row
+    // pinned. Attention is uncapped — blocked agents are never hidden.
+    const capped = !UNCAPPED_AGENT_SECTIONS.includes(section);
+    const { visible, hidden } = shelfRows(
+      list,
+      expanded,
+      capped ? agentShelfLimits[section] : null,
+      routeAgentKey,
+    );
     return (
       <Fragment key={section}>
         <li className="list-none">
@@ -952,9 +1002,16 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             {AGENT_SECTION_LABELS[section]}
           </CollapsibleSectionHeader>
         </li>
-        {expanded
-          ? list.map((entry) => renderAgentRow(entry, shelfKind))
-          : null}
+        {visible.map((entry) => renderAgentRow(entry, shelfKind))}
+        {expanded && hidden > 0 ? (
+          <li className="list-none">
+            <ShowMoreButton
+              remaining={Math.min(hidden, AGENT_SHELF_PAGE)}
+              onToggle={() => showMoreShelfRows(section)}
+              className="h-9"
+            />
+          </li>
+        ) : null}
       </Fragment>
     );
   };

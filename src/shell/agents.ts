@@ -69,6 +69,53 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
  */
 export const COLLAPSIBLE_AGENT_SECTIONS: readonly AgentSection[] = AGENT_SECTIONS;
 
+/**
+ * Progressive disclosure inside an expanded shelf (issue #389, T3
+ * `Sidebar.tsx` settled tail + `ThreadDetailsMoreButton`): capped
+ * sections render the first AGENT_SHELF_INITIAL_VISIBLE rows and reveal
+ * AGENT_SHELF_PAGE more per "Show N more" click. Attention is exempt —
+ * blocked agents must never sit behind a disclosure.
+ */
+export const AGENT_SHELF_INITIAL_VISIBLE = 10;
+export const AGENT_SHELF_PAGE = 25;
+export const UNCAPPED_AGENT_SECTIONS: readonly AgentSection[] = ["attention"];
+
+/** Stable identity for shelf-row matching (route pinning, tests). */
+export function agentShelfEntryKey(entry: AgentListEntry): string {
+  return `${entry.machine.id}:${entry.agent.pane_id}`;
+}
+
+/**
+ * Which rows an expanded/collapsed shelf renders (issue #389, T3
+ * `routeThreadOnly` + settled tail):
+ * - collapsed: only the route-selected agent row survives — the shelf
+ *   header count still reports the full membership;
+ * - expanded + capped: first `limit` rows, with the route row kept even
+ *   when it falls beyond the cap (T3 appends the route thread the same
+ *   way);
+ * - expanded + uncapped (`limit === null`): everything.
+ * `hidden` counts rows still behind the disclosure.
+ */
+export function shelfRows(
+  list: readonly AgentListEntry[],
+  expanded: boolean,
+  limit: number | null,
+  routeKey: string | null,
+): { visible: AgentListEntry[]; hidden: number } {
+  const isRoute = (entry: AgentListEntry) =>
+    routeKey !== null && agentShelfEntryKey(entry) === routeKey;
+  if (!expanded) {
+    return { visible: list.filter(isRoute), hidden: 0 };
+  }
+  if (limit === null) {
+    return { visible: [...list], hidden: 0 };
+  }
+  const visible = list.slice(0, limit);
+  const route = list.find(isRoute);
+  if (route !== undefined && !visible.includes(route)) visible.push(route);
+  return { visible, hidden: list.length - visible.length };
+}
+
 export function agentSection(status: AgentStatus): AgentSection {
   switch (status) {
     case "blocked":
