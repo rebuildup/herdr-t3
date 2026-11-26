@@ -37,6 +37,15 @@ export async function fetchHealth(): Promise<HealthResponse> {
   return (await res.json()) as HealthResponse;
 }
 
+/** Bridge performance counters (issue #425); shape is server-owned JSON. */
+export async function fetchMetrics(): Promise<unknown> {
+  const ipc = desktopBridge();
+  if (ipc?.metrics) return ipc.metrics();
+  const res = await fetch("/api/metrics");
+  if (!res.ok) throw new ApiError("http", `metrics ${res.status}`);
+  return res.json();
+}
+
 /**
  * In the desktop app the preload bridge (`window.herdrT3`) carries the same
  * ClientFrame/ServerFrame contract over IPC; the WebSocket path is the dev
@@ -47,6 +56,7 @@ interface DesktopBridge {
   onFrame(listener: (frame: ServerFrame) => void): () => void;
   health(): Promise<unknown>;
   snapshot(): Promise<unknown>;
+  metrics?(): Promise<unknown>;
   loginItem?(): Promise<unknown>;
   setLoginItem?(openAtLogin: boolean): Promise<unknown>;
 }
