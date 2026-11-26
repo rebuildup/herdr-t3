@@ -1579,7 +1579,12 @@
     "lazy --status filter refetch (list --status)",
     "status detail on selection: full record + transfer/target/remote checks + lineage parent/children + payload_resolution verdicts + execution block; always --no-reconcile, never --remote",
     "resume-info provider native-resume table on demand (supported|unsupported|unknown verbatim)",
-    "honest empty registry (items:[]) and unchecked transfer_check (foreign session/snapshot unavailable) rendered as data"
+    "honest empty registry (items:[]) and unchecked transfer_check (foreign session/snapshot unavailable) rendered as data",
+    "execute mutation behind confirmation dialog: target surface (auto/new-workspace/worktree/pane/workspace), provider/model, wait-ms, cleanup-on-failure, optional --remote saved machine gated on capability.execution",
+    "delegate mutation behind confirmation dialog: task/strategy/link-note/target/execute flags + record-only (--no-execute); same-session only, --remote never emitted",
+    "merge-back mutation behind confirmation dialog on lineage-linked records: result text/wait-ms/link-note/record-only; delivers via agent.prompt to existing parent pane",
+    "mutation gating: HANDOFF_MUTATION_COMMANDS allowlist + advertised commands + mutation_commands membership when the plugin advertises the field (plugin >= v0.7.0); pinned v0.9.0 falls back to allowlist + commands",
+    "mutation results displayed verbatim (outcome/record/remote identity); never auto-applied; list + open detail refetched after success"
    ],
    "errors": [
     "capability-gated per host",
@@ -1590,7 +1595,8 @@
     "list failure keeps machine ready with listError and last-good list"
    ],
    "side_effects": [
-    "plugin_call reads only — mutations (create/execute/delegate/merge-back) are top-level commands never invoked; local HANDOFF_MUTATION_COMMANDS allowlist stays empty so writes fail closed",
+    "plugin_call reads plus execute/delegate/merge-back mutations — create stays agent-side and is never invoked; mutations go through the confirmation dialog only",
+    "execute/delegate may create herdr surfaces and start agents on the plugin host (or a saved remote machine for execute --remote); merge-back delivers agent.prompt to an existing pane",
     "status is invoked with --no-reconcile so the read never triggers the plugin's lazy delivered->done state write"
    ],
    "scenarios": [
@@ -1611,7 +1617,8 @@
     "known_issues": [
      "status --remote <machine> probing is not consumed — remote-executed records render remote_check/target_check verdicts verbatim from a local status call",
      "payload_resolution event_refs are listed but event-level checks stay consumer-side (conversations show) per contract",
-     "mutation surface (create/execute/delegate/merge-back) is a separate ticket"
+     "execute --remote takes a free-text saved-machine label/id (no enumeration via remote-probe); an unknown/disabled machine is refused by the plugin's pre-mutation probe",
+     "create is intentionally not offered — record authoring stays agent-side CLI/MCP"
     ],
     "os_gaps": [],
     "upstream_deps": [

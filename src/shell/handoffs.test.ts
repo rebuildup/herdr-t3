@@ -4,11 +4,16 @@ import {
   HANDOFF_CONTRACT_PREFIX,
   HANDOFF_MUTATION_COMMANDS,
   HANDOFF_PLUGIN_ID,
+  HANDOFF_STRATEGIES,
   classifyHandoffError,
   handoffCapabilityFromDoc,
+  handoffDelegateArgs,
   handoffErrorHint,
+  handoffExecuteArgs,
   handoffListArgs,
   handoffListFromDoc,
+  handoffMergeBackArgs,
+  handoffMutationFromDoc,
   handoffRecordFromDoc,
   handoffResumeInfoArgs,
   handoffResumeInfoFromDoc,
@@ -287,13 +292,133 @@ describe("handoff argv builders (herdr-plugins.handoff/v1 @d23205af)", () => {
     expect(handoffResumeInfoArgs("claude")).toEqual(["--provider", "claude"]);
     expect(handoffResumeInfoArgs("")).toEqual([]);
   });
+
+  test("execute argv: id + mutually exclusive target + flags", () => {
+    // cmdExecute: execute <id> [--target-pane|--target-workspace|
+    // --new-workspace|--worktree [--worktree-branch B] [--worktree-base R]]
+    // [--provider H] [--model M] [--wait-ms MS] [--cleanup-on-failure]
+    // [--remote MACHINE]
+    expect(handoffExecuteArgs("ho-1")).toEqual(["ho-1"]);
+    expect(
+      handoffExecuteArgs("ho-1", {
+        remote: "lab-box",
+        target: { kind: "worktree", branch: "handoff/x", base: "main" },
+        provider: "claude.openrouter",
+        model: "opus",
+        waitMs: 30000,
+        cleanupOnFailure: true,
+      }),
+    ).toEqual([
+      "ho-1",
+      "--remote",
+      "lab-box",
+      "--worktree",
+      "--worktree-branch",
+      "handoff/x",
+      "--worktree-base",
+      "main",
+      "--provider",
+      "claude.openrouter",
+      "--model",
+      "opus",
+      "--wait-ms",
+      "30000",
+      "--cleanup-on-failure",
+    ]);
+    expect(handoffExecuteArgs("ho-1", { target: { kind: "pane", paneId: "w1:p2" } })).toEqual([
+      "ho-1",
+      "--target-pane",
+      "w1:p2",
+    ]);
+    expect(
+      handoffExecuteArgs("ho-1", { target: { kind: "workspace", workspaceId: "w9" } }),
+    ).toEqual(["ho-1", "--target-workspace", "w9"]);
+    expect(handoffExecuteArgs("ho-1", { target: { kind: "new-workspace" } })).toEqual([
+      "ho-1",
+      "--new-workspace",
+    ]);
+    // auto emits nothing; empty strings never become flags.
+    expect(handoffExecuteArgs("ho-1", { target: { kind: "auto" }, remote: "" })).toEqual([
+      "ho-1",
+    ]);
+    expect(handoffExecuteArgs("ho-1", { waitMs: -1 })).toEqual(["ho-1"]);
+    expect(handoffExecuteArgs("ho-1", { waitMs: 1.5 })).toEqual(["ho-1"]);
+  });
+
+  test("delegate argv: parent id + task/strategy/execute flags, never --remote", () => {
+    // cmdDelegate: delegate <parent-id> [--task T] [--strategy S]
+    // [--link-note N] [execute flags] [--no-execute] [--dry-run]
+    expect(handoffDelegateArgs("ho-parent")).toEqual(["ho-parent"]);
+    expect(
+      handoffDelegateArgs("ho-parent", {
+        task: "bounded task",
+        strategy: "native_resume",
+        linkNote: "spawn for review",
+        target: { kind: "worktree" },
+        waitMs: 5000,
+        noExecute: true,
+      }),
+    ).toEqual([
+      "ho-parent",
+      "--task",
+      "bounded task",
+      "--strategy",
+      "native_resume",
+      "--link-note",
+      "spawn for review",
+      "--worktree",
+      "--wait-ms",
+      "5000",
+      "--no-execute",
+    ]);
+    // checkpoint_ref/manual are refused by the execute pipeline; an
+    // out-of-contract strategy string is dropped, never emitted.
+    expect(handoffDelegateArgs("ho-p", { strategy: "bogus" })).toEqual(["ho-p"]);
+    expect(handoffDelegateArgs("ho-p", { strategy: "checkpoint_ref" })).toEqual([
+      "ho-p",
+      "--strategy",
+      "checkpoint_ref",
+    ]);
+  });
+
+  test("merge-back argv: child id + task/wait/link-note/no-execute only", () => {
+    // cmdMergeBack: merge-back <child-id> [--task T] [--wait-ms MS]
+    // [--link-note N] [--no-execute] [--dry-run]
+    expect(handoffMergeBackArgs("ho-child")).toEqual(["ho-child"]);
+    expect(
+      handoffMergeBackArgs("ho-child", {
+        task: "done: fixed the bug",
+        waitMs: 10000,
+        linkNote: "result",
+        noExecute: true,
+      }),
+    ).toEqual([
+      "ho-child",
+      "--task",
+      "done: fixed the bug",
+      "--wait-ms",
+      "10000",
+      "--link-note",
+      "result",
+      "--no-execute",
+    ]);
+    expect(handoffMergeBackArgs("ho-child", { waitMs: -1 })).toEqual(["ho-child"]);
+  });
 });
 
 describe("handoff doc parsers", () => {
   test("constants match the pinned contract", () => {
     expect(HANDOFF_PLUGIN_ID).toBe("rebuildup.handoff");
     expect(HANDOFF_CONTRACT_PREFIX).toBe("herdr-plugins.handoff/");
-    expect(HANDOFF_MUTATION_COMMANDS).toHaveLength(0);
+    // Issue #451: execute/delegate/merge-back are the mutation surface;
+    // create stays agent-side, status writes stay behind --no-reconcile.
+    expect(HANDOFF_MUTATION_COMMANDS).toEqual(["execute", "delegate", "merge-back"]);
+    expect(HANDOFF_STRATEGIES).toEqual([
+      "native_resume",
+      "portable_context",
+      "checkpoint_ref",
+      "manual",
+    ]);
   });
 
   test("list parses items, relationship, staleness and truncation verbatim", () => {
@@ -454,8 +579,9 @@ describe("handoff capability", () => {
     expect(cap?.commands.has("status")).toBe(true);
     expect(cap?.commands.has("resume-info")).toBe(true);
     expect(cap?.commands.has("execute")).toBe(true);
-    // The contract has no mutation_commands field; mutations are
-    // top-level commands this surface never calls.
+    // The pinned v0.9.0 capability predates mutation_commands (#224);
+    // the field is absent → hasMutationCommands false, empty set.
+    expect(cap?.hasMutationCommands).toBe(false);
     expect(cap?.mutationCommands.size).toBe(0);
     expect(handoffsSupports(cap, "list")).toBe(true);
     expect(handoffsSupports(cap, "status")).toBe(true);
@@ -468,24 +594,152 @@ describe("handoff capability", () => {
     expect(handoffCapabilityFromDoc({ contract: CONTRACT })).not.toBeNull();
   });
 
-  test("mutation gating fails closed: mutations are never offered", () => {
+  test("mutation gating: allowlist + commands, mutation_commands when present", () => {
     const cap = handoffCapabilityFromDoc(CAPABILITY);
     expect(cap).not.toBeNull();
-    // execute/delegate/merge-back/create are top-level commands — the
-    // empty local allowlist keeps every command unofferable even though
-    // the capability advertises them in `commands`.
-    for (const command of ["create", "execute", "delegate", "merge-back", "list", "status"]) {
+    // Pinned plugin (no mutation_commands field): the allowlist +
+    // advertised commands decide — execute/delegate/merge-back are
+    // top-level v1 commands, everything else stays unofferable.
+    for (const command of ["execute", "delegate", "merge-back"]) {
+      expect(handoffsSupportsMutation(cap, command)).toBe(true);
+    }
+    for (const command of [
+      "create",
+      "list",
+      "status",
+      "resume-info",
+      "remote-probe",
+      "capability",
+      "nope",
+    ]) {
       expect(handoffsSupportsMutation(cap, command)).toBe(false);
     }
-    const hypothetical = handoffCapabilityFromDoc({
+    // Plugin ≥ v0.7.0 advertises mutation_commands: membership there is
+    // additionally required — an allowlisted command missing from
+    // mutation_commands fails closed even though `commands` has it.
+    const withMutations = handoffCapabilityFromDoc({
       contract: CONTRACT,
-      mutation_commands: ["execute"],
-      commands: ["capability", "list", "status", "resume-info", "execute"],
+      commands: [
+        "capability",
+        "list",
+        "status",
+        "resume-info",
+        "execute",
+        "delegate",
+        "merge-back",
+      ],
+      mutation_commands: ["create", "status", "execute"],
     });
-    expect(handoffsSupportsMutation(hypothetical, "execute")).toBe(false);
+    expect(withMutations?.hasMutationCommands).toBe(true);
+    expect(handoffsSupportsMutation(withMutations, "execute")).toBe(true);
+    expect(handoffsSupportsMutation(withMutations, "delegate")).toBe(false);
+    expect(handoffsSupportsMutation(withMutations, "merge-back")).toBe(false);
+    expect(handoffsSupportsMutation(withMutations, "create")).toBe(false);
+    // commands without mutation_commands membership also fails.
+    const commandsOnly = handoffCapabilityFromDoc({
+      contract: CONTRACT,
+      commands: ["list", "status", "execute"],
+      mutation_commands: [],
+    });
+    expect(handoffsSupportsMutation(commandsOnly, "execute")).toBe(false);
     // Probe states mirror handoffsSupports: undefined = probing.
-    expect(handoffsSupportsMutation(undefined, "list")).toBeNull();
+    expect(handoffsSupportsMutation(undefined, "execute")).toBeNull();
+    expect(handoffsSupportsMutation(null, "execute")).toBe(false);
     expect(handoffsSupportsMutation(null, "list")).toBe(false);
+  });
+});
+
+describe("handoff mutation results", () => {
+  const EXECUTE_DOC = {
+    contract: CONTRACT,
+    command: "execute",
+    outcome: "delivered",
+    handoff: RECORD,
+    remote: {
+      machine_id: "m1",
+      label: "Lab Box",
+      target: "lab.example.com",
+      session: "agents",
+      enabled: true,
+      probed_at: "2026-02-01T00:04:00.000Z",
+      server_version: "0.9.5",
+      protocol: 22,
+    },
+    state_file: "/state/plugins/rebuildup.handoff/state.json",
+    generated_at: "2026-02-01T01:00:00.000Z",
+  };
+
+  test("execute parses outcome, record and remote target verbatim", () => {
+    const result = handoffMutationFromDoc(EXECUTE_DOC, "execute");
+    expect(result).not.toBeNull();
+    expect(result?.command).toBe("execute");
+    expect(result?.outcome).toBe("delivered");
+    expect(result?.dryRun).toBe(false);
+    expect(result?.record.id).toBe("ho-child-1");
+    expect(result?.record.status).toBe("delivered");
+    expect(result?.record.execution?.target?.pane_id).toBe("w9:p1");
+    expect(result?.remote?.machine_id).toBe("m1");
+    expect(result?.remote?.label).toBe("Lab Box");
+    expect(result?.parentId).toBeNull();
+    expect(result?.childId).toBeNull();
+  });
+
+  test("delegate parses parent id; merge-back parses child+parent ids", () => {
+    const delegate = handoffMutationFromDoc(
+      {
+        contract: CONTRACT,
+        command: "delegate",
+        outcome: "recorded",
+        handoff: { ...RECORD, id: "ho-new-child", status: "pending" },
+        parent: "ho-child-1",
+      },
+      "delegate",
+    );
+    expect(delegate?.outcome).toBe("recorded");
+    expect(delegate?.parentId).toBe("ho-child-1");
+    expect(delegate?.record.id).toBe("ho-new-child");
+
+    const mergeBack = handoffMutationFromDoc(
+      {
+        contract: CONTRACT,
+        command: "merge-back",
+        outcome: "delivered",
+        handoff: { ...RECORD, id: "ho-result-1", status: "delivered" },
+        child: "ho-child-1",
+        parent: "ho-parent-1",
+      },
+      "merge-back",
+    );
+    expect(mergeBack?.childId).toBe("ho-child-1");
+    expect(mergeBack?.parentId).toBe("ho-parent-1");
+    expect(mergeBack?.remote).toBeNull();
+  });
+
+  test("dry_run documents parse with dryRun flag and no fabricated outcome", () => {
+    const result = handoffMutationFromDoc(
+      {
+        contract: CONTRACT,
+        command: "execute",
+        dry_run: true,
+        handoff: { id: "ho-x", status: "pending" },
+        plan: { surface: "workspace" },
+      },
+      "execute",
+    );
+    expect(result?.dryRun).toBe(true);
+    expect(result?.outcome).toBe("dry_run");
+    expect(result?.record.id).toBe("ho-x");
+  });
+
+  test("rejects foreign contract, wrong command word and missing record", () => {
+    expect(
+      handoffMutationFromDoc({ contract: "other/v9", command: "execute", handoff: RECORD }, "execute"),
+    ).toBeNull();
+    expect(handoffMutationFromDoc(EXECUTE_DOC, "delegate")).toBeNull();
+    expect(
+      handoffMutationFromDoc({ contract: CONTRACT, command: "execute", outcome: "done" }, "execute"),
+    ).toBeNull();
+    expect(handoffMutationFromDoc({ contract: CONTRACT, command: "execute" }, "execute")).toBeNull();
   });
 });
 
