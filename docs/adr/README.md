@@ -31,3 +31,4 @@
 | [ADR-0027](./ADR-0027.md) | Accepted | Conversations surface: conversations-v1 contract pin @d23205af and read + index adoption |
 | [ADR-0028](./ADR-0028.md) | Accepted | Usage surface: usage-v1 contract pin @d23205af and read-only adoption |
 | [ADR-0029](./ADR-0029.md) | Accepted | Artifacts surface: artifacts-v1 contract pin @d23205af and read-surface adoption |
+| [ADR-0031](./ADR-0031.md) | Accepted | TextGen surface: textgen-v1 contract pin @d23205af and read-surface adoption |

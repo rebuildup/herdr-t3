@@ -25,6 +25,7 @@ import {
   SquarePenIcon,
   SquarePlusIcon,
   SquareSplitHorizontalIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -257,6 +258,14 @@ export function CommandMenu({
           icon: <PackageIcon className="size-4" />,
           keywords: "artifacts registry files html pdf images deliver verify plugin",
           run: panelSurface({ id: "artifacts", kind: "artifacts" }),
+        },
+        {
+          id: "panel-textgen",
+          label: "Text Generation",
+          group: "Actions",
+          icon: <SparklesIcon className="size-4" />,
+          keywords: "textgen generation tasks commit message pr content review guide next prompt plugin",
+          run: panelSurface({ id: "textgen", kind: "textgen" }),
         },
       );
       list.push(

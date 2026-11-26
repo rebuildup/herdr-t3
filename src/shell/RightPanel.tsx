@@ -32,6 +32,7 @@ import {
   MessagesSquareIcon,
   PackageIcon,
   PanelLeftCloseIcon,
+  SparklesIcon,
   PlusIcon,
   SquarePlayIcon,
   XIcon,
@@ -61,6 +62,7 @@ import { AutomationsSurface } from "~/components/AutomationsSurface";
 import { ConversationsSurface } from "~/components/ConversationsSurface";
 import { UsageSurface } from "~/components/UsageSurface";
 import { ArtifactsSurface } from "~/components/ArtifactsSurface";
+import { TextGenSurface } from "~/components/TextGenSurface";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { useRouteWorkspace } from "./view";
 import {
@@ -108,6 +110,7 @@ const SURFACE_ICONS: Record<RightPanelSurface["kind"], typeof FolderGit2Icon> = 
   conversations: MessagesSquareIcon,
   usage: GaugeIcon,
   artifacts: PackageIcon,
+  textgen: SparklesIcon,
 };
 
 const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
@@ -120,6 +123,7 @@ const SURFACE_TITLES: Record<RightPanelSurface["kind"], string> = {
   conversations: "Conversations",
   usage: "Usage",
   artifacts: "Artifacts",
+  textgen: "Text Generation",
 };
 
 function surfaceTitle(
@@ -172,6 +176,8 @@ function SurfaceContent({
       return <UsageSurface machine={machine} />;
     case "artifacts":
       return <ArtifactsSurface machine={machine} />;
+    case "textgen":
+      return <TextGenSurface machine={machine} />;
   }
 }
 
@@ -526,6 +532,11 @@ export function RightPanel() {
       label: "Artifacts",
       icon: PackageIcon,
       run: () => openSurface(scope, { id: "artifacts", kind: "artifacts" }),
+    },
+    {
+      label: "Text Generation",
+      icon: SparklesIcon,
+      run: () => openSurface(scope, { id: "textgen", kind: "textgen" }),
     },
   ];
   const frame = (
