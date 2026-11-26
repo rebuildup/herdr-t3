@@ -291,12 +291,17 @@
     "server/index.ts",
     "desktop/main.ts",
     "desktop/preload.cjs",
-    "src/shell/bridge.ts"
+    "src/shell/bridge.ts",
+    "crates/herdr-bridge/src/lib.rs",
+    "crates/herdr-bridge/src/io.rs",
+    "crates/herdr-bridge/tests/herdr.rs"
    ],
    "stage": "current-verified",
    "status": {
     "implemented": true,
-    "known_issues": [],
+    "known_issues": [
+     "Rust herdr transport landed in crates/herdr-bridge (issue #329): NDJSON connect-per-call rpc + events.subscribe with herdr 0.9.x legacy error-id compat, per-line ceilings, unix-socket + Windows named-pipe connectors, in-memory test transport; 11 behavioral tests. Product consumer (GPUI host bridge store: ensureMachine/probe/pending semantics) pending — stage stays current-verified until the GPUI path switches."
+    ],
     "os_gaps": [],
     "upstream_deps": [],
     "excluded": false
@@ -333,12 +338,17 @@
    "evidence": [
     "server/bridge-core.ts",
     "server/herdr.ts",
-    "AGENTS.md"
+    "AGENTS.md",
+    "crates/herdr-bridge/src/lib.rs",
+    "crates/herdr-bridge/src/io.rs",
+    "crates/herdr-bridge/tests/herdr.rs"
    ],
    "stage": "current-verified",
    "status": {
     "implemented": true,
-    "known_issues": [],
+    "known_issues": [
+     "Rust herdr transport landed in crates/herdr-bridge (issue #329): NDJSON connect-per-call rpc + events.subscribe with herdr 0.9.x legacy error-id compat, per-line ceilings, unix-socket + Windows named-pipe connectors, in-memory test transport; 11 behavioral tests. Product consumer (GPUI host bridge store: ensureMachine/probe/pending semantics) pending — stage stays current-verified until the GPUI path switches."
+    ],
     "os_gaps": [],
     "upstream_deps": [],
     "excluded": false
