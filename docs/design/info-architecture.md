@@ -253,35 +253,54 @@ default rows (`src/ui/sidebar/tokens.rs` @ `e8d7d97`) に準拠する:
 
 ## 9. Pane context card (v0.6.0 正本, Issue #390)
 
-header の info icon から開く popover card。T3 Code の
-`ThreadDetailsCard` / `ThreadDetailsPanel` / `ThreadDetailsControl` /
-`threadDetailsPanelStyles` (`apps/web/src/components/chat/` @ `9cc4018`)
-を herdr の pane ドメインへ写像したもの (`src/shell/PaneContextCard.tsx`)。
+現在の作業環境 (workspace の focused pane) に関する情報と直接操作を
+集約する独立したコンテキストカード。T3 Code の `ThreadDetailsCard` /
+`ThreadDetailsPanel` / `ThreadDetailsSection` / `ThreadDetailsItemsMenu`
+/ `threadDetailsCardLayout` / `threadDetailsItems`
+(`apps/web/src/components/chat/` @ `9cc4018`) を herdr の pane
+ドメインへ写像したもの (`src/shell/PaneContextCard.tsx`)。
 
-- **役割分担**: RightPanel は workspace scope の docked plugin surface
-  (issue #333) であり、本 card は focused pane の一時的な context +
-  関連操作を示す独立した役割を持つ。内部 ID・`agent.read` 出力などの
-  深い diagnostics は `PaneDetailsDialog` に残し、card はその user-
-  facing な補完面とする (§5)。
-- **セクション** (空の section は畳む): Agent (status・agent 識別・
-  作業対象・cwd)、Workspace (識別名・branch・machine・tab/pane 数)、
-  Process (`pane.process_info`)、Agent state (`agent.explain` の
-  scalar 項目)、Actions (Prompt agent… / Details… / Source Control /
-  Checkpoints / Copy pane ID / Copy workspace ID)、"Choose what to
-  show" の item visibility 開示。データは snapshot・
-  `usePaneDiagnostics` (`pane.process_info`/`agent.explain`; card は
-  `agent.read` を呼ばない)・既存 store (`openSurface`・
-  `PaneMessageDialog`・`PaneDetailsDialog`) のみを使い、新しい正本や
-  重複実装を持たない。
-- **密度**: T3 と同じ full → compact → essential の階段を、popup の
-  利用可能高さに対する実測 (`scrollHeight` vs popup `clientHeight`、
-  `observeResize`) で自動降格する。compact で Process/Agent state、
-  essential で Agent のみ残る。それでも収まらない場合は popup の
-  viewport が scroll する。
+- **役割分担**: 本 card は作業環境の overview と直接操作、および
+  docked RightPanel surface への導線を持つ。RightPanel は詳細操作面
+  として維持し、内部 ID・`agent.read` 出力・プロセス一覧などの
+  低レベル diagnostics は `PaneDetailsDialog` に残す (§5)。
+  カードは診断の簡易版ではなく、plugin capability
+  (`rebuildup.git`/`projects`/`checkpoints`/`automations`/`conversations`/
+  `usage`) と snapshot を束ねた操作面である。
+- **提示形態** (T3 canvas layout 準拠): canvas container の右上に
+  floating する **inline card が通常形態**。container が狭い
+  (`resolveContextCardPlacement` が null) 場合は header trigger に
+  anchor した **popover が代替形態**。開閉状態は workspace scope で
+  `src/shell/contextCardStore.ts` が保持し localStorage に永続化
+  する (T3 `threadPanelVisibilityByThreadKey` 相当)。
+- **セクション** (item visibility + density + 内容の有無で畳む):
+  Workspace (pane/agent 識別・cwd・workspace 識別・machine・
+  tab/pane 数)、Version Control (branch・変更数・ahead/behind・PR、
+  `rebuildup.git`)、Project scripts (`rebuildup.projects`、run 操作
+  つき)、Checkpoints (`rebuildup.checkpoints`)、Automations
+  (`rebuildup.automations`、pane/workspace bound task の enable
+  switch・run-now・edit 導線)、Agents (同一 workspace の他 live
+  agent + 当該 pane/cwd の過去 session、`rebuildup.conversations`)、
+  Usage (`rebuildup.usage`、既定 off)、Actions (Prompt agent… /
+  Details… / Source Control / Checkpoints / Copy ID)、"Choose what
+  to show" の item menu (カード上の右クリックでも同じ menu を開く)。
+  各 plugin section は独立 fetch で、plugin 未導入・失敗時はその
+  section のみ畳む。section 見出しの icon action と行 click は既存
+  `openSurface` 経路で RightPanel を開くだけであり、機能の重複
+  実装を持たない。
+- **密度**: T3 と同じ full → compact → essential の階段を、内容の
+  **実測高さ** (density ごとに一度ずつ計測、`observeResize` で
+  双方向追従) と利用可能高さから `resolveContextCardDensity` で
+  決める。full のみ Workspace/Agents/Automations、essential では
+  Git/Usage/Actions のみ残る。内部 scroll を持つ一覧
+  (`data-context-card-scroll`) は密度計測から除外する (T3 と同じ
+  規則)。
 - **item visibility**: T3 `threadDetailsItems` 相当を
   `src/lib/detailsCardItems.ts` に移植 (localStorage、default との差分
-  のみ永続化)。
-- **配置**: header 右側の pane actions 群で三点メニューの直前。
-  card 内の Actions は三点メニューと同じ操作への別経路であり、§8 の
-  「複数経路を許容」と整合する。T3 固有概念 (thread/checkpoint/
-  provider usage) は herdr に存在しないため移植しない。
+  のみ永続化、id は永続化契約)。
+- **配置**: header の pane actions 群で三点メニューの直前の info
+  icon が trigger。card 内の Actions・section 導線は三点メニューや
+  RightPanel と同じ操作への別経路であり、§8 の「複数経路を許容」と
+  整合する。T3 固有概念 (thread/lineage/side chats/context window)
+  は herdr ドメインに存在する対応物 (agent record・過去 session)
+  のみ採用する。

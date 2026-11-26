@@ -4,11 +4,12 @@
  * PaneLayoutSnapshot) with Ghostty PaneTerminal surfaces; focus and zoom
  * come from the snapshot, never local guesses. M1's fixture grid is gone.
  */
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { cn } from "~/lib/utils";
 import { isEditableTarget, isMacPlatform } from "~/lib/shortcuts";
 import { PaneTerminal } from "~/components/PaneTerminal";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -20,7 +21,9 @@ import { paneTitle } from "~/lib/workspace";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
-import { callRpc, useBridgeState } from "./bridge";
+import { callRpc, machineListOf, useBridgeState } from "./bridge";
+import { useWorkspaceBranch } from "./worktrees";
+import { WorkspaceContextCard } from "./PaneContextCard";
 import {
   Columns2,
   Info,
@@ -182,6 +185,12 @@ export function WorkspaceCanvas() {
   const [paneDragId, setPaneDragId] = useState<string | null>(null);
   const [paneDropId, setPaneDropId] = useState<string | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  // Context card (issue #390): the inline card positions inside this
+  // container; the popover fallback anchors to the header trigger.
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
+  const machines = machineListOf(bridge);
   const focusedPaneId = focusedPane?.pane_id ?? layout?.focused_pane_id ?? null;
 
   // Keyboard pane navigation (issue #113): ⌘+Arrow on macOS,
@@ -296,9 +305,13 @@ export function WorkspaceCanvas() {
         }
       : undefined;
 
+  const focusedAgent = focusedPane
+    ? snapshot?.agents.find((a) => a.pane_id === focusedPane.pane_id)
+    : undefined;
+
   return (
     <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
-      <div className="relative h-full w-full">
+      <div ref={canvasAreaRef} className="relative h-full w-full">
         {visiblePanes.map((pane) => (
           <PaneSurface
             key={pane.pane_id}
@@ -318,11 +331,33 @@ export function WorkspaceCanvas() {
             dnd={paneDnd(pane)}
           />
         ))}
+        {focusedPane ? (
+          <WorkspaceContextCard
+            machine={machine}
+            machineLabel={machineInfo?.label ?? machine}
+            showMachine={machines.length > 1}
+            pane={focusedPane}
+            agent={focusedAgent}
+            workspace={workspace}
+            branch={branch}
+            agents={snapshot?.agents ?? []}
+            containerRef={canvasAreaRef}
+            onPrompt={
+              focusedPane.agent ? () => setMessagePane(focusedPane) : undefined
+            }
+            onDetails={() => setDetailsPane(focusedPane)}
+          />
+        ) : null}
       </div>
       <PaneDetailsDialog
         pane={detailsPane}
         machine={machine}
         onClose={() => setDetailsPane(null)}
+      />
+      <PaneMessageDialog
+        pane={messagePane}
+        machine={machine}
+        onClose={() => setMessagePane(null)}
       />
     </div>
   );
