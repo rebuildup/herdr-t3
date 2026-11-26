@@ -10,7 +10,8 @@ Mechanical enforcement (issue #312, added after the PR #306 mis-merge):
 | `release-* -> main` | yes — release PR | `integration-path` check passes; merge still requires **explicit user authorization** |
 | `<ticket/feature> -> release-*` | yes — ticket PR | `integration-path` check passes; lands autonomously once quality gates pass |
 | anything -> `main` with non-`release-*` head | **no** | `integration-path` fails; ruleset blocks merge |
-| `release-* -> release-*` | **no** | `integration-path` fails |
+| older `release-*` -> newer `release-*` | yes — release-train sync PR | `integration-path` passes only when the head version sorts before the base (numeric compare); propagates fixes forward across trains (issue #386) |
+| newer/equal `release-* -> release-*` | **no** | `integration-path` fails |
 | any other base branch | **no** | `integration-path` fails |
 
 ## Mechanism
@@ -18,6 +19,10 @@ Mechanical enforcement (issue #312, added after the PR #306 mis-merge):
 - `.github/workflows/release-path.yml` runs the `integration-path` job on
   every `pull_request` and validates only the *shape* of the path
   (base/head branch names). It performs no code checks.
+- Release-train sync (issue #386): `release-0-6-0 -> release-0-7-0`-style
+  PRs are allowed so fixes on a converging train propagate to the next.
+  The check compares the numeric version triple; only strictly-older ->
+  strictly-newer passes. Ticket and release->main paths are unchanged.
 - Repo ruleset `release-driven-paths` (id 28132948, active) applies to
   `refs/heads/main` and `refs/heads/release-*`:
   - requires a pull request, merge commits only
