@@ -340,6 +340,12 @@ export type ClientFrame =
       args?: string[];
       stdin?: string;
       timeout_ms?: number;
+      /**
+       * Opt-in single-flight coalescing (issue #424): the caller asserts
+       * this command is a read whose concurrent identical invocations may
+       * share one execution. Mutations must never set it.
+       */
+      coalesce?: boolean;
     };
 
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
@@ -609,7 +615,8 @@ export function isClientFrame(value: unknown): value is ClientFrame {
           (typeof frame["timeout_ms"] === "number" &&
             Number.isInteger(frame["timeout_ms"]) &&
             frame["timeout_ms"] >= 500 &&
-            frame["timeout_ms"] <= 600_000))
+            frame["timeout_ms"] <= 600_000)) &&
+        (frame["coalesce"] === undefined || typeof frame["coalesce"] === "boolean")
       );
     default:
       return false;
