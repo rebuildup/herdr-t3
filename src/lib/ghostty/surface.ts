@@ -73,6 +73,14 @@ export interface GhosttySurfaceOptions {
   onSelectionChange?(text: string | null): void;
   /** the local scroll position changed (rows above the bottom); 0 is the newest rows */
   onScroll?(rowsAboveBottom: number): void;
+  /**
+   * Selection edge auto-scroll (issue #433): while a select drag holds the
+   * pointer at a viewport edge the core emits `scroll_request` per frame.
+   * Hosts with an authoritative viewport (herdr attach) move it here —
+   * `pane.scroll` — and report the result back via `hostScrollChanged`;
+   * hosts without one get the core's local-scroll fallback instead.
+   */
+  onScrollRequest?(direction: "up" | "down", lines: number): void;
   /** the cell grid changed (host resize, font metrics): the host tells the pane's pty the new size */
   onResize?(cols: number, rows: number): void;
   /** the session's engine trapped or failed: the host decides whether to reattach */
@@ -243,6 +251,19 @@ export class GhosttySurface {
     this.apply(this.core.scrollToBottom());
   }
 
+  /**
+   * The host's authoritative scroll offset moved (herdr
+   * `pane.scroll_changed`, issue #436): selection and search highlights
+   * keep tracking their characters as the displayed viewport moves.
+   */
+  hostScrollChanged(info: {
+    offsetFromBottom: number;
+    maxOffsetFromBottom: number;
+    viewportRows: number;
+  }): void {
+    this.apply(this.core.hostScrollChanged(info));
+  }
+
   /** find matches of `needle` in the screen and history; an empty needle clears them */
   search(needle: string) {
     const result = this.core.search(needle);
@@ -370,6 +391,17 @@ export class GhosttySurface {
             modifiers: effect.modifiers,
           });
           break;
+        case "scroll_request":
+          if (this.options.onScrollRequest) {
+            this.options.onScrollRequest(effect.direction, effect.lines);
+          } else {
+            // no authoritative viewport: scroll the local kept history —
+            // "up" reveals older rows, i.e. further above the bottom
+            this.apply(
+              this.core.scrollBy(effect.direction === "up" ? effect.lines : -effect.lines),
+            );
+          }
+          break;
         case "selection_change":
           this.options.onSelectionChange?.(effect.text);
           break;
@@ -404,6 +436,9 @@ export class GhosttySurface {
           break;
         case "render_set_highlights":
           this.renderer.setHighlights(effect.ranges);
+          break;
+        case "render_set_viewport_shift":
+          this.renderer.setViewportShift(effect.shift);
           break;
         case "render_set_cursor_visible":
           this.renderer.setCursorVisible(effect.visible);
