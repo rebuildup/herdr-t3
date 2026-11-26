@@ -211,7 +211,7 @@ function PanelFrame({
   return (
     <>
       {/* Tab bar — T3's RightPanelTabs header strip at topbar height. */}
-      <div className="flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
+      <div className="flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {surfaces.map((surface, index) => {
             const Icon = SURFACE_ICONS[surface.kind];
@@ -256,7 +256,7 @@ function PanelFrame({
                 className={cn(
                   "group relative flex min-w-0 shrink-0 items-center rounded-md text-sm",
                   active
-                    ? "bg-accent text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                    ? "bg-accent text-foreground inset-ring-1 inset-ring-border"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   dragId === surface.id && "opacity-50",
                 )}

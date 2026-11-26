@@ -32,6 +32,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { observeResize } from "~/lib/observeResize";
 import { focusPaneTerminal } from "~/lib/paneFocus";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -127,9 +128,7 @@ export function WorkspaceHeader() {
     if (!el) return;
     const check = () => setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
     check();
-    const observer = new ResizeObserver(check);
-    observer.observe(el);
-    return () => observer.disconnect();
+    return observeResize(el, check);
   }, [tabs]);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
@@ -142,7 +141,7 @@ export function WorkspaceHeader() {
     openSurface(panelScope, surface);
 
   const headerClass = cn(
-    "relative flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3",
+    "relative flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-3",
     isElectron
       ? "drag-region bg-background px-3 sm:px-5 wco:pr-(--workspace-native-controls-inset)"
       : "pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
@@ -275,7 +274,7 @@ export function WorkspaceHeader() {
                       ? // The inset ring keeps the active pill distinct from
                         // an hovered inactive tab — both share bg-accent, so
                         // fill alone cannot carry selection (issue #204).
-                        "bg-accent font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                        "bg-accent font-medium text-foreground inset-ring-1 inset-ring-border"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >

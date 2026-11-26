@@ -6,7 +6,7 @@
  */
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import type * as React from "react";
-import type { InputHTMLAttributes, Ref, TextareaHTMLAttributes } from "react";
+import type { Ref, TextareaHTMLAttributes } from "react";
 
 import { cn } from "~/lib/utils";
 

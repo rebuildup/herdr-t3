@@ -42,7 +42,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
   return (
     <div
       className={cn(
-        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 pr-3",
+        "relative flex h-(--workspace-topbar-height) shrink-0 flex-row items-center gap-2 pr-3",
         isElectron && "drag-region",
       )}
     >
@@ -129,7 +129,7 @@ function SidebarBrand() {
       aria-label="herdr-t3 home"
       onClick={() => navigate("#/")}
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
+        "relative z-10 ml-(--workspace-titlebar-content-left) flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
         isMobile && "ml-4",
       )}
     >
@@ -230,7 +230,7 @@ const AttentionUtilityItem = function AttentionUtilityItem() {
           <span className="relative flex items-center justify-center">
             <CircleXIcon className="size-4 text-warning" />
             {blocked.length > 1 ? (
-              <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-[9px] font-semibold leading-none text-background">
+              <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-4xs font-semibold leading-none text-background">
                 {blocked.length}
               </span>
             ) : null}

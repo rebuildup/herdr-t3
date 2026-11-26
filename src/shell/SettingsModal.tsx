@@ -796,7 +796,7 @@ export function SettingsModal() {
                         data-settings-section={s.id}
                         onClick={() => navigate(settingsHash(s.id))}
                         className={cn(
-                          "flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",
+                          "flex h-8 items-center gap-2 rounded-(--control-radius) py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",
                           isActive
                             ? "bg-sidebar-row-selected font-medium text-sidebar-foreground"
                             : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -809,7 +809,7 @@ export function SettingsModal() {
                   })}
                   {settingResults.length > 0 ? (
                     <>
-                      <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium text-sidebar-muted-foreground/70">
+                      <p className="px-2 pb-0.5 pt-2 text-2xs font-medium text-sidebar-muted-foreground/70">
                         Settings
                       </p>
                       {settingResults.map((r) => {
@@ -820,7 +820,7 @@ export function SettingsModal() {
                             key={r.anchor}
                             type="button"
                             onClick={() => openSetting(r)}
-                            className="flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm text-sidebar-muted-foreground/80 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                            className="flex h-8 items-center gap-2 rounded-(--control-radius) py-1.5 ps-2.5 pe-2 text-left text-sm text-sidebar-muted-foreground/80 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                           >
                             <Settings2Icon className="size-4 shrink-0" />
                             <span className="min-w-0 flex-1 truncate">{r.label}</span>
