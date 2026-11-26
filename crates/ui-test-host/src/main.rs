@@ -29,11 +29,14 @@ use herdr_bridge::session::BridgeSession;
 use protocol_codec::{MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
 use state_projections::{build_goto_rows, filter_goto_rows, GotoRow};
-use ui_kit::{primitives::{Badge, BadgeVariant, Button, ButtonVariant, Input, Kbd, Separator}, tokens};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
+use ui_kit::{
+    primitives::{Badge, BadgeVariant, Button, ButtonVariant, Input, Kbd, Separator},
+    tokens,
+};
 
 const PX_PER_ROW: f32 = 20.0;
 
@@ -121,7 +124,10 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
     let mut state = HostState {
         workspaces: vec![WorkspaceT {
             id: "ws-main".into(),
-            panes: vec![Pane { id: "pane-main".into(), scroll_max: 0 }],
+            panes: vec![Pane {
+                id: "pane-main".into(),
+                scroll_max: 0,
+            }],
         }],
         selected: 0,
         sidebar_open: true,
@@ -151,8 +157,20 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
             // agent-less pane — so row counts, query results and jump
             // targets line up across both adapters (issue #328).
             state.workspaces = vec![
-                WorkspaceT { id: "w1".into(), panes: vec![Pane { id: "w1:p1".into(), scroll_max: 0 }] },
-                WorkspaceT { id: "w2".into(), panes: vec![Pane { id: "w2:p1".into(), scroll_max: 0 }] },
+                WorkspaceT {
+                    id: "w1".into(),
+                    panes: vec![Pane {
+                        id: "w1:p1".into(),
+                        scroll_max: 0,
+                    }],
+                },
+                WorkspaceT {
+                    id: "w2".into(),
+                    panes: vec![Pane {
+                        id: "w2:p1".into(),
+                        scroll_max: 0,
+                    }],
+                },
             ];
             state.goto_entries = goto_fixture_entries();
         }
@@ -160,11 +178,17 @@ fn fixture_state(fixture: Option<&str>) -> HostState {
             state.workspaces = vec![
                 WorkspaceT {
                     id: "ws-alpha".into(),
-                    panes: vec![Pane { id: "pane-a1".into(), scroll_max: 200 }],
+                    panes: vec![Pane {
+                        id: "pane-a1".into(),
+                        scroll_max: 200,
+                    }],
                 },
                 WorkspaceT {
                     id: "ws-beta".into(),
-                    panes: vec![Pane { id: "pane-b1".into(), scroll_max: 200 }],
+                    panes: vec![Pane {
+                        id: "pane-b1".into(),
+                        scroll_max: 200,
+                    }],
                 },
             ];
         }
@@ -223,8 +247,7 @@ fn goto_fixture_entries() -> Vec<GotoEntry> {
             "enabled": true, "status": "online"
         }))
         .expect("fixture machine"),
-        snapshot: protocol_codec::parse_session_snapshot(&snapshot)
-            .expect("fixture snapshot"),
+        snapshot: protocol_codec::parse_session_snapshot(&snapshot).expect("fixture snapshot"),
         branch_index: HashMap::new(),
     }]
 }
@@ -358,8 +381,7 @@ impl HostView {
                     // sections — same ops the Electron facade calls.
                     let mut winput = Map::new();
                     winput.insert("snapshot".into(), snap.clone());
-                    live.workspace_vm =
-                        state_projections::workspace_view_model(&winput).ok();
+                    live.workspace_vm = state_projections::workspace_view_model(&winput).ok();
                     let mut ainput = Map::new();
                     ainput.insert(
                         "machines".into(),
@@ -369,8 +391,7 @@ impl HostView {
                         }]),
                     );
                     ainput.insert("snapshots".into(), json!({ "local": snap }));
-                    live.agents_vm =
-                        state_projections::agent_view_model(&ainput).ok();
+                    live.agents_vm = state_projections::agent_view_model(&ainput).ok();
                 }
                 LiveMsg::Error(e) => live.error = Some(e),
             }
@@ -387,7 +408,9 @@ impl HostView {
     }
 
     fn set_scroll(&mut self, pane_id: &str, rows: i64, max: i64) {
-        self.state.scroll.insert(pane_id.to_string(), rows.clamp(0, max));
+        self.state
+            .scroll
+            .insert(pane_id.to_string(), rows.clamp(0, max));
     }
 
     fn resolved_for(mode: &str) -> &'static str {
@@ -458,7 +481,13 @@ impl Render for HostView {
         let mut main = gpui::div().flex_1().h_full().flex().flex_col();
 
         // header: sidebar toggle + settings toggle (real buttons)
-        let mut header = gpui::div().h(gpui::px(36.0)).flex().flex_row().items_center().gap(gpui::px(8.0)).px(gpui::px(8.0));
+        let mut header = gpui::div()
+            .h(gpui::px(36.0))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(gpui::px(8.0))
+            .px(gpui::px(8.0));
         header = header.child(
             gpui::div()
                 .id("nav-sidebar-toggle")
@@ -582,7 +611,11 @@ impl Render for HostView {
                             .child(
                                 gpui::div()
                                     .text_size(gpui::px(12.0))
-                                    .text_color(if focused { gpui::rgb(0xffffff) } else { gpui::rgb(0xbbbbbb) })
+                                    .text_color(if focused {
+                                        gpui::rgb(0xffffff)
+                                    } else {
+                                        gpui::rgb(0xbbbbbb)
+                                    })
                                     .child(label),
                             );
                         if focused {
@@ -643,7 +676,9 @@ impl Render for HostView {
                     .and_then(Value::as_object)
                 {
                     for (section, rows) in sections {
-                        let Some(rows) = rows.as_array() else { continue };
+                        let Some(rows) = rows.as_array() else {
+                            continue;
+                        };
                         if rows.is_empty() {
                             continue;
                         }
@@ -703,7 +738,12 @@ impl Render for HostView {
             // Settings surface: section nav + content, mirroring the real
             // app where theme tiles live under the Appearance section.
             let mut body = gpui::div().flex_1().h_full().flex().flex_row();
-            let mut nav = gpui::div().w(gpui::px(140.0)).h_full().flex().flex_col().p(gpui::px(8.0));
+            let mut nav = gpui::div()
+                .w(gpui::px(140.0))
+                .h_full()
+                .flex()
+                .flex_col()
+                .p(gpui::px(8.0));
             nav = nav.child(
                 gpui::div()
                     .id("nav-settings-appearance")
@@ -747,8 +787,7 @@ impl Render for HostView {
                         .child(mode)
                         .on_click(cx.listener(move |view, _event, _window, cx| {
                             view.state.appearance_mode = m.clone();
-                            view.state.theme_resolved =
-                                HostView::resolved_for(&m).to_string();
+                            view.state.theme_resolved = HostView::resolved_for(&m).to_string();
                             cx.notify();
                         })),
                 );
@@ -775,16 +814,18 @@ impl Render for HostView {
                         .border_color(gpui::rgb(0x444444))
                         .text_color(gpui::rgb(0xcccccc))
                         .child(format!("{} (scroll: {})", pid, self.scroll_of(&pid)))
-                        .on_scroll_wheel(cx.listener(move |view, event: &ScrollWheelEvent, _window, cx| {
-                            let lines = match event.delta {
-                                ScrollDelta::Lines(p) => p.y,
-                                ScrollDelta::Pixels(p) => f32::from(p.y) / PX_PER_ROW,
-                            };
-                            // wheel up (negative deltaY) scrolls into history
-                            let cur = view.scroll_of(&pid);
-                            view.set_scroll(&pid, cur - lines.round() as i64, max);
-                            cx.notify();
-                        })),
+                        .on_scroll_wheel(cx.listener(
+                            move |view, event: &ScrollWheelEvent, _window, cx| {
+                                let lines = match event.delta {
+                                    ScrollDelta::Lines(p) => p.y,
+                                    ScrollDelta::Pixels(p) => f32::from(p.y) / PX_PER_ROW,
+                                };
+                                // wheel up (negative deltaY) scrolls into history
+                                let cur = view.scroll_of(&pid);
+                                view.set_scroll(&pid, cur - lines.round() as i64, max);
+                                cx.notify();
+                            },
+                        )),
                 );
             }
         }
@@ -825,14 +866,19 @@ impl Render for HostView {
                         }
                     })
                     .or_else(|| row.current.then(|| "current".to_string()));
-                let mut line = gpui::div()
-                    .flex()
-                    .flex_col()
-                    .min_w(gpui::px(0.0));
+                let mut line = gpui::div().flex().flex_col().min_w(gpui::px(0.0));
                 line = line.child(
-                    gpui::div().flex().flex_row().items_baseline().gap(gpui::px(8.0)).child(
-                        gpui::div().flex_1().min_w(gpui::px(0.0)).child(row.label.clone()),
-                    ),
+                    gpui::div()
+                        .flex()
+                        .flex_row()
+                        .items_baseline()
+                        .gap(gpui::px(8.0))
+                        .child(
+                            gpui::div()
+                                .flex_1()
+                                .min_w(gpui::px(0.0))
+                                .child(row.label.clone()),
+                        ),
                 );
                 if let Some(d) = detail {
                     line = line.child(
@@ -904,7 +950,13 @@ impl Render for HostView {
                         .text_color(gpui::rgb(0xeeeeee))
                         .child(format!("> {query}")),
                 )
-                .child(gpui::div().flex_1().min_h(gpui::px(0.0)).p(gpui::px(4.0)).child(list));
+                .child(
+                    gpui::div()
+                        .flex_1()
+                        .min_h(gpui::px(0.0))
+                        .p(gpui::px(4.0))
+                        .child(list),
+                );
 
             root = root.child(
                 gpui::div()
@@ -920,7 +972,7 @@ impl Render for HostView {
             );
         }
 
-                // ---- ui-kit primitives panel (issue #322) -------------------
+        // ---- ui-kit primitives panel (issue #322) -------------------
         if self.state.primitives_open {
             let theme = tokens::light();
             let weak = cx.weak_entity();
@@ -930,12 +982,34 @@ impl Render for HostView {
                 .gap(gpui::px(10.0))
                 .p(gpui::px(12.0));
             let specs: Vec<(&'static str, Button)> = vec![
-                ("primary", Button::new("b1", "Save").variant(ButtonVariant::Default)),
-                ("secondary", Button::new("b2", "Cancel").variant(ButtonVariant::Secondary).size(ui_kit::primitives::ButtonSize::Sm)),
-                ("outline", Button::new("b3", "Details").variant(ButtonVariant::Outline)),
-                ("ghost", Button::new("b4", "More").variant(ButtonVariant::Ghost)),
-                ("destructive", Button::new("b5", "Delete").variant(ButtonVariant::Destructive)),
-                ("disabled", Button::new("b6", "Disabled").variant(ButtonVariant::Default).disabled(true)),
+                (
+                    "primary",
+                    Button::new("b1", "Save").variant(ButtonVariant::Default),
+                ),
+                (
+                    "secondary",
+                    Button::new("b2", "Cancel")
+                        .variant(ButtonVariant::Secondary)
+                        .size(ui_kit::primitives::ButtonSize::Sm),
+                ),
+                (
+                    "outline",
+                    Button::new("b3", "Details").variant(ButtonVariant::Outline),
+                ),
+                (
+                    "ghost",
+                    Button::new("b4", "More").variant(ButtonVariant::Ghost),
+                ),
+                (
+                    "destructive",
+                    Button::new("b5", "Delete").variant(ButtonVariant::Destructive),
+                ),
+                (
+                    "disabled",
+                    Button::new("b6", "Disabled")
+                        .variant(ButtonVariant::Default)
+                        .disabled(true),
+                ),
             ];
             for (key, mut btn) in specs {
                 let w = weak.clone();
@@ -951,18 +1025,27 @@ impl Render for HostView {
             }
             panel = panel
                 .child(
-                    gpui::div().flex().flex_row().items_center().gap(gpui::px(6.0)).children([
-                        Badge::new("badge1", "agent").variant(BadgeVariant::Success).render(&theme),
-                        Badge::new("badge2", "3").variant(BadgeVariant::Outline).render(&theme),
-                        Kbd::new("kbd1", "⌘K").render(&theme),
-                    ]),
+                    gpui::div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(gpui::px(6.0))
+                        .children([
+                            Badge::new("badge1", "agent")
+                                .variant(BadgeVariant::Success)
+                                .render(&theme),
+                            Badge::new("badge2", "3")
+                                .variant(BadgeVariant::Outline)
+                                .render(&theme),
+                            Kbd::new("kbd1", "⌘K").render(&theme),
+                        ]),
                 )
                 .child(Separator::new("sep1").render(&theme))
                 .child(Input::new("input1").placeholder("Filter…").render(&theme));
             main = main.child(panel);
         }
 
-root.child(main)
+        root.child(main)
     }
 }
 
@@ -975,7 +1058,10 @@ fn reply(id: u64, ok: bool, value: Value, error: Option<String>) -> String {
     if ok {
         m.insert("value".into(), value);
     } else {
-        m.insert("error".into(), json!(error.unwrap_or_else(|| "error".into())));
+        m.insert(
+            "error".into(),
+            json!(error.unwrap_or_else(|| "error".into())),
+        );
     }
     Value::Object(m).to_string()
 }
@@ -994,7 +1080,14 @@ fn state_of(vcx: &mut VisualTestContext, view: &Entity<HostView>) -> HostState {
             .iter()
             .map(|w| WorkspaceT {
                 id: w.id.clone(),
-                panes: w.panes.iter().map(|p| Pane { id: p.id.clone(), scroll_max: p.scroll_max }).collect(),
+                panes: w
+                    .panes
+                    .iter()
+                    .map(|p| Pane {
+                        id: p.id.clone(),
+                        scroll_max: p.scroll_max,
+                    })
+                    .collect(),
             })
             .collect(),
         selected: v.state.selected,
@@ -1031,7 +1124,10 @@ fn click_selector(vcx: &mut VisualTestContext, selector: &str) -> Result<(), Str
         .ok_or_else(|| format!("no bounds for {selector}"))?;
     let center = bounds.center();
     vcx.simulate_click(
-        Point { x: center.x, y: center.y },
+        Point {
+            x: center.x,
+            y: center.y,
+        },
         Modifiers::none(),
     );
     vcx.run_until_parked();
@@ -1079,7 +1175,12 @@ fn main() {
         let req: Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(e) => {
-                writeln!(out, "{}", reply(0, false, Value::Null, Some(format!("bad json: {e}")))).ok();
+                writeln!(
+                    out,
+                    "{}",
+                    reply(0, false, Value::Null, Some(format!("bad json: {e}")))
+                )
+                .ok();
                 out.flush().ok();
                 continue;
             }
@@ -1132,13 +1233,16 @@ fn handle(
                 "pane" => mounted_pane_ids(&state),
                 "mode" => vec!["system".into(), "light".into(), "dark".into()],
                 "ui.button" => vec![
-                    "primary".into(), "secondary".into(), "outline".into(),
-                    "ghost".into(), "destructive".into(), "disabled".into(),
+                    "primary".into(),
+                    "secondary".into(),
+                    "outline".into(),
+                    "ghost".into(),
+                    "destructive".into(),
+                    "disabled".into(),
                 ],
-                "goto.row" => view
-                    .read_with(&vcx.cx, |v, _| {
-                        v.goto_rows().iter().map(|r| r.id.clone()).collect()
-                    }),
+                "goto.row" => view.read_with(&vcx.cx, |v, _| {
+                    v.goto_rows().iter().map(|r| r.id.clone()).collect()
+                }),
                 "live.workspace" => view.read_with(&vcx.cx, |v, _| {
                     v.state
                         .live
@@ -1211,9 +1315,7 @@ fn act(
             let mode = params.get("mode").and_then(Value::as_str).unwrap_or("");
             click_selector(vcx, &format!("theme.mode-tile.{mode}"))
         }
-        ("activate", Some("nav.sidebar-toggle")) => {
-            click_selector(vcx, "nav.sidebar-toggle")
-        }
+        ("activate", Some("nav.sidebar-toggle")) => click_selector(vcx, "nav.sidebar-toggle"),
         ("activate", Some("nav.settings")) => click_selector(vcx, "nav.settings"),
         ("activate", Some("nav.goto")) => click_selector(vcx, "nav.goto"),
         ("select", Some("goto.row")) => {
