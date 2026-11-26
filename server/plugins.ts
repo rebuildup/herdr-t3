@@ -600,11 +600,7 @@ export class PluginService {
    * The plugin's own JSON document is returned verbatim on success.
    */
   async call(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
-    // Coalescing is opt-in (issue #424): only callers that assert a read
-    // may share an in-flight execution; mutations always run alone.
-    if (request.coalesce !== true) return this.callInner(machine, request);
-    const key = `call\u0000${machine}\u0000${request.plugin}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.timeoutMs ?? ""}`;
-    return this.coalesce(key, () => this.callInner(machine, request));
+    return this.callInner(machine, request);
   }
 
   private async callInner(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
@@ -638,16 +634,34 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
     argv.push(...pluginTargetArgs(host));
-    const outcome = await metricTimed(
-      "plugin.exec",
-      () =>
-        host.exec(argv, {
-          cwd: entry.plugin_root,
-          timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
-          envRemove: PLUGIN_ENV_SCRUB,
-        }),
-      { what: "plugin_call", command: request.command },
-    );
+    const exec = () =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec(argv, {
+            cwd: entry.plugin_root,
+            timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
+            envRemove: PLUGIN_ENV_SCRUB,
+          }),
+        { what: "plugin_call", command: request.command },
+      );
+    // Single-flight at the spawn boundary (issue #424). The capability
+    // document's `mutation_commands` is the contract's own read/write
+    // declaration: a command absent from it is a read and may share an
+    // in-flight execution; a declared mutation never coalesces, even if a
+    // caller sets the flag. Plugins that omit the field fail closed —
+    // only an explicit caller `coalesce` opt-in applies.
+    const mutationCommands = capability.doc?.["mutation_commands"];
+    const declaredMutation =
+      Array.isArray(mutationCommands) && mutationCommands.includes(request.command);
+    const contractRead = Array.isArray(mutationCommands) && !declaredMutation;
+    const mayCoalesce = !declaredMutation && (contractRead || request.coalesce === true);
+    const outcome = mayCoalesce
+      ? await this.coalesce(
+          `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
+          exec,
+        )
+      : await exec();
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;
     if (!isRecord(parsed.doc)) {

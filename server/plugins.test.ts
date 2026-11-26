@@ -47,6 +47,8 @@ const CAPABILITY = {
   contract: "herdr-plugins.inbox/v1",
   version: "0.1.0",
   commands: ["list", "settle", "snooze", "restore", "capability"],
+  // Contract read/write declaration (plugins-boundary): only these mutate.
+  mutation_commands: ["settle", "snooze", "restore"],
 };
 
 function inboxHost(extra: Array<{ match: (argv: string[]) => boolean; outcome: PluginExecOutcome }> = []) {
@@ -119,9 +121,11 @@ describe("PluginService.call", () => {
       },
     };
     const svc = serviceFor(host);
-    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", coalesce: true });
-    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", coalesce: true });
-    const p3 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", args: ["extra"], coalesce: true });
+    // No caller flag: "list" is absent from mutation_commands, so the
+    // contract itself marks it readable and the execs coalesce.
+    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "list" });
+    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "list" });
+    const p3 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", args: ["extra"] });
     release();
     const [d1, d2, d3] = await Promise.all([p1, p2, p3]);
     expect(d1).toEqual(d2);
@@ -147,9 +151,10 @@ describe("PluginService.call", () => {
       },
     };
     const svc = serviceFor(host);
-    // Identical concurrent mutation-shaped calls: no coalesce flag -> each runs.
-    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
-    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
+    // Identical concurrent calls to a contract-declared mutation: even an
+    // explicit coalesce flag must not merge them — each runs.
+    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"], coalesce: true });
+    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"], coalesce: true });
     release();
     await Promise.all([p1, p2]);
     expect(calls.filter((c) => c[0] === "bun" && c[3] === "settle")).toHaveLength(2);
