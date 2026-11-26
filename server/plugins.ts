@@ -275,6 +275,13 @@ export interface PluginCallRequest {
   command: string;
   args?: string[] | undefined;
   timeoutMs?: number | undefined;
+  /**
+   * Caller asserts this is a read whose concurrent identical invocations
+   * may share one execution (issue #424). Mutations must never set it —
+   * coalescing is opt-in precisely because the contract does not (yet)
+   * declare per-command side effects.
+   */
+  coalesce?: boolean | undefined;
 }
 
 interface DiscoveryCacheEntry {
@@ -593,6 +600,9 @@ export class PluginService {
    * The plugin's own JSON document is returned verbatim on success.
    */
   async call(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
+    // Coalescing is opt-in (issue #424): only callers that assert a read
+    // may share an in-flight execution; mutations always run alone.
+    if (request.coalesce !== true) return this.callInner(machine, request);
     const key = `call\u0000${machine}\u0000${request.plugin}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.timeoutMs ?? ""}`;
     return this.coalesce(key, () => this.callInner(machine, request));
   }

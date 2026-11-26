@@ -119,15 +119,40 @@ describe("PluginService.call", () => {
       },
     };
     const svc = serviceFor(host);
-    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "list" });
-    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "list" });
-    const p3 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", args: ["extra"] });
+    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", coalesce: true });
+    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", coalesce: true });
+    const p3 = svc.call("local", { plugin: "rebuildup.inbox", command: "list", args: ["extra"], coalesce: true });
     release();
     const [d1, d2, d3] = await Promise.all([p1, p2, p3]);
     expect(d1).toEqual(d2);
     expect(d3).toEqual(d1);
     // Two `list` execs total: p1+p2 coalesced, p3's distinct args ran its own.
     expect(calls.filter((c) => c[0] === "bun" && c[3] === "list")).toHaveLength(2);
+  });
+
+  test("calls without coalesce never merge, even when identical and concurrent", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const calls: string[][] = [];
+    const host: PluginHost = {
+      async exec(argv: string[]): Promise<PluginExecOutcome> {
+        calls.push([...argv]);
+        if (argv[0] === "herdr") return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") return ok(CAPABILITY);
+        if (argv[3] === "settle") {
+          await gate;
+          return ok({ contract: "herdr-plugins.inbox/v1", command: "settle", ok: true });
+        }
+        return { code: 127, stdout: "", stderr: "no handler", timedOut: false };
+      },
+    };
+    const svc = serviceFor(host);
+    // Identical concurrent mutation-shaped calls: no coalesce flag -> each runs.
+    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
+    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
+    release();
+    await Promise.all([p1, p2]);
+    expect(calls.filter((c) => c[0] === "bun" && c[3] === "settle")).toHaveLength(2);
   });
 
   test("appends --session only when the host names a non-default session", async () => {
