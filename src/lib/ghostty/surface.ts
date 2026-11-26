@@ -63,6 +63,13 @@ export interface GhosttySurfaceOptions {
     row?: number;
     modifiers: number;
   }): void;
+  /**
+   * Paste text for hosts that deliver it through a mode-aware channel
+   * (herdr `pane.send_text` wraps bracketed paste iff the pane enabled
+   * mode 2004 — the attach stream carries no mode state, issue #434).
+   * When set, paste routes here instead of engine-encoded bytes.
+   */
+  onPasteText?(text: string): void;
   onSelectionChange?(text: string | null): void;
   /** the local scroll position changed (rows above the bottom); 0 is the newest rows */
   onScroll?(rowsAboveBottom: number): void;
@@ -156,6 +163,7 @@ export class GhosttySurface {
       onInput: options.onInput,
       onMouse: options.onMouse,
       onWheel: options.onWheel,
+      onPasteText: options.onPasteText,
       onSelectionChange: options.onSelectionChange,
       onScroll: options.onScroll,
       onResize: options.onResize,
