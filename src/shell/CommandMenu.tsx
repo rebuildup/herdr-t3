@@ -15,6 +15,7 @@ import {
   Maximize2Icon,
   MessagesSquareIcon,
   MonitorIcon,
+  PackageIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
@@ -248,6 +249,14 @@ export function CommandMenu({
           icon: <GaugeIcon className="size-4" />,
           keywords: "usage quota cost tokens divergence estimates plugin",
           run: panelSurface({ id: "usage", kind: "usage" }),
+        },
+        {
+          id: "panel-artifacts",
+          label: "Artifacts",
+          group: "Actions",
+          icon: <PackageIcon className="size-4" />,
+          keywords: "artifacts registry files html pdf images deliver verify plugin",
+          run: panelSurface({ id: "artifacts", kind: "artifacts" }),
         },
       );
       list.push(
