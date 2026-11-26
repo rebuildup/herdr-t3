@@ -10,3 +10,4 @@ gpui = { version = "0.2.2", features = ["test-support"] }
 protocol-codec = { path = "../protocol-codec" }
 serde_json = "1"
 state-projections = { path = "../state-projections" }
+ui-kit = { path = "../ui-kit" }
