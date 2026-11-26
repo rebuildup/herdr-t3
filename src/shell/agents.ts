@@ -72,13 +72,33 @@ export const COLLAPSIBLE_AGENT_SECTIONS: readonly AgentSection[] = AGENT_SECTION
 /**
  * Progressive disclosure inside an expanded shelf (issue #389, T3
  * `Sidebar.tsx` settled tail + `ThreadDetailsMoreButton`): capped
- * sections render the first AGENT_SHELF_INITIAL_VISIBLE rows and reveal
- * AGENT_SHELF_PAGE more per "Show N more" click. Attention is exempt —
- * blocked agents must never sit behind a disclosure.
+ * sections render their initial window and reveal a page more per
+ * "Show N more" click — sizes come from `agentShelfInitialLimit` /
+ * `agentShelfPage` (Working: 4/4 per issue #418; others: 10/25).
+ * Attention is exempt — blocked agents must never sit behind a
+ * disclosure.
  */
 export const AGENT_SHELF_INITIAL_VISIBLE = 10;
 export const AGENT_SHELF_PAGE = 25;
 export const UNCAPPED_AGENT_SECTIONS: readonly AgentSection[] = ["attention"];
+
+/**
+ * Working is the high-churn shelf: it opens at 4 rows and reveals 4 per
+ * "Show N more" so the dock stays compact while agents cycle through
+ * (issue #418). Other shelves keep the T3 settled-tail sizes above.
+ */
+export const AGENT_SHELF_WORKING_INITIAL_VISIBLE = 4;
+export const AGENT_SHELF_WORKING_PAGE = 4;
+
+export function agentShelfInitialLimit(section: AgentSection): number {
+  return section === "working"
+    ? AGENT_SHELF_WORKING_INITIAL_VISIBLE
+    : AGENT_SHELF_INITIAL_VISIBLE;
+}
+
+export function agentShelfPage(section: AgentSection): number {
+  return section === "working" ? AGENT_SHELF_WORKING_PAGE : AGENT_SHELF_PAGE;
+}
 
 /** Stable identity for shelf-row matching (route pinning, tests). */
 export function agentShelfEntryKey(entry: AgentListEntry): string {
