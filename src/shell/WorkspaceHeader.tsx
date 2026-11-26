@@ -17,6 +17,7 @@ import {
   HistoryIcon,
   InfoIcon,
   Maximize2,
+  MessagesSquareIcon,
   MessageSquareTextIcon,
   Minimize2,
   MousePointerClickIcon,
@@ -652,6 +653,11 @@ export function WorkspaceHeader() {
                 onClick={() => openPanelSurface({ id: "automations", kind: "automations" })}
               >
                 <CalendarClockIcon /> Automations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "conversations", kind: "conversations" })}
+              >
+                <MessagesSquareIcon /> Conversations
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab

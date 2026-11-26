@@ -51,6 +51,8 @@ source of truth. Each feature is classified by where its data comes from:
 | Projects registry (multi-repo, pin/archive, settings, repo membership) | [plugin] | `herdr-plugins.projects/v1` pinned @2dcb2abf (ADR-0014/0015/0019/0020): registry UI connected (#252, capability-gated per host); #69 audit semantics (verbatim remote case, `has_submodules` tri-state, wholesale settings rewrite) consumed |
 | Project Scripts (list/run/stop/results/logs) | [plugin] | same contract: scripts UI connected (#253, schema v2 run ownership + stop confirmation per #259; durable scrollback completion receipt per #265/ADR-0019 — `running` may finalize on refresh; shell-family `--shell` selector + `shell_family`/`shell_source` display per #269/ADR-0020); auto triggers upstream-gated (herdr-plugins#60) |
 | Checkpoints | [plugin] | `herdr-plugins.checkpoints/v1` pinned @ae4f214 (ADR-0016/0017/0021/0024): list/show/diff/create/delete + plan/restore surface connected (#260/#264, capability-gated per host; plan preview, shared-worktree isolation, explicit-only `--force`, pre-restore recovery); work-unit auto-capture consumed (#268: `kind` badges, `auto_captures` drain outcomes surfaced, explicit `create --auto`); multi-repo save groups + restore-group + bounded gc/prune connected (#279: `group_id` badges/`--group` filter, mandatory dry-run preview, per-repo partial results via the bridge stdout-report convention); per-turn capture remains upstream-gated |
+| Conversations (indexed transcript sessions/history/search) | [plugin] | `herdr-plugins.conversations/v1` pinned @d23205af (ADR-0027): sessions list + expandable paged event history + search surface connected (#374, capability-gated per host; opaque `next_cursor` paging verbatim, stale/missing verdicts rendered as the plugin reports them); explicit `index` mutation gated on `mutation_commands`; `show`/`usage` remain separate tickets (#364) |
+| Automations (scheduled/event tasks) | [plugin] | `herdr-plugins.automations/v1` pinned @6c1cfa5 (ADR-0026): task/run surface connected (#361 read + #362 lifecycle mutations); driver commands remain out of scope |
 
 > **Container rule (maintainer directive, #333):** plugin surfaces are docked
 > right-panel tabs in the T3 `ChatRightPanel`/`RightPanelTabs` pattern — a
@@ -105,7 +107,10 @@ parity items ship in v0.5.0; new feature surfaces ship in v0.6.0+**.
    via `herdr-plugins.automations` (#361 read + #362 lifecycle
    mutations on the @6c1cfa5 pin — scheduled tasks are plugin-owned;
    the GUI renders task/run state and drives set-enabled/run-now/
-   delete/reconcile), settings sections
+   delete/reconcile), conversations surface via
+   `herdr-plugins.conversations` (#374 on the @d23205af pin —
+   sessions/history/search reads plus the explicit `index` mutation;
+   `show`/`usage` remain separate tickets), settings sections
    that map to existing data.
 3. **upstream-gated (any release):** usage metering, issue/PR identity —
    blocked on herdrdev/herdr proposals (track alongside #6178
