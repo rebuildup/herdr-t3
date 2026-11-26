@@ -55,6 +55,9 @@ ADR-0010; wire shapes: protocol-frames.
 ## Evidence today
 
 `server/herdr.test.ts`, `server/bridge-core.ts` paths,
+`server/bridge-core.test.ts` (attach-queue semantics: pre-attach frames
+flush in order on attach, are dropped with no subscription, and are
+abandoned on attach failure or session teardown — issue #356),
 `scripts/verify-terminal-input.ts` (live attach-path checks),
 `scripts/verify-reconnect-draft.ts` (attach→input→bridge kill→reconnect→
 draft retained / outage input never delivered / explicit send only;
