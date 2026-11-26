@@ -79,7 +79,7 @@ export function AgentHoverCard({
             changes with title luck reads as broken (issue #204 review). */}
         <DetailRow
           icon={
-            <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
+            <AgentProviderIcon agent={agent.agent} className="size-3" />
           }
         >
           {agentLabel}

@@ -75,6 +75,24 @@ Reused material:
   `src/lib/ghostty/` and adapted for full xterm.js replacement: the xterm
   overlay/capture adapter is not carried.
 
+## ACP Registry — agent brand icons
+
+- Upstream: <https://github.com/agentclientprotocol/registry>
+- Pinned commit: `b150ba592b85f8ee5f9f3457ce080197e3a1922e`
+  (`<agent>/icon.svg` per agent directory; licenses per `agent.json`).
+
+Reused material:
+
+- `src/components/agent-icons/*.svg` — official monochrome agent glyphs
+  (`currentColor` paths) vendored verbatim for herdr agent kinds that have
+  no T3 Code artwork: `gemini`, `devin`, `agy` (antigravity-acp), `cline`,
+  `copilot` (github-copilot), `kimi` (kimi-code), `droid` (factory-droid),
+  `amp` (amp-acp), `kilo`, `qodercli` (qoder), `qwen` (qwen-code). Rendered
+  by `src/components/agentIconUrls.ts` / `src/components/agentIcons.tsx`
+  (issue #311). The marks remain the property of their respective owners;
+  the agents themselves are proprietary or open source per each entry's
+  `agent.json` license (Apache-2.0, MIT, or proprietary).
+
 ## herdr
 
 - herdr is the terminal multiplexer this client bridges to. Its API schema
