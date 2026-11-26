@@ -15,13 +15,28 @@
  *   herdr --session ht3verify pane run <pane> "printf '\\e[?1000h\\e[?1002h\\e[?1006h\\e[?1004h'"
  *   herdr --session ht3verify pane run <pane> "cat -v"
  *
- *   bun scripts/verify-terminal-input.ts [baseUrl] [paneId]
+ *   bun scripts/verify-terminal-input.ts --session ht3verify [baseUrl] [paneId]
+ *   (or HERDR_VERIFY_SESSION=ht3verify; the isolation guard refuses the
+ *   default/live session — issue #356)
  */
 import { $ } from "bun";
+import { assertBridgeTargetIsolated, VerifyIsolationError } from "./verify-guard";
 
-const BASE = process.argv[2] ?? "http://localhost:5741/";
-const PANE = process.argv[3] ?? "w1:p1";
-const SESSION = process.env.HERDR_VERIFY_SESSION ?? "ht3verify";
+const argv = process.argv.slice(2);
+// Positional args are baseUrl/paneId; --session/--socket consume a value.
+const VALUE_FLAGS = new Set(["--session", "--socket"]);
+const positional: string[] = [];
+for (let i = 0; i < argv.length; i++) {
+  const arg = argv[i];
+  if (VALUE_FLAGS.has(arg)) {
+    i += 1;
+    continue;
+  }
+  if (arg?.startsWith("--")) continue;
+  positional.push(arg);
+}
+const BASE = positional[0] ?? "http://localhost:5741/";
+const PANE = positional[1] ?? "w1:p1";
 const CHROME =
   process.env.CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -47,6 +62,24 @@ async function paneCount(re: RegExp): Promise<number> {
 }
 
 const HEADLESS = process.env.CDP_HEADLESS !== "0";
+
+// Isolation guard (issue #356): an explicit non-default herdr session is
+// required, and the bridge must provably be bound to that same socket —
+// the live/default session is refused before Chrome or herdr are touched.
+let SESSION: string;
+try {
+  const target = await assertBridgeTargetIsolated(BASE, { argv });
+  if (!target.session) {
+    throw new VerifyIsolationError(
+      "--session <name> or HERDR_VERIFY_SESSION is required: pane reads go through `herdr --session`",
+    );
+  }
+  SESSION = target.session;
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
+
 const proc = Bun.spawn(
   [CHROME, ...(HEADLESS ? ["--headless=new"] : []), `--remote-debugging-port=${PORT}`,
    "--no-first-run", "--user-data-dir=/tmp/herdr-t3-cdp-verify", "about:blank"],

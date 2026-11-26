@@ -6,13 +6,31 @@
  *
  * Run against an isolated herdr session with live agents, e.g.:
  *   HERDR_SOCKET=~/.config/herdr/sessions/ht3-rc/herdr.sock ./scripts/dev.sh
- *   bun scripts/capture-v050.ts docs/design/evidence/v050
+ *   HERDR_SOCKET=~/.config/herdr/sessions/ht3-rc/herdr.sock \
+ *     bun scripts/capture-v050.ts docs/design/evidence/v050
+ *
+ * Isolation (issue #356): same guard as capture-evidence.ts — an explicit
+ * non-default HERDR_SOCKET/session is required and /api/health must confirm
+ * the bridge is bound to it; the live session is refused.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertBridgeTargetIsolated } from "./verify-guard";
 
-const OUT = process.argv[2] ?? "docs/design/evidence/v050";
-const BASE = process.argv[3] ?? "http://localhost:5737/";
+// Positional args are outDir/baseUrl; --session/--socket consume a value.
+const VALUE_FLAGS = new Set(["--session", "--socket"]);
+const positional: string[] = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  if (VALUE_FLAGS.has(arg)) {
+    i += 1;
+    continue;
+  }
+  if (arg?.startsWith("--")) continue;
+  positional.push(arg);
+}
+const OUT = positional[0] ?? "docs/design/evidence/v050";
+const BASE = positional[1] ?? "http://localhost:5737/";
 const CHROME =
   process.env.CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -171,6 +189,12 @@ async function dismissMenuByClick() {
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
+  try {
+    await assertBridgeTargetIsolated(BASE, { argv: process.argv.slice(2) });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
   const chrome = await launchChrome();
   try {
     const targets = (await (
