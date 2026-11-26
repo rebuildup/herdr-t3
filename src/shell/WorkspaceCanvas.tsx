@@ -41,6 +41,7 @@ function PaneSurface({
   area,
   focused,
   zoomed,
+  hasSiblings,
   onFocus,
   onDetails,
   dnd,
@@ -52,6 +53,8 @@ function PaneSurface({
   area: { width: number; height: number };
   focused: boolean;
   zoomed: boolean;
+  /** another pane shares the canvas — only then does the hairline split divider show (issue #432) */
+  hasSiblings: boolean;
   onFocus: () => void;
   onDetails: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
@@ -80,10 +83,16 @@ function PaneSurface({
       <ContextMenuTrigger className="contents">
         <div
           className={cn(
-            "absolute overflow-hidden border transition-colors",
-            // Focus treatment follows interaction.md: neutral emphasis, never a
-            // full blue frame (issue #112).
-            focused ? "border-foreground/25 dark:border-foreground/45" : "border-border/50",
+            "absolute overflow-hidden transition-colors",
+            // Split boundaries read as a hairline divider, not a card frame
+            // (interaction.md §1, issue #432): single-pane and zoomed layouts
+            // get no border at all; focused panes get a slightly stronger
+            // hairline, never a full blue frame (issue #112).
+            zoomed || !hasSiblings
+              ? "border-0"
+              : focused
+                ? "border border-foreground/15 dark:border-foreground/30"
+                : "border border-border/40",
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
           )}
           style={style}
@@ -310,7 +319,7 @@ export function WorkspaceCanvas() {
     : undefined;
 
   return (
-    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-2">
       <div ref={canvasAreaRef} className="relative h-full w-full">
         {visiblePanes.map((pane) => (
           <PaneSurface
@@ -326,6 +335,7 @@ export function WorkspaceCanvas() {
                 : pane.focused
             }
             zoomed={zoomed}
+            hasSiblings={visiblePanes.length > 1}
             onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
             onDetails={() => setDetailsPane(pane)}
             dnd={paneDnd(pane)}
