@@ -100,9 +100,12 @@
   --animate-skeleton: skeleton 2.4s infinite;
   --animate-notice-in: notice-in var(--motion-duration-fast) var(--motion-ease-standard);
   /* Agent status markers (issue #550): overshoot pop on enter, quick
-     fade+shrink on exit so status changes read as motion, not swaps. */
-  --animate-marker-pop: marker-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+     fade+shrink on exit so status changes read as motion, not swaps.
+     The blocked/live composites chain the pop into ongoing motion —
+     a marker that asks for attention never sits dead still. */
   --animate-marker-exit: marker-exit 160ms ease-in forwards;
+  --animate-marker-blocked: marker-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1), marker-attention 1.8s ease-in-out 320ms infinite;
+  --animate-marker-live: marker-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1), marker-pulse 2.6s ease-in-out 400ms infinite;
 
   /* T3 appearance-contrast tokens: fall back to the base values (boost 0). */
   --contrast-foreground: var(--foreground);
@@ -208,6 +211,47 @@
     to {
       opacity: 0;
       transform: scale(0.5);
+    }
+  }
+
+  /* Attention shake for the blocked "!" disc: a quick decaying wiggle
+     once per cycle, then rest — alarming without becoming noise. */
+  @keyframes marker-attention {
+    0%,
+    55%,
+    100% {
+      transform: translate(0, 0) rotate(0deg);
+    }
+    60% {
+      transform: translate(-0.8px, 0.3px) rotate(-9deg);
+    }
+    65% {
+      transform: translate(0.8px, -0.3px) rotate(8deg);
+    }
+    70% {
+      transform: translate(-0.6px, -0.3px) rotate(-6deg);
+    }
+    75% {
+      transform: translate(0.5px, 0.3px) rotate(5deg);
+    }
+    80% {
+      transform: translate(-0.3px, 0.1px) rotate(-3deg);
+    }
+    85%,
+    100% {
+      transform: translate(0, 0) rotate(0deg);
+    }
+  }
+
+  /* Soft breathing pulse for the quiet live markers (done check,
+     unknown "?") — alive, not alarming. */
+  @keyframes marker-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.14);
     }
   }
 
@@ -639,6 +683,29 @@
   @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
     background: var(--popover) !important;
   }
+}
+
+/* Agent identity glyph hover (issue #550): the whole glyph lifts a
+   touch, the ring stroke swells and quiet rings regain full opacity.
+   stroke-width/opacity/color all transition on the shared motion
+   tokens; the global reduced-motion rule collapses them to instant. */
+.agent-identity {
+  transition: transform var(--motion-duration-base) var(--motion-ease-standard);
+}
+.agent-identity:hover,
+.group\/agent:hover .agent-identity {
+  transform: scale(1.1);
+}
+.agent-identity .agent-ring {
+  transition:
+    color var(--motion-duration-base) var(--motion-ease-standard),
+    stroke-width var(--motion-duration-base) var(--motion-ease-standard),
+    opacity var(--motion-duration-base) var(--motion-ease-standard);
+}
+.agent-identity:hover .agent-ring,
+.group\/agent:hover .agent-ring {
+  stroke-width: 2.25;
+  opacity: 1;
 }
 
 /* Ported from t3code apps/web/src/index.css `visible-animate-spin`

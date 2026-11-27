@@ -30,7 +30,12 @@ behavior, not the DOM.
   covers the brand mark, done = success ring + small success check
   badge on the bottom-right corner, idle = quiet solid muted ring with
   no marker, unknown/unrecognized = dashed muted ring + small muted
-  "?" badge on the bottom-right corner. State name is never
+  "?" badge on the bottom-right corner. Motion grammar: every marker
+  enters with an overshoot pop and exits with a quick fade+shrink;
+  blocked's "!" disc then runs a periodic attention shake while its
+  ring breathes, done/unknown badges keep a soft pulse, and hovering
+  the glyph or its row lifts the glyph and swells the ring stroke —
+  all collapsed to instant under reduced-motion. State name is never
   printed on the row; it lives
   in the shelf, hover card and accessible name. GPUI must reproduce
   the same asset resolution, state→ring+overlay mapping and 20px footprint —

@@ -55,6 +55,8 @@ interface StatusRingSpec {
   spin?: boolean;
   /** Dim the ring for states that should not compete for attention. */
   quiet?: boolean;
+  /** Slow opacity breathing for states that must keep asking. */
+  pulse?: boolean;
 }
 
 const RING_RADIUS = 8.75;
@@ -75,7 +77,11 @@ function statusRingSpec(status: AgentStatus): StatusRingSpec {
         spin: true,
       };
     case "blocked":
-      return { tone: "text-destructive", strokeWidth: RING_STROKE.attention };
+      return {
+        tone: "text-destructive",
+        strokeWidth: RING_STROKE.attention,
+        pulse: true,
+      };
     case "done":
       return { tone: "text-success", strokeWidth: RING_STROKE.default };
     case "idle":
@@ -109,10 +115,13 @@ function StatusRing({ status }: { status: AgentStatus }) {
       fill="none"
       aria-hidden
       className={cn(
-        "pointer-events-none absolute inset-0 size-full transition-colors duration-200",
+        // `agent-ring` hooks the hover swell in index.css; color,
+        // stroke-width and opacity all transition on motion tokens.
+        "agent-ring pointer-events-none absolute inset-0 size-full",
         spec.tone,
         spec.quiet && "opacity-60",
         spec.spin && "motion-safe:visible-animate-spin",
+        spec.pulse && "motion-safe:animate-pulse",
       )}
     >
       {spec.spin ? (
@@ -219,7 +228,8 @@ function StatusBadge({
   );
 }
 
-const MARKER_ENTER = "motion-safe:animate-marker-pop";
+const MARKER_ENTER_BLOCKED = "motion-safe:animate-marker-blocked";
+const MARKER_ENTER_LIVE = "motion-safe:animate-marker-live";
 const MARKER_EXIT = "motion-safe:animate-marker-exit";
 /** Matches `--animate-marker-exit` duration plus a small buffer. */
 const MARKER_EXIT_MS = 180;
@@ -236,17 +246,32 @@ function StatusMarker({
   status: AgentStatus;
   exiting?: boolean;
 }) {
-  const anim = exiting ? MARKER_EXIT : MARKER_ENTER;
+  if (exiting) {
+    // The outgoing marker only fades — its ongoing motion stops with it.
+    return status === "blocked" ? (
+      <StatusOverlay tone="destructive" className={MARKER_EXIT}>
+        !
+      </StatusOverlay>
+    ) : status === "done" ? (
+      <StatusBadge tone="success" className={MARKER_EXIT}>
+        <Check className="size-2" strokeWidth={3.5} />
+      </StatusBadge>
+    ) : status === "idle" || status === "working" ? null : (
+      <StatusBadge tone="muted" className={MARKER_EXIT}>
+        ?
+      </StatusBadge>
+    );
+  }
   if (status === "blocked") {
     return (
-      <StatusOverlay tone="destructive" className={anim}>
+      <StatusOverlay tone="destructive" className={MARKER_ENTER_BLOCKED}>
         !
       </StatusOverlay>
     );
   }
   if (status === "done") {
     return (
-      <StatusBadge tone="success" className={anim}>
+      <StatusBadge tone="success" className={MARKER_ENTER_LIVE}>
         <Check className="size-2" strokeWidth={3.5} />
       </StatusBadge>
     );
@@ -254,7 +279,7 @@ function StatusMarker({
   if (status === "idle" || status === "working") return null;
   // `unknown` and any status herdr adds later.
   return (
-    <StatusBadge tone="muted" className={anim}>
+    <StatusBadge tone="muted" className={MARKER_ENTER_LIVE}>
       ?
     </StatusBadge>
   );
@@ -292,7 +317,9 @@ export function AgentIdentityIcon({
   return (
     <span
       className={cn(
-        "relative inline-flex size-5 shrink-0 items-center justify-center",
+        // `agent-identity` hooks the hover lift + ring swell in
+        // index.css.
+        "agent-identity relative inline-flex size-5 shrink-0 items-center justify-center",
         className,
       )}
     >

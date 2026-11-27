@@ -91,6 +91,27 @@ export const StatusTransitions: Story = {
   },
 };
 
+/** Hover each glyph: the icon lifts, the ring stroke swells, quiet rings brighten. */
+export const HoverFeedback: Story = {
+  args: { agent: "claude", status: "working" },
+  render: () => (
+    <div className="flex flex-col gap-4">
+      <p className="text-xs text-muted-foreground">
+        Hover each glyph — the icon scales up, the ring stroke thickens and
+        dimmed rings regain opacity.
+      </p>
+      <div className="flex items-center gap-6">
+        {STATUSES.map((status) => (
+          <div key={status} className="flex flex-col items-center gap-2">
+            <AgentIdentityIcon agent="claude" status={status} />
+            <span className="text-xs text-muted-foreground">{status}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  ),
+};
+
 /** Mock of the sidebar agent rows the ring leads — status name kept out of the row, as in the app. */
 export const SidebarAgentRows: Story = {
   args: { agent: "claude", status: "working" },
@@ -108,7 +129,7 @@ export const SidebarAgentRows: Story = {
         {rows.map((row) => (
           <div
             key={row.label}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground"
+            className="group/agent flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground"
           >
             <AgentIdentityIcon agent={row.agent} status={row.status} />
             <span className="min-w-0 flex-1 truncate">{row.label}</span>

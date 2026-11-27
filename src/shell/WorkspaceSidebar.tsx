@@ -494,7 +494,9 @@ function AgentRow({
       data-sidebar-row={agent.pane_id}
       onClick={focusAgent}
       className={cn(
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) py-1.5 text-left outline-none transition-colors",
+        // `group/agent` lets the identity glyph react to row hover
+        // (index.css `.group\/agent:hover .agent-identity`).
+        "group/agent flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) py-1.5 text-left outline-none transition-colors",
         !agent.focused && "hover:bg-sidebar-row-hover",
         "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         agent.focused &&
