@@ -215,31 +215,32 @@
   }
 
   /* Attention shake for the blocked "!" disc: a quick decaying wiggle
-     once per cycle, then rest — alarming without becoming noise. */
+     once per cycle, then rest — alarming without becoming noise.
+     Horizontal only: diagonal/rotational wobble reads as cheap. */
   @keyframes marker-attention {
     0%,
     55%,
     100% {
-      transform: translate(0, 0) rotate(0deg);
+      transform: translate(0, 0);
     }
     60% {
-      transform: translate(-0.8px, 0.3px) rotate(-9deg);
+      transform: translate(-0.9px, 0);
     }
     65% {
-      transform: translate(0.8px, -0.3px) rotate(8deg);
+      transform: translate(0.9px, 0);
     }
     70% {
-      transform: translate(-0.6px, -0.3px) rotate(-6deg);
+      transform: translate(-0.7px, 0);
     }
     75% {
-      transform: translate(0.5px, 0.3px) rotate(5deg);
+      transform: translate(0.6px, 0);
     }
     80% {
-      transform: translate(-0.3px, 0.1px) rotate(-3deg);
+      transform: translate(-0.4px, 0);
     }
     85%,
     100% {
-      transform: translate(0, 0) rotate(0deg);
+      transform: translate(0, 0);
     }
   }
 
