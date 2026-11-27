@@ -149,6 +149,17 @@ interface TerminalSlot {
   /** Payload bytes currently held by `queue` (input buffers dominate). */
   queueBytes: number;
   gone: boolean;
+  /**
+   * Desired attach mode (issue #571): true = writable AttachTerminal
+   * (resize authority + input), false = read-only ObserveTerminal. Set at
+   * subscribe time and updated by a mode-negotiation subscribe; input,
+   * mouse and scroll frames are dropped while false — the server would
+   * ignore them anyway — while terminal_resize still flows because an
+   * observe client renders into the size it announces.
+   */
+  writable: boolean;
+  /** Bumped on every (re)attach; a late-resolving link from an older epoch is closed, not installed. */
+  epoch: number;
 }
 
 interface SessionState {
@@ -322,16 +333,18 @@ function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, r
   state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
 
-function ensureTerminal(state: SessionState, paneId: string, cols: number, rows: number, takeover: boolean): TerminalSlot {
-  const existing = state.terminals.get(paneId);
-  if (existing) {
-    existing.refs += 1;
-    return existing;
-  }
-  const slot: TerminalSlot = { refs: 1, link: null, queue: [], queueBytes: 0, gone: false };
-  state.terminals.set(paneId, slot);
-  syncScrollSubscriptions(state);
-
+/**
+ * Resolve the pane's terminal id (refreshing the snapshot once for panes
+ * newer than the last fetch) and open the attach link for `slot`.
+ */
+function attachSlot(
+  state: SessionState,
+  slot: TerminalSlot,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover: boolean,
+): void {
   const pane = state.snapshot?.panes.find((p) => p.pane_id === paneId);
   const terminalId = pane?.terminal_id;
   if (!terminalId) {
@@ -352,9 +365,44 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
       .catch(() => {
         if (!slot.gone) dropTerminal(state, paneId, slot, "unknown_pane");
       });
-    return slot;
+    return;
   }
   attachTerminal(state, slot, paneId, terminalId, cols, rows, takeover);
+}
+
+function ensureTerminal(
+  state: SessionState,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover: boolean,
+  writable: boolean,
+): TerminalSlot {
+  const existing = state.terminals.get(paneId);
+  if (existing) {
+    if (existing.writable !== writable) {
+      // Mode negotiation (issue #571): herdr accepts the attach-mode message
+      // only while the client is TerminalPending, so a mode change is a new
+      // connection — but the slot, its refcount and its op queue survive, so
+      // input typed during the switch still flushes to the new link in
+      // order. This subscribe does not take a reference: the client pairs
+      // it with the single unsubscribe it already sends.
+      existing.writable = writable;
+      // Supersede the old link before closing it: its detach/close
+      // callbacks must already read as stale (issue #571).
+      existing.epoch += 1;
+      existing.link?.close();
+      existing.link = null;
+      attachSlot(state, existing, paneId, cols, rows, takeover);
+      return existing;
+    }
+    existing.refs += 1;
+    return existing;
+  }
+  const slot: TerminalSlot = { refs: 1, link: null, queue: [], queueBytes: 0, gone: false, writable, epoch: 0 };
+  state.terminals.set(paneId, slot);
+  syncScrollSubscriptions(state);
+  attachSlot(state, slot, paneId, cols, rows, takeover);
   return slot;
 }
 
@@ -369,10 +417,18 @@ function attachTerminal(
 ): void {
   // Default attach observes without stealing the viewer role from an
   // existing client (TUI, second window). Takeover is only requested when
-  // the client explicitly asked for it after an attach refusal.
-  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover }, {
+  // the client explicitly asked for it after an attach refusal. `writable`
+  // false opens a read-only ObserveTerminal stream instead (issue #571).
+  // Each attach attempt gets its own epoch: a mode switch or a second
+  // in-flight attempt (snapshot-retry path) supersedes every earlier one,
+  // so only the newest resolved link is ever installed (issue #571).
+  slot.epoch += 1;
+  const epoch = slot.epoch;
+  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover, writable: slot.writable }, {
     onEvent: (event) => {
-      if (slot.gone) return;
+      // A superseded link (mode switch, newer attach attempt) must not feed
+      // the client or tear the slot down (issue #571).
+      if (slot.gone || slot.epoch !== epoch) return;
       if (event.type === "terminal") {
         state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64"), machine: state.machine });
       } else if (event.type === "mouse_capture") {
@@ -386,10 +442,14 @@ function attachTerminal(
       }
     },
     onClose: (reason) => {
+      if (slot.gone || slot.epoch !== epoch) return;
       dropTerminal(state, paneId, slot, reason);
     },
   }).then((link) => {
-    if (slot.gone) {
+    // A mode switch or slot teardown while this attach was in flight makes
+    // the resolved link stale: close it instead of installing it over the
+    // newer link (issue #571).
+    if (slot.gone || slot.epoch !== epoch) {
       link.close();
       return;
     }
@@ -397,6 +457,9 @@ function attachTerminal(
     for (const op of slot.queue.splice(0)) op();
     slot.queueBytes = 0;
   }).catch((error: unknown) => {
+    // Same staleness rule as the resolve path: a superseded attach's failure
+    // must not tear down the slot's newer link.
+    if (slot.gone || slot.epoch !== epoch) return;
     dropTerminal(state, paneId, slot, error instanceof Error ? error.message : String(error));
   });
 }
@@ -455,8 +518,10 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     }
     case "subscribe_terminal":
       // The client follows with terminal_resize once its grid is measured;
-      // input/resize frames queue until the attach resolves.
-      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true);
+      // input/resize frames queue until the attach resolves. `writable`
+      // false requests the read-only ObserveTerminal stream (issue #571);
+      // absent means writable, the pre-#571 behavior.
+      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true, frame.writable !== false);
       return;
     case "unsubscribe_terminal":
       releaseTerminal(state, frame.paneId);
@@ -464,6 +529,10 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_input": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      // Observe-mode links cannot carry input (herdr routes ClientInput only
+      // for TerminalAttach); drop it here instead of shipping bytes the
+      // server silently ignores (issue #571).
+      if (!slot.writable) return;
       const bytes = Buffer.from(frame.data, "base64");
       const write = () => slot.link?.write(bytes);
       if (slot.link) write();
@@ -481,6 +550,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_mouse": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      if (!slot.writable) return;
       const mouse = () =>
         slot.link?.mouse({
           action: frame.action,
@@ -496,6 +566,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_scroll": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      if (!slot.writable) return;
       const scroll = () =>
         slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
       if (slot.link) scroll();

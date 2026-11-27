@@ -280,7 +280,24 @@ export interface MachineInfo {
 /** Client -> server WebSocket frames. `machine` selects the endpoint; absent means local. */
 export type ClientFrame =
   | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown>; machine?: string }
-  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string; takeover?: boolean }
+  | {
+      type: "subscribe_terminal";
+      paneId: string;
+      cols?: number;
+      rows?: number;
+      machine?: string;
+      takeover?: boolean;
+      /**
+       * Attach mode (issue #571): `true`/absent = writable AttachTerminal
+       * (resize authority + input); `false` = read-only ObserveTerminal
+       * stream that does not touch pane size, focus or scroll ownership.
+       * Re-sending subscribe_terminal for a live paneId with a different
+       * `writable` negotiates the mode on the existing slot — the bridge
+       * re-attaches the link without dropping queued ops — while a repeat
+       * with the same `writable` counts as an ordinary extra reference.
+       */
+      writable?: boolean;
+    }
   | { type: "unsubscribe_terminal"; paneId: string; machine?: string }
   /** `data` is base64 bytes: encoded keys/mouse/paste and engine replies are arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_input"; paneId: string; data: string; machine?: string }
@@ -566,7 +583,8 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         typeof paneId === "string" &&
         paneId.length > 0 &&
         machineOk &&
-        (frame["takeover"] === undefined || typeof frame["takeover"] === "boolean")
+        (frame["takeover"] === undefined || typeof frame["takeover"] === "boolean") &&
+        (frame["writable"] === undefined || typeof frame["writable"] === "boolean")
       );
     case "unsubscribe_terminal":
       return typeof paneId === "string" && paneId.length > 0 && machineOk;

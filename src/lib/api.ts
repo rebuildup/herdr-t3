@@ -322,8 +322,15 @@ function sendFrame(frame: ClientFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-export function subscribeTerminal(machine: string, paneId: string, cols: number, rows: number, takeover = false): void {
-  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows, takeover });
+export function subscribeTerminal(
+  machine: string,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover = false,
+  writable = true,
+): void {
+  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows, takeover, writable });
 }
 
 export function unsubscribeTerminal(machine: string, paneId: string): void {

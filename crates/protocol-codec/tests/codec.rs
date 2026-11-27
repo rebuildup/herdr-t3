@@ -88,6 +88,9 @@ fn guard_quirks_match_ts() {
     assert!(frame(json!({"type":"list_machines","whatever":[1,{"a":2}]})));
     // subscribe_terminal does not validate cols/rows.
     assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","cols":"wide","rows":null})));
+    // subscribe_terminal validates takeover/writable as optional booleans (#571).
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","writable":false})));
+    assert!(!frame(json!({"type":"subscribe_terminal","paneId":"p","writable":"yes"})));
     // machine_ok applies the 128 UTF-16-unit cap on rpc frames.
     assert!(!frame(json!({"type":"rpc","id":"1","method":"session.snapshot","machine":"a".repeat(129)})));
     assert!(frame(json!({"type":"rpc","id":"1","method":"session.snapshot","machine":"a".repeat(128)})));

@@ -128,6 +128,10 @@ function PaneSurface({
             paneId={pane.pane_id}
             connected={connected}
             label={title}
+            // Only the pane the user is operating holds the writable
+            // attach (resize authority + input); the rest stream read-only
+            // so the GUI's presence cannot pin their sizes (issue #571).
+            writable={focused}
           />
         </div>
       </ContextMenuTrigger>
