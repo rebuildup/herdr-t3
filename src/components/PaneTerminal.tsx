@@ -80,6 +80,7 @@ export function PaneTerminal({
   connected,
   className,
   label,
+  writable = true,
 }: {
   machine: string;
   paneId: string;
@@ -87,6 +88,15 @@ export function PaneTerminal({
   className?: string;
   /** pane title used for the terminal input's accessible name (issue #115) */
   label?: string;
+  /**
+   * Whether this pane currently holds the writable AttachTerminal mode
+   * (issue #571): only the pane the user is operating gets resize authority
+   * and input; every other visible pane streams through read-only
+   * ObserveTerminal so merely having the GUI open cannot pin pane sizes or
+   * steal input/scroll arbitration from other clients. Focus changes
+   * negotiate the mode on the live subscription — no detach gap.
+   */
+  writable?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttySurface | null>(null);
@@ -124,6 +134,11 @@ export function PaneTerminal({
   // `offset_from_bottom` targets through it.
   const scrollInfo = useRef({ offset: 0, max: 0 });
   const gridRef = useRef({ cols: 0, rows: 0 });
+  // Mirrors `writable` for the surface callbacks (created once per pane);
+  // the subscribe effect reads it so a focus flip never rebuilds the engine.
+  const writableRef = useRef(writable);
+  const lastSentWritable = useRef<boolean | null>(null);
+  const subscribedRef = useRef(false);
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -235,6 +250,14 @@ export function PaneTerminal({
           },
           onMouse: (event) => terminalMouse(machine, paneId, event),
           onWheel: (event) => {
+            // A wheel gesture on a read-only (observe) pane is operating
+            // intent: focus the pane first — the snapshot flip promotes it
+            // to writable — and drop this tick rather than send AttachScroll
+            // to a link that cannot carry it (issue #571).
+            if (!writableRef.current) {
+              void rpc("pane.focus", { pane_id: paneId }, machine).catch(() => {});
+              return;
+            }
             const signed = event.direction === "down" ? event.lines : -event.lines;
             const acc = wheelAccum.current ?? {
               lines: 0,
@@ -605,15 +628,40 @@ export function PaneTerminal({
     surfaceRef.current?.setAriaLabel(label ? `terminal ${label}` : "terminal input");
   }, [label]);
 
+  // Keep writableRef current before any effect that reads it (declared
+  // above the subscribe effect so it runs first on every commit).
+  useEffect(() => {
+    writableRef.current = writable;
+  }, [writable]);
+
   // (Re)subscribe once the surface has measured its grid and whenever the
   // bridge connection is up. The server queues input/resize until the attach
-  // resolves and replays a full redraw.
+  // resolves and replays a full redraw. `writable` is deliberately NOT a
+  // dependency: a focus flip is negotiated by the effect below instead of
+  // tearing the subscription down.
   useEffect(() => {
     if (!connected || !grid) return;
-    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover);
+    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover, writableRef.current);
+    lastSentWritable.current = writableRef.current;
+    subscribedRef.current = true;
     setClosedReason(null);
-    return () => unsubscribeTerminal(machine, paneId);
+    return () => {
+      subscribedRef.current = false;
+      unsubscribeTerminal(machine, paneId);
+    };
   }, [machine, paneId, connected, takeover, grid]);
+
+  // Attach-mode negotiation (issue #571): the bridge re-subscribes the live
+  // slot with the new `writable` flag, which re-opens the client-protocol
+  // link as AttachTerminal or ObserveTerminal while preserving the slot,
+  // its refcount and its op queue — input typed during the switch still
+  // reaches the pane in order. Skipped until a subscription exists and only
+  // sent on an actual mode change, so no redundant reference is taken.
+  useEffect(() => {
+    if (!subscribedRef.current || lastSentWritable.current === writable) return;
+    subscribeTerminal(machine, paneId, gridRef.current.cols, gridRef.current.rows, takeover, writable);
+    lastSentWritable.current = writable;
+  }, [machine, paneId, takeover, writable]);
 
   const closeSearch = () => {
     setSearchOpen(false);

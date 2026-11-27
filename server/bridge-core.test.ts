@@ -516,3 +516,141 @@ describe("subscription lifecycle (issue #527)", () => {
     session.close();
   });
 });
+
+/* ------------- observe/writable coexistence (issue #571) ----------------- */
+
+/**
+ * Multi-client non-interference contract: a pane subscribed with
+ * `writable: false` must hold an ObserveTerminal link — no resize lock, no
+ * input path — while a writable attach on the same or another pane keeps
+ * working, and a mode-negotiation subscribe flips the live slot without
+ * dropping queued input.
+ */
+describe("observe/writable attach modes (issue #571)", () => {
+  test("observe subscribe opens ObserveTerminal; input/scroll/mouse are dropped, resize flows", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 1, "observe connection");
+    const link = clientConns[0]!;
+    link.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Input-class frames must never reach an observe link.
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("TYPED") });
+    session.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up" });
+    session.handleFrame({ type: "terminal_mouse", paneId: "p1", action: "press", column: 1, row: 1 });
+    // Resize still flows: an observe client renders into the size it announces.
+    session.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 100, rows: 30 });
+    await sleep(30);
+
+    const latin = Buffer.from(link.stream.bytes()).toString("latin1");
+    expect(latin).not.toContain("TYPED");
+    // variants: 0 TerminalHello, 7 ObserveTerminal, 3 Resize — nothing else.
+    const variants = frameVariants(link.stream.bytes());
+    expect(variants).toEqual([0, 7, 3]);
+    session.close();
+  });
+
+  test("mode-negotiation subscribe promotes observe to writable on a new link, queue intact", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 1, "observe connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Promote: same paneId, writable flips — the bridge re-attaches without
+    // an unsubscribe, so the slot (and its op queue) survives.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: true });
+    await waitFor(() => clientConns.length === 2, "writable re-attach connection");
+    const writable = clientConns[1]!;
+    // Input typed while the promotion attach is still resolving queues and
+    // flushes to the new link in order — nothing typed is lost (AGENTS.md §3).
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("PROMOTED") });
+    writable.handlers.data(welcomeFrame());
+    await waitFor(() => Buffer.from(writable.stream.bytes()).toString("latin1").includes("PROMOTED"), "promoted input flush");
+
+    // The superseded observe link was detached, not leaked.
+    expect(clientConns[0]!.stream.ended).toBe(true);
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toContain(4); // Detach
+
+    // Demote back to observe: a third connection, input dropped again.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 3, "observe re-attach connection");
+    clientConns[2]!.handlers.data(welcomeFrame());
+    await sleep(20);
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("DROPPED") });
+    await sleep(20);
+    expect(Buffer.from(clientConns[2]!.stream.bytes()).toString("latin1")).not.toContain("DROPPED");
+
+    // One unsubscribe still releases the whole slot: no fourth connection,
+    // and the final link detaches.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await sleep(30);
+    expect(clientConns).toHaveLength(3);
+    expect(clientConns[2]!.stream.ended).toBe(true);
+    session.close();
+  });
+
+  test("observe and writable attaches coexist on different panes without cross-talk", async () => {
+    const multi: SessionSnapshot = {
+      ...SNAPSHOT,
+      panes: [pane("p1", "term-1"), pane("p2", "term-2")],
+    };
+    const apiConns: PolicyApiConn[] = [];
+    const clientConns: ClientConn[] = [];
+    const frames: ServerFrame[] = [];
+    const endpoint: BridgeEndpoint = {
+      api: policyApiConnector(apiConns, [multi]),
+      client: clientConnector(clientConns),
+      label: "fake",
+    };
+    const session = createBridgeSession((f) => frames.push(f), endpoint, "m");
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 2, "two attach connections");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    clientConns[1]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // p1 observes (variant 7), p2 attaches writable (variant 5).
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toEqual([0, 7]);
+    expect(frameVariants(clientConns[1]!.stream.bytes())).toEqual([0, 5]);
+
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("NO") });
+    session.handleFrame({ type: "terminal_input", paneId: "p2", data: b64("YES") });
+    await sleep(20);
+    expect(Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1")).not.toContain("NO");
+    expect(Buffer.from(clientConns[1]!.stream.bytes()).toString("latin1")).toContain("YES");
+    session.close();
+  });
+
+  test("absent writable flag keeps the writable AttachTerminal default", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "default attach connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toEqual([0, 5]);
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OK") });
+    await waitFor(() => Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1").includes("OK"), "writable input");
+    session.close();
+  });
+});
+
+/** Variant discriminants (first payload byte) of every complete bincode frame. */
+function frameVariants(bytes: Uint8Array): number[] {
+  const out: number[] = [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const len = view.getUint32(offset, true);
+    if (offset + 4 + len > bytes.length) break;
+    out.push(bytes[offset + 4]!);
+    offset += 4 + len;
+  }
+  return out;
+}
