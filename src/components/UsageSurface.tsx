@@ -175,7 +175,13 @@ function QuotaWindowRow({ window }: { window: UsageQuotaWindow }) {
           <span className="text-muted-foreground/70"> · {window.kind}</span>
         ) : null}
       </span>
-      <span className="shrink-0 font-medium">{formatPercent(window.used_percent)}</span>
+      {/* "used" makes the direction explicit — a bare "77%" read as
+          either used or remaining (issue #480). */}
+      <span className="shrink-0 font-medium">
+        {window.used_percent !== null
+          ? `${formatPercent(window.used_percent)} used`
+          : "—"}
+      </span>
       <span className="shrink-0 text-muted-foreground">
         resets {formatTime(window.resets_at)}
       </span>
@@ -400,26 +406,31 @@ function FilterBar({
         aria-label="Provider filter"
         className="w-32"
       />
-      {/* Visible range labels: two identical datetime fields read as a
-          duplicate pair without them (issue #417). */}
-      <span className="text-2xs text-muted-foreground/70">from</span>
-      <Input
-        size="sm"
-        type="datetime-local"
-        value={filters.from}
-        onChange={(e) => onChange({ ...filters, from: e.target.value })}
-        aria-label="From"
-        title="From (inclusive)"
-      />
-      <span className="text-2xs text-muted-foreground/70">to</span>
-      <Input
-        size="sm"
-        type="datetime-local"
-        value={filters.to}
-        onChange={(e) => onChange({ ...filters, to: e.target.value })}
-        aria-label="To"
-        title="To (inclusive)"
-      />
+      {/* Visible range labels grouped with their field so flex-wrap
+          never strands "from"/"to" on a different line than the date
+          input (issue #480). */}
+      <span className="flex items-center gap-1 whitespace-nowrap text-2xs text-muted-foreground/70">
+        from
+        <Input
+          size="sm"
+          type="datetime-local"
+          value={filters.from}
+          onChange={(e) => onChange({ ...filters, from: e.target.value })}
+          aria-label="From"
+          title="From (inclusive)"
+        />
+      </span>
+      <span className="flex items-center gap-1 whitespace-nowrap text-2xs text-muted-foreground/70">
+        to
+        <Input
+          size="sm"
+          type="datetime-local"
+          value={filters.to}
+          onChange={(e) => onChange({ ...filters, to: e.target.value })}
+          aria-label="To"
+          title="To (inclusive)"
+        />
+      </span>
     </div>
   );
 }
@@ -612,6 +623,10 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
       {error !== null ? <SectionError label="usage" error={error} /> : null}
       {report !== null ? (
         <>
+          {/* No measured events: the plugin reports structural zeros,
+              not a measurement — rendering TotalsRow/cache badges would
+              read as "measured zero" (issue #480). Show the honest
+              no-data line plus notes/coverage only. */}
           {report.totals.events === 0 ? (
             <p className="text-2xs text-muted-foreground">
               no measured usage in this window — indexed sessions
@@ -619,44 +634,48 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
               measured zero usage
             </p>
           ) : null}
-          <TotalsRow report={report} />
           <ReportNotes report={report} />
-          {report.cache_tokens.providers.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
-              <p className="text-2xs text-muted-foreground/70">
-                cache tokens (provider-reported accounting)
-              </p>
-              {report.cache_tokens.providers.map((entry) => (
-                <CacheTokenRow key={entry.provider} entry={entry} />
-              ))}
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-2xs text-muted-foreground/70">breakdown</span>
-              <Select
-                value={dimension}
-                onValueChange={(value) =>
-                  setDimension(value as UsageBreakdownDimension)
-                }
-              >
-                <SelectTrigger aria-label="Breakdown dimension" className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {USAGE_BREAKDOWN_DIMENSIONS.map((dim) => (
-                    <SelectItem key={dim} value={dim}>
-                      {DIMENSION_LABELS[dim]}
-                    </SelectItem>
+          {report.totals.events > 0 ? (
+            <>
+              <TotalsRow report={report} />
+              {report.cache_tokens.providers.length > 0 ? (
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-2xs text-muted-foreground/70">
+                    cache tokens (provider-reported accounting)
+                  </p>
+                  {report.cache_tokens.providers.map((entry) => (
+                    <CacheTokenRow key={entry.provider} entry={entry} />
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <BreakdownTable
-              entries={report.breakdowns[dimension]}
-              dimension={dimension}
-            />
-          </div>
+                </div>
+              ) : null}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xs text-muted-foreground/70">breakdown</span>
+                  <Select
+                    value={dimension}
+                    onValueChange={(value) =>
+                      setDimension(value as UsageBreakdownDimension)
+                    }
+                  >
+                    <SelectTrigger aria-label="Breakdown dimension" className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {USAGE_BREAKDOWN_DIMENSIONS.map((dim) => (
+                        <SelectItem key={dim} value={dim}>
+                          {DIMENSION_LABELS[dim]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <BreakdownTable
+                  entries={report.breakdowns[dimension]}
+                  dimension={dimension}
+                />
+              </div>
+            </>
+          ) : null}
           <div className="flex flex-col gap-0.5">
             <p className="text-2xs text-muted-foreground/70">
               coverage: {formatTokens(report.coverage.sessions_total)} indexed

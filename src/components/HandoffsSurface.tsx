@@ -1064,10 +1064,13 @@ function HandoffActions({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">
+        {/* secondary, not ghost-muted: these are the record's primary
+            mutations and read as disabled next to the quiet row
+            (issue #480). */}
         {canExecute ? (
           <Button
             size="xs"
-            variant="ghost-muted"
+            variant="secondary"
             onClick={() => setAction("execute")}
           >
             <PlayIcon />
@@ -1077,7 +1080,7 @@ function HandoffActions({
         {canDelegate ? (
           <Button
             size="xs"
-            variant="ghost-muted"
+            variant="secondary"
             onClick={() => setAction("delegate")}
           >
             <GitForkIcon />
@@ -1087,7 +1090,7 @@ function HandoffActions({
         {canMergeBack ? (
           <Button
             size="xs"
-            variant="ghost-muted"
+            variant="secondary"
             onClick={() => setAction("merge-back")}
           >
             <MergeIcon />

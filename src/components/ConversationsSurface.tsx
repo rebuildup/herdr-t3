@@ -576,7 +576,15 @@ function SearchPanel({ machine }: { machine: string }) {
           placeholder="Search indexed transcripts…"
           aria-label="Search conversations"
         />
-        <Button size="sm" type="submit" disabled={loading || query.trim() === ""}>
+        {/* Disabled submit drops to secondary: the default primary
+            variant kept a prominent blue fill while disabled, reading
+            as an enabled call to action (issue #480). */}
+        <Button
+          size="sm"
+          type="submit"
+          variant={loading || query.trim() === "" ? "secondary" : "default"}
+          disabled={loading || query.trim() === ""}
+        >
           <SearchIcon />
           {loading ? "Searching…" : "Search"}
         </Button>

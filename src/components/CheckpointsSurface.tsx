@@ -357,7 +357,11 @@ function CreateForm({
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-2">
       <div className="text-xs font-medium">New checkpoint</div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      {/* Container queries, not viewport `sm:`: the surface lives in a
+          docked panel/sheet whose width is unrelated to the window, so
+          viewport breakpoints collapsed these fields into unreadable
+          slivers at narrow panel widths (issue #480). */}
+      <div className="grid gap-2 @md:grid-cols-2">
         <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
           Target
           <Select
@@ -391,7 +395,7 @@ function CreateForm({
             captures the work tree of the pane&apos;s repo
           </div>
         )}
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground @md:col-span-2">
           Label (optional)
           <Input
             size="sm"
@@ -400,7 +404,7 @@ function CreateForm({
             placeholder="e.g. before refactor"
           />
         </label>
-        <div className="flex items-center gap-2 text-2xs text-muted-foreground sm:col-span-2">
+        <div className="flex items-center gap-2 text-2xs text-muted-foreground @md:col-span-2">
           <Switch
             size="sm"
             checked={auto}
@@ -497,7 +501,7 @@ function SaveGroupForm({
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-2">
       <div className="text-xs font-medium">Save checkpoint group</div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 @md:grid-cols-2">
         <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
           Repo set
           <Select
@@ -541,7 +545,7 @@ function SaveGroupForm({
             cwds are reported as skipped
           </div>
         )}
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
+        <label className="flex flex-col gap-1 text-2xs text-muted-foreground @md:col-span-2">
           Label (optional — applied to every captured entry)
           <Input
             size="sm"
@@ -1488,7 +1492,7 @@ function DiffPane({
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs font-medium">Diff</div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-2 @sm:flex-row @sm:items-end">
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
           A
           <Select value={sideA} onValueChange={(v) => setSideA(v ?? "HEAD")}>
@@ -2104,7 +2108,10 @@ export function CheckpointsSurface({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+      {/* @container: the panel/sheet width drives the two-column split
+          below via container queries, not the window width (issue
+          #480). */}
+      <DialogPanel className="@container" scrollAreaClassName="min-h-0 flex-1">
         <p className="text-2xs text-muted-foreground">
           Worktree checkpoints from the rebuildup.checkpoints plugin —
           synthetic commits under hidden git refs. Capture never touches
@@ -2119,7 +2126,11 @@ export function CheckpointsSurface({
           ) : cap === undefined ? (
             <SectionMessage>checking plugin capabilities…</SectionMessage>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            // Two columns only once the panel is wide enough for the
+            // detail/diff column to stay readable; below @2xl the
+            // sections stack so the Diff selectors never collapse to
+            // slivers (issue #480).
+            <div className="grid gap-4 @2xl:grid-cols-2">
               <div className="flex min-w-0 flex-col gap-2">
                 <CreateForm
                   machine={machine}
@@ -2220,7 +2231,7 @@ export function CheckpointsSurface({
                 )}
               </div>
 
-              <div className="flex min-w-0 flex-col gap-3 border-l border-border pl-4 max-sm:border-l-0 max-sm:border-t max-sm:pl-0 max-sm:pt-4">
+              <div className="flex min-w-0 flex-col gap-3 border-t border-border pt-4 @2xl:border-l @2xl:border-t-0 @2xl:pl-4 @2xl:pt-0">
                 {selectedEntry !== null ? (
                   <CheckpointDetail
                     machine={machine}
