@@ -16,12 +16,12 @@ import { DialogPanel } from "./ui/dialog";
 import { RefreshIcon } from "./ui/refresh-icon";
 import {
   MutationFeedback,
+  SurfaceDetailsSection,
   SurfaceEmpty,
   SurfaceGroupHeader,
-  SurfaceLoading,
+  SurfaceLoadingRows,
   SurfaceNote,
-  SurfaceSection,
-} from "./surfaceParts";
+} from "./surfaceLayout";
 import {
   classifyForgeError,
   classifyGitError,
@@ -168,7 +168,7 @@ function CapabilityGate({
 
 function StatusBody({ state }: { state: GitStatusState }) {
   if (state.kind === "loading") {
-    return <SurfaceLoading label="Loading git status" rows={2} />;
+    return <SurfaceLoadingRows label="Loading git status" rows={2} />;
   }
   if (state.kind === "unavailable") {
     return (
@@ -347,7 +347,7 @@ function DiffBody({
   }, [load, refreshKey]);
 
   if (loading && result === null) {
-    return <SurfaceLoading label="Loading diff" rows={3} />;
+    return <SurfaceLoadingRows label="Loading diff" rows={3} />;
   }
   if (error !== null) {
     return <SurfaceNote tone="error">diff unavailable: {error}</SurfaceNote>;
@@ -415,7 +415,7 @@ function ChangesSection({
     return <CapabilityGate cap={cap} supported={supported} />;
   }
   if (loading && result === null) {
-    return <SurfaceLoading label="Loading changed files" rows={5} />;
+    return <SurfaceLoadingRows label="Loading changed files" rows={5} />;
   }
   if (error !== null) {
     return <SurfaceNote tone="error">files unavailable: {error}</SurfaceNote>;
@@ -781,7 +781,7 @@ function HistorySection({
           </Button>
         ) : null}
       </div>
-      {loading && !loaded ? <SurfaceLoading label="Loading history" rows={5} /> : null}
+      {loading && !loaded ? <SurfaceLoadingRows label="Loading history" rows={5} /> : null}
       {error !== null ? <SurfaceNote tone="error">history unavailable: {error}</SurfaceNote> : null}
       {loaded && !loading && commits.length === 0 && error === null ? (
         <SurfaceEmpty title="No commits" className="py-6" />
@@ -895,7 +895,7 @@ function CompareSection({
           {loading ? "Comparing…" : "Compare"}
         </Button>
       </div>
-      {loading && result === null ? <SurfaceLoading label="Comparing revisions" rows={3} /> : null}
+      {loading && result === null ? <SurfaceLoadingRows label="Comparing revisions" rows={3} /> : null}
       {error !== null ? <SurfaceNote tone="error">compare unavailable: {error}</SurfaceNote> : null}
       {result !== null ? (
         <div className="flex flex-col gap-2">
@@ -976,7 +976,7 @@ function BranchBlock({
   const busy = createMut.busy || switchMut.busy;
 
   return (
-    <SurfaceSection
+    <SurfaceDetailsSection
       title="Branch"
       description={currentBranch !== null ? `current: ${currentBranch}` : undefined}
     >
@@ -1045,7 +1045,7 @@ function BranchBlock({
         </div>
         <MutationFeedback error={switchMut.error} notice={switchMut.notice} />
       </div>
-    </SurfaceSection>
+    </SurfaceDetailsSection>
   );
 }
 
@@ -1063,7 +1063,7 @@ function UpstreamBlock({
   const [ref, setRef] = useState("");
   const mutations = useGitMutation(onChanged);
   return (
-    <SurfaceSection
+    <SurfaceDetailsSection
       title="Upstream"
       description={currentUpstream !== null ? `current: ${currentUpstream}` : undefined}
     >
@@ -1095,7 +1095,7 @@ function UpstreamBlock({
         </div>
         <MutationFeedback error={mutations.error} notice={mutations.notice} />
       </div>
-    </SurfaceSection>
+    </SurfaceDetailsSection>
   );
 }
 
@@ -1158,7 +1158,7 @@ function RemoteSyncBlock({
   const pushMut = useGitMutation(afterRemoteOp);
 
   return (
-    <SurfaceSection
+    <SurfaceDetailsSection
       title="Remotes"
       actions={
         canList ? (
@@ -1171,7 +1171,7 @@ function RemoteSyncBlock({
       <div className="flex flex-col gap-3">
         {canList ? (
           listLoading && remotes === null ? (
-            <SurfaceLoading label="Loading remotes" rows={2} />
+            <SurfaceLoadingRows label="Loading remotes" rows={2} />
           ) : listError !== null ? (
             <SurfaceNote tone="error">remotes unavailable: {listError}</SurfaceNote>
           ) : remotes !== null ? (
@@ -1306,7 +1306,7 @@ function RemoteSyncBlock({
           </div>
         ) : null}
       </div>
-    </SurfaceSection>
+    </SurfaceDetailsSection>
   );
 }
 
@@ -1670,7 +1670,7 @@ function ForgeSection({
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-4">
-        <SurfaceSection
+        <SurfaceDetailsSection
           title="Current branch"
           actions={
             <Button size="xs" variant="ghost" disabled={statusLoading} onClick={loadStatus}>
@@ -1679,7 +1679,7 @@ function ForgeSection({
           }
         >
           {!statusLoaded && statusLoading ? (
-            <SurfaceLoading label="Loading branch status" rows={2} />
+            <SurfaceLoadingRows label="Loading branch status" rows={2} />
           ) : statusError !== null ? (
             <SurfaceNote tone="error">status unavailable: {statusError}</SurfaceNote>
           ) : status !== null ? (
@@ -1718,9 +1718,9 @@ function ForgeSection({
               )}
             </div>
           ) : null}
-        </SurfaceSection>
+        </SurfaceDetailsSection>
 
-        <SurfaceSection
+        <SurfaceDetailsSection
           title="Pull requests"
           count={list?.prs.length}
           actions={
@@ -1770,7 +1770,7 @@ function ForgeSection({
               aria-label="Forge repo override"
             />
             {!listLoaded && listLoading ? (
-              <SurfaceLoading label="Loading pull requests" rows={4} />
+              <SurfaceLoadingRows label="Loading pull requests" rows={4} />
             ) : listError !== null ? (
               <SurfaceNote tone="error">list unavailable: {listError}</SurfaceNote>
             ) : list !== null ? (
@@ -1793,10 +1793,10 @@ function ForgeSection({
               )
             ) : null}
           </div>
-        </SurfaceSection>
+        </SurfaceDetailsSection>
 
         {createSupported === true ? (
-          <SurfaceSection
+          <SurfaceDetailsSection
             title="New pull request"
             actions={
               <Button
@@ -1882,26 +1882,26 @@ function ForgeSection({
                 <MutationFeedback error={createMut.error} notice={createMut.notice} />
               </div>
             ) : null}
-          </SurfaceSection>
+          </SurfaceDetailsSection>
         ) : createSupported === null ? null : (
           <SurfaceNote>{UNSUPPORTED_TEXT} (pr create)</SurfaceNote>
         )}
       </div>
 
       <div className="flex min-w-0 flex-col gap-4 max-sm:border-t max-sm:border-border/60 max-sm:pt-4">
-        <SurfaceSection
+        <SurfaceDetailsSection
           title={selected !== null ? `PR #${selected}` : "Pull request"}
         >
         {selected === null ? (
           <SurfaceEmpty title="Select a pull request to view it" className="py-4" />
         ) : viewLoading && view === null ? (
-          <SurfaceLoading label="Loading pull request" rows={4} />
+          <SurfaceLoadingRows label="Loading pull request" rows={4} />
         ) : viewError !== null ? (
           <SurfaceNote tone="error">view unavailable: {viewError}</SurfaceNote>
         ) : view !== null && view.pr.number === selected ? (
           <PrViewDetail view={view.pr} />
         ) : null}
-        </SurfaceSection>
+        </SurfaceDetailsSection>
       </div>
     </div>
   );
@@ -1975,7 +1975,7 @@ export function GitSurface({
         </p>
         {pane && paneId !== null ? (
           <>
-            <SurfaceSection
+            <SurfaceDetailsSection
               title="Repository"
               actions={
                 <Button
@@ -1989,7 +1989,7 @@ export function GitSurface({
               }
             >
               <StatusBody state={status} />
-            </SurfaceSection>
+            </SurfaceDetailsSection>
             <ToggleGroup
               variant="segmented"
               value={[section]}
