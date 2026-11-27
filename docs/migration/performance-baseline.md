@@ -106,6 +106,32 @@ equivalence per `docs/migration/contracts/`, it does not prove it.
 No Rust-side improvement is assumed; the baseline exists to detect
 regressions, not to promise wins.
 
+### Memory budget contract (issue #499, both implementations)
+
+Every terminal engine instance carries bounded resources with the same
+contract on TS (`shared/ghostty`, Electron) and Rust (`crates/terminal-*`,
+GPUI path):
+
+- **Per-pane caps**: Kitty image storage 64 MiB (`KITTY_IMAGE_STORAGE_LIMIT`
+  / `images`), scrollback byte cap 64 MiB applied *with* the line cap
+  (`SCROLLBACK_MAX_BYTES` / `scrollback_bytes`), decoded-image LRU and
+  pending-queue/attach-queue byte ceilings in the host layer.
+- **Aggregate budget**: the host sums per-session WASM/native heap
+  high-water marks against a machine-scaled budget (renderer:
+  `src/lib/memoryBudget.ts`; native: TBD — must land before GPUI ships
+  panes). Over budget → lossless cache shedding only; WASM/native heap
+  cannot shrink without session disposal, so shedding is rate-limited
+  and attributed (top sessions named) rather than thrashing.
+- **Watchdog**: main process derives warn/critical/breach from physical
+  RAM, a 2 h measured baseline, a 15 min RSS slope, and OS free-memory
+  pressure (`osFreePct`); only breach reloads. `herdr-t3:memory-pressure`
+  pushes drive renderer shedding. The native port must reproduce the
+  same level semantics — a fixed absolute threshold is a defect, not a
+  design.
+- **Measurement**: `perf-memory-bench.ts --check` gates absolute budgets
+  plus convergence (tail slope, storm2/switch2 reuse). The same
+  scenarios must run against the GPUI host before parity is claimed.
+
 ## RC section-l re-measurement (issue #354, 2026-11-26)
 
 First unified-condition leg on release head `5fb972b` (includes #294
