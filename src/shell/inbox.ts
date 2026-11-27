@@ -246,7 +246,6 @@ async function refreshInbox(machine: string): Promise<void> {
       const capability = await pluginCall(machine, {
         plugin: INBOX_PLUGIN_ID,
         command: "capability",
-        coalesce: true,
       });
       const cap = capabilityOk(capability);
       if (!cap) {
@@ -262,11 +261,7 @@ async function refreshInbox(machine: string): Promise<void> {
         });
         return;
       }
-      const list = await pluginCall(machine, {
-        plugin: INBOX_PLUGIN_ID,
-        command: "list",
-        coalesce: true,
-      });
+      const list = await pluginCall(machine, { plugin: INBOX_PLUGIN_ID, command: "list" });
       const warnings = Array.isArray(list["warnings"])
         ? list["warnings"].filter((w): w is string => typeof w === "string")
         : [];

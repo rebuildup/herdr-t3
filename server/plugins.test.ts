@@ -134,7 +134,7 @@ describe("PluginService.call", () => {
     expect(calls.filter((c) => c[0] === "bun" && c[3] === "list")).toHaveLength(2);
   });
 
-  test("calls without coalesce never merge, even when identical and concurrent", async () => {
+  test("contract-declared mutations never merge, even when identical and concurrent", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const calls: string[][] = [];
@@ -151,10 +151,10 @@ describe("PluginService.call", () => {
       },
     };
     const svc = serviceFor(host);
-    // Identical concurrent calls to a contract-declared mutation: even an
-    // explicit coalesce flag must not merge them — each runs.
-    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"], coalesce: true });
-    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"], coalesce: true });
+    // Identical concurrent calls to a contract-declared mutation: the
+    // mutation_commands declaration wins — each runs its own exec.
+    const p1 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
+    const p2 = svc.call("local", { plugin: "rebuildup.inbox", command: "settle", args: ["w1:p1"] });
     release();
     await Promise.all([p1, p2]);
     expect(calls.filter((c) => c[0] === "bun" && c[3] === "settle")).toHaveLength(2);

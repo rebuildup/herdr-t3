@@ -586,7 +586,6 @@ export class MachineManager {
               args: frame.args,
               stdin: frame.stdin,
               timeoutMs: frame.timeout_ms,
-              coalesce: frame.coalesce,
             });
       this.send({ type: "rpc_result", id: frame.id, ok: true, result, machine });
     } catch (error: unknown) {

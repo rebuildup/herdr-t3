@@ -295,13 +295,6 @@ export interface PluginCallRequest {
   /** Written to the plugin CLI's stdin, then closed (issue #458). */
   stdin?: string | undefined;
   timeoutMs?: number | undefined;
-  /**
-   * Caller asserts this is a read whose concurrent identical invocations
-   * may share one execution (issue #424). Mutations must never set it —
-   * coalescing is opt-in precisely because the contract does not (yet)
-   * declare per-command side effects.
-   */
-  coalesce?: boolean | undefined;
 }
 
 interface DiscoveryCacheEntry {
@@ -690,19 +683,15 @@ export class PluginService {
     // Single-flight at the spawn boundary (issue #424). The capability
     // document's `mutation_commands` is the contract's own read/write
     // declaration: a command absent from it is a read and may share an
-    // in-flight execution; a declared mutation never coalesces, even if a
-    // caller sets the flag. Plugins that omit the field fail closed —
-    // only an explicit caller `coalesce` opt-in applies.
+    // in-flight execution; a declared mutation never coalesces. Plugins that
+    // omit the field fail closed — nothing coalesces for them.
     const mutationCommands = capability.doc?.["mutation_commands"];
     const declaredMutation =
       Array.isArray(mutationCommands) && mutationCommands.includes(request.command);
     const contractRead = Array.isArray(mutationCommands) && !declaredMutation;
     // A stdin payload is per-call input, so it never joins a shared
     // execution either.
-    const mayCoalesce =
-      request.stdin === undefined &&
-      !declaredMutation &&
-      (contractRead || request.coalesce === true);
+    const mayCoalesce = request.stdin === undefined && contractRead;
     const outcome = mayCoalesce
       ? await this.coalesce(
           `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.stdin ?? ""}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
