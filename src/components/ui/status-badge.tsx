@@ -8,13 +8,14 @@ import type { ComponentProps } from "react";
 
 import { Badge } from "./badge";
 
-export type StatusBadgeStatus = "ok" | "warning" | "error" | "neutral";
+export type StatusBadgeStatus = "ok" | "info" | "warning" | "error" | "neutral";
 
 const STATUS_VARIANT = {
   ok: "success",
+  info: "info",
   warning: "warning",
   error: "error",
-  neutral: "secondary",
+  neutral: "outline",
 } as const;
 
 interface StatusBadgeProps extends Omit<ComponentProps<typeof Badge>, "variant"> {

@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { RefreshIcon } from "./ui/refresh-icon";
 import {
@@ -50,12 +50,12 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function stateVariant(
+function probeStatus(
   state: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (state) {
     case "ok":
-      return "success";
+      return "ok";
     case "unreachable":
     case "error":
       return "error";
@@ -63,8 +63,16 @@ function stateVariant(
     case "disabled":
       return "warning";
     default:
-      return "outline";
+      return "neutral";
   }
+}
+
+function pluginSurfaceStatus(
+  surface: string | null,
+): StatusBadgeStatus {
+  if (surface === "supported") return "ok";
+  if (surface === "unsupported") return "warning";
+  return "neutral";
 }
 
 /* ------------------------------ probe block --------------------------- */
@@ -80,9 +88,9 @@ function ProbeBlock({ probe }: { probe: MachinesProbe | null }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/50 bg-muted/30 px-2 py-1.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
-        <Badge size="sm" variant={stateVariant(probe.state)}>
+        <StatusBadge size="sm" status={probeStatus(probe.state)}>
           {probe.state}
-        </Badge>
+        </StatusBadge>
         <span className="shrink-0">probed {formatTime(probe.probedAt)}</span>
         {probe.serverVersion !== null ? (
           <span className="shrink-0">herdr {probe.serverVersion}</span>
@@ -96,18 +104,12 @@ function ProbeBlock({ probe }: { probe: MachinesProbe | null }) {
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
         <span className="shrink-0">plugin surface</span>
-        <Badge
+        <StatusBadge
           size="sm"
-          variant={
-            probe.pluginSurface === "supported"
-              ? "success"
-              : probe.pluginSurface === "unsupported"
-                ? "warning"
-                : "outline"
-          }
+          status={pluginSurfaceStatus(probe.pluginSurface)}
         >
           {probe.pluginSurface ?? "unknown"}
-        </Badge>
+        </StatusBadge>
         {probe.plugins !== null ? (
           probe.plugins.length === 0 ? (
             <span className="text-muted-foreground/70">no remote plugins reported</span>
@@ -161,8 +163,8 @@ function MachineRow({
         <span className="min-w-0 flex-1 truncate text-xs font-medium">
           {saved.label ?? saved.id}
         </span>
-        {saved.selected ? <Badge size="sm" variant="info">selected</Badge> : null}
-        {!saved.enabled ? <Badge size="sm" variant="outline">disabled</Badge> : null}
+        {saved.selected ? <StatusBadge size="sm" status="info">selected</StatusBadge> : null}
+        {!saved.enabled ? <StatusBadge size="sm" status="neutral">disabled</StatusBadge> : null}
         {canProbe === true ? (
           <Button
             size="xs"

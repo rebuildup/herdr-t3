@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CopyIcon, EyeIcon, SparklesIcon } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Label, Textarea } from "./ui/input";
 import { RefreshIcon } from "./ui/refresh-icon";
@@ -90,18 +90,18 @@ const GIT_TASK_FALLBACK = ["branch_name", "commit_message", "pr_content"] as con
 
 /* ------------------------------- task row ----------------------------- */
 
-function availabilityVariant(
+function availabilityStatus(
   availability: string | null,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (availability) {
     case "manifest":
-      return "success";
+      return "ok";
     case "not_in_manifests":
       return "warning";
     case "unverified":
       return "info";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
@@ -109,29 +109,27 @@ function TaskRow({ task }: { task: TextgenTask }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-2">
-        <Badge size="sm" variant="info">
-          {task.kind}
-        </Badge>
+        <span className="text-2xs text-muted-foreground">{task.kind}</span>
         <span className="min-w-0 flex-1 text-xs font-medium">
           {task.description ?? task.kind}
         </span>
         {task.requiresOptIn ? (
-          <Badge
+          <StatusBadge
             size="sm"
-            variant="warning"
+            status="warning"
             title={task.optIn ?? "requires explicit opt-in (guards.expensiveTaskOptIn or --allow-expensive)"}
           >
             opt-in
-          </Badge>
+          </StatusBadge>
         ) : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
         {task.paths.length > 0 ? (
           <span className="flex shrink-0 items-center gap-1">
             {task.paths.map((path) => (
-              <Badge key={path} size="sm" variant="outline">
+              <span key={path} className="font-mono text-2xs text-muted-foreground">
                 {path}
-              </Badge>
+              </span>
             ))}
           </span>
         ) : null}
@@ -196,20 +194,18 @@ function ProvidersSection({ capability }: { capability: TextgenCapability }) {
             className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <Badge size="sm" variant="secondary">
-                agent
-              </Badge>
+              <span className="text-2xs text-muted-foreground">agent</span>
               <span className="min-w-0 flex-1 truncate font-mono text-2xs">
                 {provider.id}
               </span>
               {!provider.enabled ? (
-                <Badge size="sm" variant="outline">
+                <StatusBadge size="sm" status="neutral">
                   disabled
-                </Badge>
+                </StatusBadge>
               ) : null}
-              <Badge size="sm" variant={availabilityVariant(provider.availability)}>
+              <StatusBadge size="sm" status={availabilityStatus(provider.availability)}>
                 {provider.availability ?? "unknown"}
-              </Badge>
+              </StatusBadge>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
               {provider.kind !== null ? <span className="shrink-0">kind {provider.kind}</span> : null}
@@ -233,24 +229,22 @@ function ProvidersSection({ capability }: { capability: TextgenCapability }) {
             className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <Badge size="sm" variant="secondary">
-                api
-              </Badge>
+              <span className="text-2xs text-muted-foreground">api</span>
               <span className="min-w-0 flex-1 truncate font-mono text-2xs">
                 {provider.id}
               </span>
               {!provider.enabled ? (
-                <Badge size="sm" variant="outline">
+                <StatusBadge size="sm" status="neutral">
                   disabled
-                </Badge>
+                </StatusBadge>
               ) : null}
-              <Badge
+              <StatusBadge
                 size="sm"
-                variant={provider.credentialConfigured ? "success" : "warning"}
+                status={provider.credentialConfigured ? "ok" : "warning"}
                 title="credential_configured — key material is never shown"
               >
                 {provider.credentialConfigured ? "credential ok" : "no credential"}
-              </Badge>
+              </StatusBadge>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
               {provider.kind !== null ? <span className="shrink-0">kind {provider.kind}</span> : null}
@@ -297,12 +291,12 @@ function GuardsSection({ capability }: { capability: TextgenCapability }) {
         Guards
       </h3>
       <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
-        <Badge size="sm" variant={guards.expensiveTaskOptIn ? "warning" : "outline"}>
+        <StatusBadge size="sm" status={guards.expensiveTaskOptIn ? "warning" : "neutral"}>
           expensiveTaskOptIn {guards.expensiveTaskOptIn ? "on" : "off"}
-        </Badge>
-        <Badge size="sm" variant={guards.quotaEnabled ? "info" : "outline"}>
+        </StatusBadge>
+        <StatusBadge size="sm" status={guards.quotaEnabled ? "info" : "neutral"}>
           quota check {guards.quotaEnabled ? "enabled" : "disabled"}
-        </Badge>
+        </StatusBadge>
         {guards.quotaEnabled && guards.quotaMaxUsedPercent !== null ? (
           <span className="text-muted-foreground/70">
             blocks at ≥{guards.quotaMaxUsedPercent}% used
@@ -335,12 +329,12 @@ function GitIntegrationSection({ capability }: { capability: TextgenCapability }
       </h3>
       <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge
+          <StatusBadge
             size="sm"
-            variant={git.status === "resolved" ? "success" : "warning"}
+            status={git.status === "resolved" ? "ok" : "warning"}
           >
             {git.status ?? "unknown"}
-          </Badge>
+          </StatusBadge>
           <span className="min-w-0 flex-1 truncate font-mono text-2xs">
             {git.pluginId ?? "rebuildup.git"}
           </span>
@@ -726,13 +720,13 @@ function GenerateSection({
           Generate
         </h3>
         {allowed === true ? (
-          <Badge size="sm" variant="warning">
+          <StatusBadge size="sm" status="warning">
             mutation
-          </Badge>
+          </StatusBadge>
         ) : (
-          <Badge size="sm" variant="outline">
+          <StatusBadge size="sm" status="neutral">
             gated off
-          </Badge>
+          </StatusBadge>
         )}
       </div>
       <p className="text-2xs text-muted-foreground/70">
@@ -922,9 +916,7 @@ function GenerateSection({
       {report !== null ? (
         <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/60 p-2">
           <div className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground">
-            <Badge size="sm" variant="info">
-              {report.task ?? "?"}
-            </Badge>
+            <span className="text-2xs text-muted-foreground">{report.task ?? "?"}</span>
             <span className="min-w-0 truncate">
               {report.provider ?? "?"}
               {report.model !== null ? ` · ${report.model}` : ""}
@@ -933,9 +925,9 @@ function GenerateSection({
             {report.elapsedMs !== null ? (
               <span className="shrink-0">{(report.elapsedMs / 1000).toFixed(1)}s</span>
             ) : null}
-            <Badge size="sm" variant="outline" title="generate results are returned to the caller only — the plugin keeps no history">
+            <StatusBadge size="sm" status="neutral" title="generate results are returned to the caller only — the plugin keeps no history">
               not retained
-            </Badge>
+            </StatusBadge>
             <Button
               size="icon-xs"
               variant="ghost"

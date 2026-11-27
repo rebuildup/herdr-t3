@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { RefreshIcon } from "./ui/refresh-icon";
 import {
@@ -35,32 +35,32 @@ const UNAVAILABLE_LABELS: Record<McpUnavailableReason, string> = {
   error: "mcp unavailable",
 };
 
-function accessVariant(
+function accessStatus(
   access: string | null,
-): "success" | "warning" | "error" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (access) {
     case "read-only":
-      return "success";
+      return "ok";
     case "supervised":
       return "warning";
     case "full":
       return "error";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
-function statusVariant(
+function toolStatus(
   status: string | null,
-): "success" | "warning" | "error" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (status) {
     case "implemented":
     case "stable":
-      return "success";
+      return "ok";
     case "not_implemented":
       return "warning";
     default:
-      return status === null ? "outline" : "info";
+      return status === null ? "neutral" : "info";
   }
 }
 
@@ -78,7 +78,7 @@ function SessionSection({ capability }: { capability: McpCapability }) {
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
           {resolution?.resolvedVia != null ? (
             <span className="shrink-0">
-              resolved via <Badge size="sm" variant="info">{resolution.resolvedVia}</Badge>
+              resolved via <span className="font-mono text-2xs text-muted-foreground">{resolution.resolvedVia}</span>
             </span>
           ) : null}
           {resolution?.sessionName != null ? (
@@ -88,13 +88,13 @@ function SessionSection({ capability }: { capability: McpCapability }) {
             <span className="min-w-0 truncate font-mono">{capability.socket}</span>
           ) : null}
           {session !== null ? (
-            <Badge
+            <StatusBadge
               size="sm"
-              variant={session.reachable ? "success" : "error"}
+              status={session.reachable ? "ok" : "error"}
               title={session.error ?? undefined}
             >
               {session.reachable ? "reachable" : "unreachable"}
-            </Badge>
+            </StatusBadge>
           ) : null}
           {session?.sessionName != null ? (
             <span className="shrink-0">live session {session.sessionName}</span>
@@ -108,9 +108,9 @@ function SessionSection({ capability }: { capability: McpCapability }) {
         ) : null}
         <p className="text-2xs text-muted-foreground/70">
           negotiated for this probe:{" "}
-          <Badge size="sm" variant={accessVariant(capability.negotiatedAccessLevel)}>
+          <StatusBadge size="sm" status={accessStatus(capability.negotiatedAccessLevel)}>
             {capability.negotiatedAccessLevel ?? "read-only"}
-          </Badge>{" "}
+          </StatusBadge>{" "}
           — each MCP client negotiates its own level via{" "}
           <code className="font-mono">--access-level</code> at serve time
         </p>
@@ -132,18 +132,10 @@ function AccessSection({ capability }: { capability: McpCapability }) {
       <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/60 px-2 py-1.5">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           {access.levels.map((level) => (
-            <Badge
-              key={level}
-              size="sm"
-              variant={
-                level === access.defaultLevel
-                  ? accessVariant(level)
-                  : "outline"
-              }
-            >
+            <span key={level} className="text-2xs text-muted-foreground">
               {level}
               {level === access.defaultLevel ? " (default)" : ""}
-            </Badge>
+            </span>
           ))}
         </div>
         {access.semantics !== null ? (
@@ -171,19 +163,19 @@ function ToolRow({ tool }: { tool: McpTool }) {
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">{tool.name}</span>
-        <Badge size="sm" variant={accessVariant(tool.access)}>
+        <StatusBadge size="sm" status={accessStatus(tool.access)}>
           {tool.access ?? "?"}
-        </Badge>
+        </StatusBadge>
         {/* Skip the extra badge when the access badge already reads
             "read-only" — the pair rendered as a duplicate (issue #480). */}
         {tool.readOnly && tool.access !== "read-only" ? (
-          <Badge size="sm" variant="outline">
+          <StatusBadge size="sm" status="neutral">
             read-only
-          </Badge>
+          </StatusBadge>
         ) : null}
-        <Badge size="sm" variant={statusVariant(tool.status)}>
+        <StatusBadge size="sm" status={toolStatus(tool.status)}>
           {tool.status ?? "unknown"}
-        </Badge>
+        </StatusBadge>
       </div>
       {tool.backsOnto !== null ? (
         <p className="truncate font-mono text-2xs text-muted-foreground/70">
@@ -242,9 +234,9 @@ function PluginsSection({ capability }: { capability: McpCapability }) {
                 <span className="min-w-0 flex-1 truncate font-mono text-2xs">
                   {entry.plugin}
                 </span>
-                <Badge size="sm" variant={entry.available ? "success" : "warning"}>
+                <StatusBadge size="sm" status={entry.available ? "ok" : "warning"}>
                   {entry.available ? "available" : "unavailable"}
-                </Badge>
+                </StatusBadge>
                 {entry.resolvedVia !== null ? (
                   <span className="shrink-0 text-2xs text-muted-foreground/70">
                     via {entry.resolvedVia}
@@ -288,9 +280,9 @@ function DiagnosticsSection({ capability }: { capability: McpCapability }) {
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="shrink-0">surfaces:</span>
             {surfaceEntries.map(([name, status]) => (
-              <Badge key={name} size="sm" variant={statusVariant(status)}>
+              <StatusBadge key={name} size="sm" status={toolStatus(status)}>
                 {name}: {status}
-              </Badge>
+              </StatusBadge>
             ))}
           </div>
         ) : null}

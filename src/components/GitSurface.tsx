@@ -5,7 +5,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from "lucide-react";
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Label, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -556,9 +556,9 @@ function ChangesSection({
                           {fileLabel(entry)}
                         </span>
                         {entry.binary === true ? (
-                          <Badge size="sm" variant="outline">
+                          <StatusBadge size="sm" status="neutral">
                             binary
-                          </Badge>
+                          </StatusBadge>
                         ) : null}
                       </button>
                       {fileCanStage && canStage === true ? (
@@ -1427,14 +1427,14 @@ function prBadge(state: string, isDraft: boolean) {
   return (
     <>
       {isDraft ? (
-        <Badge size="sm" variant="outline">
+        <StatusBadge size="sm" status="neutral">
           draft
-        </Badge>
+        </StatusBadge>
       ) : null}
       {state !== "" ? (
-        <Badge size="sm" variant={state === "OPEN" ? "secondary" : "outline"}>
+        <StatusBadge size="sm" status={state === "OPEN" ? "info" : "neutral"}>
           {state.toLowerCase()}
-        </Badge>
+        </StatusBadge>
       ) : null}
     </>
   );
@@ -1709,9 +1709,9 @@ function ForgeSection({
               <div className="flex items-center gap-1.5">
                 <span className="font-mono">{status.branch}</span>
                 {status.detached ? (
-                  <Badge size="sm" variant="outline">
+                  <StatusBadge size="sm" status="neutral">
                     detached
-                  </Badge>
+                  </StatusBadge>
                 ) : null}
                 {status.repo !== null ? (
                   <span className="font-mono text-2xs text-muted-foreground">{status.repo}</span>
