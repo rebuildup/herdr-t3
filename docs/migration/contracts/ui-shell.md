@@ -19,7 +19,7 @@ behavior, not the DOM.
   Agent row identity/status glyph (issue #419): a single shared
   component leads each agent row — brand provider mark (resolution
   order in `shared/agent-icons.json`: T3 artwork → bundled official
-  SVG → generic glyph) at a 20px slot with the brand art at 14px,
+  SVG → generic glyph) at a 20px slot with the brand art at 12px,
   plus a perimeter status ring carrying `agent_status`. Ring grammar:
   working = rotating primary arc around the *static* brand mark
   (started/stopped only by the shared visibility control —
