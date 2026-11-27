@@ -19,6 +19,10 @@ bun harness/run.ts harness/scenarios --adapters rust
 printf 'UI lint...\n'
 bun run lint:ui
 
+printf 'Brand icon pipeline...\n'
+bun scripts/check-brand-icons.ts
+bun scripts/check-brand-icons.ts --self-test
+
 printf 'Checking ADR index...\n'
 python3 - <<'PY'
 import re
