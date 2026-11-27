@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   frameIntervals,
   intervalStats,
+  latencyStats,
   percentile,
 } from "./perf-frame-bench.ts";
 
@@ -37,5 +38,31 @@ describe("intervalStats", () => {
   });
   test("null on empty", () => {
     expect(intervalStats([])).toBeNull();
+  });
+  test("reports p99", () => {
+    const stats = intervalStats([16.7, 17, 18, 20, 500])!;
+    expect(stats.p99).toBe(500);
+  });
+});
+
+describe("latencyStats", () => {
+  test("computes p50/p95/p99 over clean samples", () => {
+    const stats = latencyStats([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])!;
+    expect(stats.count).toBe(10);
+    expect(stats.p50).toBe(50);
+    expect(stats.p95).toBe(100);
+    expect(stats.p99).toBe(100);
+    expect(stats.min).toBe(10);
+    expect(stats.max).toBe(100);
+    expect(stats.mean).toBeCloseTo(55);
+  });
+  test("drops non-finite and negative samples", () => {
+    const stats = latencyStats([5, -1, Number.NaN, 15])!;
+    expect(stats.count).toBe(2);
+    expect(stats.p50).toBe(5);
+  });
+  test("null when nothing usable", () => {
+    expect(latencyStats([])).toBeNull();
+    expect(latencyStats([-1, Number.NaN])).toBeNull();
   });
 });

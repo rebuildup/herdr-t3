@@ -23,12 +23,16 @@ and is not covered.
   breakdown separates the #294/#301-changed path from engine decode.
   Canvas2D rasterization (`GhosttyRenderer.paint`) is DOM-bound and is
   NOT measured here — see Coverage map.
-- `scripts/perf-frame-bench.ts` (#354 follow-up): real frame-time bench —
-  drives the running app (isolated herdr session → bridge → vite →
-  headless Chrome CDP) through the same seed-42 output storm plus CDP
-  wheel scroll traversal, and records rAF frame intervals, longtasks,
-  task utilization and Canvas2D API time per window. Self-contained
-  (spawns and reaps its own stack); reports to `perf-reports/frame-*.json`.
+- `scripts/perf-frame-bench.ts` (#354 follow-up, extended by #526):
+  real frame-time bench — drives the running app (isolated herdr
+  session → bridge → vite → headless Chrome CDP) through the same
+  seed-42 output storm plus CDP wheel scroll traversal, and records rAF
+  frame intervals (p50/p95/p99), longtasks + container attribution,
+  task utilization, Canvas2D API time, input→paint latency and
+  Chrome-tree CPU% per window (idle/storm/switch). Self-contained
+  (spawns and reaps its own stack); reports to
+  `perf-reports/frame-*.json`; `--check` gates provisional absolute
+  budgets.
 - `scripts/perf-baseline.ts`: runner + gate.
   - `record --iterations N --out PATH` → machine-readable report
     (`perf-reports/baseline-<sha>.json`) with `bench` (decode/frame),
@@ -94,9 +98,9 @@ RC freeze collects both-OS evidence on reference hardware.
 | scene build + paint-op emission (SurfaceCore.tick → GhosttyScene collect/render, scroll storm) | ✅ `perf-scene-bench.ts` via `perf-baseline.ts` `scene` section (#354) |
 | Canvas2D rasterization (`GhosttyRenderer.paint`: fillText/drawImage onto canvas) | ✅ measured — `perf-frame-bench.ts` (CDP, real app); loaded-host legs only so far, see Frame-bench section |
 | memory growth / leaks (JS heap, Chrome tree, bridge, herdr) under idle/storm/kitty/switch workloads | ✅ `perf-memory-bench.ts` (CDP, real app, isolated herdr session; issue #499). `--check` enforces absolute per-scenario budgets (default jsHeap 256 MB / Chrome tree 2048 MB / bridge 512 MB / herdr 512 MB) plus convergence gates: tail-slope flattening for idle/switch and storm2-vs-storm peak reuse. Kitty chunks exercise the full transmit/place/move/delete lifecycle. Evidence: `perf-reports/mem-*.json` |
-| startup time, idle CPU/RSS | deferred — needs packaged-app harness at RC |
+| startup time, idle CPU/RSS | partially — workload CPU% measured by `perf-frame-bench.ts` (#526); startup time and idle RSS still deferred to the packaged-app harness at RC |
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
-| input-to-paint p50/p95/p99, scroll/resize/streaming | partially — scene path timed in Bun; `perf-frame-bench.ts` gives frame-interval/longtask/task-utilization under storm, but input→photon latency still needs renderer-side instrumentation |
+| input-to-paint p50/p95/p99, scroll/resize/streaming | ✅ input→paint p50/p95/p99 (trusted wheel+click → next rAF frame), Chrome-tree CPU%, and longtask container attribution under idle/storm/workspace-switch workloads — `perf-frame-bench.ts` (#526), gated by `--check` with provisional budgets; resize leg and true photon-present latency still deferred |
 | local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
 
@@ -270,6 +274,62 @@ evidence only.
   still needs renderer-side instrumentation or a traced capture.
 - The bench drives vite dev (React dev build), not the packaged
   Electron app; a packaged-app leg is still deferred to RC.
+
+### Input→paint / CPU / longtask attribution (issue #526)
+
+`perf-frame-bench.ts` now emits, per measured window (`idle`, `storm`,
+`switch`):
+
+- **`input_paint`** — p50/p95/p99/min/max/mean of the latency from a
+  trusted input event to the next rAF frame callback's execution time
+  (`performance.now()` inside the rAF callback — deliberately not the
+  vsync timestamp, which under load can predate the event and clamp to
+  0). The
+  in-page recorder stamps `wheel`/`pointerdown` events and drains them
+  on each rAF tick; the harness dispatches CDP
+  `Input.dispatchMouseEvent` wheel bursts (storm), periodic wheel+click
+  probes (idle baseline), and wheel+click probes after each workspace
+  switch. This measures input→paint *scheduling* (event → the frame
+  that carries its damage), not photon-present latency — compositor
+  present still needs a traced capture. It is the least invasive
+  reliable signal: no app instrumentation, works for any input the
+  page sees.
+- **`cpu_utilization_pct`** — cumulative CPU-seconds delta across the
+  window for the whole Chrome process tree, normalized to % of total
+  machine CPU capacity. Primary source is `ps` process-tree accounting
+  (same walk as perf-memory-bench's RSS sampler); CDP
+  `SystemInfo.getProcessInfo` on the browser target is the Windows
+  fallback — its `cpuTime` was verified to underreport (~3 s busy loop
+  → ~1.4 s), so it is not trusted on POSIX. `null` when neither source
+  is available; `cpu_time_ms` carries the raw delta.
+- **`longtask_attribution`** — the existing longtask observer now
+  captures `TaskAttributionTiming` container type(+name) per entry and
+  the window aggregates `{count, total_ms}` per bucket
+  (`unattributed` when the entry carries none).
+- **`switch` leg** — `--switch-cycles N` (default 4, `0` disables)
+  alternates the hash route `#/w/local/<id>` between two fixture
+  workspaces (same React unmount/mount path as perf-memory-bench's
+  switch scenario) while probes measure input→paint on freshly mounted
+  surfaces.
+- **`--check`** — provisional absolute budgets
+  (`--max-input-paint-p95-ms` default 1000,
+  `--max-cpu-util-pct` default 95) enforced on the storm and switch
+  legs. Unmeasured metrics and mid-window navigations fail — a skipped
+  probe is not a pass. Budgets are catastrophe ceilings pending RC
+  freeze variance data, same convention as the memory gate.
+- **`perf-observe.ts compare`** accepts frame reports: it normalizes
+  both report shapes (`config`/`workload`, `host`/`condition`,
+  `sha`/`git_sha`), diffs workload + host + cpuModel for
+  comparability, and reports per-window deltas for frame p50/p95/p99,
+  longtask count/total, canvas API ms, task utilization,
+  input→paint p50/p95/p99 and CPU% under the same
+  `--regression-pct` rule.
+
+Honest gaps: input→paint is measured to the next rAF frame callback
+execution, not compositor present; attribution is container-level (the page's own
+longtasks all share the window container); the `--check` budgets are
+provisional and uncalibrated; keyboard/text input is not probed (only
+wheel + click — keystroke injection could type into the pane).
 
 ## Bridge/plugin data-plane load bench (issues #416/#425)
 
