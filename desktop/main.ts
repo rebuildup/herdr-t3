@@ -11,6 +11,7 @@
  */
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { totalmem } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
@@ -119,22 +120,82 @@ function syncWindowChrome(window: BrowserWindow): void {
 let lastStatus: { ok: boolean; detail: string } = { ok: false, detail: "starting" };
 
 /*
- * Process memory budget (issue #499). Every Electron process — renderer,
- * GPU, utility — counts toward the OS-wide footprint that froze the machine
- * at ~28.5 GB. The latest per-type breakdown is published through
- * bridge-status.json and `herdr-t3:health` so regressions are measurable
- * after the fact; past MEMORY_LIMIT_MB the one safe stop available runs:
- * reload the window. herdr owns every session, pty and scrollback, so a
- * reload re-attaches from the server-side truth — the only loss is an
- * unsent input draft. At most one reload per cooldown; a leak that
- * survives reload is reported, not looped.
+ * Adaptive process memory budget (issue #499). Every Electron process —
+ * renderer, GPU, utility — counts toward the OS-wide footprint that froze
+ * the machine at ~28.5 GB. The latest per-type breakdown is published
+ * through bridge-status.json and `herdr-t3:health` so regressions are
+ * measurable after the fact.
+ *
+ * Thresholds are derived, not fixed (follow-up to the 20 GB constant):
+ * - hard cap: HERDR_T3_MEMORY_LIMIT_MB override, else 60% of physical RAM
+ *   capped at 24 GB — the incident footprint was ~28.5 GB on this class
+ *   of machine, so the cap must leave the OS real headroom;
+ * - warn: max(55% of hard cap, 1.5x the measured baseline) — a slow leak
+ *   trips this long before the cap;
+ * - critical: 85% of hard cap;
+ * - growth: a sustained RSS slope over the trailing 15 min window also
+ *   escalates one level, so a fast leak is shed before it crosses warn.
+ * Levels drive `herdr-t3:memory-pressure` pushes so the renderer sheds
+ * caches early; only the hard cap reloads the window. herdr owns every
+ * session, pty and scrollback, so a reload re-attaches from the
+ * server-side truth — the only loss is an unsent input draft. At most
+ * one reload per cooldown; a leak that survives reload is reported,
+ * not looped.
  */
-const MEMORY_LIMIT_MB = Number(process.env["HERDR_T3_MEMORY_LIMIT_MB"] ?? 20_000);
+const MACHINE_MEM_MB = Math.round(totalmem() / 1048576);
+const MEMORY_HARD_CAP_MB = Number(
+  process.env["HERDR_T3_MEMORY_LIMIT_MB"] ?? Math.min(Math.round(MACHINE_MEM_MB * 0.6), 24_000),
+);
+const MEMORY_WARN_MB = Math.round(MEMORY_HARD_CAP_MB * 0.55);
+const MEMORY_CRIT_MB = Math.round(MEMORY_HARD_CAP_MB * 0.85);
 const MEMORY_RELOAD_COOLDOWN_MS = 10 * 60_000;
-let lastMemory: { totalMb: number; byType: Record<string, number> } | null = null;
+/** RSS samples kept for baseline/slope math (30 s cadence → 2 h window). */
+const MEMORY_HISTORY_MS = 2 * 60 * 60_000;
+const MEMORY_SLOPE_WINDOW_MS = 15 * 60_000;
+/** MB/min sustained growth that escalates one level. */
+const MEMORY_SLOPE_MB_PER_MIN = 96;
+type MemoryLevel = "ok" | "warn" | "critical" | "breach";
+let lastMemory: {
+  totalMb: number;
+  byType: Record<string, number>;
+  level: MemoryLevel;
+  baselineMb: number;
+  slopeMbPerMin: number;
+} | null = null;
+let memoryHistory: { t: number; mb: number }[] = [];
+let lastMemoryLevel: MemoryLevel = "ok";
 let lastMemoryReloadAt = 0;
 let memoryBreached = false;
 let preBreachStatus: { ok: boolean; detail: string } | null = null;
+
+function memoryBaselineMb(): number {
+  if (memoryHistory.length === 0) return 0;
+  return Math.min(...memoryHistory.map((s) => s.mb));
+}
+
+function memorySlopeMbPerMin(now: number): number {
+  const cutoff = now - MEMORY_SLOPE_WINDOW_MS;
+  const windowed = memoryHistory.filter((s) => s.t >= cutoff);
+  if (windowed.length < 2) return 0;
+  const first = windowed[0]!;
+  const last = windowed[windowed.length - 1]!;
+  const minutes = (last.t - first.t) / 60_000;
+  return minutes > 0 ? (last.mb - first.mb) / minutes : 0;
+}
+
+function evaluateMemoryLevel(totalMb: number, now: number): MemoryLevel {
+  const baseline = memoryBaselineMb();
+  const warnMb = Math.max(MEMORY_WARN_MB, Math.round(baseline * 1.5));
+  const slope = memorySlopeMbPerMin(now);
+  let level: MemoryLevel = "ok";
+  if (totalMb >= MEMORY_HARD_CAP_MB) level = "breach";
+  else if (totalMb >= MEMORY_CRIT_MB || (slope >= MEMORY_SLOPE_MB_PER_MIN * 2 && totalMb >= warnMb * 1.2)) {
+    level = "critical";
+  } else if (totalMb >= warnMb || (slope >= MEMORY_SLOPE_MB_PER_MIN && totalMb >= baseline * 1.3)) {
+    level = "warn";
+  }
+  return level;
+}
 
 function sampleProcessMemory(): void {
   // getAppMetrics is only meaningful once the app is ready; diagnostics must
@@ -150,14 +211,39 @@ function sampleProcessMemory(): void {
   } catch {
     return;
   }
+  const now = Date.now();
   const totalMb = Math.round(totalKb / 1024);
-  lastMemory = { totalMb, byType };
+  memoryHistory.push({ t: now, mb: totalMb });
+  const cutoff = now - MEMORY_HISTORY_MS;
+  while (memoryHistory.length > 0 && memoryHistory[0]!.t < cutoff) memoryHistory.shift();
+  const level = evaluateMemoryLevel(totalMb, now);
+  lastMemory = {
+    totalMb,
+    byType,
+    level,
+    baselineMb: memoryBaselineMb(),
+    slopeMbPerMin: Math.round(memorySlopeMbPerMin(now) * 10) / 10,
+  };
   reportStatus(lastStatus.ok, lastStatus.detail);
-  if (totalMb >= MEMORY_LIMIT_MB) {
+  if (level !== lastMemoryLevel) {
+    lastMemoryLevel = level;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("herdr-t3:memory-pressure", { level, totalMb, baselineMb: lastMemory.baselineMb });
+    }
+    if (level === "critical" || level === "breach") {
+      diag("warn", "memory.pressure", `memory level ${level} at ${totalMb}MB total RSS`, {
+        breakdown: byType,
+        baselineMb: lastMemory.baselineMb,
+        slopeMbPerMin: lastMemory.slopeMbPerMin,
+        hardCapMb: MEMORY_HARD_CAP_MB,
+      });
+    }
+  }
+  if (level === "breach") {
     if (!memoryBreached) {
       memoryBreached = true;
       preBreachStatus = { ...lastStatus };
-      diag("error", "memory.budgetExceeded", `total RSS ${totalMb}MB >= ${MEMORY_LIMIT_MB}MB`, {
+      diag("error", "memory.budgetExceeded", `total RSS ${totalMb}MB >= ${MEMORY_HARD_CAP_MB}MB`, {
         breakdown: byType,
       });
       reportStatus(false, `memory budget exceeded: ${totalMb}MB`);

@@ -311,6 +311,7 @@ export function WorktreesSurface({
           </label>
           <Button
             size="sm"
+            className="shrink-0"
             disabled={createDisabled}
             onClick={createWorktree}
           >

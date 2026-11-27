@@ -59,6 +59,14 @@ interface DesktopBridge {
   metrics?(): Promise<unknown>;
   loginItem?(): Promise<unknown>;
   setLoginItem?(openAtLogin: boolean): Promise<unknown>;
+  onMemoryPressure?(listener: (push: MemoryPressurePush) => void): () => void;
+}
+
+/** Main-process memory watchdog push (issue #499). */
+export interface MemoryPressurePush {
+  level: "ok" | "warn" | "critical" | "breach";
+  totalMb?: number;
+  baselineMb?: number;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -288,6 +296,13 @@ export function onMachines(listener: MachinesListener): () => void {
 export function onMachineStatus(listener: MachineStatusListener): () => void {
   machineStatusListeners.add(listener);
   return () => machineStatusListeners.delete(listener);
+}
+
+/** Main-process memory watchdog pushes (issue #499); no-op on the WS dev path. */
+export function onMemoryPressure(listener: (push: MemoryPressurePush) => void): () => void {
+  const ipc = desktopBridge();
+  if (!ipc?.onMemoryPressure) return () => {};
+  return ipc.onMemoryPressure(listener);
 }
 
 /** Subscribed herdr events (`pane.scroll_changed`, structure changes, …) the bridge forwards. */

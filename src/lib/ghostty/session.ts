@@ -59,6 +59,8 @@ export {
 
 /** bytes of decoded Kitty pictures one pane keeps; every pane has a wasm instance of its own */
 const IMAGE_STORAGE_BYTES = 64n * 1024n * 1024n;
+/** scrollback byte cap per pane (issue #499); pairs with the line limit */
+const SCROLLBACK_BYTES = 64n * 1024n * 1024n;
 
 export interface GhosttySessionOptions {
   cols: number;
@@ -164,7 +166,10 @@ function openSession(module: GhosttyModule, options: GhosttySessionOptions): Gho
     images: IMAGE_STORAGE_BYTES,
     events,
   };
-  if (options.scrollbackLines !== undefined) engineOptions.scrollbackLines = options.scrollbackLines;
+  if (options.scrollbackLines !== undefined) {
+    engineOptions.scrollbackLines = options.scrollbackLines;
+    engineOptions.scrollbackBytes = SCROLLBACK_BYTES;
+  }
   const engine = new GhosttyEngine(module, options.cols, options.rows, engineOptions);
   if (options.cellW || options.cellH) engine.resize(options.cols, options.rows, options.cellW ?? 0, options.cellH ?? 0);
   if (options.scrollbackLines !== undefined) engine.setScrollback(options.scrollbackLines);
@@ -298,6 +303,11 @@ export class GhosttySession {
   /** cheap Kitty-image existence check — no pixel copy (issue #499) */
   hasImage(id: number): boolean {
     return this.call(() => this.engine.hasImage(id));
+  }
+
+  /** WASM linear-memory high-water mark for this session's engine (issue #499) */
+  memoryBytes(): number {
+    return this.engine.memoryBytes();
   }
 
   /** the bytes a key sends the program in the keyboard mode it asked for; empty when it cannot see the chord */

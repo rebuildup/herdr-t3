@@ -2014,6 +2014,10 @@ export function GitSurface({
                 </Toggle>
               ))}
             </ToggleGroup>
+            {/* Sections re-report the same repo/plugin failure the status
+                line already shows — skip them while status is broken so the
+                error does not render twice (issue #480 z5). */}
+            {!sectionsDisabled ? (
             <div>
               {section === "changes" ? (
                 <ChangesSection
@@ -2057,6 +2061,7 @@ export function GitSurface({
                 />
               ) : null}
             </div>
+            ) : null}
           </>
         ) : (
           <SurfaceEmpty

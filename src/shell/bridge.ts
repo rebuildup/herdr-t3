@@ -27,6 +27,7 @@ import {
   rpc,
 } from "../lib/api";
 import { navigate, workspaceHash } from "./router";
+import { startMemoryBudgetWatch } from "../lib/memoryBudget.ts";
 
 export type BridgeConnection = "connecting" | "open" | "closed";
 
@@ -250,10 +251,14 @@ export function initBridge(): () => void {
     patch({ machines: { ...state.machines, [machine.id]: machine } });
   });
   const disconnect = connectBridge();
+  // Aggregate WASM/session memory budget watch (issue #499): sheds rebuildable
+  // caches on pressure and logs when the summed probes exceed the budget.
+  const stopMemoryWatch = startMemoryBudgetWatch();
   void ensureMachine(LOCAL_MACHINE);
   return () => {
     started = false;
     disconnect();
+    stopMemoryWatch();
     offSnapshot();
     offStatus();
     offMachines();
