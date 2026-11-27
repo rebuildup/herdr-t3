@@ -437,22 +437,35 @@ benches — no parallel harness.
   "demand-driven delivery" asserts unsubscribed panes open zero
   client-protocol connections (load scales with visible usage), scroll
   encodes AttachScroll and meters post-scroll bytes; "multi-client
-  non-interference" asserts the observer's AttachTerminal carries
+  non-interference" asserts the second client's AttachTerminal carries
   `takeover=false` vs the writable client's `true`, observer
-  input/resize/scroll never reach the writable link, and observer detach
-  leaves the writable link alive; machine-tag propagation covers
-  multi-host isolation, and `server/machine-manager.test.ts` proves an
-  unknown-machine rpc is refused once, never forwarded to local.
+  input/resize/scroll never reach the writable link, an
+  `ObserveTerminal` (`writable:false`, issue #571) client is dropped at
+  the bridge for input/scroll/mouse while resize flows on its own link
+  only, and observer detach leaves the writable link alive; machine-tag
+  propagation covers multi-host isolation, and
+  `server/machine-manager.test.ts` proves an unknown-machine rpc is
+  refused once, never forwarded to local. The attach-mode contract itself
+  is specified in `docs/migration/contracts/terminal-noninterference.md`.
 
 **Honest gaps.**
 
 - The non-interference tests pin *what the bridge sends* (takeover flag,
-  per-link isolation). Whether herdr itself honors a non-takeover
-  AttachTerminal against a live TUI client is upstream semantics —
-  herdr protocol v22 variants 7 `ObserveTerminal` / 8 `ControlTerminal`
-  exist for a dedicated observe/control split but are **not implemented**
-  in `client-link.ts`; adopting them is an upstream-contract ticket under
-  #568, not this one.
+  per-link isolation, observe-mode drops). Whether herdr itself honors a
+  non-takeover `AttachTerminal` against a live TUI client is upstream
+  semantics — `ObserveTerminal` (variant 7) is implemented since #571 and
+  `ControlTerminal` (variant 8, a writable-attach alias) remains
+  unimplemented in `client-link.ts`; the full observe/control split is
+  specified in `docs/migration/contracts/terminal-noninterference.md`
+  and tracked as upstream-contract work under #568.
+- `terminal.delivery.bytes` meters **every** client-protocol terminal
+  stream, including `ObserveTerminal` links — observe streams can never
+  scroll, so their bytes all land in `phase=initial`.
+- `bridge.terminal.attach` counts link-open *attempts*: a #571
+  observe↔writable mode switch closes the old link and re-attaches, so
+  it counts as a second attach while `bridge.terminal.detach` (slot
+  teardown) stays single; pair with `terminal.link.open/close` for the
+  socket-level view.
 - `phase=scroll` bytes include live output after the first scroll, so it
   overstates pure history paging; a dedicated paging counter needs a
   protocol signal that does not exist yet.

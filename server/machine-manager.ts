@@ -34,6 +34,24 @@ const LOCAL_ID = "local";
 const REFRESH_INTERVAL_MS = 60_000;
 const MACHINE_ADD_TIMEOUT_MS = 120_000;
 const MACHINE_OP_TIMEOUT_MS = 30_000;
+/** Cap on attach-lifecycle frames queued per machine during connect (issue #576). */
+const PENDING_FRAME_CAP = 512;
+
+/**
+ * Enqueue an attach-lifecycle frame for a connecting machine (issue #576).
+ * subscribe/unsubscribe are idempotent per pane, so the latest frame for
+ * a pane wins — collapse repeats, and past the cap drop the oldest frame
+ * rather than letting a long connect grow the queue without limit.
+ */
+export function enqueuePendingFrame(queue: ClientFrame[], frame: ClientFrame): void {
+  const paneId = "paneId" in frame ? frame.paneId : undefined;
+  if (paneId !== undefined) {
+    const prior = queue.findIndex((f) => "paneId" in f && f.paneId === paneId);
+    if (prior >= 0) queue.splice(prior, 1);
+  }
+  if (queue.length >= PENDING_FRAME_CAP) queue.shift();
+  queue.push(frame);
+}
 
 interface ManagedSession {
   session: BridgeSession;
@@ -307,7 +325,7 @@ export class MachineManager {
     // never land in a pane after reconnect (draft semantics, issue #5).
     if (frame.type === "subscribe_terminal" || frame.type === "unsubscribe_terminal") {
       const queue = this.pendingFrames.get(machine) ?? [];
-      queue.push(frame);
+      enqueuePendingFrame(queue, frame);
       this.pendingFrames.set(machine, queue);
     } else if (frame.type === "rpc") {
       this.send({

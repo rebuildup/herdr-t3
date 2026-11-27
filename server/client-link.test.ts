@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { attachMouse, decodeServerMessage, encodeVarint } from "./client-link.ts";
+import {
+  attachMouse,
+  decodeServerMessage,
+  encodeVarint,
+  msgAttachTerminal,
+  msgObserveTerminal,
+  openTerminalLink,
+} from "./client-link.ts";
+import type { ByteStream, SocketHandlers } from "./socket.ts";
 
 describe("encodeVarint (bincode 2 standard)", () => {
   test("values up to 250 are a single literal byte", () => {
@@ -37,6 +45,92 @@ describe("attachMouse (ClientMessage::AttachMouse, variant 16)", () => {
     expect(attachMouse("moved", null, 3, 4, 0)).toEqual([
       16, 3, 0, 3, 4, 0, 0, 1,
     ]);
+  });
+});
+
+describe("observe mode (issue #571)", () => {
+  test("msgObserveTerminal encodes ClientMessage variant 7 with a string target", () => {
+    // [7, len=6, "term-1"]
+    expect(msgObserveTerminal("term-1")).toEqual([7, 6, 116, 101, 114, 109, 45, 49]);
+    expect(msgAttachTerminal("term-1", false)[0]).toBe(5);
+  });
+
+  class FakeStream implements ByteStream {
+    readonly chunks: Uint8Array[] = [];
+    ended = false;
+    write(data: string | Uint8Array): void {
+      this.chunks.push(typeof data === "string" ? new TextEncoder().encode(data) : data);
+    }
+    end(): void {
+      this.ended = true;
+    }
+    bytes(): Uint8Array {
+      const total = this.chunks.reduce((n, c) => n + c.length, 0);
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const c of this.chunks) {
+        out.set(c, offset);
+        offset += c.length;
+      }
+      return out;
+    }
+    /** Variant discriminants of every complete frame written so far. */
+    variants(): number[] {
+      const buf = this.bytes();
+      const out: number[] = [];
+      let offset = 0;
+      const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      while (offset + 4 <= buf.length) {
+        const len = view.getUint32(offset, true);
+        if (offset + 4 + len > buf.length) break;
+        out.push(buf[offset + 4]!);
+        offset += 4 + len;
+      }
+      return out;
+    }
+  }
+
+  function welcome(): Uint8Array {
+    // ServerMessage::Welcome { version: 22, encoding: TerminalAnsi(1), error: None }
+    const payload = new Uint8Array([0, 22, 1, 0]);
+    const frame = new Uint8Array(4 + payload.length);
+    new DataView(frame.buffer).setUint32(0, payload.length, true);
+    frame.set(payload, 4);
+    return frame;
+  }
+
+  function openLink(writable: boolean) {
+    const stream = new FakeStream();
+    let handlers: SocketHandlers | null = null;
+    const linkPromise = openTerminalLink(
+      "term-1",
+      { cols: 80, rows: 24, writable, connect: (h) => { handlers = h; return Promise.resolve(stream); } },
+      { onEvent: () => {}, onClose: () => {} },
+    );
+    return { stream, linkPromise, handlers: () => handlers! };
+  }
+
+  test("writable:false attaches with ObserveTerminal, not AttachTerminal", async () => {
+    const { stream, linkPromise, handlers } = openLink(false);
+    // TerminalHello goes out on connect; the mode message follows Welcome.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stream.variants()).toEqual([0]);
+    handlers().data(welcome());
+    const link = await linkPromise;
+    expect(link.writable).toBe(false);
+    expect(stream.variants()).toEqual([0, 7]);
+    link.close();
+    expect(stream.ended).toBe(true);
+  });
+
+  test("default attach stays writable AttachTerminal", async () => {
+    const { stream, linkPromise, handlers } = openLink(true);
+    await new Promise((r) => setTimeout(r, 10));
+    handlers().data(welcome());
+    const link = await linkPromise;
+    expect(link.writable).toBe(true);
+    expect(stream.variants()).toEqual([0, 5]);
+    link.close();
   });
 });
 

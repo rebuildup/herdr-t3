@@ -99,6 +99,18 @@ export function msgAttachTerminal(terminalId: string, takeover: boolean): number
   return [...vi(5), ...vs(terminalId), ...vu8(takeover)];
 }
 
+/**
+ * ClientMessage::ObserveTerminal (variant 7): read-only stream of the
+ * terminal. The server renders into the client's announced cols/rows but
+ * never calls runtime.resize and never takes direct_attach_resize_locks;
+ * ClientInput/AttachScroll/AttachMouse are routed only for TerminalAttach
+ * mode, so an observe link must not carry them (headless.rs @ e8d7d97).
+ * `target` accepts a pane, terminal or agent id; the terminal id resolves.
+ */
+export function msgObserveTerminal(target: string): number[] {
+  return [...vi(7), ...vs(target)];
+}
+
 /** AttachScrollSource::Wheel = 0, AttachScrollDirection::Up = 0 / Down = 1. */
 export function attachScroll(
   direction: "up" | "down",
@@ -258,6 +270,8 @@ export interface TerminalMouseEvent {
 
 export interface TerminalLink {
   readonly terminalId: string;
+  /** True when the link holds writable AttachTerminal mode; false for ObserveTerminal. */
+  readonly writable: boolean;
   write: (data: Uint8Array) => void;
   resize: (cols: number, rows: number) => void;
   scroll: (direction: "up" | "down", lines?: number, column?: number, row?: number, modifiers?: number) => void;
@@ -283,12 +297,13 @@ export function clientSocketPath(env: Record<string, string | undefined> = proce
 
 /**
  * Open a client-protocol connection and attach to `terminalId`. Resolves once
- * the server answered AttachTerminal; the first Terminal frame follows. Rejects
- * on handshake refusal, attach failure or socket loss before welcome.
+ * the mode message (AttachTerminal, or ObserveTerminal when `writable` is
+ * false) is sent after the handshake; the first Terminal frame follows.
+ * Rejects on handshake refusal, attach failure or socket loss before welcome.
  */
 export function openTerminalLink(
   terminalId: string,
-  options: { cols: number; rows: number; socketPath?: string; connect?: Connector; takeover?: boolean },
+  options: { cols: number; rows: number; socketPath?: string; connect?: Connector; takeover?: boolean; writable?: boolean },
   handlers: LinkHandlers,
 ): Promise<TerminalLink> {
   const connect =
@@ -360,10 +375,17 @@ export function openTerminalLink(
             try { sock?.end(); } catch { /* gone */ }
             return;
           }
-          // Attach now that the handshake is accepted.
-          send(msgAttachTerminal(terminalId, options.takeover ?? false));
+          // Pick the attach mode before any frame flows: writable
+          // AttachTerminal takes the pane's resize authority; ObserveTerminal
+          // streams read-only with no size or input effect (issue #571).
+          // Mode is fixed for the life of the connection — herdr only
+          // accepts the mode message while the client is TerminalPending —
+          // so switching modes means a new connection (a new subscribe).
+          const writable = options.writable ?? true;
+          send(writable ? msgAttachTerminal(terminalId, options.takeover ?? false) : msgObserveTerminal(terminalId));
           const link: TerminalLink = {
             terminalId,
+            writable,
             write: (data) => send(clientInput(data)),
             resize: (cols, rows) => send(clientResize(cols, rows)),
             scroll: (direction, lines = 3, column, row, modifiers) => {

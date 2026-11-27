@@ -27,10 +27,16 @@ HERDR_PID=""
 VITE_PID=""
 ELECTRON_PID=""
 BRIDGE_PID=""
+# Isolate the machine registry: saved SSH endpoints live under
+# $XDG_STATE_HOME/herdr/client/endpoints.json, and a reachable remote
+# machine would add its panes to goto-picker rows and break the fixed
+# row-count contract. The fixture must see only the local machine.
+ISO_STATE="$(mktemp -d -t ui-state)"
 
 cleanup() {
   kill "$ELECTRON_PID" "$VITE_PID" "$BRIDGE_PID" "$HERDR_PID" 2>/dev/null || true
   wait "$ELECTRON_PID" "$VITE_PID" "$BRIDGE_PID" "$HERDR_PID" 2>/dev/null || true
+  rm -rf "$ISO_STATE"
 }
 trap cleanup EXIT
 
@@ -72,6 +78,7 @@ echo "seeded session $SESSION: $id_a/$pane_a + $id_b/$pane_b (scrollback ready)"
 # --- bridge + vite + electron -------------------------------------------
 PORT="$BRIDGE_PORT" HERDR_T3_PORT="$BRIDGE_PORT" HERDR_SOCKET="$SOCK" \
   HERDR_T3_ALLOWED_ORIGINS="http://localhost:5737,http://127.0.0.1:5737" \
+  XDG_STATE_HOME="$ISO_STATE" \
   bun run server >"$BRIDGE_LOG" 2>&1 &
 BRIDGE_PID=$!
 
@@ -92,6 +99,7 @@ bun run desktop:build >/dev/null
 # socket from HERDR_SOCKET itself — it must be pointed at the fixture
 # session explicitly or it would attach to the live default session.
 HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev HERDR_SOCKET="$SOCK" \
+  XDG_STATE_HOME="$ISO_STATE" \
   ./node_modules/.bin/electron . --remote-debugging-port="$CDP_PORT" >"$ELECTRON_LOG" 2>&1 &
 ELECTRON_PID=$!
 

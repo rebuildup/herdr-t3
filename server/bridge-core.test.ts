@@ -383,7 +383,7 @@ function makePolicySession(snapshots: SessionSnapshot[]) {
     );
   };
   const snapshotPushes = () => frames.filter((f) => f.type === "snapshot");
-  return { session, frames, apiConns, snapshotFetches, subscribeRequests, subscriptionConns, pushEvent, snapshotPushes };
+  return { session, frames, apiConns, clientConns, snapshotFetches, subscribeRequests, subscriptionConns, pushEvent, snapshotPushes };
 }
 
 describe("snapshot push policy (issue #423)", () => {
@@ -494,6 +494,108 @@ describe("subscription lifecycle (issue #527)", () => {
     session.close();
   });
 
+  test("pane.scroll_changed subscriptions track only attached panes across attach/detach (issue #569)", async () => {
+    const multi: SessionSnapshot = {
+      ...SNAPSHOT,
+      panes: [pane("p1", "term-1"), pane("p2", "term-2"), pane("p3", "term-3"), pane("p4", "term-4")],
+    };
+    const { session, apiConns, subscribeRequests, clientConns } =
+      makePolicySession([multi]);
+    await session.start();
+    expect(subscribeRequests()).toBe(1);
+
+    // Scroll-subscription contents of every events.subscribe request the
+    // bridge has opened, in order. Hidden panes (no subscribe_terminal)
+    // must never appear: the subscription set is the delivery contract for
+    // viewport traffic, so it doubles as the visibility scope.
+    const scrollCoverage = () =>
+      apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .flatMap(
+          (r) =>
+            (r.params?.["subscriptions"] as
+              | { type?: string; pane_id?: string }[]
+              | undefined) ?? [],
+        )
+        .filter((s) => s.type === "pane.scroll_changed")
+        .map((s) => s.pane_id);
+    /** pane_ids covered by the most recently opened subscription. */
+    const liveScrollCoverage = () => {
+      const subs = apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .at(-1)
+        ?.params?.["subscriptions"] as
+        | { type?: string; pane_id?: string }[]
+        | undefined;
+      return (subs ?? [])
+        .filter((s) => s.type === "pane.scroll_changed")
+        .map((s) => s.pane_id)
+        .sort();
+    };
+
+    // Before any attach, the subscription carries no scroll filters at
+    // all — panes in other workspaces/tabs get nothing.
+    expect(liveScrollCoverage()).toEqual([]);
+    expect(scrollCoverage()).toEqual([]);
+
+    // A workspace switch mounts only the active tab's panes; the client
+    // subscribes exactly those. Each attach adds its pane to the scroll set.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual(["p1", "p2"]);
+    expect(clientConns).toHaveLength(2);
+
+    // Switching away detaches p1: the reopened subscription must drop its
+    // scroll filter while p2 stays covered.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual(["p2"]);
+
+    // Detaching the last visible pane leaves zero scroll subscriptions —
+    // hidden panes get no viewport delivery at all.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p2" });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual([]);
+    expect(subscribeRequests()).toBe(4);
+    session.close();
+  });
+
+  test("frames for a never-subscribed pane open no attach and no scroll subscription (issue #569)", async () => {
+    const { session, apiConns, frames, clientConns } =
+      makePolicySession([SNAPSHOT]);
+    await session.start();
+    const scrollCount = () =>
+      apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .flatMap(
+          (r) =>
+            (r.params?.["subscriptions"] as
+              | { type?: string; pane_id?: string }[]
+              | undefined) ?? [],
+        )
+        .filter((s) => s.type === "pane.scroll_changed" && s.pane_id === "p-hidden")
+        .length;
+    expect(scrollCount()).toBe(0);
+
+    // A hidden pane (different workspace/tab, or simply not mounted) must
+    // not acquire an attach slot from stray lifecycle/input frames.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p-hidden" });
+    session.handleFrame({ type: "terminal_input", paneId: "p-hidden", data: b64("X") });
+    session.handleFrame({ type: "terminal_resize", paneId: "p-hidden", cols: 80, rows: 24 });
+    session.handleFrame({ type: "terminal_scroll", paneId: "p-hidden", direction: "up" });
+    session.handleFrame({ type: "terminal_mouse", paneId: "p-hidden", action: "press", column: 1, row: 1 });
+    await sleep(300);
+
+    expect(clientConns).toHaveLength(0);
+    expect(scrollCount()).toBe(0);
+    expect(frames.some((f) => f.type === "terminal_closed" && f.paneId === "p-hidden")).toBe(false);
+    session.close();
+  });
+
   test("pane.scroll_changed events are forwarded but never refetch the snapshot", async () => {
     const { session, frames, snapshotFetches, pushEvent, snapshotPushes } =
       makePolicySession([SNAPSHOT]);
@@ -518,6 +620,7 @@ describe("subscription lifecycle (issue #527)", () => {
     session.close();
   });
 });
+
 
 /* ------------- demand-driven delivery / non-interference (#572) ---------- */
 
@@ -666,14 +769,16 @@ describe("demand-driven delivery: visible usage only (#572)", () => {
 });
 
 describe("multi-client non-interference (#572)", () => {
-  test("an observing client attaches without takeover and cannot perturb the writable link", async () => {
+  test("a second non-takeover client cannot perturb the writable link", async () => {
     const { sessions, clientConns } = makeTaggedSessions(["writable", "observer"], MULTI);
     const [writable, observer] = sessions;
     await writable!.start();
     await observer!.start();
 
-    // Writable client takes the pane; observer attaches in the default
-    // non-takeover (read-only) mode — the #572 contract.
+    // Writable client takes the pane; the second client attaches without
+    // the takeover flag (post-#571 an absent `writable` flag still means
+    // writable AttachTerminal — the #572 contract is about takeover and
+    // wire isolation, not the observe mode covered below).
     writable!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, takeover: true });
     observer!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
     await waitFor(() => clientConns.length === 2, "two attaches");
@@ -682,8 +787,8 @@ describe("multi-client non-interference (#572)", () => {
     oConn!.handlers.data(welcomeFrame());
     await waitFor(() => attachTakeovers(wConn!).length === 1 && attachTakeovers(oConn!).length === 1, "attach frames");
 
-    // The takeover flag is the only size/focus authority the observer could
-    // exert: writable=1, observer=0.
+    // The takeover flag is the only size/focus authority the second client
+    // could exert: writable=1, observer=0.
     expect(attachTakeovers(wConn!)).toEqual([true]);
     expect(attachTakeovers(oConn!)).toEqual([false]);
 
@@ -708,6 +813,56 @@ describe("multi-client non-interference (#572)", () => {
     observer!.close();
   });
 
+  test("an ObserveTerminal client (writable:false) cannot perturb a writable attach on the same pane", async () => {
+    const { sessions, clientConns } = makeTaggedSessions(["writable", "observer"], MULTI);
+    const [writable, observer] = sessions;
+    await writable!.start();
+    await observer!.start();
+
+    writable!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, takeover: true });
+    observer!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 2, "two attaches");
+    const [wConn, oConn] = clientConns;
+    wConn!.handlers.data(welcomeFrame());
+    oConn!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Observe link carries variant 7 (ObserveTerminal), writable variant 5.
+    expect(frameVariants(oConn!.stream.bytes())).toEqual([0, 7]);
+    expect(frameVariants(wConn!.stream.bytes())).toEqual([0, 5]);
+
+    // Observer ops: input/mouse/scroll are dropped at the bridge (#571),
+    // resize still flows on the observer's own link only.
+    observer!.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OBSERVE-TYPED") });
+    observer!.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up", lines: 3 });
+    observer!.handleFrame({ type: "terminal_mouse", paneId: "p1", action: "press", column: 1, row: 1 });
+    observer!.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 132, rows: 40 });
+    await waitFor(
+      () => frameVariants(oConn!.stream.bytes()).includes(3),
+      "observer resize on its own link",
+    );
+    await sleep(20);
+
+    // Nothing the observer sent may appear on the writable client's wire.
+    const wBytes = wConn!.stream.bytes();
+    expect(Buffer.from(wBytes).toString("latin1")).not.toContain("OBSERVE-TYPED");
+    const wVariants = clientPayloads(wConn!.stream).map(frameVariant);
+    expect(wVariants).not.toContain(3); // Resize
+    expect(wVariants).not.toContain(6); // AttachScroll
+    const oVariants = clientPayloads(oConn!.stream).map(frameVariant);
+    expect(oVariants).toContain(3); // Resize flowed
+    expect(oVariants).not.toContain(6); // AttachScroll dropped
+    expect(Buffer.from(oConn!.stream.bytes()).toString("latin1")).not.toContain("OBSERVE-TYPED");
+
+    // Observer detach leaves the writable link alive.
+    observer!.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await waitFor(() => oConn!.stream.ended, "observer detach");
+    await sleep(20);
+    expect(wConn!.stream.ended).toBe(false);
+    writable!.close();
+    observer!.close();
+  });
+
   test("server frames are tagged with their machine id (multi-host isolation)", async () => {
     const { sessions, clientConns, frames } = makeTaggedSessions(["remote-a"], MULTI);
     const session = sessions[0]!;
@@ -723,3 +878,141 @@ describe("multi-client non-interference (#572)", () => {
     session.close();
   });
 });
+
+/* ------------- observe/writable coexistence (issue #571) ----------------- */
+
+/**
+ * Multi-client non-interference contract: a pane subscribed with
+ * `writable: false` must hold an ObserveTerminal link — no resize lock, no
+ * input path — while a writable attach on the same or another pane keeps
+ * working, and a mode-negotiation subscribe flips the live slot without
+ * dropping queued input.
+ */
+describe("observe/writable attach modes (issue #571)", () => {
+  test("observe subscribe opens ObserveTerminal; input/scroll/mouse are dropped, resize flows", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 1, "observe connection");
+    const link = clientConns[0]!;
+    link.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Input-class frames must never reach an observe link.
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("TYPED") });
+    session.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up" });
+    session.handleFrame({ type: "terminal_mouse", paneId: "p1", action: "press", column: 1, row: 1 });
+    // Resize still flows: an observe client renders into the size it announces.
+    session.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 100, rows: 30 });
+    await sleep(30);
+
+    const latin = Buffer.from(link.stream.bytes()).toString("latin1");
+    expect(latin).not.toContain("TYPED");
+    // variants: 0 TerminalHello, 7 ObserveTerminal, 3 Resize — nothing else.
+    const variants = frameVariants(link.stream.bytes());
+    expect(variants).toEqual([0, 7, 3]);
+    session.close();
+  });
+
+  test("mode-negotiation subscribe promotes observe to writable on a new link, queue intact", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 1, "observe connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Promote: same paneId, writable flips — the bridge re-attaches without
+    // an unsubscribe, so the slot (and its op queue) survives.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: true });
+    await waitFor(() => clientConns.length === 2, "writable re-attach connection");
+    const writable = clientConns[1]!;
+    // Input typed while the promotion attach is still resolving queues and
+    // flushes to the new link in order — nothing typed is lost (AGENTS.md §3).
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("PROMOTED") });
+    writable.handlers.data(welcomeFrame());
+    await waitFor(() => Buffer.from(writable.stream.bytes()).toString("latin1").includes("PROMOTED"), "promoted input flush");
+
+    // The superseded observe link was detached, not leaked.
+    expect(clientConns[0]!.stream.ended).toBe(true);
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toContain(4); // Detach
+
+    // Demote back to observe: a third connection, input dropped again.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 3, "observe re-attach connection");
+    clientConns[2]!.handlers.data(welcomeFrame());
+    await sleep(20);
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("DROPPED") });
+    await sleep(20);
+    expect(Buffer.from(clientConns[2]!.stream.bytes()).toString("latin1")).not.toContain("DROPPED");
+
+    // One unsubscribe still releases the whole slot: no fourth connection,
+    // and the final link detaches.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await sleep(30);
+    expect(clientConns).toHaveLength(3);
+    expect(clientConns[2]!.stream.ended).toBe(true);
+    session.close();
+  });
+
+  test("observe and writable attaches coexist on different panes without cross-talk", async () => {
+    const multi: SessionSnapshot = {
+      ...SNAPSHOT,
+      panes: [pane("p1", "term-1"), pane("p2", "term-2")],
+    };
+    const apiConns: PolicyApiConn[] = [];
+    const clientConns: ClientConn[] = [];
+    const frames: ServerFrame[] = [];
+    const endpoint: BridgeEndpoint = {
+      api: policyApiConnector(apiConns, [multi]),
+      client: clientConnector(clientConns),
+      label: "fake",
+    };
+    const session = createBridgeSession((f) => frames.push(f), endpoint, "m");
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 2, "two attach connections");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    clientConns[1]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // p1 observes (variant 7), p2 attaches writable (variant 5).
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toEqual([0, 7]);
+    expect(frameVariants(clientConns[1]!.stream.bytes())).toEqual([0, 5]);
+
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("NO") });
+    session.handleFrame({ type: "terminal_input", paneId: "p2", data: b64("YES") });
+    await sleep(20);
+    expect(Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1")).not.toContain("NO");
+    expect(Buffer.from(clientConns[1]!.stream.bytes()).toString("latin1")).toContain("YES");
+    session.close();
+  });
+
+  test("absent writable flag keeps the writable AttachTerminal default", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "default attach connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+    expect(frameVariants(clientConns[0]!.stream.bytes())).toEqual([0, 5]);
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OK") });
+    await waitFor(() => Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1").includes("OK"), "writable input");
+    session.close();
+  });
+});
+
+/** Variant discriminants (first payload byte) of every complete bincode frame. */
+function frameVariants(bytes: Uint8Array): number[] {
+  const out: number[] = [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const len = view.getUint32(offset, true);
+    if (offset + 4 + len > bytes.length) break;
+    out.push(bytes[offset + 4]!);
+    offset += 4 + len;
+  }
+  return out;
+}

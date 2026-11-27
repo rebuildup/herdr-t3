@@ -132,6 +132,9 @@ pub fn is_client_frame(value: &Value) -> bool {
                 && frame
                     .get("takeover")
                     .is_none_or(|t| t.is_boolean())
+                && frame
+                    .get("writable")
+                    .is_none_or(|w| w.is_boolean())
         }
         Some("unsubscribe_terminal") => pane_id_ok() && machine_ok(frame),
         Some("terminal_input") => {

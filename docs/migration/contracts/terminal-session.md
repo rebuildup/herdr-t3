@@ -35,6 +35,54 @@ this contract binds behavior, not implementation.
 - IME composition: commit text sent exactly once, cancel sends
   nothing, composition keys never leak (terminal-io.md §3).
 
+## Scrollback delivery (issue #570, measured)
+
+What the attach stream delivers today (herdr client protocol v22,
+`server/client-link.ts`, evidence `perf-reports/scrollback-*.json` via
+`scripts/perf-scrollback.ts` on an isolated session):
+
+- `AttachTerminal` replays **no scrollback**: the first `Terminal` frame
+  is one viewport-sized ANSI render (measured 5,146 B for a 120×40
+  attach against a pane holding 9,215 scrollback lines; a second attach
+  cost the same). There is no viewport/history parameter on attach.
+- History paging is already demand-driven **through the shared host
+  viewport**: `AttachScroll` (wheel/page-key input, arbitrated by the
+  server into mouse-report / host-scroll / alternate-scroll) and
+  `pane.scroll` move herdr's scroll offset, and each step re-renders
+  only the attach viewport (measured ~400 B per 40-row page step,
+  231 steps ≈ 92 KB for the full 9,215-line history). Scrolling past
+  the top emits zero bytes — the clamp is server-side.
+- Scroll position stability across appends is handled client-side
+  (`hostScrollChanged` appends tracking, issue #436): no jump on append.
+
+Protocol v22 has **no read-only history-page request**:
+
+- `AttachScroll` mutates the pane's shared scroll viewport — paging
+  history through it is visible to every other client (the
+  non-interference half of program #568 belongs to #571).
+- `ObserveTerminal` (variant 7) is a read-only attach of the same
+  viewport stream; it does not add history access.
+- `pane.read` (`recent`/`visible`/`detection`, `text`/`ansi`) is
+  bottom-anchored with `lines ≤ 1000` and no offset/anchor parameter —
+  it cannot page to arbitrary older history and is not whitelisted by
+  the bridge anyway.
+- No `ServerMessage` variant carries history pages.
+
+Missing capability to canonize upstream (#571): a history read that does
+not move the shared viewport — e.g. a client message naming a terminal
+plus an `offset_from_bottom`/anchor and row count, answered by a
+server message carrying those rows (ANSI or cell form) with stable
+positions across appends, read-only (no input, resize, or scroll
+authority). Until it exists, deep-history search/copy beyond what
+streamed while attached, and non-interfering scrollback browsing, are
+impossible by design — do not fake them.
+
+Client-side retention is already bounded: the engine keeps at most
+`scrollbackLines` (default 10,000, user setting) **and**
+`SCROLLBACK_MAX_BYTES` (64 MiB, issue #499) of streamed output per pane
+— required for selection, search and copy of post-attach output; it is
+not a full-history copy.
+
 ## Errors and known gaps
 
 - `terminal_closed{reason}` → pane shows closed state; re-attach only
@@ -61,5 +109,7 @@ this contract binds behavior, not implementation.
 `shared/ghostty/engine.test.ts`, `src/lib/ghostty/session.test.ts`,
 `inputPolicy.test.ts`, `keys.test.ts`, `server/client-link.test.ts`
 (frame codec), `scripts/verify-terminal-input.ts` (live attach path),
-`scripts/perf-terminal-bench.ts` (#213 baseline), `terminal-io.md` §7.1
-coverage map. Differential replay: #237; perf non-regression: #240.
+`scripts/perf-terminal-bench.ts` (#213 baseline),
+`scripts/perf-scrollback.ts` (#570 attach/scroll byte evidence),
+`terminal-io.md` §7.1 coverage map. Differential replay: #237; perf
+non-regression: #240.
