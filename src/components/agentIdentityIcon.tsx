@@ -34,7 +34,7 @@
  * accessible name (issue #381 — the name is never printed on the row).
  */
 import { Check } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { AgentStatus } from "../../shared/protocol";
 
@@ -109,7 +109,7 @@ function StatusRing({ status }: { status: AgentStatus }) {
       fill="none"
       aria-hidden
       className={cn(
-        "pointer-events-none absolute inset-0 size-full",
+        "pointer-events-none absolute inset-0 size-full transition-colors duration-200",
         spec.tone,
         spec.quiet && "opacity-60",
         spec.spin && "motion-safe:visible-animate-spin",
@@ -163,19 +163,24 @@ function StatusRing({ status }: { status: AgentStatus }) {
  */
 function StatusOverlay({
   tone,
+  className,
   children,
 }: {
   tone: "destructive" | "success" | "muted";
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "pointer-events-none absolute left-1/2 top-1/2 flex size-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-2xs font-bold leading-none",
+        // `inset-0 m-auto` centers without a transform so the pop/exit
+        // keyframes own `transform` while they run.
+        "pointer-events-none absolute inset-0 m-auto flex size-3.5 items-center justify-center rounded-full text-2xs font-bold leading-none",
         tone === "destructive" && "bg-destructive text-white",
         tone === "success" && "bg-success text-white",
         tone === "muted" && "bg-muted-foreground text-background",
+        className,
       )}
     >
       {children}
@@ -192,9 +197,11 @@ function StatusOverlay({
  */
 function StatusBadge({
   tone,
+  className,
   children,
 }: {
   tone: "success" | "muted";
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -204,6 +211,7 @@ function StatusBadge({
         "pointer-events-none absolute -bottom-1 -right-1 flex size-3 items-center justify-center rounded-full text-4xs font-bold leading-none",
         tone === "success" && "bg-success text-white",
         tone === "muted" && "bg-muted-foreground/20 text-muted-foreground",
+        className,
       )}
     >
       {children}
@@ -211,23 +219,44 @@ function StatusBadge({
   );
 }
 
-function StatusMark({ status }: { status: AgentStatus }) {
-  const marker =
-    status === "blocked" ? (
-      <StatusOverlay tone="destructive">!</StatusOverlay>
-    ) : status === "done" ? (
-      <StatusBadge tone="success">
+const MARKER_ENTER = "motion-safe:animate-marker-pop";
+const MARKER_EXIT = "motion-safe:animate-marker-exit";
+/** Matches `--animate-marker-exit` duration plus a small buffer. */
+const MARKER_EXIT_MS = 180;
+
+/**
+ * The per-status marker layer (overlay disc or corner badge). `key`ed
+ * by status at the call site so every transition remounts and replays
+ * the pop; `exiting` clones fade out instead.
+ */
+function StatusMarker({
+  status,
+  exiting = false,
+}: {
+  status: AgentStatus;
+  exiting?: boolean;
+}) {
+  const anim = exiting ? MARKER_EXIT : MARKER_ENTER;
+  if (status === "blocked") {
+    return (
+      <StatusOverlay tone="destructive" className={anim}>
+        !
+      </StatusOverlay>
+    );
+  }
+  if (status === "done") {
+    return (
+      <StatusBadge tone="success" className={anim}>
         <Check className="size-2" strokeWidth={3.5} />
       </StatusBadge>
-    ) : status === "idle" || status === "working" ? null : (
-      // `unknown` and any status herdr adds later.
-      <StatusBadge tone="muted">?</StatusBadge>
     );
+  }
+  if (status === "idle" || status === "working") return null;
+  // `unknown` and any status herdr adds later.
   return (
-    <>
-      <StatusRing status={status} />
-      {marker}
-    </>
+    <StatusBadge tone="muted" className={anim}>
+      ?
+    </StatusBadge>
   );
 }
 
@@ -247,6 +276,19 @@ export function AgentIdentityIcon({
   status: AgentStatus;
   className?: string;
 }) {
+  // Status transitions animate: the incoming marker pops in while the
+  // outgoing one fades out for MARKER_EXIT_MS. The ring needs no clone —
+  // its color transitions via `transition-colors` on the same element.
+  const [exiting, setExiting] = useState<AgentStatus | null>(null);
+  const prevStatus = useRef(status);
+  useEffect(() => {
+    if (prevStatus.current === status) return;
+    const old = prevStatus.current;
+    prevStatus.current = status;
+    setExiting(old);
+    const timer = window.setTimeout(() => setExiting(null), MARKER_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
   return (
     <span
       className={cn(
@@ -255,7 +297,11 @@ export function AgentIdentityIcon({
       )}
     >
       <AgentProviderIcon agent={agent} className="size-3" />
-      <StatusMark status={status} />
+      <StatusRing status={status} />
+      <StatusMarker key={status} status={status} />
+      {exiting !== null && exiting !== status ? (
+        <StatusMarker key={`exit-${exiting}`} status={exiting} exiting />
+      ) : null}
     </span>
   );
 }

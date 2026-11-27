@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { AgentStatus } from "../../shared/protocol";
+import { Button } from "./ui/button";
 import { AgentIdentityIcon } from "./agentIdentityIcon";
 
 const meta = {
@@ -58,6 +60,35 @@ export const ZoomedMarkers: Story = {
       ))}
     </div>
   ),
+};
+
+/** Cycle through every status to watch the marker pop/exit transitions. */
+export const StatusTransitions: Story = {
+  args: { agent: "claude", status: "working" },
+  render: function Render() {
+    const [index, setIndex] = useState(0);
+    const status = STATUSES[index % STATUSES.length]!;
+    return (
+      <div className="flex flex-col items-start gap-4">
+        <div className="flex items-center gap-3">
+          <AgentIdentityIcon agent="claude" status={status} />
+          <span className="text-sm text-muted-foreground">{status}</span>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="xs"
+            variant="secondary"
+            onClick={() => setIndex((i) => (i + STATUSES.length - 1) % STATUSES.length)}
+          >
+            ← prev
+          </Button>
+          <Button size="xs" variant="secondary" onClick={() => setIndex((i) => i + 1)}>
+            next →
+          </Button>
+        </div>
+      </div>
+    );
+  },
 };
 
 /** Mock of the sidebar agent rows the ring leads — status name kept out of the row, as in the app. */

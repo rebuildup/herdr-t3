@@ -99,6 +99,10 @@
   --color-zinc-25: oklch(99.2% 0 0);
   --animate-skeleton: skeleton 2.4s infinite;
   --animate-notice-in: notice-in var(--motion-duration-fast) var(--motion-ease-standard);
+  /* Agent status markers (issue #550): overshoot pop on enter, quick
+     fade+shrink on exit so status changes read as motion, not swaps. */
+  --animate-marker-pop: marker-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-marker-exit: marker-exit 160ms ease-in forwards;
 
   /* T3 appearance-contrast tokens: fall back to the base values (boost 0). */
   --contrast-foreground: var(--foreground);
@@ -182,6 +186,28 @@
     from {
       opacity: 0;
       transform: translateY(4px);
+    }
+  }
+
+  @keyframes marker-pop {
+    0% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(1.12);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes marker-exit {
+    to {
+      opacity: 0;
+      transform: scale(0.5);
     }
   }
 
