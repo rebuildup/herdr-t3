@@ -1,0 +1,113 @@
+{
+  "format": "herdr-t3/bridge-load",
+  "version": 1,
+  "recorded_at": "2026-11-27T02:21:10.711Z",
+  "git_sha": "03a64f792e242979d2022bd6c61c5928abc007d8",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "condition": {
+    "loadavg_1m": 72.724609375,
+    "loadavg_5m": 46.70068359375,
+    "loadavg_15m": 44.77001953125
+  },
+  "leg_seconds": 15,
+  "plugin_refresh_ms": null,
+  "server_metrics": false,
+  "plugins_discovered": [],
+  "legs": {
+    "idle": {
+      "delta": null,
+      "issued": {},
+      "verdict": {
+        "leg": "idle",
+        "ok": true,
+        "failures": [],
+        "notes": []
+      },
+      "client_frames": {
+        "machine_status": 4,
+        "ready": 1,
+        "snapshot": 2
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "rpc-read": {
+      "delta": null,
+      "issued": {
+        "rpc": 20,
+        "rpc_read": 20
+      },
+      "verdict": {
+        "leg": "rpc-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 20 rpc frames"
+        ]
+      },
+      "client_frames": {
+        "snapshot": 5,
+        "rpc_result": 20
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "plugin-read": {
+      "delta": null,
+      "issued": {
+        "plugin_call": 8
+      },
+      "verdict": {
+        "leg": "plugin-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "plugin.exec/plugin_call=0.00 (0 execs / 8 calls)"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "snapshot": 2,
+        "rpc_result": 8
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "activity": {
+      "delta": null,
+      "issued": {
+        "rpc": 3,
+        "rpc_read": 3,
+        "plugin_call": 0
+      },
+      "verdict": {
+        "leg": "activity",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 3 rpc frames"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "snapshot": 8,
+        "rpc_result": 3,
+        "event": 10
+      },
+      "plugin_exec_pids_observed": 0
+    }
+  },
+  "client": {
+    "rpc_latencies_ms": {
+      "p50": 969.5178339999984,
+      "p95": 24826.283541999997,
+      "max": 24866.407874999997
+    },
+    "errors": 1,
+    "frames_received": 68
+  }
+}

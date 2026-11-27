@@ -45,6 +45,7 @@ const REPO_ROOT = join(import.meta.dir, "..");
 // ---------- args ----------
 const VALUE_FLAGS = new Set([
   "--session", "--socket", "--seconds", "--out", "--bridge-port",
+  "--plugin-refresh-ms",
 ]);
 const args = new Map<string, string>();
 const positional: string[] = [];
@@ -436,15 +437,33 @@ async function main(): Promise<number> {
       const la = a.legs[leg];
       const lb = b.legs[leg];
       if (!la || !lb) continue;
-      const execA = Object.entries(la.delta.timers).filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call")).reduce((n, [, t]) => n + t.count, 0) / la.delta.seconds;
-      const execB = Object.entries(lb.delta.timers).filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call")).reduce((n, [, t]) => n + t.count, 0) / lb.delta.seconds;
-      const pushA = (counter(la.delta, "bridge.snapshot.push") + counter(la.delta, "bridge.snapshot.push.unchanged")) / la.delta.seconds;
-      const pushB = (counter(lb.delta, "bridge.snapshot.push") + counter(lb.delta, "bridge.snapshot.push.unchanged")) / lb.delta.seconds;
-      const rpcAvg = (d: LegDelta) => {
-        const t = Object.entries(d.timers).find(([k]) => k === "herdr.rpc" || k.startsWith("herdr.rpc{"));
-        return t?.[1].avgMs ?? 0;
+      // Pre-#446 reports have no server metrics — fall back to the
+      // client-observable signals (snapshot frames received, frames issued).
+      const execRate = (l: LegRecord) =>
+        l.delta
+          ? Object.entries(l.delta.timers)
+              .filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call"))
+              .reduce((n, [, t]) => n + t.count, 0) / l.delta.seconds
+          : null;
+      const pushRate = (l: LegRecord) =>
+        l.delta
+          ? (counter(l.delta, "bridge.snapshot.push") + counter(l.delta, "bridge.snapshot.push.unchanged")) / l.delta.seconds
+          : null;
+      const rpcAvg = (l: LegRecord) => {
+        if (!l.delta) return null;
+        const t = Object.entries(l.delta.timers).find(([k]) => k === "herdr.rpc" || k.startsWith("herdr.rpc{"));
+        return t?.[1].avgMs ?? null;
       };
-      console.log(`[${leg}] plugin.exec/s ${execA.toFixed(2)} -> ${execB.toFixed(2)} | snapshot.push/s ${pushA.toFixed(2)} -> ${pushB.toFixed(2)} | herdr.rpc avg ${rpcAvg(la.delta).toFixed(1)}ms -> ${rpcAvg(lb.delta).toFixed(1)}ms`);
+      const snapFrames = (l: LegRecord) => l.client_frames["snapshot"] ?? 0;
+      const fmt = (n: number | null, d = 2) => (n === null ? "n/a" : n.toFixed(d));
+      console.log(
+        `[${leg}] plugin.exec/s ${fmt(execRate(la))} -> ${fmt(execRate(lb))}` +
+        ` | snapshot.push/s ${fmt(pushRate(la))} -> ${fmt(pushRate(lb))}` +
+        ` | snap_frames ${snapFrames(la)} -> ${snapFrames(lb)}` +
+        ` | rpc_result ${la.client_frames["rpc_result"] ?? 0} -> ${lb.client_frames["rpc_result"] ?? 0}` +
+        ` | plugin_call ${la.issued["plugin_call"] ?? 0} -> ${lb.issued["plugin_call"] ?? 0}` +
+        ` | herdr.rpc avg ${rpcAvg(la) === null ? "n/a" : `${rpcAvg(la)!.toFixed(1)}ms`} -> ${rpcAvg(lb) === null ? "n/a" : `${rpcAvg(lb)!.toFixed(1)}ms`}`,
+      );
     }
     return 0;
   }
