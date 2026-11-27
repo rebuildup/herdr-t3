@@ -9,6 +9,7 @@ import type {
   SessionResponse,
   SessionSnapshot,
 } from "../../shared/protocol.ts";
+import { isReadOnlyRpcMethod } from "../../shared/protocol.ts";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -366,8 +367,40 @@ export function terminalScroll(
   sendFrame({ type: "terminal_scroll", machine, paneId, ...event });
 }
 
+/*
+ * Single-flight for identical concurrent read-only RPCs (issue #527).
+ * Every mounted pane issues `session.snapshot` on attach to seed its
+ * scroll offset, so a workspace switch with K panes used to fan out into
+ * K identical large-reply herdr RPCs. Concurrent identical read-only
+ * calls now share one bridge round-trip; entries are removed on settle —
+ * nothing is cached, so sequential calls still fetch fresh data.
+ */
+const readRpcInflight = new Map<string, Promise<unknown>>();
+
+function readRpcKey(method: RpcMethod, params: Record<string, unknown>, machine: string): string {
+  return `${machine} ${method} ${JSON.stringify(params)}`;
+}
+
 /** Call a whitelisted herdr RPC through the bridge, on the given machine. */
 export function rpc<T = unknown>(
+  method: RpcMethod,
+  params: Record<string, unknown> = {},
+  machine: string = LOCAL_MACHINE,
+): Promise<T> {
+  if (isReadOnlyRpcMethod(method)) {
+    const key = readRpcKey(method, params, machine);
+    const existing = readRpcInflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = rpcOnce<T>(method, params, machine);
+    readRpcInflight.set(key, pending);
+    const cleanup = () => readRpcInflight.delete(key);
+    pending.then(cleanup, cleanup);
+    return pending;
+  }
+  return rpcOnce(method, params, machine);
+}
+
+function rpcOnce<T = unknown>(
   method: RpcMethod,
   params: Record<string, unknown> = {},
   machine: string = LOCAL_MACHINE,

@@ -92,4 +92,42 @@ describe("evaluateLeg", () => {
     const v = evaluateLeg("activity", d, { rpc: 6, rpc_read: 0 });
     expect(v.ok).toBe(true);
   });
+
+  test("#527 regression: per-pane subscription reopens on attach churn fails", () => {
+    // 4-pane batch × 15 cycles = 60 subscribes; coalesced ≈ 2 opens/phase
+    // (~30), per-pane amplification ≈ 2 opens/subscribe (120).
+    const amplified = delta({ "bridge.subscription.open": 120 });
+    const v = evaluateLeg("attach-churn", amplified, {
+      subscribe_terminal: 60,
+      unsubscribe_terminal: 60,
+      attach_batch: 4,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.failures[0]).toContain("per-pane reopen amplification");
+
+    const coalesced = delta({ "bridge.subscription.open": 30 });
+    const ok = evaluateLeg("attach-churn", coalesced, {
+      subscribe_terminal: 60,
+      unsubscribe_terminal: 60,
+      attach_batch: 4,
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  test("#527 regression: duplicate sessions per reconnect fail", () => {
+    const d = delta(
+      { "bridge.subscription.open": 12 },
+      { "herdr.rpc{method=session.snapshot,ok=true}": { count: 14, totalMs: 140, avgMs: 10, maxMs: 20 } },
+    );
+    const v = evaluateLeg("reconnect", d, { reconnect: 6 });
+    expect(v.ok).toBe(false);
+    expect(v.failures.some((f) => f.includes("reconnects"))).toBe(true);
+
+    const healthy = delta(
+      { "bridge.subscription.open": 6 },
+      { "herdr.rpc{method=session.snapshot,ok=true}": { count: 6, totalMs: 60, avgMs: 10, maxMs: 20 } },
+    );
+    const ok = evaluateLeg("reconnect", healthy, { reconnect: 6 });
+    expect(ok.ok).toBe(true);
+  });
 });
