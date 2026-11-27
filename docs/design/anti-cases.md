@@ -153,31 +153,44 @@ row actions and section-header accessory slots. Explicitly does **not**
 apply to primary CTAs, form submits, destructive confirms, or actions
 whose meaning genuinely needs a label.
 
-**Detection (planned).** Two-layer, per the issue's "shared
-action/slot" direction:
+**Detection (landed).**
 
-1. A shared `IconAction`/`ActionButton` contract (icon + required
-   `aria-label` + tooltip) used by the known accessory slots
-   (`SurfacePanelHeader`/`SurfaceDetailsSection` `actions`, row action
-   clusters) so the valid form is the easy form.
-2. An AST lint rule flagging `size="xs"|"sm"` text-bearing `Button`s
-   inside those slot positions (or a curated equivalent), with
-   reasoned suppressions for legitimate labeled actions.
+1. `herdr-t3/no-text-button-in-surface-slot`
+   (`lint-plugin/rules/no-text-button-in-surface-slot.ts`, error in
+   `.oxlintrc.json`) flags non-`icon-*` `size` `Button`s inside the
+   `actions`/`action` props of `SurfacePanelHeader`, `SurfaceSection`,
+   `SurfaceDetailsSection`, and `SurfaceGroupHeader`. Suppressions need
+   a reason (`require-suppression-reason`).
+2. The shared `IconAction` wrapper from the original plan was not
+   introduced: the established conforming pattern
+   (`size="icon-*" variant="ghost"` + `aria-label` + `title`/tooltip +
+   icon) already exists at multiple call sites, and the lint rule
+   enforces the slot boundary directly. Revisit only if review shows
+   the per-site pattern drifting.
 
 Honest limit: static analysis can enforce the slot/size boundary but
 cannot judge whether a given action's meaning requires text — that
 classification is recorded per call site and reviewed; the rule blocks
 *new unlabeled-in-spirit* regressions, it does not auto-approve meaning.
+Row-level action clusters outside the four header slots (e.g. Handoffs
+"Execute"/"Delegate" buttons) are not yet covered by the rule and are
+part of the #534 audit.
 
-**Fixtures.** Negative: a `size="xs"` "Refresh" text button inside a
-`SurfacePanelHeader actions` slot (current pattern). Positive: the same
-action as `size="icon-xs"` ghost + `RefreshIcon` + `aria-label` +
-tooltip; a primary "Save changes" `size="sm"` text button outside
-accessory slots must still pass.
+**Fixtures.** `scripts/lint-fixtures/bad.tsx` carries a `size="xs"`
+"Refresh" text button inside `SurfacePanelHeader actions` (asserted by
+`scripts/lint-ui.test.ts`); `good.tsx` carries the `size="icon-xs"`
+ghost + `aria-label` positive control.
 
-**Status.** `open` — instances inventoried (above), detection design
-chosen, rule/fixture not yet implemented. Full per-surface enumeration
-belongs to the #534 audit table.
+**Fix delivered.** All 13 inventoried violations converted to the icon
+pattern: `ProjectScriptsSurface` (1), `ProjectsSurface` (1),
+`GitSurface` (5 — remotes/branch/PR reload, group stage/unstage,
+show/hide form), `ConversationsSurface` (2), `AutomationsSurface` (2).
+`oxlint src` reports zero errors for the rule.
+
+**Status.** `fix+gate landed` — rule + fixtures + all known slot
+violations delivered in the #407 ticket PR. Rendered verification of
+the converted controls rides with the release-candidate review (#413);
+row-cluster coverage remains audit work under #534.
 
 **Unguaranteed.** Does not prove every remaining text button is
 misclassified; borderline cases (rare but ambiguous actions) stay a
@@ -222,30 +235,46 @@ and is the correct vehicle for non-semantic values.
 (status, severity, classification that changes meaning or action) is
 preserved — this is not a badge-count limit.
 
-**Detection (planned).** Split the primitive boundary:
+**Detection (partially landed).**
 
-1. A typed status component (e.g. `StatusBadge` mapping a known
-   state/variant union) becomes the only supported path for status
-   badges; raw `<Badge>` is restricted by an AST rule to that component
-   (and vendored `ui/` files).
-2. Metadata values render via the existing muted text styles; the lint
-   rule flags `<Badge>` whose children are clearly metadata (paths,
-   counts, `kind`/`type` echoes) where mechanically determinable, with
-   the semantic-vs-metadata classification recorded per call site for
-   review.
+1. `StatusBadge` (`src/components/ui/status-badge.tsx`) is the typed
+   status channel: `status: "ok" | "warning" | "error" | "neutral"`
+   maps to the Badge variant union in one place.
+2. `herdr-t3/no-raw-badge`
+   (`lint-plugin/rules/no-raw-badge.ts`) flags raw `<Badge>` JSX. It is
+   `error` everywhere except `src/components/**` (excluding `ui/` and
+   tests), where it is `warn` — the ~149 surface call sites are
+   migration debt owned by the #534 audit, and warn keeps the signal
+   visible without failing `lint:ui` until each site is classified.
+   `src/components/ui/**` is exempt (the primitives themselves).
+3. Metadata values render via muted text (`text-sm
+   text-muted-foreground` and the existing `text-2xs` metadata style);
+   per-call-site classification is recorded in the #534 audit table.
 
 Honest limit: whether a value is "meaning-bearing" is partially a
 judgment call; the rule enforces the *channel* (status component vs raw
 badge vs text) and the audit records each call site's classification.
+Until the component-level warn debt is burned down, new raw `<Badge>`
+inside `src/components/**` only warns — that gap is explicit, not
+silent.
 
-**Fixtures.** Negative: `<Badge variant="info">{task.kind}</Badge>` and
-`<Badge>{guards.expensiveTaskOptIn ? "on" : "off"}</Badge>` patterns.
-Positive: a run-status badge through the typed status component; a
-kind/provider label rendered as `text-2xs text-muted-foreground` text.
+**Fixtures.** `scripts/lint-fixtures/bad.tsx` carries a raw
+`<Badge variant="secondary">` metadata chip (asserted by
+`scripts/lint-ui.test.ts`); `good.tsx` carries a `StatusBadge` positive
+control.
 
-**Status.** `open` — usage inventoried, detection design chosen, rule
-and typed component not yet implemented. Per-call-site classification
-is part of the #534 audit table.
+**Fix delivered (shell scope).** `SettingsModal` migrated: four status
+indicators (machine, bridge, herdr health, ghostty engine) now go
+through `StatusBadge`; three metadata chips ("T3 Code", "Ghostty",
+"MIT") render as muted text. `SidebarChrome`'s environment
+identification pill keeps raw `Badge` with a reasoned suppression — it
+is a persistent environment *classification*, matching T3's own
+badge usage for environment identification.
+
+**Status.** `open` — channel enforcement landed (StatusBadge + rule +
+fixtures + shell migration); the `src/components/**` warn-level debt
+(~149 sites) and per-call-site classification remain #534 audit work
+before the rule can be promoted to `error` there.
 
 **Unguaranteed.** Does not judge whether a retained status badge's
 variant choice is the *right* semantic mapping; that stays with review

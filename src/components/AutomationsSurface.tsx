@@ -557,7 +557,7 @@ export function AutomationsSurface({ machine }: { machine: string }) {
             <>
               {canReconcile === true ? (
                 <Button
-                  size="xs"
+                  size="icon-xs"
                   variant="ghost"
                   onClick={reconcile}
                   disabled={reconcileBusy}
@@ -565,18 +565,16 @@ export function AutomationsSurface({ machine }: { machine: string }) {
                   aria-label="Reconcile missed runs"
                 >
                   <HistoryIcon className={reconcileBusy ? "animate-pulse" : undefined} />
-                  Reconcile
                 </Button>
               ) : null}
               <Button
-                size="xs"
+                size="icon-xs"
                 variant="ghost"
                 onClick={refresh}
                 disabled={refreshing}
                 aria-label="Refresh automations"
               >
                 <RefreshIcon refreshing={refreshing} />
-                Refresh
               </Button>
             </>
           }

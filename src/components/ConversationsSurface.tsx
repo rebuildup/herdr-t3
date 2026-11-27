@@ -764,7 +764,7 @@ export function ConversationsSurface({ machine }: { machine: string }) {
             <>
               {canIndex === true ? (
                 <Button
-                  size="xs"
+                  size="icon-xs"
                   variant="ghost"
                   onClick={indexNow}
                   disabled={indexBusy}
@@ -772,18 +772,16 @@ export function ConversationsSurface({ machine }: { machine: string }) {
                   aria-label="Index now"
                 >
                   <DatabaseIcon className={indexBusy ? "animate-pulse" : undefined} />
-                  {indexBusy ? "Indexing…" : "Index now"}
                 </Button>
               ) : null}
               <Button
-                size="xs"
+                size="icon-xs"
                 variant="ghost"
                 onClick={refresh}
                 disabled={refreshing}
                 aria-label="Refresh conversations"
               >
                 <RefreshIcon refreshing={refreshing} />
-                Refresh
               </Button>
             </>
           }
