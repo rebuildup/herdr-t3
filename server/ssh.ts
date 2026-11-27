@@ -23,6 +23,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { MachineMetadata, SavedMachine } from "./machines.ts";
+import { appendOutputCapped } from "./plugins.ts";
 import type { Connector, SocketHandlers } from "./socket.ts";
 
 export const SSH_CONNECT_TIMEOUT_S = 10;
@@ -475,7 +476,7 @@ async function probePosixBun(target: string): Promise<string | null> {
       child.kill();
       resolve(null);
     }, SSH_CONNECT_TIMEOUT_S * 1000 + 5000);
-    child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf8")));
+    child.stdout?.on("data", (c: Buffer) => (out = appendOutputCapped(out, c)));
     child.stderr?.on("data", () => {});
     child.on("error", () => {
       clearTimeout(timer);
@@ -579,7 +580,7 @@ function sshExecEndpoint(
       child.kill();
       resolve({ code: null, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr: `${stderr}\n[timed out]`, timedOut });
     }, timeoutMs);
-    child.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
+    child.stdout?.on("data", (c: Buffer) => (stdout = appendOutputCapped(stdout, c)));
     child.stderr?.on("data", (c: Buffer) => (stderr = (stderr + c.toString("utf8")).slice(-STDERR_TAIL)));
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -610,6 +611,23 @@ function sshExec(
  * Remote command for one argv vector (ADR-0011): POSIX shells quote every
  * element; Windows endpoints go through the same PowerShell encoded-script
  * path as the bridges. `cwd` is a host-local path.
+ *
+ * `timeoutMs` bounds the *remote* side's lifetime (issue #537): killing
+ * the local ssh client on timeout does not reliably reap the remote
+ * command — without a pty the remote shell and its children can survive
+ * the disconnect. When provided, the payload is wrapped so it
+ * self-terminates shortly *after* the local timeout (the local timer
+ * must win the race so the outcome stays `timedOut`, not a bare exit
+ * code):
+ *
+ * - POSIX: the payload runs as a background job watched by a shell
+ *   watchdog that SIGKILLs its process group (pgid resolved via `ps`,
+ *   covering grandchildren that share the session group) once the bound
+ *   elapses.
+ * - Windows: the payload runs under `Start-Process`/`WaitForExit(ms)`
+ *   and `taskkill /T /F` reaps the tree on expiry.
+ *
+ * Callers that only need the raw argv shape may omit it.
  */
 export function remoteArgvCommand(
   endpoint: SshEndpoint,
@@ -617,6 +635,7 @@ export function remoteArgvCommand(
   cwd?: string,
   envRemove: string[] = [],
   envSet: Record<string, string> = {},
+  timeoutMs?: number,
 ): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
@@ -634,8 +653,10 @@ export function remoteArgvCommand(
       .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
       .map(([name, value]) => `export ${name}=${shellQuote(value)}; `)
       .join("");
-    const command = `${scrub}${set}${parts}`;
-    return cwd ? `${scrub}${set}cd ${shellQuote(cwd)} && ${parts}` : command;
+    const inner = cwd ? `cd ${shellQuote(cwd)} && ${parts}` : parts;
+    const command = `${scrub}${set}${inner}`;
+    if (timeoutMs === undefined) return command;
+    return posixBoundedCommand(command, timeoutMs);
   }
   // PowerShell has no env-assignment removal; `$env:X=$null` deletes the
   // variable from the process environment (not an empty-string set),
@@ -649,11 +670,67 @@ export function remoteArgvCommand(
     .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
     .map(([name, value]) => `$env:${name}=${quotePowerShellArg(value)}; `)
     .join("");
-  const invoke = argv.map(quotePowerShellArg).join(" ");
-  const script = scrub + set + (cwd
-    ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
-    : `& ${invoke}; exit $LASTEXITCODE`);
-  return windowsPowerShellScriptCommand(script);
+  const preamble = scrub + set + (cwd ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; ` : "");
+  if (timeoutMs === undefined) {
+    const invoke = argv.map(quotePowerShellArg).join(" ");
+    return windowsPowerShellScriptCommand(`${preamble}& ${invoke}; exit $LASTEXITCODE`);
+  }
+  return windowsPowerShellScriptCommand(preamble + windowsBoundedInvocation(argv, timeoutMs));
+}
+
+/**
+ * POSIX remote lifetime bound (issue #537). `command` is the already
+ * scrub/env/cwd-prefixed payload; it runs as one background job so the
+ * watchdog below can signal it. The watchdog polls `kill -0` once a
+ * second: on normal completion it exits within ~1s (no long-lived stray
+ * `sleep`); on expiry it resolves the payload's process group via `ps`
+ * and SIGKILLs it — the session group (`$$`) is tried as well so
+ * grandchildren that escaped into the shared group are still reaped.
+ * The bound deliberately exceeds `timeoutMs` by ~2-3s so the local
+ * sshExecEndpoint timer always wins and reports `timedOut`.
+ */
+function posixBoundedCommand(command: string, timeoutMs: number): string {
+  const seconds = Math.max(1, Math.ceil(timeoutMs / 1000) + 2);
+  return [
+    `${command} &`,
+    "__ht3_pid=$!",
+    "( __ht3_i=0",
+    `while kill -0 $__ht3_pid 2>/dev/null; do __ht3_i=$((__ht3_i + 1)); [ $__ht3_i -ge ${seconds} ] && break; sleep 1; done`,
+    "if kill -0 $__ht3_pid 2>/dev/null; then",
+    "for __ht3_t in $__ht3_pid $$; do",
+    `__ht3_p=$(ps -o pgid= -p $__ht3_t 2>/dev/null | tr -d '[:space:]')`,
+    '[ -n "$__ht3_p" ] && kill -KILL -$__ht3_p 2>/dev/null',
+    "done",
+    "kill -KILL $__ht3_pid 2>/dev/null",
+    "fi",
+    ") &",
+    "__ht3_watch=$!",
+    "wait $__ht3_pid",
+    "__ht3_rc=$?",
+    "kill $__ht3_watch 2>/dev/null",
+    "wait $__ht3_watch 2>/dev/null",
+    "exit $__ht3_rc",
+  ].join("\n");
+}
+
+/**
+ * Windows remote lifetime bound (issue #537): run the argv as a
+ * Start-Process child (same streaming pattern as the bridges), wait up
+ * to `timeoutMs` + grace, then `taskkill /T /F` the whole tree. Exit 124
+ * mirrors GNU `timeout` so a remote-side expiry is distinguishable from
+ * a plugin failure — though the local timer normally resolves first.
+ */
+function windowsBoundedInvocation(argv: string[], timeoutMs: number): string {
+  const filePath = quotePowerShellArg(argv[0] ?? "");
+  const argLine = argv.slice(1).map(quoteWindowsCommandLineArg).join(" ");
+  const argumentList = argv.length > 1 ? ` -ArgumentList ${quotePowerShellArg(argLine)}` : "";
+  const waitMs = Math.max(1, Math.ceil(timeoutMs) + 2000);
+  return (
+    `$p = Start-Process -FilePath ${filePath}${argumentList} -NoNewWindow -PassThru -ErrorAction Stop; ` +
+    "$null = $p.Handle; " +
+    `if (-not $p.WaitForExit(${waitMs})) { try { & taskkill.exe /PID $p.Id /T /F | Out-Null } catch {}; exit 124 }; ` +
+    "exit $p.ExitCode"
+  );
 }
 
 /**
@@ -690,7 +767,14 @@ export function sshPluginHost(
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, remotePluginArgv(endpoint, argv), options.cwd, options.envRemove ?? [], options.envSet ?? {}),
+        remoteArgvCommand(
+          endpoint,
+          remotePluginArgv(endpoint, argv),
+          options.cwd,
+          options.envRemove ?? [],
+          options.envSet ?? {},
+          options.timeoutMs,
+        ),
         options.timeoutMs,
         options.stdin,
       ).then((r) => ({
@@ -796,8 +880,8 @@ function probeRemoteHerdr(target: string): Promise<string | null> {
       child.kill();
       resolve(null);
     }, SSH_CONNECT_TIMEOUT_S * 1000 + 5000);
-    child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf8")));
-    child.stderr?.on("data", (c: Buffer) => (err += c.toString("utf8")));
+    child.stdout?.on("data", (c: Buffer) => (out = appendOutputCapped(out, c)));
+    child.stderr?.on("data", (c: Buffer) => (err = appendOutputCapped(err, c)));
     child.on("error", () => {
       clearTimeout(timer);
       resolve(null);
