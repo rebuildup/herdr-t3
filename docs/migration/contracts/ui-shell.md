@@ -45,9 +45,18 @@ behavior, not the DOM.
 
 ## Errors / edge states
 
-- Empty states (no machines, no workspaces, disconnected bridge),
-  reconnecting, offline machine groups — all have defined presentations
-  in `verification.md`.
+- Canvas session states are a defined contract (issue #421,
+  `docs/design/info-architecture.md` §10): loading/connecting are a
+  single restrained status line; probe-only snapshots are never rendered
+  as live panes; machine down/disabled/fetch-error/genuine-empty
+  (`workspaces: []`, reachable because herdr keeps the session after
+  its last workspace closes) each get a distinct `Empty*` presentation
+  with a recovery action. GPUI must reproduce the same state→display
+  mapping, including "no 'No workspaces' during loading" and "stale is
+  never live".
+- Other empty states (no machines, no workspaces in sidebar,
+  disconnected bridge), reconnecting, offline machine groups — all have
+  defined presentations in `verification.md`.
 - Narrow viewport: toolbar/panes remain usable (issue #79 history);
   mobile sheet behavior for sidebar.
 

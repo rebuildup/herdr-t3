@@ -103,7 +103,10 @@ Cross-cutting findings:
 - **Composition**: every surface defines its own section header, row,
   empty and loading treatments. T3 composes `Empty*`/`Skeleton`/
   `ComposerBanner`-style slots; `ui/empty.tsx` and `ui/skeleton.tsx`
-  were ported verbatim in #407 for the rewrites.
+  were ported verbatim in #407 for the rewrites. The workspace canvas
+  session states now compose `Empty*` too (issue #421,
+  `info-architecture.md` §10); the remaining bespoke empty/loading
+  treatments live in the #409–#411 surfaces below.
 - **Type hierarchy**: `text-2xs` dominates body copy (e.g. UsageSurface
   52/54 text classes). T3 reserves 2xs for metadata/badges; primary
   content is `text-sm`, secondary `text-xs`.
