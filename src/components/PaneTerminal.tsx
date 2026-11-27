@@ -561,7 +561,12 @@ export function PaneTerminal({
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      <div ref={hostRef} className="absolute inset-0" data-ui-terminal={`${machine}\n${paneId}`} />
+      <div
+        ref={hostRef}
+        className="absolute inset-0"
+        data-ui-terminal={`${machine}\n${paneId}`}
+        data-pane-id={paneId}
+      />
       {searchOpen && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md">
           <Input

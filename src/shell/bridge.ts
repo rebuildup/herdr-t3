@@ -83,6 +83,11 @@ export function useBridgeState(): ShellBridgeState {
   return useSyncExternalStore(subscribe, getBridgeState, getBridgeState);
 }
 
+/** Non-hook store subscription (focus handoff coordinator, issue #435). */
+export function subscribeBridgeState(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 /** Sorted machine list: local first, then label order (T3 environment order). */
 export function machineListOf(s: ShellBridgeState = state): MachineInfo[] {
   return Object.values(s.machines).sort((a, b) =>
