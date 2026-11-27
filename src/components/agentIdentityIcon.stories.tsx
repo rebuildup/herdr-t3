@@ -44,16 +44,18 @@ export const Statuses: Story = {
   ),
 };
 
-export const ZoomedWorkingRing: Story = {
+export const ZoomedMarkers: Story = {
   args: { agent: "claude", status: "working" },
   render: () => (
-    <div className="flex items-center gap-8">
-      <div className="origin-top-left scale-[3]">
-        <AgentIdentityIcon agent="claude" status="working" />
-      </div>
-      <div className="origin-top-left scale-[5]">
-        <AgentIdentityIcon agent="codex" status="working" />
-      </div>
+    <div className="flex items-start gap-10">
+      {STATUSES.map((status) => (
+        <div key={status} className="flex flex-col items-center gap-2">
+          <div className="origin-top-left scale-[4]">
+            <AgentIdentityIcon agent="claude" status={status} />
+          </div>
+          <span className="text-xs text-muted-foreground">{status}</span>
+        </div>
+      ))}
     </div>
   ),
 };

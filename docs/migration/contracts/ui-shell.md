@@ -20,15 +20,18 @@ behavior, not the DOM.
   component leads each agent row — brand provider mark (resolution
   order in `shared/agent-icons.json`: T3 artwork → bundled official
   SVG → generic glyph) at a 20px slot with the brand art at 12px,
-  plus a perimeter status ring carrying `agent_status`. Ring grammar:
-  working = rotating primary arc around the *static* brand mark
-  (started/stopped only by the shared visibility control —
-  on-screen + document visible + motion allowed; static full ring
-  under reduced-motion), blocked = heavier warning ring, done =
-  success ring, idle = quiet muted ring, unknown/unrecognized =
-  dashed muted ring. State name is never printed on the row; it lives
+  plus a per-status marker carrying `agent_status` (issue #550 —
+  purpose-driven markers replace the all-around ring except for
+  working). Marker grammar: working = rotating primary arc around the
+  *static* brand mark (started/stopped only by the shared visibility
+  control — on-screen + document visible + motion allowed; static full
+  ring under reduced-motion), blocked = warning "!" badge on the
+  top-right corner, done = success check badge on the bottom-right
+  corner, idle = no marker (bare brand mark), unknown/unrecognized =
+  muted "?" badge on the bottom-right corner. State name is never
+  printed on the row; it lives
   in the shelf, hover card and accessible name. GPUI must reproduce
-  the same asset resolution, state→ring mapping and 20px footprint —
+  the same asset resolution, state→marker mapping and 20px footprint —
   not a renderer-specific variant.
 - Tab strip: select/close/rename/move/drag, hover affordances,
   overflow scroll, per-tab agent status.

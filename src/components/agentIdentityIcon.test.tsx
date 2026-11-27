@@ -4,17 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AgentStatus } from "../../shared/protocol";
 import { AgentIdentityIcon } from "./agentIdentityIcon";
 
-// Issue #419: the agent row's left edge is one shared identity/status
-// glyph — brand mark led, agent_status carried by the perimeter ring.
-// These tests pin the ring grammar (shape/motion per status) and the
-// brand-asset passthrough for known, svg, generic and unknown kinds.
+// Issue #419, restyled under #550: the agent row's left edge is one
+// shared identity/status glyph — brand mark led, agent_status carried by
+// a per-status marker. Working keeps the perimeter arc; blocked/done/
+// unknown get corner badges; idle is the bare mark. These tests pin the
+// marker grammar and the brand-asset passthrough for known, svg,
+// generic and unknown kinds.
 
 function render(agent: string | null | undefined, status: AgentStatus): string {
   return renderToStaticMarkup(<AgentIdentityIcon agent={agent} status={status} />);
 }
 
 describe("AgentIdentityIcon", () => {
-  test("every status renders the brand mark plus exactly one status ring", () => {
+  test("every status renders the brand mark", () => {
     const statuses: AgentStatus[] = [
       "working",
       "blocked",
@@ -27,8 +29,6 @@ describe("AgentIdentityIcon", () => {
       const html = render("claude", status);
       // claude is a t3 brand spec → inline svg paths inside the glyph.
       expect(html, status).toContain("<path");
-      // Brand svg + status ring svg.
-      expect(html.match(/<svg/g)?.length, status).toBe(2);
       expect(html, status).toContain('aria-hidden="true"');
     }
   });
@@ -46,25 +46,39 @@ describe("AgentIdentityIcon", () => {
     expect(html).toContain("motion-reduce:hidden");
   });
 
-  test("non-working statuses never carry the spin animation", () => {
+  test("non-working statuses never carry the spin animation or the ring", () => {
     for (const status of ["blocked", "done", "idle", "unknown"] as const) {
       const html = render("claude", status);
       expect(html, status).not.toContain("visible-animate-spin");
       expect(html, status).not.toContain("motion-reduce:block");
+      expect(html, status).not.toContain("stroke-dasharray");
     }
   });
 
-  test("status tones and ring shapes follow the shared grammar", () => {
-    expect(render("claude", "blocked")).toContain("text-warning");
-    expect(render("claude", "blocked")).toContain('stroke-width="2"');
-    expect(render("claude", "done")).toContain("text-success");
-    expect(render("claude", "idle")).toContain("text-muted-foreground");
-    expect(render("claude", "idle")).toContain("opacity-60");
-    // Unknown and unrecognized statuses share the dashed muted ring.
+  test("status markers follow the badge grammar", () => {
+    // blocked → warning "!" badge on the top-right corner.
+    const blocked = render("claude", "blocked");
+    expect(blocked).toContain("bg-warning");
+    expect(blocked).toContain("-top-1");
+    expect(blocked).toContain(">!</span>");
+    // done → success check badge on the bottom-right corner.
+    const done = render("claude", "done");
+    expect(done).toContain("bg-success");
+    expect(done).toContain("-bottom-1");
+    expect(done).toContain("lucide-check");
+    // idle → bare brand mark, no marker at all.
+    const idle = render("claude", "idle");
+    expect(idle).not.toContain("bg-warning");
+    expect(idle).not.toContain("bg-success");
+    expect(idle).not.toContain("bg-muted-foreground/20");
+    // claude's brand mark is the only svg left for idle.
+    expect(idle.match(/<svg/g)?.length).toBe(1);
+    // Unknown and unrecognized statuses share the muted "?" badge.
     for (const status of ["unknown", "some-future-status"] as const) {
       const html = render("claude", status);
-      expect(html, status).toContain("text-muted-foreground");
-      expect(html, status).toContain('stroke-dasharray="5 5"');
+      expect(html, status).toContain("bg-muted-foreground/20");
+      expect(html, status).toContain("-bottom-1");
+      expect(html, status).toContain(">?</span>");
     }
   });
 
