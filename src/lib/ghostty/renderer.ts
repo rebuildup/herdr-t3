@@ -17,6 +17,7 @@ import {
   type PaintOp,
   type SceneBackgroundImage,
 } from "./scene.ts";
+import { GhosttyImageCache } from "./imageCache.ts";
 
 export interface GhosttyRendererOptions {
   fontFamily: string;
@@ -51,7 +52,10 @@ export class GhosttyRenderer {
   private readonly top: HTMLCanvasElement;
   private readonly bctx: CanvasRenderingContext2D;
   private readonly tctx: CanvasRenderingContext2D;
-  private readonly imageCache = new Map<number, { generation: number; canvas: HTMLCanvasElement }>();
+  // 64 MiB decoded-image budget per surface (issue #499): matches the WASM
+  // engine's per-pane image storage cap so renderer copies stay proportional
+  // to what the engine can still serve instead of growing per unique id.
+  private readonly imageCache = new GhosttyImageCache(64 * 1024 * 1024);
   private bgImage: GhosttyBackgroundImageSpec | null = null;
   private disposed = false;
 
