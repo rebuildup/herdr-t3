@@ -44,7 +44,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Textarea } from "./ui/input";
 import { RefreshIcon } from "./ui/refresh-icon";
@@ -142,37 +142,21 @@ const FALLBACK_KINDS = ["html", "image", "pdf", "file", "other"] as const;
 /** `owner.created_by` contract values (model.ts CREATED_BY, verbatim). */
 const CREATED_BY_VALUES = ["pane", "agent", "handoff", "script", "cli", "unknown"] as const;
 
-function kindBadgeVariant(
-  kind: string | null,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
-  switch (kind) {
-    case "html":
-      return "info";
-    case "image":
-      return "success";
-    case "pdf":
-      return "warning";
-    case "file":
-    case "other":
-      return "secondary";
-    default:
-      return "outline";
-  }
-}
-
-function verifyStatusVariant(
-  status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function verifyStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "ok":
-      return "success";
+      return "ok";
     case "corrupt":
       return "error";
     case "missing":
       return "warning";
     default:
-      return "outline";
+      return "neutral";
   }
+}
+
+function gcActionStatus(action: string): StatusBadgeStatus {
+  return action === "deleted" || action === "would_delete" ? "warning" : "neutral";
 }
 
 /* ------------------------------ artifact row -------------------------- */
@@ -181,19 +165,19 @@ function HonestFlags({ record }: { record: ArtifactRecord }) {
   return (
     <>
       {record.missing_ref ? (
-        <Badge size="sm" variant="error" title="payload missing or unsafe (storage_ref_missing)">
+        <StatusBadge size="sm" status="error" title="payload missing or unsafe (storage_ref_missing)">
           missing_ref
-        </Badge>
+        </StatusBadge>
       ) : null}
       {record.owner_stale ? (
-        <Badge size="sm" variant="warning" title="owner pane absent from the live snapshot">
+        <StatusBadge size="sm" status="warning" title="owner pane absent from the live snapshot">
           owner_stale
-        </Badge>
+        </StatusBadge>
       ) : null}
       {record.oversize ? (
-        <Badge size="sm" variant="warning" title="size exceeds the per-kind cap">
+        <StatusBadge size="sm" status="warning" title="size exceeds the per-kind cap">
           oversize
-        </Badge>
+        </StatusBadge>
       ) : null}
       {record.warnings
         .filter(
@@ -203,9 +187,9 @@ function HonestFlags({ record }: { record: ArtifactRecord }) {
             w !== "oversize",
         )
         .map((warning) => (
-          <Badge key={warning} size="sm" variant="outline">
+          <StatusBadge key={warning} size="sm" status="neutral">
             {warning}
-          </Badge>
+          </StatusBadge>
         ))}
     </>
   );
@@ -239,9 +223,7 @@ function ArtifactRow({
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-2">
-        <Badge size="sm" variant={kindBadgeVariant(record.kind)}>
-          {record.kind ?? "unknown"}
-        </Badge>
+        <span className="text-2xs text-muted-foreground">{record.kind ?? "unknown"}</span>
         <span className="min-w-0 flex-1 truncate text-xs font-medium">
           {record.title ?? artifactFilename(record)}
         </span>
@@ -255,9 +237,7 @@ function ArtifactRow({
         <span className="shrink-0">{formatBytes(record.size)}</span>
         {record.mime !== null ? <span className="shrink-0">{record.mime}</span> : null}
         {record.storage.mode !== null ? (
-          <Badge size="sm" variant="outline">
-            {record.storage.mode}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{record.storage.mode}</span>
         ) : null}
         {ownerBits.length > 0 ? (
           <span className="min-w-0 truncate">{ownerBits.join(" · ")}</span>
@@ -365,9 +345,9 @@ function ArtifactMutationResultView({ result }: { result: ArtifactMutationResult
     return (
       <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-2xs">
         <div className="flex items-center gap-2">
-          <Badge size="sm" variant="success">
+          <StatusBadge size="sm" status="ok">
             delivered
-          </Badge>
+          </StatusBadge>
           <span className="text-muted-foreground">
             {r.method ?? "?"} → {r.target.kind ?? "?"} {r.target.pane_id ?? "?"}
           </span>
@@ -387,9 +367,9 @@ function ArtifactMutationResultView({ result }: { result: ArtifactMutationResult
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-2xs">
       <div className="flex items-center gap-2">
-        <Badge size="sm" variant="success">
+        <StatusBadge size="sm" status="ok">
           deleted
-        </Badge>
+        </StatusBadge>
         <span className="font-mono text-muted-foreground">
           {r.artifact_id ?? "?"}
         </span>
@@ -846,9 +826,7 @@ function RegisterArtifactDialog({
             {record !== null ? (
               <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-2xs">
                 <div className="flex items-center gap-2">
-                  <Badge size="sm" variant={kindBadgeVariant(record.kind)}>
-                    {record.kind ?? "unknown"}
-                  </Badge>
+                  <span className="text-2xs text-muted-foreground">{record.kind ?? "unknown"}</span>
                   <span className="font-mono text-muted-foreground">
                     {record.artifact_id}
                   </span>
@@ -984,9 +962,9 @@ function GcArtifactsDialog({
             {report !== null ? (
               <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge size="sm" variant={report.dryRun === true ? "info" : "success"}>
+                  <StatusBadge size="sm" status={report.dryRun === true ? "info" : "ok"}>
                     {report.dryRun === true ? "dry run" : "collected"}
-                  </Badge>
+                  </StatusBadge>
                   <span className="text-muted-foreground">
                     older than {report.olderThan ?? "?"} · evaluated{" "}
                     {report.evaluated ?? "?"} · expired {report.expired ?? "?"}
@@ -1009,18 +987,12 @@ function GcArtifactsDialog({
                         key={entry.artifact_id}
                         className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-0.5"
                       >
-                        <Badge
+                        <StatusBadge
                           size="sm"
-                          variant={
-                            entry.action === "deleted" || entry.action === "would_delete"
-                              ? "warning"
-                              : entry.action === "skipped"
-                                ? "outline"
-                                : "secondary"
-                          }
+                          status={gcActionStatus(entry.action ?? "")}
                         >
                           {entry.action ?? "?"}
-                        </Badge>
+                        </StatusBadge>
                         <span className="min-w-0 flex-1 truncate font-mono">
                           {entry.artifact_id}
                         </span>
@@ -1541,16 +1513,14 @@ function VerifyRow({ result }: { result: ArtifactVerification }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-2">
-        <Badge size="sm" variant={verifyStatusVariant(result.status)}>
+        <StatusBadge size="sm" status={verifyStatus(result.status)}>
           {result.status}
-        </Badge>
+        </StatusBadge>
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">
           {result.artifact_id}
         </span>
         {record?.kind != null ? (
-          <Badge size="sm" variant={kindBadgeVariant(record.kind)}>
-            {record.kind}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{record.kind}</span>
         ) : null}
       </div>
       {result.issues.length > 0 ? (

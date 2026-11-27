@@ -31,7 +31,7 @@ import {
   SearchIcon,
 } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { RefreshIcon } from "./ui/refresh-icon";
 import { Input } from "./ui/input";
@@ -90,38 +90,18 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function eventTypeVariant(
-  type: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
-  switch (type) {
-    case "user_message":
-      return "info";
-    case "assistant_message":
-      return "secondary";
-    case "tool_call":
-    case "tool_result":
-      return "outline";
-    case "turn":
-      return "warning";
-    case "system":
-      return "secondary";
-    default:
-      return "outline";
-  }
-}
-
-function sessionStatusVariant(
+function sessionStatus(
   status: string,
-): "success" | "error" | "warning" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (status) {
     case "ok":
-      return "success";
+      return "ok";
     case "missing":
       return "warning";
     case "error":
       return "error";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
@@ -160,21 +140,19 @@ function EventRow({
           )}
         />
       ) : null}
-      <Badge size="sm" variant={eventTypeVariant(event.type)}>
-        {event.type}
-      </Badge>
+      <span className="shrink-0 text-2xs text-muted-foreground">{event.type}</span>
       {event.turn_index !== null ? (
         <span className="shrink-0 text-muted-foreground/70">t{event.turn_index}</span>
       ) : null}
       {event.sidechain ? (
-        <Badge size="sm" variant="outline">
+        <StatusBadge size="sm" status="neutral">
           sidechain
-        </Badge>
+        </StatusBadge>
       ) : null}
       {event.is_error === true ? (
-        <Badge size="sm" variant="error">
+        <StatusBadge size="sm" status="error">
           error
-        </Badge>
+        </StatusBadge>
       ) : null}
       <span className="shrink-0 text-muted-foreground">{formatTime(event.timestamp)}</span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -283,9 +261,9 @@ function ShowDetail({
                 {item.session_key}
               </span>
               {item.matched_fields.map((field) => (
-                <Badge key={field} size="sm" variant="outline">
+                <span key={field} className="text-2xs text-muted-foreground">
                   {field}
-                </Badge>
+                </span>
               ))}
             </div>
             {item.event !== null ? (
@@ -513,9 +491,7 @@ function SessionRow({
         <MessagesSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-baseline gap-2">
-            <Badge size="sm" variant="outline">
-              {session.provider}
-            </Badge>
+            <span className="text-2xs text-muted-foreground">{session.provider}</span>
             <span className="truncate text-sm font-medium">{session.session_id}</span>
           </span>
           <span className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground/70">
@@ -528,20 +504,20 @@ function SessionRow({
           </span>
         </span>
         {session.stale ? (
-          <Badge size="sm" variant="warning" title={session.stale_reason ?? undefined}>
+          <StatusBadge size="sm" status="warning" title={session.stale_reason ?? undefined}>
             stale{session.stale_reason !== null ? `: ${session.stale_reason}` : ""}
-          </Badge>
+          </StatusBadge>
         ) : null}
         {session.status !== "ok" ? (
-          <Badge size="sm" variant={sessionStatusVariant(session.status)}>
+          <StatusBadge size="sm" status={sessionStatus(session.status)}>
             {session.status}
             {session.error !== null ? `: ${session.error}` : ""}
-          </Badge>
+          </StatusBadge>
         ) : null}
         {session.transcript_present === false ? (
-          <Badge size="sm" variant="outline">
+          <StatusBadge size="sm" status="neutral">
             transcript missing
-          </Badge>
+          </StatusBadge>
         ) : null}
       </button>
       {expanded ? (
@@ -561,18 +537,16 @@ function SearchResultRow({ result }: { result: ConversationsSearchResult }) {
         {result.session_key}
       </span>
       {result.type !== null ? (
-        <Badge size="sm" variant={eventTypeVariant(result.type)}>
-          {result.type}
-        </Badge>
+        <span className="shrink-0 text-2xs text-muted-foreground">{result.type}</span>
       ) : null}
       <span className="shrink-0 text-muted-foreground">{formatTime(result.timestamp)}</span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         {event !== null ? eventSummary(event) : result.event_id ?? "—"}
       </span>
       {result.matched_fields.map((field) => (
-        <Badge key={field} size="sm" variant="outline">
+        <span key={field} className="text-2xs text-muted-foreground">
           {field}
-        </Badge>
+        </span>
       ))}
     </div>
   );

@@ -31,7 +31,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { RefreshIcon } from "./ui/refresh-icon";
 import {
@@ -91,24 +91,24 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function driverBadgeVariant(state: string): "success" | "warning" | "error" | "secondary" | "outline" {
+function driverStatus(state: string): StatusBadgeStatus {
   switch (state) {
     case "os-scheduler":
     case "watch":
-      return "success";
+      return "ok";
     case "install_failed":
       return "error";
     case "stale":
       return "warning";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
-function runStatusVariant(status: string): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function runStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "success":
-      return "success";
+      return "ok";
     case "failed":
       return "error";
     case "missed":
@@ -118,7 +118,7 @@ function runStatusVariant(status: string): "success" | "error" | "warning" | "in
     case "scheduled":
       return "info";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
@@ -137,13 +137,13 @@ function destinationSummary(task: AutomationsTask): string {
 function RunRow({ run }: { run: AutomationsRun }) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs">
-      <Badge size="sm" variant={runStatusVariant(run.status)}>
+      <StatusBadge size="sm" status={runStatus(run.status)}>
         {run.status}
-      </Badge>
+      </StatusBadge>
       {run.derived ? (
-        <Badge size="sm" variant="outline">
+        <StatusBadge size="sm" status="neutral">
           derived
-        </Badge>
+        </StatusBadge>
       ) : null}
       <span className="shrink-0 text-muted-foreground">{run.trigger}</span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -452,16 +452,16 @@ function TaskRow({
           </span>
         </span>
         {task.missed_total > 0 ? (
-          <Badge size="sm" variant="warning">
+          <StatusBadge size="sm" status="warning">
             {task.missed_total} missed{task.missed_truncated ? "+" : ""}
-          </Badge>
+          </StatusBadge>
         ) : null}
-        <Badge size="sm" variant={task.enabled ? "secondary" : "outline"}>
+        <StatusBadge size="sm" status={task.enabled ? "ok" : "neutral"}>
           {task.enabled ? "enabled" : "disabled"}
-        </Badge>
-        <Badge size="sm" variant={driverBadgeVariant(task.driver.state)}>
+        </StatusBadge>
+        <StatusBadge size="sm" status={driverStatus(task.driver.state)}>
           {task.driver.state}
-        </Badge>
+        </StatusBadge>
       </button>
       {task.driver.detail !== null && task.driver.detail !== "" ? (
         <Tooltip>

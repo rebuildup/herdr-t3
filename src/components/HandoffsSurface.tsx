@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GitForkIcon, MergeIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
 
 import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -119,59 +120,53 @@ const LINEAGE_KINDS = [
   "subagent_result",
 ] as const;
 
-function statusVariant(
-  status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function handoffStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "pending":
-      return "outline";
+      return "neutral";
     case "ready":
       return "info";
     case "delivered":
       return "warning";
     case "done":
-      return "success";
+      return "ok";
     case "failed":
       return "error";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
-function checkVariant(
-  state: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function checkStatus(state: string): StatusBadgeStatus {
   switch (state) {
     case "ok":
     case "resolved":
-      return "success";
+      return "ok";
     case "stale":
       return "warning";
     case "unchecked":
-      return "outline";
+      return "neutral";
     case "missing_ref":
       return "warning";
     case "error":
       return "error";
     case "external":
-      return "secondary";
+      return "neutral";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
-function resumeVariant(
-  status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function resumeStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "supported":
-      return "success";
+      return "ok";
     case "unsupported":
-      return "outline";
+      return "neutral";
     case "unknown":
       return "warning";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
@@ -179,14 +174,14 @@ function resumeVariant(
 function TransferCheckBadge({ check }: { check: HandoffCheck }) {
   if (check.state === "ok") return null;
   return (
-    <Badge
+    <StatusBadge
       size="sm"
-      variant={checkVariant(check.state)}
+      status={checkStatus(check.state)}
       title={check.reason ?? undefined}
     >
       {check.state}
       {check.reason !== null ? `: ${check.reason}` : ""}
-    </Badge>
+    </StatusBadge>
   );
 }
 
@@ -243,15 +238,14 @@ function HandoffRow({
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">
           {item.id}
         </span>
-        <Badge size="sm" variant={statusVariant(item.status)}>
+        <StatusBadge size="sm" status={handoffStatus(item.status)}>
           {item.status}
-        </Badge>
+        </StatusBadge>
         {item.strategy !== null ? (
-          <Badge size="sm" variant="secondary">
-            {item.strategy}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{item.strategy}</span>
         ) : null}
         {item.relationship !== null ? (
+          // oxlint-disable-next-line herdr-t3/no-raw-badge -- lineage-kind classification carrying a parent tooltip (AC-003)
           <Badge
             size="sm"
             variant="outline"
@@ -263,9 +257,9 @@ function HandoffRow({
           </Badge>
         ) : null}
         {item.child_count > 0 ? (
-          <Badge size="sm" variant="info">
+          <span className="text-2xs text-muted-foreground">
             {item.child_count} child{item.child_count === 1 ? "" : "ren"}
-          </Badge>
+          </span>
         ) : null}
         <TransferCheckBadge check={item.transfer_check} />
       </div>
@@ -294,9 +288,9 @@ function CheckLine({ label, check }: { label: string; check: HandoffCheck | null
   return (
     <div className="flex min-w-0 items-center gap-2 text-2xs">
       <span className="w-20 shrink-0 text-muted-foreground/70">{label}</span>
-      <Badge size="sm" variant={checkVariant(check.state)}>
+      <StatusBadge size="sm" status={checkStatus(check.state)}>
         {check.state}
-      </Badge>
+      </StatusBadge>
       {check.reason !== null ? (
         <span className="min-w-0 truncate text-muted-foreground">{check.reason}</span>
       ) : null}
@@ -327,9 +321,9 @@ function TargetCheckDetail({ check }: { check: HandoffTargetCheck }) {
 function RefResolutionRow({ resolution }: { resolution: HandoffRefResolution }) {
   return (
     <div className="flex min-w-0 items-start gap-2 rounded-sm px-1.5 py-1 text-2xs hover:bg-accent/40">
-      <Badge size="sm" variant={checkVariant(resolution.state)} className="mt-0.5 shrink-0">
+      <StatusBadge size="sm" status={checkStatus(resolution.state)} className="mt-0.5 shrink-0">
         {resolution.state}
-      </Badge>
+      </StatusBadge>
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="min-w-0 truncate font-mono">{refSummary(resolution.ref)}</span>
         {resolution.detail !== null ? (
@@ -944,9 +938,9 @@ function HandoffMutationDialog({
             {result !== null ? (
               <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-2xs">
                 <div className="flex items-center gap-2">
-                  <Badge size="sm" variant={statusVariant(result.record.status)}>
+                  <StatusBadge size="sm" status={handoffStatus(result.record.status)}>
                     {result.record.status}
-                  </Badge>
+                  </StatusBadge>
                   <span className="text-muted-foreground">
                     {result.command} → {result.outcome ?? "completed"}
                     {result.dryRun ? " (dry run)" : ""}
@@ -1180,13 +1174,11 @@ function HandoffDetail({
     <div className="flex flex-col gap-3 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">{record.id}</span>
-        <Badge size="sm" variant={statusVariant(record.status)}>
+        <StatusBadge size="sm" status={handoffStatus(record.status)}>
           {record.status}
-        </Badge>
+        </StatusBadge>
         {record.strategy !== null ? (
-          <Badge size="sm" variant="secondary">
-            {record.strategy}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{record.strategy}</span>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
@@ -1286,9 +1278,9 @@ function HandoffDetail({
                     <span className="text-muted-foreground/70">{child.kind}</span>
                   ) : null}
                   {child.status !== null ? (
-                    <Badge size="sm" variant={statusVariant(child.status)}>
+                    <StatusBadge size="sm" status={handoffStatus(child.status)}>
                       {child.status}
-                    </Badge>
+                    </StatusBadge>
                   ) : null}
                 </button>
               ))}
@@ -1311,9 +1303,9 @@ function HandoffDetail({
         {report.remote_check !== null ? (
           <div className="flex min-w-0 items-center gap-2 text-2xs">
             <span className="w-20 shrink-0 text-muted-foreground/70">remote</span>
-            <Badge size="sm" variant={checkVariant(report.remote_check.state)}>
+            <StatusBadge size="sm" status={checkStatus(report.remote_check.state)}>
               {report.remote_check.state}
-            </Badge>
+            </StatusBadge>
             <span className="min-w-0 truncate text-muted-foreground">
               {[
                 report.remote_check.label ?? report.remote_check.machine_id,
@@ -1407,12 +1399,10 @@ function ResumeInfoSection({ machine }: { machine: string }) {
                     className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <Badge size="sm" variant="outline">
-                        {provider.kind}
-                      </Badge>
-                      <Badge size="sm" variant={resumeVariant(provider.native_resume)}>
+                      <span className="text-2xs text-muted-foreground">{provider.kind}</span>
+                      <StatusBadge size="sm" status={resumeStatus(provider.native_resume)}>
                         {provider.native_resume}
-                      </Badge>
+                      </StatusBadge>
                       {provider.session_id_source !== null ? (
                         <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
                           id: {provider.session_id_source}

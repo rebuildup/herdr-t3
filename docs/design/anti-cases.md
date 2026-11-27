@@ -257,18 +257,16 @@ preserved — this is not a badge-count limit.
 **Detection (partially landed).**
 
 1. `StatusBadge` (`src/components/ui/status-badge.tsx`) is the typed
-   status channel: `status: "ok" | "warning" | "error" | "neutral"`
-   maps to the Badge variant union in one place.
+   status channel: `status: "ok" | "info" | "warning" | "error" |
+   "neutral"` maps to the Badge variant union in one place.
 2. `herdr-t3/no-raw-badge`
    (`lint-plugin/rules/no-raw-badge.ts`) flags raw `<Badge>` JSX. It is
-   `error` everywhere except `src/components/**` (excluding `ui/` and
-   tests), where it is `warn` — the ~149 surface call sites are
-   migration debt owned by the #534 audit, and warn keeps the signal
-   visible without failing `lint:ui` until each site is classified.
-   `src/components/ui/**` is exempt (the primitives themselves).
-3. Metadata values render via muted text (`text-sm
-   text-muted-foreground` and the existing `text-2xs` metadata style);
-   per-call-site classification is recorded in the #534 audit table.
+   `error` everywhere except `src/components/ui/**` (the primitives
+   themselves) and tests. `src/components/**` was promoted warn→error
+   after the #534 burn-down cleared every unclassified call site.
+3. Metadata values render via muted text (`text-2xs
+   text-muted-foreground`, `font-mono` for ids/paths); status and
+   severity indicators go through `StatusBadge`.
 
 Honest limit: whether a value is "meaning-bearing" is partially a
 judgment call; the rule enforces the *channel* (status component vs raw
@@ -290,39 +288,21 @@ identification pill keeps raw `Badge` with a reasoned suppression — it
 is a persistent environment *classification*, matching T3's own
 badge usage for environment identification.
 
-**Status.** `open` — channel enforcement landed (StatusBadge + rule +
-fixtures + shell migration); the `src/components/**` warn-level debt
-(~149 sites) and per-call-site classification remain #534 audit work
-before the rule can be promoted to `error` there.
+**Fix delivered (full burn-down).** Every `src/components/**` call site
+was classified and converted: status/severity/guard-state indicators →
+`StatusBadge` (per-file `*Status()` helpers now return
+`StatusBadgeStatus` instead of Badge variant unions); kind/provider/
+path/count/id/flag metadata → muted `text-2xs` spans; two genuine
+classifications kept raw `Badge` with reasoned suppressions —
+`HandoffsSurface` lineage-kind badge (carries a parent tooltip) and
+`SidebarChrome`'s environment identification pill (T3-parity
+classification). `no-raw-badge` is now `error` in `src/components/**`;
+`oxlint src` reports zero errors and zero un-suppressed raw `<Badge>`
+outside `ui/`.
 
-**Audit inventory (machine-generated, classification pending).** Raw
-`<Badge>` call sites per file on `release-0-7-0` after the shell
-migration — each row is #534 classification work
-(status→`StatusBadge`, classification→keep with reason, metadata→muted
-text):
-
-| File | `<Badge>` count |
-| --- | --- |
-| TextGenSurface.tsx | 16 |
-| UsageSurface.tsx | 14 |
-| HandoffsSurface.tsx | 14 |
-| ArtifactsSurface.tsx | 13 |
-| CheckpointsSurface.tsx | 12 |
-| SecretsSurface.tsx | 11 |
-| ConversationsSurface.tsx | 10 |
-| ControlsSurface.tsx | 10 |
-| McpSurface.tsx | 9 |
-| ProjectsSurface.tsx | 8 |
-| ProjectScriptsSurface.tsx | 5 |
-| AutomationsSurface.tsx | 5 |
-| WorktreesSurface.tsx | 4 |
-| MachinesSurface.tsx | 4 |
-| GitSurface.tsx | 4 |
-| PaneCopyDialog.tsx | 2 |
-| SidebarChrome.tsx | 1 (suppressed: environment classification) |
-
-Regenerate with `grep -c "<Badge" <file>`; `StatusBadge` usages are the
-target channel and are not counted here.
+**Status.** `fix+gate landed` — channel enforcement + full call-site
+classification + error promotion landed in one change; rendered
+verification of the converted surfaces is tracked under #413 RC.
 
 **Unguaranteed.** Does not judge whether a retained status badge's
 variant choice is the *right* semantic mapping; that stays with review

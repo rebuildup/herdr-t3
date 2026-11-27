@@ -61,13 +61,13 @@
       }
     },
     {
-      // AC-003: Badge call sites inside surface components are migration
-      // debt owned by the #534 audit — warn keeps the signal visible
-      // without failing the gate until each site is classified.
+      // AC-003: Badge call sites inside surface components — migration
+      // debt cleared by the #534 burn-down; error keeps the typed
+      // StatusBadge channel the only status path (docs/design/anti-cases.md).
       "files": ["src/components/**"],
       "excludeFiles": ["src/components/ui/**", "src/**/*.test.{ts,tsx}"],
       "rules": {
-        "herdr-t3/no-raw-badge": "warn"
+        "herdr-t3/no-raw-badge": "error"
       }
     },
     {

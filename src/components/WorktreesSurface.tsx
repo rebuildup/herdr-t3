@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranchIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import {
@@ -242,16 +242,16 @@ export function WorktreesSurface({
                       </span>
                     ) : null}
                     {entry.open_workspace_id ? (
-                      <Badge size="sm" variant="success">open</Badge>
+                      <StatusBadge size="sm" status="ok">open</StatusBadge>
                     ) : null}
                     {entry.is_bare ? (
-                      <Badge size="sm" variant="outline">bare</Badge>
+                      <StatusBadge size="sm" status="neutral">bare</StatusBadge>
                     ) : null}
                     {entry.is_detached ? (
-                      <Badge size="sm" variant="outline">detached</Badge>
+                      <StatusBadge size="sm" status="neutral">detached</StatusBadge>
                     ) : null}
                     {entry.is_prunable ? (
-                      <Badge size="sm" variant="warning">prunable</Badge>
+                      <StatusBadge size="sm" status="warning">prunable</StatusBadge>
                     ) : null}
                   </div>
                   <div className="truncate text-2xs text-muted-foreground/70">

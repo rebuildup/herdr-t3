@@ -33,7 +33,7 @@ import {
   SendIcon,
 } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Label } from "./ui/input";
 import {
@@ -93,20 +93,20 @@ function errorText(error: unknown): string {
 
 const AGENT_STATUSES = ["idle", "working", "blocked", "done", "unknown"] as const;
 
-function statusVariant(
+function agentStatus(
   status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (status) {
     case "working":
       return "info";
     case "blocked":
       return "warning";
     case "done":
-      return "success";
+      return "ok";
     case "idle":
-      return "secondary";
+      return "neutral";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
@@ -125,24 +125,22 @@ function ResultView({ outcome }: { outcome: LastOutcome }) {
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/60 px-2 py-1.5">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge size="sm" variant="success">
-          {r.command}
-        </Badge>
-        {r.waited ? <Badge size="sm" variant="info">waited</Badge> : null}
-        {r.ptyLevel ? <Badge size="sm" variant="warning">pty_level</Badge> : null}
-        {r.fragile ? <Badge size="sm" variant="warning">fragile</Badge> : null}
+        <span className="font-mono text-2xs text-muted-foreground">{r.command}</span>
+        {r.waited ? <StatusBadge size="sm" status="info">waited</StatusBadge> : null}
+        {r.ptyLevel ? <StatusBadge size="sm" status="warning">pty_level</StatusBadge> : null}
+        {r.fragile ? <StatusBadge size="sm" status="warning">fragile</StatusBadge> : null}
         {r.commandName !== null ? (
           <span className="font-mono text-2xs">{r.commandName}</span>
         ) : null}
         {r.provider?.knownCommand === true ? (
-          <Badge size="sm" variant="secondary">known command</Badge>
+          <StatusBadge size="sm" status="neutral">known command</StatusBadge>
         ) : r.provider?.knownCommand === false ? (
-          <Badge size="sm" variant="outline">unlisted command</Badge>
+          <StatusBadge size="sm" status="info">unlisted command</StatusBadge>
         ) : null}
         {identity?.agent_status != null ? (
-          <Badge size="sm" variant={statusVariant(identity.agent_status)}>
+          <StatusBadge size="sm" status={agentStatus(identity.agent_status)}>
             {identity.agent_status}
-          </Badge>
+          </StatusBadge>
         ) : null}
       </div>
       {r.text !== null ? (
@@ -219,15 +217,13 @@ function AgentRow({
           {controlsAgentLabel(agent)}
         </span>
         {agent.agent != null && agent.agent !== "" ? (
-          <Badge size="sm" variant="outline">
-            {agent.agent}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{agent.agent}</span>
         ) : null}
-        <Badge size="sm" variant={statusVariant(agent.agent_status)}>
+        <StatusBadge size="sm" status={agentStatus(agent.agent_status)}>
           {agent.agent_status}
-        </Badge>
+        </StatusBadge>
         {agent.launch_pending === true ? (
-          <Badge size="sm" variant="info">launch pending</Badge>
+          <StatusBadge size="sm" status="info">launch pending</StatusBadge>
         ) : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">

@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderSearchIcon, RefreshCwIcon } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -144,8 +144,8 @@ function ProjectRow({
           {project.id}
         </span>
       </span>
-      {project.pinned ? <Badge variant="info">Pinned</Badge> : null}
-      {project.archived ? <Badge variant="outline">Archived</Badge> : null}
+      {project.pinned ? <StatusBadge size="sm" status="info">Pinned</StatusBadge> : null}
+      {project.archived ? <StatusBadge size="sm" status="neutral">Archived</StatusBadge> : null}
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
         {project.repos.length} repo{project.repos.length === 1 ? "" : "s"}
       </span>
@@ -260,9 +260,9 @@ function DetailSection({
       {/* Identity + flags */}
       <SurfaceGroup divided={false}>
         <SurfaceRow className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{project.id}</Badge>
-          {project.pinned ? <Badge variant="info">Pinned</Badge> : null}
-          {project.archived ? <Badge variant="outline">Archived</Badge> : null}
+          <span className="font-mono text-2xs text-muted-foreground">{project.id}</span>
+          {project.pinned ? <StatusBadge size="sm" status="info">Pinned</StatusBadge> : null}
+          {project.archived ? <StatusBadge size="sm" status="neutral">Archived</StatusBadge> : null}
           {flagButton(project.pinned ? "unpin" : "pin", project.pinned ? "Unpin" : "Pin")}
           {flagButton(
             project.archived ? "unarchive" : "archive",
@@ -336,9 +336,9 @@ function DetailSection({
                       <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
                         {repo.root}
                       </span>
-                      {repo.dirty === true ? <Badge variant="warning">Dirty</Badge> : null}
+                      {repo.dirty === true ? <StatusBadge size="sm" status="warning">Dirty</StatusBadge> : null}
                       {repo.has_submodules === true ? (
-                        <Badge variant="outline">Submodules</Badge>
+                        <span className="text-2xs text-muted-foreground">Submodules</span>
                       ) : null}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
@@ -611,7 +611,7 @@ function DiscoverSection({
                 </div>
               </div>
               {repo.registered_project_id !== null ? (
-                <Badge variant="secondary">{repo.registered_project_id}</Badge>
+                <span className="font-mono text-2xs text-muted-foreground">{repo.registered_project_id}</span>
               ) : canRegister === true ? (
                 <Button
                   size="xs"
