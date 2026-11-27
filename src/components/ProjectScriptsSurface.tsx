@@ -698,9 +698,14 @@ function RunsPane({
     <SurfaceSection
       title="Runs"
       action={
-        <Button size="xs" variant="ghost" onClick={onRefresh} disabled={loading}>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label="Refresh runs"
+          onClick={onRefresh}
+          disabled={loading}
+        >
           <RefreshIcon refreshing={loading} />
-          Refresh
         </Button>
       }
     >
@@ -901,13 +906,13 @@ export function ProjectScriptsSurface({
                 title="Projects"
                 action={
                   <Button
-                    size="xs"
+                    size="icon-xs"
                     variant="ghost"
+                    aria-label="Refresh projects"
                     onClick={loadProjects}
                     disabled={projectsLoading}
                   >
                     <RefreshIcon refreshing={projectsLoading} />
-                    Refresh
                   </Button>
                 }
               >

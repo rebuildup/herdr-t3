@@ -19,7 +19,7 @@
  * toast store (`pushNotice`).
  */
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { FolderSearchIcon, RefreshCwIcon } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -572,8 +572,25 @@ function DiscoverSection({
       title="Discover"
       description="Git repositories found in session panes that are not yet registered."
       action={
-        <Button size="xs" variant="secondary" disabled={loading} onClick={load}>
-          {loading ? "Discovering…" : result === null ? "Discover repos" : "Refresh"}
+        <Button
+          size="icon-sm"
+          variant="secondary"
+          disabled={loading}
+          onClick={load}
+          aria-label={
+            result === null ? "Discover repositories" : "Refresh discovery results"
+          }
+          title={
+            result === null
+              ? "Find git repositories in session panes"
+              : "Re-run repository discovery"
+          }
+        >
+          {result === null ? (
+            <FolderSearchIcon className={loading ? "animate-spin" : undefined} />
+          ) : (
+            <RefreshCwIcon className={loading ? "animate-spin" : undefined} />
+          )}
         </Button>
       }
     >

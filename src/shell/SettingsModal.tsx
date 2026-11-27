@@ -26,7 +26,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, 
 
 import { cn } from "~/lib/utils";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
-import { Badge } from "~/components/ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "~/components/ui/status-badge";
 import { Button } from "~/components/ui/button";
 import { DialogBackdrop } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
@@ -246,9 +246,9 @@ function useHealth() {
   return { health, error, refresh: () => setNonce((n) => n + 1) };
 }
 
-function statusBadgeVariant(status: MachineInfo["status"]) {
+function machineStatusBadge(status: MachineInfo["status"]): StatusBadgeStatus {
   return status === "online"
-    ? "success"
+    ? "ok"
     : status === "offline" || status === "unreachable" || status === "error"
       ? "error"
       : "warning";
@@ -284,10 +284,10 @@ function MachineRow({
           : [machine.target, machine.session].filter(Boolean).join(" · ") || "SSH endpoint")
       }
     >
-      <Badge variant={statusBadgeVariant(machine.status)} size="sm">
+      <StatusBadge status={machineStatusBadge(machine.status)} size="sm">
         {machine.status}
         {machine.version ? ` · herdr ${machine.version}` : ""}
-      </Badge>
+      </StatusBadge>
       {action ? (
         <Button size="sm" variant="outline" onClick={action.run}>
           {action.label}
@@ -597,9 +597,9 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <SettingsRow anchor="setting-bridge" label="Bridge" description="herdr RPC connection state.">
-              <Badge
-                variant={
-                  bridge.connection === "open" ? "success" : bridge.connection === "closed" ? "error" : "warning"
+              <StatusBadge
+                status={
+                  bridge.connection === "open" ? "ok" : bridge.connection === "closed" ? "error" : "warning"
                 }
                 size="sm"
               >
@@ -608,7 +608,7 @@ function SectionPage({ section }: { section: SectionId }) {
                   : bridge.connection === "connecting"
                     ? "Connecting"
                     : "Disconnected"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-herdr"
@@ -621,8 +621,8 @@ function SectionPage({ section }: { section: SectionId }) {
                     : healthError ?? "Checking…"
               }
             >
-              <Badge
-                variant={health ? (health.herdr.reachable ? "success" : "error") : "secondary"}
+              <StatusBadge
+                status={health ? (health.herdr.reachable ? "ok" : "error") : "neutral"}
                 size="sm"
               >
                 {health
@@ -632,16 +632,16 @@ function SectionPage({ section }: { section: SectionId }) {
                   : healthError
                     ? "Error"
                     : "Checking…"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-ghostty-engine"
               label="Ghostty engine"
               description="libghostty-vt WASM terminal core."
             >
-              <Badge
-                variant={
-                  ghosttyEngine === "ready" ? "success" : ghosttyEngine === "error" ? "error" : "secondary"
+              <StatusBadge
+                status={
+                  ghosttyEngine === "ready" ? "ok" : ghosttyEngine === "error" ? "error" : "neutral"
                 }
                 size="sm"
               >
@@ -652,7 +652,7 @@ function SectionPage({ section }: { section: SectionId }) {
                     : ghosttyEngine === "ready"
                       ? "Ready"
                       : "Error"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow anchor="setting-app-version" label="App version" description="Build identity for support.">
               <span className="font-mono text-xs text-muted-foreground">
@@ -696,26 +696,20 @@ function SectionPage({ section }: { section: SectionId }) {
               label="Design system"
               description="UI primitives and tokens from T3 Code (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                T3 Code
-              </Badge>
+              <span className="text-sm text-muted-foreground">T3 Code</span>
             </SettingsRow>
             <SettingsRow
               label="Terminal engine"
               description="libghostty-vt compiled to WASM (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                Ghostty
-              </Badge>
+              <span className="text-sm text-muted-foreground">Ghostty</span>
             </SettingsRow>
             <SettingsRow
               anchor="setting-license"
               label="License"
               description="herdr-t3 is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
             >
-              <Badge variant="secondary" size="sm">
-                MIT
-              </Badge>
+              <span className="text-sm text-muted-foreground">MIT</span>
             </SettingsRow>
           </SettingsSection>
         </div>

@@ -54,6 +54,7 @@ import { pluginCall, pluginList } from "../lib/api";
 import { onMachineStatus, onMachines, onSnapshot } from "../lib/api";
 import { pluginHerdrSkew, type PluginCallResult } from "../../shared/protocol";
 import { getBridgeState } from "./bridge";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail } from "./pluginErrors";
 import type { AgentInfo } from "../../shared/protocol";
 
 export const CONTROLS_PLUGIN_ID = "rebuildup.controls";
@@ -385,27 +386,9 @@ export function classifyControlsError(error: unknown): {
   reason: ControlsUnavailableReason;
   detail: string;
 } {
-  const code = (error as { code?: string })?.code ?? "";
-  const message = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { reason: "not_installed", detail: message };
-    case "plugin_disabled":
-      return { reason: "disabled", detail: message };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { reason: "incompatible", detail: message };
-    case "plugin_host_unreachable":
-    case "connect_failed":
-    case "unreachable":
-    case "machine_unavailable":
-    case "session_unreachable":
-    case "plugin_timeout":
-      return { reason: "unreachable", detail: message };
-    default:
-      return { reason: "error", detail: message };
-  }
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(pluginErrorCode(error), ["session_unreachable"]);
+  return boundary === null ? { reason: "error", detail } : { reason: boundary, detail };
 }
 
 /* --------------------- generation guards (pure) ----------------------- */

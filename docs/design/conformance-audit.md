@@ -6,6 +6,10 @@ covering why the previous lint PASS did not demonstrate conformance, what
 the canonical rules actually are, and the per-surface violation inventory
 that issues #409–#411 must resolve.
 
+The post-audit anti-case loop (known undesirable outcomes, root causes,
+and their mechanical rejection) is tracked in `anti-cases.md`; new
+findings are appended there, not here.
+
 Primary sources audited:
 
 - `t3code/AGENTS.md` — Taste / "Hit every surface" / Verifying

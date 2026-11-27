@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { Button } from "../../src/components/ui/button";
 import { Input } from "../../src/components/ui/input";
+import { SurfacePanelHeader } from "../../src/components/surfaceLayout";
+import { StatusBadge } from "../../src/components/ui/status-badge";
 import { Tooltip } from "../../src/components/ui/tooltip";
 
 const paneStyle: CSSProperties = { position: "absolute", left: "10%", top: "20%" };
@@ -22,6 +24,19 @@ export function GoodFixture() {
       </button>
       <div style={paneStyle}>runtime-positioned pane</div>
       <Input />
+      {/* AC-002 positive control: accessory slots take icon controls. */}
+      <SurfacePanelHeader
+        title="Section"
+        actions={
+          <Button size="icon-xs" variant="ghost" aria-label="Refresh section">
+            <svg aria-hidden="true" />
+          </Button>
+        }
+      />
+      {/* AC-003 positive control: status goes through StatusBadge. */}
+      <StatusBadge status="ok" size="sm">
+        Connected
+      </StatusBadge>
     </div>
   );
 }
