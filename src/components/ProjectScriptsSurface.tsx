@@ -985,7 +985,9 @@ export function ProjectScriptsSurface({
                     refreshKey={refreshKey}
                   />
                 ) : projects !== null && projects.projects.length === 0 ? (
-                  <SectionMessage>no projects registered</SectionMessage>
+                  <SurfaceGroup>
+                    <SurfaceRow title="No projects registered" />
+                  </SurfaceGroup>
                 ) : (
                   <SurfaceGroup>
                     <SurfaceRow title="Select a project to list its scripts" />
