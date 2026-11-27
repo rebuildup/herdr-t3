@@ -504,9 +504,10 @@ function AgentRow({
       <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
         {/* Issue #419, restyled #550: the row's left edge is the shared
             identity/status glyph — brand provider mark led, agent_status
-            carried by a per-status marker (working = rotating arc,
-            blocked/done/unknown = corner badges, idle = bare mark). The
-            resolved state
+            carried by the perimeter ring plus a centered overlay disc
+            where the state asks for attention (working = rotating arc,
+            blocked/done/unknown = overlay marker, idle = ring only).
+            The resolved state
             name stays icon-adjacent only via hover card / shelf / aria,
             never printed text (issue #381). */}
         <AgentIdentityIcon agent={agent.agent} status={agent.agent_status} />

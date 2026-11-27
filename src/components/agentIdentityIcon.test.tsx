@@ -5,11 +5,10 @@ import type { AgentStatus } from "../../shared/protocol";
 import { AgentIdentityIcon } from "./agentIdentityIcon";
 
 // Issue #419, restyled under #550: the agent row's left edge is one
-// shared identity/status glyph — brand mark led, agent_status carried by
-// a per-status marker. Working keeps the perimeter arc; blocked/done/
-// unknown get corner badges; idle is the bare mark. These tests pin the
-// marker grammar and the brand-asset passthrough for known, svg,
-// generic and unknown kinds.
+// shared identity/status glyph — brand mark led, a perimeter status ring
+// for every status, plus a centered overlay marker where the state asks
+// for attention. These tests pin the ring + overlay grammar and the
+// brand-asset passthrough for known, svg, generic and unknown kinds.
 
 function render(agent: string | null | undefined, status: AgentStatus): string {
   return renderToStaticMarkup(<AgentIdentityIcon agent={agent} status={status} />);
@@ -46,38 +45,48 @@ describe("AgentIdentityIcon", () => {
     expect(html).toContain("motion-reduce:hidden");
   });
 
-  test("non-working statuses never carry the spin animation or the ring", () => {
+  test("non-working statuses never carry the spin animation", () => {
     for (const status of ["blocked", "done", "idle", "unknown"] as const) {
       const html = render("claude", status);
       expect(html, status).not.toContain("visible-animate-spin");
       expect(html, status).not.toContain("motion-reduce:block");
-      expect(html, status).not.toContain("stroke-dasharray");
     }
   });
 
-  test("status markers follow the badge grammar", () => {
-    // blocked → warning "!" badge on the top-right corner.
-    const blocked = render("claude", "blocked");
-    expect(blocked).toContain("bg-warning");
-    expect(blocked).toContain("-top-1");
-    expect(blocked).toContain(">!</span>");
-    // done → success check badge on the bottom-right corner.
-    const done = render("claude", "done");
-    expect(done).toContain("bg-success");
-    expect(done).toContain("-bottom-1");
-    expect(done).toContain("lucide-check");
-    // idle → bare brand mark, no marker at all.
-    const idle = render("claude", "idle");
-    expect(idle).not.toContain("bg-warning");
-    expect(idle).not.toContain("bg-success");
-    expect(idle).not.toContain("bg-muted-foreground/20");
-    // claude's brand mark is the only svg left for idle.
-    expect(idle.match(/<svg/g)?.length).toBe(1);
-    // Unknown and unrecognized statuses share the muted "?" badge.
+  test("ring tones follow the shared grammar for every status", () => {
+    expect(render("claude", "blocked")).toContain("text-destructive");
+    expect(render("claude", "blocked")).toContain('stroke-width="2"');
+    expect(render("claude", "done")).toContain("text-success");
+    expect(render("claude", "idle")).toContain("text-muted-foreground");
+    expect(render("claude", "idle")).toContain("opacity-60");
+    // Unknown and unrecognized statuses share the dashed muted ring.
     for (const status of ["unknown", "some-future-status"] as const) {
       const html = render("claude", status);
-      expect(html, status).toContain("bg-muted-foreground/20");
-      expect(html, status).toContain("-bottom-1");
+      expect(html, status).toContain("text-muted-foreground");
+      expect(html, status).toContain('stroke-dasharray="5 5"');
+    }
+  });
+
+  test("overlay markers cover the mark only where the state asks for attention", () => {
+    // blocked → centered destructive "!" disc.
+    const blocked = render("claude", "blocked");
+    expect(blocked).toContain("bg-destructive");
+    expect(blocked).toContain(">!</span>");
+    // done → centered success check disc.
+    const done = render("claude", "done");
+    expect(done).toContain("bg-success");
+    expect(done).toContain("lucide-check");
+    // working and idle → ring only, no overlay disc.
+    for (const status of ["working", "idle"] as const) {
+      const html = render("claude", status);
+      expect(html, status).not.toContain("bg-destructive");
+      expect(html, status).not.toContain("bg-success");
+      expect(html, status).not.toContain("bg-muted-foreground text-background");
+    }
+    // Unknown and unrecognized statuses share the centered muted "?" disc.
+    for (const status of ["unknown", "some-future-status"] as const) {
+      const html = render("claude", status);
+      expect(html, status).toContain("bg-muted-foreground text-background");
       expect(html, status).toContain(">?</span>");
     }
   });
