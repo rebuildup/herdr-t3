@@ -2814,7 +2814,10 @@
     "split-ratio drag",
     "pane drag/swap",
     "unfocused dimming",
-    "reading-order focus"
+    "reading-order focus",
+    "paneCanvasView: zoom/full-bleed visibility, normalized frame geometry, focus + hairline emphasis",
+    "nextPaneInReadingOrder circular focus (Rust: next_pane_in_reading_order)",
+    "moveInsertIndex pre-removal drag index shared by workspace/tab/sidebar (Rust: move_insert_index)"
    ],
    "errors": [
     "narrow viewport remains usable (issue #79 history)"
@@ -2825,12 +2828,23 @@
    ],
    "scenarios": [
     "src/lib/paneOrder.test.ts",
+    "src/lib/reorder.test.ts",
+    "src/lib/paneCanvas.test.ts",
+    "crates/state-projections/tests/canvas.rs",
+    "harness/scenarios/projection/canvas.json",
     "docs/design/verification.md"
    ],
    "evidence": [
     "src/shell/WorkspaceCanvas.tsx",
+    "src/lib/paneCanvas.ts",
+    "src/lib/paneOrder.ts",
+    "src/lib/reorder.ts",
     "src/hooks/useResizeDrag.ts",
-    "src/lib/observeResize.ts"
+    "src/lib/observeResize.ts",
+    "crates/state-projections/src/lib.rs",
+    "crates/state-projections/src/bin/state-projections-adapter.rs",
+    "harness/lib/adapters/projection.ts",
+    "harness/scenarios/projection/canvas.json"
    ],
    "stage": "current-verified",
    "status": {

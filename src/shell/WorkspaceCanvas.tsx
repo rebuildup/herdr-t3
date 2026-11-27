@@ -18,7 +18,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import { paneTitle } from "~/lib/workspace";
+import { paneCanvasView, type CanvasPaneView } from "~/lib/paneCanvas";
 import { focusPaneTerminal } from "~/lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -55,27 +55,18 @@ import {
 
 function PaneSurface({
   machine,
-  pane,
+  view,
   connected,
-  rect,
-  area,
-  focused,
   zoomed,
-  hasSiblings,
   onFocus,
   onDetails,
   onCopy,
   dnd,
 }: {
   machine: string;
-  pane: PaneInfo;
+  view: CanvasPaneView;
   connected: boolean;
-  rect: { x: number; y: number; width: number; height: number } | undefined;
-  area: { width: number; height: number };
-  focused: boolean;
   zoomed: boolean;
-  /** another pane shares the canvas — only then does the hairline split divider show (issue #432) */
-  hasSiblings: boolean;
   onFocus: () => void;
   onDetails: () => void;
   onCopy: () => void;
@@ -90,16 +81,17 @@ function PaneSurface({
       }
     | undefined;
 }) {
-  const style = zoomed
-    ? { left: 0, top: 0, width: "100%", height: "100%" }
-    : rect
-      ? {
-          left: `${(rect.x / Math.max(area.width, 1)) * 100}%`,
-          top: `${(rect.y / Math.max(area.height, 1)) * 100}%`,
-          width: `${(rect.width / Math.max(area.width, 1)) * 100}%`,
-          height: `${(rect.height / Math.max(area.height, 1)) * 100}%`,
-        }
-      : undefined;
+  const { pane, title, focused, frame, emphasis } = view;
+  // Frame fractions are 0..1 of the layout area; zoomed panes get a
+  // full-bleed frame from the model, matching the previous inline math.
+  const style = frame
+    ? {
+        left: `${frame.x * 100}%`,
+        top: `${frame.y * 100}%`,
+        width: `${frame.width * 100}%`,
+        height: `${frame.height * 100}%`,
+      }
+    : undefined;
   return (
     <ContextMenu>
       <ContextMenuTrigger className="contents">
@@ -110,9 +102,9 @@ function PaneSurface({
             // (interaction.md §1, issue #432): single-pane and zoomed layouts
             // get no border at all; focused panes get a slightly stronger
             // hairline, never a full blue frame (issue #112).
-            zoomed || !hasSiblings
+            emphasis === "none"
               ? "border-0"
-              : focused
+              : emphasis === "focused"
                 ? "border border-foreground/15 dark:border-foreground/30"
                 : "border border-border/40",
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
@@ -126,7 +118,7 @@ function PaneSurface({
           onDrop={dnd?.onDrop}
           onDragEnd={dnd?.onDragEnd}
           // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
-          title={paneTitle(pane)}
+          title={title}
           onMouseDown={() => {
             if (!focused) onFocus();
           }}
@@ -135,7 +127,7 @@ function PaneSurface({
             machine={machine}
             paneId={pane.pane_id}
             connected={connected}
-            label={paneTitle(pane)}
+            label={title}
           />
         </div>
       </ContextMenuTrigger>
@@ -211,7 +203,6 @@ export function WorkspaceCanvas() {
   const { machine, machineInfo, snapshot, view, probe } = useRouteWorkspace();
   const bridge = useBridgeState();
   const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
-  const zoomed = layout?.zoomed === true;
   // Attach attempts are gated on the client bridge only: the server queues
   // subscribes and reconnects ssh machines on demand, and machine reachability
   // is already surfaced by the sidebar status.
@@ -406,14 +397,15 @@ export function WorkspaceCanvas() {
     );
   }
 
-  // herdr's zoom shows only the focused pane, full-bleed (issue #75).
-  const visiblePanes = zoomed && focusedPane ? [focusedPane] : tabPanes;
-  const area = layout?.area ?? { width: 1, height: 1 };
+  // Pane-frame model (issue #324): visible panes, normalized geometry,
+  // focus and hairline emphasis — shared with the GPUI port via
+  // state-projections; the React layer only maps it to DOM.
+  const canvas = paneCanvasView(tabPanes, layout, focusedPane ?? null);
+  const { zoomed, canDragPanes } = canvas;
 
   // Pane drag-swap (issue #111): dragging one pane onto another issues
   // herdr `pane.swap {source_pane_id, target_pane_id}`, exchanging their
   // layout positions. Disabled while zoomed (single visible pane).
-  const canDragPanes = !zoomed && visiblePanes.length > 1;
   const paneDnd = (pane: PaneInfo) =>
     canDragPanes
       ? {
@@ -454,25 +446,19 @@ export function WorkspaceCanvas() {
   return (
     <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-2">
       <div ref={canvasAreaRef} className="relative h-full w-full">
-        {visiblePanes.map((pane) => (
+        {canvas.panes.map((paneView) => (
           <PaneSurface
-            key={pane.pane_id}
+            key={paneView.pane.pane_id}
             machine={machine}
-            pane={pane}
+            view={paneView}
             connected={machineOnline}
-            rect={layout?.panes.find((p) => p.pane_id === pane.pane_id)?.rect}
-            area={area}
-            focused={
-              layout
-                ? pane.pane_id === layout.focused_pane_id
-                : pane.focused
-            }
             zoomed={zoomed}
-            hasSiblings={visiblePanes.length > 1}
-            onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
-            onDetails={() => setDetailsPane(pane)}
-            onCopy={() => setCopyPane(pane)}
-            dnd={paneDnd(pane)}
+            onFocus={() =>
+              void callRpc(machine, "pane.focus", { pane_id: paneView.pane.pane_id })
+            }
+            onDetails={() => setDetailsPane(paneView.pane)}
+            onCopy={() => setCopyPane(paneView.pane)}
+            dnd={paneDnd(paneView.pane)}
           />
         ))}
         {focusedPane ? (

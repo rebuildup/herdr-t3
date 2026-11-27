@@ -74,6 +74,9 @@ const PROJECTION_OPS = new Set([
   "agent_entries",
   "agent_partition",
   "goto_eval",
+  "canvas_view_model",
+  "next_pane",
+  "move_insert_index",
 ]);
 
 /** terminal ops served by the product crate (issue #286). */
