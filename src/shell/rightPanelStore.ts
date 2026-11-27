@@ -41,6 +41,11 @@ export const EMPTY_PANEL_STATE: RightPanelScopeState = {
   surfaces: [],
 };
 
+/* Same narrow-layout breakpoint as T3 (rightPanelLayout.ts). Shared so
+   the workspace header can tell whether the inline panel — the only
+   mode that owns the desktop titlebar — is the one rendering. */
+export const RIGHT_PANEL_NARROW_QUERY = "(max-width: 980px)";
+
 const STORAGE_KEY = "herdr-t3:right-panel:v1";
 
 interface RightPanelStoreState {

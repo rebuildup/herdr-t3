@@ -40,6 +40,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { focusPaneTerminal, requestFocusHandoff } from "~/lib/focusHandoff";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -78,7 +79,7 @@ import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { ContextCardTrigger } from "./PaneContextCard";
-import { openSurface, type RightPanelSurface } from "./rightPanelStore";
+import { openSurface, RIGHT_PANEL_NARROW_QUERY, useRightPanelState, type RightPanelSurface } from "./rightPanelStore";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -146,11 +147,23 @@ export function WorkspaceHeader() {
   const panelScope = `${machine}\n${workspace?.workspace_id ?? ""}`;
   const openPanelSurface = (surface: RightPanelSurface) =>
     openSurface(panelScope, surface);
+  // T3 ChatView `inlineRightPanelOwnsTitleBar` / `reserveNativeControls`:
+  // while the inline (wide) right panel is open on Electron its tab bar
+  // owns the desktop titlebar — drag region, `wco:` inset and the fixed
+  // controls strip all live there — so this header must NOT also reserve
+  // the native-controls inset (the caption strip sits over the panel's
+  // top-right corner, not over this column's right edge).
+  const rightPanelState = useRightPanelState(panelScope);
+  const narrowPanel = useMediaQuery(RIGHT_PANEL_NARROW_QUERY);
+  const inlinePanelOwnsTitleBar = rightPanelState.isOpen && !narrowPanel;
 
   const headerClass = cn(
     "relative flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-3",
     isElectron
-      ? "drag-region bg-background px-3 sm:px-5 wco:pr-(--workspace-native-controls-inset)"
+      ? cn(
+          "drag-region bg-background px-3 sm:px-5",
+          !inlinePanelOwnsTitleBar && "wco:pr-(--workspace-native-controls-inset)",
+        )
       : "pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
     COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
   );
