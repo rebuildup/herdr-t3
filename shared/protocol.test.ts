@@ -13,6 +13,7 @@ describe("RPC_METHODS allow-list (issue #113)", () => {
       "worktree.create",
       "worktree.open",
       "worktree.remove",
+      "pane.send_input",
     ]) {
       expect(isRpcMethod(method)).toBe(true);
     }

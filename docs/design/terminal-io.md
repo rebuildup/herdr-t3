@@ -243,17 +243,28 @@ highlight は engine の履歴座標 (absolute row) に保存したまま、
 
 ## 6. Paste / clipboard
 
-- `paste` event → `onPasteText` → herdr `pane.send_text` (issue #434)。
+- `paste` event → `onPasteText` → herdr `pane.send_input` (issue #434)。
   TerminalAnsi attach ストリームは pane の画面を再エンコードした blit
   であり DECSET 系列を一切含まないため、クライアント engine の
   mode 2004 は常に off で `encodePaste` は絶対に bracket しない
   (改行が CR 化され行ごとに実行される不具合の根因)。herdr 側は
-  `pane.send_text` が pane runtime の `bracketed_paste_enabled()` を
-  見て `\x1b[200~…\x1b[201~` で包むため、mode の正本は server に
-  残る。`sanitizePasteText` が body 中の ESC を空白化し、server 側
-  wrapper を早期終了させる注入を防ぐ (libghostty encoder と同じ
-  最小規則)。attach プロトコルが paste mode を push するように
-  なれば (herdrdev/herdr#6215)、engine `encodePaste` 経路へ戻せる。
+  `pane.send_input` が text を `encode_api_text` に通し、pane runtime
+  の `bracketed_paste_enabled()` を見て `\x1b[200~…\x1b[201~` で包む
+  ため、mode の正本は server に残る (keys は空で送り、text のみが
+  符号化される)。`pane.send_text` は生バイトをそのまま書き込む
+  literal-text 経路であり paste には使わない — PaneMessageDialog /
+  artifacts の意図的な literal 配送だけが残る。`sanitizePasteText`
+  が body 中の ESC を空白化し、server 側 wrapper を早期終了させる
+  注入を防ぐ (libghostty encoder と同じ最小規則)。attach プロトコルが
+  paste mode を push するようになれば (herdrdev/herdr#6215)、
+  engine `encodePaste` 経路へ戻せる。
+- `pane.send_input` と herdr 本来の paste 経路 (`try_send_paste` →
+  `paste_payload`) の残差: 前者は `encode_api_text` のみで、Windows
+  での改行正規化 (`prepare_paste_text_for_pty`、LF→CRLF) と
+  `scroll_reset` を行わない。0.9.5 時点で paste を bracket する
+  JSON-RPC は `pane.send_input` のみであり、herdr CLI 自身も
+  `pane run` を同経路で送る。upstream が `pane.send_text` の wrap か
+  専用 paste RPC を入れた場合はそちらへ移行する。
 - mode off (pane が 2004 を要求していない) の複数行 paste は
   bracket なしの生バイトとして届き、readline 系では改行が
   accept-line として働き得る — これは標準端末の unbracketed paste
@@ -261,19 +272,19 @@ highlight は engine の履歴座標 (absolute row) に保存したまま、
   しない (issue #434 要求)。mode on の TUI/agent pane では
   一括 paste として配送される。
 - **暫定経路と本来契約の差異・移行条件 (issue #434)**: 現行は
-  `pane.send_text` RPC 経由で、attach `Input` ストリームとは別
+  `pane.send_input` RPC 経由で、attach `Input` ストリームとは別
   チャネルのため、paste 直後のキー入力との配送順序は server 側の
   処理順に依存する (同一 pane への連続操作では実害は稀だが、
   厳密な順序保証はない)。本来契約は attach ストリーム上の
   `encodePaste` で、兄弟のキー/マウス入力と同じ順序列を保つ。
   差異は3点: (1)配送チャネルと順序、(2) mode off 時の改行変換
-  (engine は LF→CR、send_text は LF のまま — readline ではどちらも
+  (engine は LF→CR、send_input は LF のまま — readline ではどちらも
   accept-line になり得るため実害は同等)、(3) body の制御文字処理
   (engine は C0 を空白化、暫定経路は ESC のみ空白化)。
   移行条件: herdrdev/herdr#6215 (attach への pane mode-state
   push、MouseCapture variant 8 と同型) が採用された時点で
   `onPasteText` 配線を外し `encodePaste` へ戻す。それまでは
-  `pane.send_text` が mode の正本を持つため機能差はない。
+  `pane.send_input` が mode の正本を持つため機能差はない。
 - OSC 52 等の clipboard write は `onClipboardWrite` →
   `navigator.clipboard.writeText` (現行維持)。
 
