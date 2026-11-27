@@ -48,8 +48,12 @@ export const ZoomedWorkingRing: Story = {
   args: { agent: "claude", status: "working" },
   render: () => (
     <div className="flex items-center gap-8">
-      <AgentIdentityIcon agent="claude" status="working" className="size-16" />
-      <AgentIdentityIcon agent="codex" status="working" className="size-24" />
+      <div className="origin-top-left scale-[3]">
+        <AgentIdentityIcon agent="claude" status="working" />
+      </div>
+      <div className="origin-top-left scale-[5]">
+        <AgentIdentityIcon agent="codex" status="working" />
+      </div>
     </div>
   ),
 };

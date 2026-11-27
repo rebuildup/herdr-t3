@@ -148,9 +148,10 @@ function StatusRing({ status }: { status: AgentStatus }) {
 
 /**
  * Brand-led identity + status glyph for agent rows. `size-5` (20px) is the
- * shared dimension contract: the brand mark renders at `size-4` inside
+ * shared dimension contract: the brand mark renders at `size-3.5` inside
  * the slot and the ring's viewBox is 20 units, so Electron and GPUI must
- * reproduce the same footprint (ui-shell.md contract).
+ * reproduce the same footprint (ui-shell.md contract). The 16px mark left
+ * zero clearance to the ring's inner edge — the two touched.
  */
 export function AgentIdentityIcon({
   agent,
@@ -168,7 +169,7 @@ export function AgentIdentityIcon({
         className,
       )}
     >
-      <AgentProviderIcon agent={agent} className="size-4" />
+      <AgentProviderIcon agent={agent} className="size-3.5" />
       <StatusRing status={status} />
     </span>
   );
