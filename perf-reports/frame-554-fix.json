@@ -1,0 +1,179 @@
+{
+  "format": "herdr-t3/perf-frame",
+  "version": 1,
+  "recorded_at": "2026-11-27T16:49:29.775Z",
+  "git_sha": "d7acb2044ab4305c422cba340aec212287723433",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "bun_version": "1.4.4",
+  "condition": {
+    "loadavg_1m": 25.6015625,
+    "loadavg_5m": 22.69970703125,
+    "loadavg_15m": 25.169921875
+  },
+  "app": {
+    "base_url": "http://localhost:5742",
+    "bridge_port": 4742,
+    "vite_port": 5742,
+    "cdp_port": 9334,
+    "session": "ht3frame",
+    "socket": "/Users/rebui/.config/herdr/sessions/ht3frame/herdr.sock",
+    "pane_id": "w2:p1",
+    "headless_chrome": true,
+    "viewport": "1440x900@2x"
+  },
+  "workload": {
+    "storm": "seed-42 ANSI chunks (same generator as perf-scene-bench), 24 files round-robin every 8ms via in-pane bun looper",
+    "measure_seconds": 8,
+    "warmup_seconds": 2,
+    "idle_seconds": 4,
+    "switch_cycles": 4,
+    "scroll": "CDP mouseWheel bursts: 8x|deltaY|=4000 (~100 lines) alternating up/down every ~350ms",
+    "input_probe": "CDP trusted wheel + click per probe; in-page latency to next rAF frame",
+    "preload_scrollback_lines": 400,
+    "storm_attempts": 1
+  },
+  "budgets": {
+    "input_paint_p95_ms": 1000,
+    "cpu_utilization_pct": 95,
+    "enforced": false
+  },
+  "idle": {
+    "seconds": 4.906,
+    "navigated": false,
+    "frames": {
+      "count": 91,
+      "p50": 16.700000000000728,
+      "p95": 133.29999999999927,
+      "p99": 233.29999999999927,
+      "min": 16.599999999998545,
+      "max": 233.29999999999927,
+      "mean": 52.9274725274725,
+      "pct_over_16_7": 68.13186813186813,
+      "pct_over_33_4": 39.56043956043956,
+      "pct_over_50": 37.362637362637365
+    },
+    "longtask_count": 4,
+    "longtask_total_ms": 470,
+    "longtask_max_ms": 238,
+    "canvas_api_ms": 17.600000008940697,
+    "canvas_calls": 220,
+    "task_duration_ms": 1041.7000000000005,
+    "script_duration_ms": 502.305999999999,
+    "task_utilization_pct": 21.23318385650225,
+    "input_paint": {
+      "count": 8,
+      "p50": 12.800000004470348,
+      "p95": 41.30000000447035,
+      "p99": 41.30000000447035,
+      "min": 1.2000000029802322,
+      "max": 41.30000000447035,
+      "mean": 20.625000000931323
+    },
+    "cpu_utilization_pct": 2.609050142682439,
+    "cpu_time_ms": 1280.0000000000048,
+    "longtask_attribution": {
+      "window": {
+        "count": 4,
+        "total_ms": 470
+      }
+    }
+  },
+  "storm": {
+    "seconds": 10.254,
+    "navigated": false,
+    "frames": {
+      "count": 182,
+      "p50": 16.799999999995634,
+      "p95": 116.70000000000437,
+      "p99": 166.59999999999854,
+      "min": 16.599999999998545,
+      "max": 166.70000000000437,
+      "mean": 56.13351648351646,
+      "pct_over_16_7": 63.18681318681318,
+      "pct_over_33_4": 46.7032967032967,
+      "pct_over_50": 45.05494505494506
+    },
+    "longtask_count": 5,
+    "longtask_total_ms": 479,
+    "longtask_max_ms": 145,
+    "canvas_api_ms": 306.59999995678663,
+    "canvas_calls": 8151,
+    "task_duration_ms": 1827.2719999999988,
+    "script_duration_ms": 1026.4640000000006,
+    "task_utilization_pct": 17.820089721084443,
+    "input_paint": {
+      "count": 48,
+      "p50": 0.4000000059604645,
+      "p95": 5.100000001490116,
+      "p99": 15.900000005960464,
+      "min": 0.10000000149011612,
+      "max": 15.900000005960464,
+      "mean": 1.6020833334575098
+    },
+    "cpu_utilization_pct": 1.8529354398283584,
+    "cpu_time_ms": 1899.9999999999986,
+    "longtask_attribution": {
+      "window": {
+        "count": 5,
+        "total_ms": 479
+      }
+    }
+  },
+  "switch": {
+    "seconds": 7.30070000000298,
+    "navigated": false,
+    "frames": {
+      "count": 37,
+      "p50": 133.20000000000437,
+      "p95": 750,
+      "p99": 766.5999999999985,
+      "min": 16.599999999998545,
+      "max": 766.5999999999985,
+      "mean": 197.7405405405406,
+      "pct_over_16_7": 89.1891891891892,
+      "pct_over_33_4": 81.08108108108108,
+      "pct_over_50": 70.27027027027027
+    },
+    "longtask_count": 18,
+    "longtask_total_ms": 5275,
+    "longtask_max_ms": 833,
+    "canvas_api_ms": 40.600000001490116,
+    "canvas_calls": 749,
+    "task_duration_ms": 6124.578000000001,
+    "script_duration_ms": 4951.392999999999,
+    "task_utilization_pct": 83.89028449323355,
+    "input_paint": {
+      "count": 10,
+      "p50": 6.200000002980232,
+      "p95": 42.399999998509884,
+      "p99": 42.399999998509884,
+      "min": 1.2000000029802322,
+      "max": 42.399999998509884,
+      "mean": 15.340000001341105
+    },
+    "cpu_utilization_pct": 6.561014697218134,
+    "cpu_time_ms": 4789.999999999999,
+    "longtask_attribution": {
+      "window": {
+        "count": 18,
+        "total_ms": 5275
+      }
+    }
+  },
+  "notes": [
+    "frames = rAF timestamp intervals inside the measured window; p50/p95/p99 and >16.7/33.4/50ms percentages are frame-budget misses",
+    "input_paint = latency from a trusted input event (wheel/pointerdown) to the next rAF frame callback execution — input→paint scheduling, not photon-present",
+    "cpu_utilization_pct = cumulative CPU-seconds delta over the window (ps process-tree accounting; CDP SystemInfo.getProcessInfo fallback on Windows), normalized to % of total machine CPU capacity (whole Chrome tree); null when neither source is available",
+    "longtask_attribution = PerformanceObserver longtask entries bucketed by TaskAttributionTiming container type(+name); 'unattributed' when the entry carries none",
+    "canvas_api_ms = wall time inside CanvasRenderingContext2D fillText/drawImage calls (raster submission, not compositor present)",
+    "task_duration_ms = CDP Performance TaskDuration delta (all renderer main-thread task time in window)",
+    "longtask = PerformanceObserver longtask entries (>50ms) overlapping the window"
+  ]
+}

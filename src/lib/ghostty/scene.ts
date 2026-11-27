@@ -7,7 +7,6 @@
  * mirrors it in Rust.
  */
 import type { GhosttySession } from "./session.ts";
-import { LruCache } from "../lru.ts";
 import type {
   GhosttyBackgroundImageFit,
   GhosttyBackgroundImagePosition,
@@ -121,9 +120,11 @@ export type PaintOp =
     };
 
 /**
- * Bound on cached grapheme advance measurements (issue #499): the key space
- * is every distinct grapheme × font a session ever draws, which grows without
- * limit on image/emoji-heavy output. LRU eviction only costs a re-measure.
+ * Bound on cached grapheme advance measurements per draw-font (issue
+ * #499): the key space is every distinct grapheme a session ever draws,
+ * which grows without limit on image/emoji-heavy output. Eviction only
+ * costs a re-measure. There are at most a handful of draw-fonts (the
+ * bold/italic bit pairs), so the total stays bounded.
  */
 const ADVANCE_CACHE_MAX = 4096;
 
@@ -170,7 +171,7 @@ export class GhosttyScene {
     if (font.fontFamily !== undefined) this.options.fontFamily = font.fontFamily;
     if (font.fontSize !== undefined) this.options.fontSize = font.fontSize;
     this.fontStrings.clear();
-    this.advanceCache.clear();
+    this.advanceFonts.clear();
     this.invalidate();
   }
 
@@ -414,8 +415,16 @@ export class GhosttyScene {
   private textBox: { key: string; ascent: number; descent: number } | null = null;
   /** draw-font string per bold/italic flag pair (issue #213) */
   private readonly fontStrings = new Map<number, string>();
-  /** grapheme advance measurements, keyed by font + text (issue #213); bounded (issue #499) */
-  private readonly advanceCache = new LruCache<string, number>(ADVANCE_CACHE_MAX);
+  /**
+   * Grapheme advance measurements, per draw-font then per grapheme
+   * (issue #213). Nested maps keep the per-cell hot path allocation-free:
+   * `paintRowText` calls this for every cell of every repainted row —
+   * hundreds of thousands of times per repaint — and the previous
+   * `${font}\n${text}` key allocated a string and paid an LRU
+   * get+delete+set per lookup (issue #554). Each font's map evicts its
+   * oldest entry past the cap; eviction only costs a re-measure.
+   */
+  private readonly advanceFonts = new Map<string, Map<string, number>>();
 
   /**
    * The alphabetic baseline y for a cell row: the font's ink box is centered
@@ -449,11 +458,19 @@ export class GhosttyScene {
 
   /** advance width of one grapheme under `font`, measured once and cached */
   private glyphAdvance(text: string, font: string): number {
-    const key = `${font}\n${text}`;
-    let width = this.advanceCache.get(key);
+    let inner = this.advanceFonts.get(font);
+    let width = inner?.get(text);
     if (width === undefined) {
       width = this.textMetrics.measure(text, font);
-      this.advanceCache.set(key, width);
+      if (inner === undefined) {
+        inner = new Map();
+        this.advanceFonts.set(font, inner);
+      }
+      if (inner.size >= ADVANCE_CACHE_MAX) {
+        const oldest = inner.keys().next().value;
+        if (oldest !== undefined) inner.delete(oldest);
+      }
+      inner.set(text, width);
     }
     return width;
   }
@@ -695,7 +712,7 @@ export class GhosttyScene {
 
   /** drop the grapheme-advance cache under memory pressure; it rebuilds lazily (issue #499) */
   shedAdvanceCache(): void {
-    this.advanceCache.clear();
+    this.advanceFonts.clear();
   }
 
   dispose(): void {
@@ -703,6 +720,6 @@ export class GhosttyScene {
     this.rows.clear();
     this.pending.clear();
     this.fontStrings.clear();
-    this.advanceCache.clear();
+    this.advanceFonts.clear();
   }
 }

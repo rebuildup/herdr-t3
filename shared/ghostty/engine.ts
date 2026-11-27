@@ -428,6 +428,13 @@ interface CallbackSlots { reply: number; size: number; bell: number; hold: numbe
  */
 const CALLBACK_SIGNATURES = [["reply", 4, false], ["size", 3, true], ["bell", 2, false], ["hold", 3, false], ["clipboardWrite", 3, false]] as const;
 
+let compiledCallbackModule: WebAssembly.Module | null = null;
+/** the forwarder module compiled once; instances are still per GhosttyModule */
+function callbackModule(): WebAssembly.Module {
+  compiledCallbackModule ??= new WebAssembly.Module(callbackModuleBytes());
+  return compiledCallbackModule;
+}
+
 function callbackModuleBytes(): Uint8Array<ArrayBuffer> {
   const I32 = 0x7f, FUNC = 0x60, CALL = 0x10, LOCAL_GET = 0x20, END = 0x0b;
   const leb = (value: number): number[] => {
@@ -513,7 +520,10 @@ export class GhosttyModule {
   connect(target: CallbackTarget): { userdata: number; slots: CallbackSlots } {
     if (!this.slots) {
       const forward = (userdata: number): CallbackTarget | undefined => this.targets.get(userdata);
-      const helper = new WebAssembly.Instance(new WebAssembly.Module(callbackModuleBytes()), {
+      // The helper's bytes are identical for every module, so the
+      // WebAssembly.Module compiles once per process — only the Instance
+      // (bound to this module's `forward` closure) is per-pane (issue #554).
+      const helper = new WebAssembly.Instance(callbackModule(), {
         js: {
           reply: (_terminal: number, userdata: number, ptr: number, len: number) => forward(userdata)?.reply(ptr, len),
           size: (_terminal: number, userdata: number, out: number) => (forward(userdata)?.size(out) ? 1 : 0),
