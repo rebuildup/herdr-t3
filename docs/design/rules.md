@@ -2,7 +2,9 @@
 
 Canonical screen structure: `docs/design/app-shell.md` (ADR-0008).
 This file covers lint-level rules only; the conformance audit and the
-per-surface violation inventory live in `conformance-audit.md`.
+per-surface violation inventory live in `conformance-audit.md`, and the
+known-anti-case ledger with root causes and rejection mechanisms lives
+in `anti-cases.md` (issue #407 iteration protocol).
 
 Source of truth: `t3code/docs/internals/web-ui.md`, `t3code/AGENTS.md`,
 and the upstream oxlint setup (`vite.config.ts` lint block +
