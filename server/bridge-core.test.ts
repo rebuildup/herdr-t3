@@ -269,6 +269,29 @@ describe("terminal attach queue (slot.queue)", () => {
     await sleep(30);
     expect(link.stream.contains("GHOST")).toBe(false);
   });
+
+  test("ops past the queue cap fail the attach instead of growing forever (issue #499)", async () => {
+    const { session, clientConns, frames } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "client attach connection");
+    const link = clientConns[0]!;
+
+    // The attach never resolves (no Welcome): ops must stop queueing at the
+    // cap and the slot must fail safe with a terminal_closed frame.
+    for (let i = 0; i < 600; i++) {
+      session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64(`k${i}`) });
+    }
+    await waitFor(
+      () => frames.some((f) => f.type === "terminal_closed" && f.paneId === "p1" && f.reason === "attach_overrun"),
+      "attach_overrun terminal_closed",
+    );
+    // The abandoned attach still resolves later; its link is closed on arrival.
+    link.handlers.data(welcomeFrame());
+    await sleep(30);
+    expect(link.stream.contains("k599")).toBe(false);
+    session.close();
+  });
 });
 
 /* --------------------- snapshot push policy (issue #423) ------------------ */

@@ -1761,6 +1761,26 @@ impl GhosttyEngine {
         })
     }
 
+    /// whether the Kitty graphics store still holds `id` — port of
+    /// `hasImage`; cheap existence check, no pixel copy (issue #499)
+    pub fn has_image(&mut self, id: u32) -> Result<bool, String> {
+        self.inner.guard(|this| {
+            this.scratch.w64(0, 0);
+            if unsafe {
+                ffi::ghostty_terminal_get(
+                    this.terminal,
+                    this.r.enum_("GhosttyTerminalData", "KITTY_GRAPHICS") as u32,
+                    this.scratch.at(0) as *mut c_void,
+                )
+            } != 0
+            {
+                return Ok(false);
+            }
+            let graphics = this.scratch.r64(0) as Handle;
+            Ok(!unsafe { ffi::ghostty_kitty_graphics_image(graphics, id) }.is_null())
+        })
+    }
+
     /// a stored Kitty image's pixels as RGBA — port of `imagePixels`.
     pub fn image_pixels(&mut self, id: u32) -> Result<Option<GhosttyPixels>, String> {
         self.inner.guard(|this| {

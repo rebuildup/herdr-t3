@@ -1600,6 +1600,21 @@ export class GhosttyEngine {
     });
   }
 
+  /**
+   * Whether the Kitty graphics store still holds `id` — the cheap existence
+   * check `imagePixels` is too expensive for (it copies the whole image out
+   * of the module; the scene asks per placed image per row per frame).
+   */
+  hasImage(id: number): boolean {
+    return this.guard(() => {
+      const x = this.x;
+      this.view().setUint32(this.scratch, 0, true);
+      if (x.ghostty_terminal_get(this.terminal, this.e.GhosttyTerminalData.KITTY_GRAPHICS, this.scratch) !== 0) return false;
+      const graphics = this.view().getUint32(this.scratch, true);
+      return x.ghostty_kitty_graphics_image(graphics, id) !== 0;
+    });
+  }
+
   /** frees the terminal and everything made for it; on a trapped module only the callback route is dropped */
   dispose(): void {
     if (this.disposed) return;

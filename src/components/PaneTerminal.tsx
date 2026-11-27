@@ -56,6 +56,15 @@ function decodeBase64(data: string): Uint8Array {
 }
 
 /**
+ * Bounds on attach bytes queued before the WASM surface exists (issue #499).
+ * WASM compile is sub-second on a healthy machine; anything past these caps
+ * means the surface will never arrive, so the attach is dropped rather than
+ * letting the queue grow for the life of the pane.
+ */
+const PENDING_MAX_BYTES = 8 * 1024 * 1024;
+const PENDING_MAX_FRAMES = 1024;
+
+/**
  * One attached herdr pane as a libghostty-vt terminal (ADR-0007). The attach
  * stream from the bridge is the truth; the engine keeps its own scrollback of
  * what streamed by, so a bridge reconnect loses nothing the user can still see
@@ -135,7 +144,12 @@ export function PaneTerminal({
     let unregisterProbe: (() => void) | null = null;
     // Attach bytes that arrive while the WASM module compiles queue here and
     // flush in order once the surface exists — the stream is never dropped.
+    // The queue is bounded (issue #499): if the surface never comes up
+    // (compile failure, dead engine) the attach is dropped instead of
+    // accumulating the whole stream in memory.
     const pending: Uint8Array[] = [];
+    let pendingBytes = 0;
+    let streamOverflow = false;
     const send = (bytes: Uint8Array) => {
       // encoded keys/mouse/paste, IME text and the engine's replies to the
       // program's queries are all stream bytes for the pane's pty
@@ -311,6 +325,7 @@ export function PaneTerminal({
           surface.setMouseCapture(mouseCaptureRef.current);
         }
         surface.attach();
+        pendingBytes = 0;
         for (const bytes of pending.splice(0)) surface.write(bytes);
         // applyTheme is defined below in this effect; the .then callback runs
         // after the synchronous body, so the binding is initialized.
@@ -321,10 +336,22 @@ export function PaneTerminal({
       });
 
     const dataOff = onTerminalData((m, id, data) => {
-      if (m !== machine || id !== paneId) return;
+      if (m !== machine || id !== paneId || streamOverflow) return;
       const bytes = decodeBase64(data);
-      if (surfaceRef.current) surfaceRef.current.write(bytes);
-      else pending.push(bytes);
+      if (surfaceRef.current) {
+        surfaceRef.current.write(bytes);
+        return;
+      }
+      pendingBytes += bytes.length;
+      if (pendingBytes > PENDING_MAX_BYTES || pending.length >= PENDING_MAX_FRAMES) {
+        streamOverflow = true;
+        pending.length = 0;
+        pendingBytes = 0;
+        unsubscribeTerminal(machine, paneId);
+        setEngineError("terminal stream overflow: surface unavailable");
+        return;
+      }
+      pending.push(bytes);
     });
     // herdr MouseCapture (issue #169): the pane's program asked for mouse
     // reporting. Events can arrive before the WASM surface exists, so the
