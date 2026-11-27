@@ -117,6 +117,65 @@ function syncWindowChrome(window: BrowserWindow): void {
  * control over herdr.
  */
 let lastStatus: { ok: boolean; detail: string } = { ok: false, detail: "starting" };
+
+/*
+ * Process memory budget (issue #499). Every Electron process — renderer,
+ * GPU, utility — counts toward the OS-wide footprint that froze the machine
+ * at ~28.5 GB. The latest per-type breakdown is published through
+ * bridge-status.json and `herdr-t3:health` so regressions are measurable
+ * after the fact; past MEMORY_LIMIT_MB the one safe stop available runs:
+ * reload the window. herdr owns every session, pty and scrollback, so a
+ * reload re-attaches from the server-side truth — the only loss is an
+ * unsent input draft. At most one reload per cooldown; a leak that
+ * survives reload is reported, not looped.
+ */
+const MEMORY_LIMIT_MB = Number(process.env["HERDR_T3_MEMORY_LIMIT_MB"] ?? 20_000);
+const MEMORY_RELOAD_COOLDOWN_MS = 10 * 60_000;
+let lastMemory: { totalMb: number; byType: Record<string, number> } | null = null;
+let lastMemoryReloadAt = 0;
+let memoryBreached = false;
+let preBreachStatus: { ok: boolean; detail: string } | null = null;
+
+function sampleProcessMemory(): void {
+  // getAppMetrics is only meaningful once the app is ready; diagnostics must
+  // never break the app, so a sampling failure is silently retried next tick.
+  const byType: Record<string, number> = {};
+  let totalKb = 0;
+  try {
+    for (const m of app.getAppMetrics()) {
+      const kb = m.memory?.workingSetSize ?? 0;
+      totalKb += kb;
+      byType[m.type] = (byType[m.type] ?? 0) + Math.round(kb / 1024);
+    }
+  } catch {
+    return;
+  }
+  const totalMb = Math.round(totalKb / 1024);
+  lastMemory = { totalMb, byType };
+  reportStatus(lastStatus.ok, lastStatus.detail);
+  if (totalMb >= MEMORY_LIMIT_MB) {
+    if (!memoryBreached) {
+      memoryBreached = true;
+      preBreachStatus = { ...lastStatus };
+      diag("error", "memory.budgetExceeded", `total RSS ${totalMb}MB >= ${MEMORY_LIMIT_MB}MB`, {
+        breakdown: byType,
+      });
+      reportStatus(false, `memory budget exceeded: ${totalMb}MB`);
+    }
+    if (win && !win.isDestroyed() && Date.now() - lastMemoryReloadAt > MEMORY_RELOAD_COOLDOWN_MS) {
+      lastMemoryReloadAt = Date.now();
+      diag("warn", "memory.reload", `reloading renderer at ${totalMb}MB total RSS`);
+      win.reload();
+    }
+  } else if (memoryBreached) {
+    memoryBreached = false;
+    const restored = preBreachStatus ?? { ok: true, detail: "recovered" };
+    preBreachStatus = null;
+    reportStatus(restored.ok, restored.detail);
+  }
+}
+setInterval(sampleProcessMemory, 30_000).unref();
+
 function reportStatus(ok: boolean, detail: string): void {
   lastStatus = { ok, detail };
   try {
@@ -129,6 +188,7 @@ function reportStatus(ok: boolean, detail: string): void {
         detail,
         at: new Date().toISOString(),
         herdr: herdrSocketPath(),
+        ...(lastMemory ? { memory: lastMemory } : {}),
       }),
     );
   } catch {
@@ -241,11 +301,13 @@ function createWindow(): void {
 
 function healthPayload(): Promise<Record<string, unknown>> {
   const socket = herdrSocketPath();
+  const memory = lastMemory ? { memory: lastMemory } : {};
   return fetchSnapshot()
     .then((snapshot) => ({
       ok: true,
       version: pkg.version,
       commit: process.env.HERDR_T3_COMMIT ?? "unknown",
+      ...memory,
       herdr: {
         reachable: true,
         socket: socketAddress(socket),
@@ -257,6 +319,7 @@ function healthPayload(): Promise<Record<string, unknown>> {
       ok: true,
       version: pkg.version,
       commit: process.env.HERDR_T3_COMMIT ?? "unknown",
+      ...memory,
       herdr: {
         reachable: false,
         socket: socketAddress(socket),
