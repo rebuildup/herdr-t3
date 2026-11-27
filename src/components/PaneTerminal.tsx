@@ -31,6 +31,7 @@ import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { deliverPanePaste } from "../lib/panePaste.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
+import { registerMemoryProbe, registerMemoryShedder } from "../lib/memoryBudget.ts";
 
 /** the configured font family, or the --font-mono stack when unset */
 function terminalFontFamily(): string {
@@ -140,6 +141,11 @@ export function PaneTerminal({
     let surface: GhosttySurface | null = null;
     let session: GhosttySession | null = null;
     let unregisterProbe: (() => void) | null = null;
+    // App-wide WASM memory budget (issue #499): this pane's engine memory
+    // counts toward the renderer budget; the surface's rebuildable caches
+    // are shed under pressure.
+    let offMemoryProbe: (() => void) | null = null;
+    let offMemoryShedder: (() => void) | null = null;
     // Attach bytes that arrive while the WASM module compiles queue here and
     // flush in order once the surface exists — the stream is never dropped.
     // The queue is bounded (issue #499): if the surface never comes up
@@ -177,6 +183,7 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        offMemoryProbe = registerMemoryProbe(`pane:${machine}:${paneId}`, () => created.memoryBytes());
         // Conformance observation (#238): rows scrolled above the bottom.
         unregisterProbe = registerTerminalScrollProbe(`${machine}\n${paneId}`, () => {
           const h = created.history();
@@ -295,6 +302,7 @@ export function PaneTerminal({
           ...(label ? { ariaLabel: `terminal ${label}` } : {}),
         });
         surfaceRef.current = surface;
+        offMemoryShedder = registerMemoryShedder(`surface:${machine}:${paneId}`, () => surface?.shedCaches());
         if (mouseCaptureRef.current !== null) {
           surface.setMouseCapture(mouseCaptureRef.current);
         }
@@ -557,6 +565,8 @@ export function PaneTerminal({
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
       unregisterProbe?.();
+      offMemoryProbe?.();
+      offMemoryShedder?.();
       surface?.dispose();
       session?.dispose();
     };

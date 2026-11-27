@@ -17,6 +17,9 @@ use crate::engine::{
 
 /// bytes of decoded Kitty pictures one pane keeps
 pub const IMAGE_STORAGE_BYTES: u64 = 64 * 1024 * 1024;
+/// scrollback byte cap per session (issue #499); pairs with the line limit —
+/// whichever binds first ends history.
+pub const SCROLLBACK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Callbacks the session routes — the port of `GhosttySessionOptions`'s four
 /// optional hooks. Each returns `Result` like the TS callbacks can throw;
@@ -154,6 +157,7 @@ impl GhosttySession {
             widths: widths.engine(),
             images: Some(IMAGE_STORAGE_BYTES),
             scrollback_lines,
+            scrollback_bytes: scrollback_lines.map(|_| SCROLLBACK_BYTES),
             events: Some(events),
         };
         let engine = GhosttyEngine::new(cols, rows, engine_options)?;
