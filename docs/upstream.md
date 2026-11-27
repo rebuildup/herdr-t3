@@ -11,7 +11,7 @@ Update this table when a port re-baselines against a newer upstream.
 | ACP Registry | <https://github.com/agentclientprotocol/registry> | `b150ba592b85f8ee5f9f3457ce080197e3a1922e` | official agent brand icons vendored under `src/components/agent-icons/` |
 | oh-my-pi | <https://github.com/can1357/oh-my-pi> | `2be354322dee0cdd95bc42fc61c72ef9767b653b` | OMP agent icon (`assets/icon.svg`) vendored under `src/components/agent-icons/` |
 | Mastra | <https://github.com/mastra-ai/mastra> | `7707dd7fe9cdd24f693ceed7b9732e00365ea574` | Mastra Code agent icon (`LogoWithoutText`) vendored under `src/components/agent-icons/` |
-| project-init | <https://github.com/rebuildup/project-init> | `285b139b01c199d3d4135d90f3cc3f6a932eff3b` (v0.5.0 kickoff `main` HEAD; previous pin `cf827d2` is an ancestor) | release-driven operating model, Constitution, Skills |
+| aude-skills | <https://github.com/rebuildup/aude-skills> | `285b139b01c199d3d4135d90f3cc3f6a932eff3b` (upstream `v0.13.0`, adopted at the herdr-t3 v0.5.0 kickoff; previous pin `cf827d2` is an ancestor) | release-driven operating model, Constitution, Skills |
 | pc-setup | <https://github.com/rebuildup/pc-setup> | `afa06265d8e3404bdb9c2e30df5924765a81657f` | macOS / Windows install & verify integration |
 | design-skills | <https://github.com/rebuildup/design-skills> | `97deb07b16e1d404534e57ebdb95d14b4c068b9e` | design review & verification skills |
 | dotfiles | <https://github.com/rebuildup/dotfiles> | `d1f7ffd7bdac65e924bb04d2ca60484f53860c27` | existing machine environment assumptions |
