@@ -44,6 +44,12 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
   する (別個のタイマーを持たない — Windows 停止調査 #420 と同一
   機構)。reduced-motion では回転弧を静止した全周リングへ置き換え、
   状態の意味を保持する。
+- 可視性ゲートの診断 (issue #420): Settings → Diagnostics の
+  「Motion visibility gate → Copy report」が、spinner/ring を止める
+  全入力 (`prefers-reduced-motion`・`document.visibilityState`・
+  IntersectionObserver の交差状態・computed animation 値) を JSON で
+  出力する。Windows 実機での停止報告はこのレポートを Issue に貼って
+  切り分ける。挙動契約は変えない — レポートは観測のみ。
 - 通知 toast (#428): `ui/toast.tsx` (T3 port) の stack/peek・swipe・
   退出 motion をそのまま使う。自動 dismiss は「表示時間」だけを数え、
   window 非表示・非 focus・hover 中は停止する。位置は設定で

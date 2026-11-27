@@ -87,6 +87,10 @@ import {
   ghosttyEngineStatus,
   onGhosttyEngineStatus,
 } from "~/lib/ghostty/session.ts";
+import {
+  formatVisibleAnimationDiagnostics,
+  visibleAnimationDiagnostics,
+} from "~/lib/visibleAnimation";
 import { MachineDialog, type MachineDialogState } from "~/components/MachineDialog";
 import { ThemeModeTiles } from "~/components/ThemeModeTiles";
 import { machineListOf, useBridgeState } from "./bridge";
@@ -122,6 +126,7 @@ const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms
   { anchor: "setting-herdr", label: "Herdr", section: "diagnostics", terms: "version protocol socket reachable" },
   { anchor: "setting-ghostty-engine", label: "Ghostty engine", section: "diagnostics", terms: "wasm libghostty status" },
   { anchor: "setting-app-version", label: "App version", section: "diagnostics", terms: "build version commit" },
+  { anchor: "setting-motion-gate", label: "Motion visibility gate", section: "diagnostics", terms: "animation spinner working motion visibility reduced report" },
   { anchor: "setting-about-app", label: "herdr-t3", section: "about", terms: "version about" },
   { anchor: "setting-license", label: "License", section: "about", terms: "mit license notices" },
 ];
@@ -330,6 +335,7 @@ function SectionPage({ section }: { section: SectionId }) {
   const machines = machineListOf(bridge);
   const { health, error: healthError, refresh: refreshHealth } = useHealth();
   const ghosttyEngine = useGhosttyEngine();
+  const [motionDiagCopied, setMotionDiagCopied] = useState(false);
   useEffect(() => {
     let alive = true;
     void getLoginItem().then((state) => {
@@ -652,6 +658,27 @@ function SectionPage({ section }: { section: SectionId }) {
               <span className="font-mono text-xs text-muted-foreground">
                 {health ? `${health.version} (${health.commit.slice(0, 8)})` : healthError ? "Unavailable" : "…"}
               </span>
+            </SettingsRow>
+            <SettingsRow
+              anchor="setting-motion-gate"
+              label="Motion visibility gate"
+              description="Captures the inputs that gate Working/connect spinners (issue #420): reduced-motion, document visibility, observer state and computed animation values. Paste the report into the issue when animations look frozen."
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(formatVisibleAnimationDiagnostics(visibleAnimationDiagnostics()))
+                    .then(() => {
+                      setMotionDiagCopied(true);
+                      setTimeout(() => setMotionDiagCopied(false), 2000);
+                    })
+                    .catch(() => {});
+                }}
+              >
+                {motionDiagCopied ? "Copied" : "Copy report"}
+              </Button>
             </SettingsRow>
           </SettingsSection>
         </div>
