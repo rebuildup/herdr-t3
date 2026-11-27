@@ -36,6 +36,14 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
 - 状態バッジ (agent_status) の変化: 色・icon の即時切替を基本とし、
   blocked 到達時のみ attention を示す控えめな pulse を許可
   (reduced-motion では静止)。
+- agent 行の identity/status glyph (issue #419,
+  `src/components/agentIdentityIcon.tsx`): ブランドアイコンは常時
+  静止し、`agent_status` は外周リングだけが担う。working の回転弧は
+  `visible-animate-spin` + `observeVisibleAnimation` の共有可視性
+  制御に従い、非表示・画面外・document hidden・reduced-motion で停止
+  する (別個のタイマーを持たない — Windows 停止調査 #420 と同一
+  機構)。reduced-motion では回転弧を静止した全周リングへ置き換え、
+  状態の意味を保持する。
 - 通知 toast (#428): `ui/toast.tsx` (T3 port) の stack/peek・swipe・
   退出 motion をそのまま使う。自動 dismiss は「表示時間」だけを数え、
   window 非表示・非 focus・hover 中は停止する。位置は設定で
