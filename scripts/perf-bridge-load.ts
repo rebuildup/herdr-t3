@@ -21,6 +21,11 @@
  *               every pane in a batch, unsubscribe, repeat — scroll-
  *               subscription reopens must coalesce per batch, not per pane
  *               (issue #527)
+ *   terminal-io  demand-driven delivery leg (issue #572): one attach
+ *               batch + bounded in-pane output + scroll/resize probes —
+ *               initial-attach vs post-scroll delivery bytes, attach/
+ *               detach counts, forwarded op counts (terminal.delivery.
+ *               bytes meters, bridge.terminal.* counters)
  *   reconnect   WS drop + reconnect cycles — each connect must cost exactly
  *               one session.snapshot fetch + one subscription open
  *
@@ -91,6 +96,8 @@ export interface MetricsSnapshot {
   timestamp: string;
   counters: Record<string, number>;
   timers: Record<string, { count: number; totalMs: number; avgMs: number; maxMs: number; lastMs: number }>;
+  /** Quantity accumulators (bytes/frames) — absent on pre-#572 bridges. */
+  meters?: Record<string, { count: number; total: number; avg: number; max: number; last: number }>;
   gauges: Record<string, number>;
 }
 
@@ -98,6 +105,8 @@ export interface LegDelta {
   seconds: number;
   counters: Record<string, number>;
   timers: Record<string, { count: number; totalMs: number; avgMs: number; maxMs: number }>;
+  /** Absent on pre-#572 reports and hand-built deltas. */
+  meters?: Record<string, { count: number; total: number; avg: number; max: number }>;
 }
 
 /** Counter/timer deltas between two snapshots; missing keys count as 0. */
@@ -122,7 +131,22 @@ export function diffMetrics(before: MetricsSnapshot, after: MetricsSnapshot): Le
       };
     }
   }
-  return { seconds: 0, counters, timers };
+  const meters: LegDelta["meters"] = {};
+  for (const k of new Set([...Object.keys(before.meters ?? {}), ...Object.keys(after.meters ?? {})])) {
+    const b = before.meters?.[k];
+    const a = after.meters?.[k];
+    const count = (a?.count ?? 0) - (b?.count ?? 0);
+    const total = (a?.total ?? 0) - (b?.total ?? 0);
+    if (count > 0) {
+      meters[k] = {
+        count,
+        total: Math.round(total * 100) / 100,
+        avg: Math.round((total / count) * 100) / 100,
+        max: Math.max(a?.max ?? 0, b?.max ?? 0),
+      };
+    }
+  }
+  return { seconds: 0, counters, timers, meters };
 }
 
 function counter(delta: LegDelta, name: string, label?: string): number {
@@ -139,6 +163,17 @@ function timerCount(delta: LegDelta, name: string, label?: string): number {
   return Object.entries(delta.timers)
     .filter(([k]) => k === `${name}{${label}}` || k.startsWith(`${name}{`) && k.includes(label))
     .reduce((n, [, t]) => n + t.count, 0);
+}
+
+/** Sum `total` across meter keys matching `name` (optionally narrowed by a label fragment). */
+function meterTotal(delta: LegDelta, name: string, label?: string): number {
+  return Object.entries(delta.meters ?? {})
+    .filter(([k]) =>
+      label === undefined
+        ? k === name || k.startsWith(`${name}{`)
+        : k === `${name}{${label}}` || (k.startsWith(`${name}{`) && k.includes(label)),
+    )
+    .reduce((n, [, m]) => n + m.total, 0);
 }
 
 /**
@@ -194,7 +229,7 @@ export function evaluateLeg(leg: string, delta: LegDelta, issued: Record<string,
     notes.push(`snapshot pushes=${pushes} unchanged=${unchanged} scheduled=${counter(delta, "bridge.snapshot.schedule")}`);
   }
 
-  if (leg === "attach-churn") {
+  if (leg === "attach-churn" || leg === "terminal-io") {
     const subs = issued["subscribe_terminal"] ?? 0;
     const batch = Math.max(1, issued["attach_batch"] ?? 1);
     const opens = counter(delta, "bridge.subscription.open");
@@ -210,6 +245,54 @@ export function evaluateLeg(leg: string, delta: LegDelta, issued: Record<string,
         `subscription.open=${opens} exceeds ~2 reopens per attach phase (${phases} phases, batch ${batch}) — per-pane reopen amplification`,
       );
     }
+  }
+
+  if (leg === "terminal-io") {
+    // Demand-driven delivery leg (issue #572): scroll/resize ops must reach
+    // a live slot exactly once — forwarded counts above issued counts are
+    // amplification, below is dropped ops (both are defects worth flagging).
+    const scrollIssued = issued["terminal_scroll"] ?? 0;
+    const scrollFwd = counter(delta, "bridge.terminal.op", "op=scroll");
+    const resizeIssued = issued["terminal_resize"] ?? 0;
+    const resizeFwd = counter(delta, "bridge.terminal.op", "op=resize");
+    notes.push(`terminal.op forwarded scroll=${scrollFwd}/${scrollIssued} resize=${resizeFwd}/${resizeIssued}`);
+    if (scrollFwd > scrollIssued) {
+      failures.push(`scroll ops forwarded ${scrollFwd} > ${scrollIssued} issued — amplification`);
+    }
+    if (resizeIssued > 0 && resizeFwd > resizeIssued) {
+      failures.push(`resize ops forwarded ${resizeFwd} > ${resizeIssued} issued — amplification`);
+    }
+    const attaches = counter(delta, "bridge.terminal.attach");
+    const detaches = counter(delta, "bridge.terminal.detach");
+    const linkOpens = counter(delta, "terminal.link.open");
+    const linkCloses = counter(delta, "terminal.link.close");
+    const subs = issued["subscribe_terminal"] ?? 0;
+    notes.push(
+      `attach=${attaches} detach=${detaches} link.open=${linkOpens} link.close=${linkCloses} subscribes=${subs} unsubscribes=${issued["unsubscribe_terminal"] ?? 0}`,
+    );
+    // One attach attempt per new slot; re-subscribes of a live slot only
+    // bump refs. More attaches than subscribes means duplicate attaches.
+    if (subs > 0 && attaches > subs) {
+      failures.push(`bridge.terminal.attach=${attaches} > ${subs} subscribes — duplicate attach attempts`);
+    }
+    if (subs > 0 && attaches === 0) {
+      failures.push("subscribes issued but zero terminal attaches recorded");
+    }
+  }
+
+  // Delivery volume is reported for every leg that produced terminal
+  // bytes (issue #572): initial-attach vs post-scroll split is the
+  // demand-driven signal — hidden/inactive panes must deliver ~nothing.
+  const delivered = meterTotal(delta, "terminal.delivery.bytes");
+  if (delivered > 0) {
+    const initial = meterTotal(delta, "terminal.delivery.bytes", "phase=initial");
+    const scrolled = meterTotal(delta, "terminal.delivery.bytes", "phase=scroll");
+    const mib = (n: number) => (n / 1048576).toFixed(2);
+    const secs = delta.seconds > 0 ? delta.seconds : 1;
+    notes.push(
+      `terminal delivery ${mib(delivered)}MiB (${(delivered / secs / 1048576).toFixed(2)}MiB/s): ` +
+        `initial=${mib(initial)}MiB post-scroll=${mib(scrolled)}MiB`,
+    );
   }
 
   if (leg === "reconnect") {
@@ -599,6 +682,11 @@ async function main(): Promise<number> {
         HERDR_T3_PORT: String(BRIDGE_PORT),
         HOST: "127.0.0.1",
         HERDR_SOCKET: socket,
+        // Isolate the saved-machine registry: without this the bridge reads
+        // the developer's real endpoints.json and every reconnect leg pays
+        // SSH reachability probes (session.snapshot fetches) that look like
+        // snapshot amplification to the reconnect verdict.
+        XDG_STATE_HOME: work,
       },
       bridgeLog,
     ));
@@ -739,19 +827,18 @@ async function main(): Promise<number> {
       console.log(`activity: pushes=${r.delta ? counter(r.delta, "bridge.snapshot.push") : "n/a"} unchanged=${r.delta ? counter(r.delta, "bridge.snapshot.push.unchanged") : "n/a"} schedule=${r.delta ? counter(r.delta, "bridge.snapshot.schedule") : "n/a"} pids=${r.plugin_exec_pids_observed} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
     }
 
-    // -- attach-churn ---------------------------------------------------------
+    // -- attach legs (attach-churn + terminal-io) ------------------------------
+    // Shared fixture: the fixture workspace split up to 4 panes so attach
+    // batches have distinct targets (a single pane cannot show per-pane
+    // amplification). Both legs subscribe/unsubscribe the same targets.
+    const snapshotPanes = async (): Promise<{ pane_id: string; workspace_id?: string }[]> => {
+      const res = (await client.rpc("session.snapshot").catch(() => null)) as
+        | { result?: { snapshot?: { panes?: { pane_id: string; workspace_id?: string }[] } } }
+        | null;
+      return res?.result?.snapshot?.panes ?? [];
+    };
+    let attachTargets: string[] = [];
     {
-      // Workspace-switch attach pattern (issue #527): K visible panes each
-      // send subscribe_terminal in one burst; the bridge must coalesce the
-      // resulting scroll-subscription reopens, not reopen per pane.
-      const snapshotPanes = async (): Promise<{ pane_id: string; workspace_id?: string }[]> => {
-        const res = (await client.rpc("session.snapshot").catch(() => null)) as
-          | { result?: { snapshot?: { panes?: { pane_id: string; workspace_id?: string }[] } } }
-          | null;
-        return res?.result?.snapshot?.panes ?? [];
-      };
-      // Split the fixture workspace up to 4 panes so the attach batch has
-      // distinct targets (a single pane cannot show per-pane amplification).
       let panes = (await snapshotPanes()).filter((p) => p.workspace_id === fixtureWs);
       for (let i = 0; i < 6 && panes.length < 4; i++) {
         await client
@@ -764,14 +851,17 @@ async function main(): Promise<number> {
         await sleep(300);
         panes = (await snapshotPanes()).filter((p) => p.workspace_id === fixtureWs);
       }
-      const targets = panes.slice(0, 4).map((p) => p.pane_id);
+      attachTargets = panes.slice(0, 4).map((p) => p.pane_id);
       await sleep(600); // let split-driven snapshot pushes settle
-      if (targets.length < 2) {
-        legs["attach-churn"] = {
+    }
+    const targets = attachTargets;
+    if (targets.length < 2) {
+      for (const leg of ["attach-churn", "terminal-io"]) {
+        legs[leg] = {
           delta: null,
           issued: {},
           verdict: {
-            leg: "attach-churn",
+            leg,
             ok: true,
             failures: [],
             notes: [`skipped: only ${targets.length} pane(s) in fixture workspace; need >=2`],
@@ -779,8 +869,14 @@ async function main(): Promise<number> {
           client_frames: {},
           plugin_exec_pids_observed: 0,
         };
-        console.log(`attach-churn: skipped (${targets.length} pane(s))`);
-      } else {
+      }
+      console.log(`attach legs: skipped (${targets.length} pane(s))`);
+    } else {
+      // -- attach-churn -------------------------------------------------------
+      // Workspace-switch attach pattern (issue #527): K visible panes each
+      // send subscribe_terminal in one burst; the bridge must coalesce the
+      // resulting scroll-subscription reopens, not reopen per pane.
+      {
         const counts: Record<string, number> = {
           subscribe_terminal: 0,
           unsubscribe_terminal: 0,
@@ -805,6 +901,78 @@ async function main(): Promise<number> {
         legs["attach-churn"] = r;
         if (!r.delta) serverMetrics = false;
         console.log(`attach-churn: batch=${targets.length} subscribes=${counts.subscribe_terminal} subscription.open=${r.delta ? counter(r.delta, "bridge.subscription.open") : "n/a"} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
+      }
+
+      // -- terminal-io ----------------------------------------------------------
+      // Demand-driven delivery leg (issue #572): one attach batch, then a
+      // live output storm on the first pane plus scroll/resize probes on all
+      // subscribed panes. Measures initial-attach vs post-scroll delivery
+      // bytes, attach/detach counts and forwarded op counts per leg second.
+      {
+        // Bounded in-pane output: ~3.8 KiB lines until legSeconds+2 elapse.
+        // (Padding via base64 — `tr '\0'` is not portable across tr impls.)
+        const ioRunner = join(work, "io-runner.sh");
+        writeFileSync(
+          ioRunner,
+          `line="perf-io $(head -c 3000 /dev/urandom | base64 | tr -d '\\n' | head -c 3800)"\n` +
+            `end=$((SECONDS+${legSeconds + 2})); i=0\n` +
+            `while [ $SECONDS -lt $end ]; do echo "$line$i"; i=$((i+1)); done\n`,
+        );
+        herdrCli(sessionName, ["pane", "run", targets[0]!, `bash ${ioRunner}`]);
+        const counts: Record<string, number> = {
+          subscribe_terminal: 0,
+          unsubscribe_terminal: 0,
+          terminal_scroll: 0,
+          terminal_resize: 0,
+          attach_batch: targets.length,
+        };
+        const r = await runLeg("terminal-io", legSeconds, BRIDGE_PORT, client, async () => {
+          const end = Date.now() + legSeconds * 1000;
+          for (const paneId of targets) {
+            client.send({ type: "subscribe_terminal", machine: "local", paneId, cols: 80, rows: 24 });
+            counts.subscribe_terminal += 1;
+          }
+          await sleep(500); // let the attach batch resolve before probing
+          let tick = 0;
+          while (Date.now() < end) {
+            for (const paneId of targets) {
+              // Alternate scroll direction: up pages into history, down
+              // returns toward the live screen — both are AttachScroll.
+              client.send({
+                type: "terminal_scroll",
+                machine: "local",
+                paneId,
+                direction: tick % 2 === 0 ? "up" : "down",
+                lines: 5,
+              });
+              counts.terminal_scroll += 1;
+            }
+            client.send({
+              type: "terminal_resize",
+              machine: "local",
+              paneId: targets[tick % targets.length]!,
+              cols: 80 + (tick % 4) * 10,
+              rows: 24,
+            });
+            counts.terminal_resize += 1;
+            tick += 1;
+            await sleep(500);
+          }
+          for (const paneId of targets) {
+            client.send({ type: "unsubscribe_terminal", machine: "local", paneId });
+            counts.unsubscribe_terminal += 1;
+          }
+          return counts;
+        });
+        legs["terminal-io"] = r;
+        if (!r.delta) serverMetrics = false;
+        console.log(
+          `terminal-io: batch=${targets.length} delivery=${(r.delta ? r.verdict.notes.find((n) => n.startsWith("terminal delivery")) : undefined) ?? "n/a"} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`,
+        );
+        // Let the io-runner exit and its pane.exited/pane.updated events
+        // flush before the reconnect leg's metrics window, or ambient
+        // churn counts as reconnect snapshot fetches.
+        await sleep(3000);
       }
     }
 

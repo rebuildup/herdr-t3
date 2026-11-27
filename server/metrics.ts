@@ -22,6 +22,18 @@ interface TimerStat {
   lastMs: number;
 }
 
+/**
+ * Quantity accumulator for non-duration measurements (bytes delivered,
+ * frames, cells). Same cardinality rules as counters; `total`/`avg`/`max`/
+ * `last` carry the recorded unit — the metric name documents it.
+ */
+interface MeterStat {
+  count: number;
+  total: number;
+  max: number;
+  last: number;
+}
+
 interface MetricsReport {
   ok: true;
   uptimeMs: number;
@@ -31,11 +43,16 @@ interface MetricsReport {
     string,
     { count: number; totalMs: number; avgMs: number; maxMs: number; lastMs: number }
   >;
+  meters: Record<
+    string,
+    { count: number; total: number; avg: number; max: number; last: number }
+  >;
   gauges: Record<string, number>;
 }
 
 const counters = new Map<string, number>();
 const timers = new Map<string, TimerStat>();
+const meters = new Map<string, MeterStat>();
 const gauges = new Map<string, number>();
 const startedAt = Date.now();
 
@@ -62,6 +79,22 @@ export function metricObserve(name: string, ms: number, labels?: MetricsLabels):
   if (ms > stat.maxMs) stat.maxMs = ms;
   stat.lastMs = ms;
   timers.set(k, stat);
+}
+
+/**
+ * Accumulate a quantity (bytes, frames, …) — the non-duration sibling of
+ * `metricObserve`. Use for throughput/volume measurements where `total`
+ * and `avg` are meaningful; keep durations on `metricObserve` so the
+ * `*Ms` fields stay honest.
+ */
+export function metricAdd(name: string, value: number, labels?: MetricsLabels): void {
+  const k = key(name, labels);
+  const stat = meters.get(k) ?? { count: 0, total: 0, max: 0, last: 0 };
+  stat.count += 1;
+  stat.total += value;
+  if (value > stat.max) stat.max = value;
+  stat.last = value;
+  meters.set(k, stat);
 }
 
 /** Set a gauge to an absolute value. */
@@ -100,12 +133,23 @@ export function metricsSnapshot(): MetricsReport {
       lastMs: Math.round(s.lastMs * 100) / 100,
     };
   }
+  const outMeters: MetricsReport["meters"] = {};
+  for (const [k, s] of meters) {
+    outMeters[k] = {
+      count: s.count,
+      total: Math.round(s.total * 100) / 100,
+      avg: s.count === 0 ? 0 : Math.round((s.total / s.count) * 100) / 100,
+      max: Math.round(s.max * 100) / 100,
+      last: Math.round(s.last * 100) / 100,
+    };
+  }
   return {
     ok: true,
     uptimeMs: Date.now() - startedAt,
     timestamp: new Date().toISOString(),
     counters: Object.fromEntries(counters),
     timers: out,
+    meters: outMeters,
     gauges: Object.fromEntries(gauges),
   };
 }
@@ -114,5 +158,6 @@ export function metricsSnapshot(): MetricsReport {
 export function metricsReset(): void {
   counters.clear();
   timers.clear();
+  meters.clear();
   gauges.clear();
 }

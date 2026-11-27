@@ -329,6 +329,7 @@ function scheduleSnapshot(state: SessionState, cause: string): void {
 function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, reason: string): void {
   if (slot.gone) return;
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   if (state.terminals.get(paneId) === slot) state.terminals.delete(paneId);
   state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
@@ -424,6 +425,11 @@ function attachTerminal(
   // so only the newest resolved link is ever installed (issue #571).
   slot.epoch += 1;
   const epoch = slot.epoch;
+  // Counted per link-open attempt (issue #572): a #571 mode switch closes
+  // the old link and re-enters here, so it counts as a second attach while
+  // the slot — and therefore bridge.terminal.detach — stays single. Pair
+  // with terminal.link.open/close for the socket-level view.
+  metricInc("bridge.terminal.attach");
   openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover, writable: slot.writable }, {
     onEvent: (event) => {
       // A superseded link (mode switch, newer attach attempt) must not feed
@@ -471,6 +477,7 @@ function releaseTerminal(state: SessionState, paneId: string): void {
   if (slot.refs > 0) return;
   state.terminals.delete(paneId);
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   slot.link?.close();
   syncScrollSubscriptions(state);
 }
@@ -529,6 +536,10 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_input": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      // Counted at slot receipt (issue #572): observe-mode input is
+      // received-then-dropped by the #571 gate below, so op counts include
+      // deliberately dropped frames — compare with client.frame to see them.
+      metricInc("bridge.terminal.op", { op: "input" });
       // Observe-mode links cannot carry input (herdr routes ClientInput only
       // for TerminalAttach); drop it here instead of shipping bytes the
       // server silently ignores (issue #571).
@@ -542,6 +553,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_resize": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "resize" });
       const resize = () => slot.link?.resize(frame.cols, frame.rows);
       if (slot.link) resize();
       else enqueueSlotOp(state, slot, frame.paneId, 0, resize);
@@ -550,6 +562,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_mouse": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "mouse" });
       if (!slot.writable) return;
       const mouse = () =>
         slot.link?.mouse({
@@ -566,6 +579,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_scroll": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "scroll" });
       if (!slot.writable) return;
       const scroll = () =>
         slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);

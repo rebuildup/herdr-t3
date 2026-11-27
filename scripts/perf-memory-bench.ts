@@ -8,7 +8,8 @@
  *
  * Usage:
  *   bun scripts/perf-memory-bench.ts [--session ht3mem] [--out perf-reports/mem-<sha>.json]
- *     [--storm-mb 256] [--storm-seconds 30] [--scenario all|idle|storm|kitty|switch|storm2|switch2]
+ *     [--storm-mb 256] [--storm-seconds 30] [--scenario all|idle|storm|kitty|switch|storm2|switch2|hidden]
+ *     [--hidden-workspaces 6] [--max-hidden-delivery-mb 4]
  *     [--check] [--max-jsheap-mb 256] [--max-chrome-mb 2048] [--max-bridge-mb 512] [--max-herdr-mb 512]
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -28,6 +29,7 @@ const VALUE_FLAGS = new Set([
   "--session", "--socket", "--base-url", "--out",
   "--bridge-port", "--vite-port", "--cdp-port", "--chrome",
   "--storm-mb", "--storm-seconds", "--scenario", "--sample-ms", "--cpu-throttle", "--kitty-size",
+  "--hidden-workspaces", "--max-hidden-delivery-mb",
   "--max-jsheap-mb", "--max-chrome-mb", "--max-bridge-mb", "--max-herdr-mb",
 ]);
 const args = new Map<string, string>();
@@ -49,6 +51,15 @@ const STORM_SECONDS = Number(flag("--storm-seconds", "30"));
 const SAMPLE_MS = Number(flag("--sample-ms", "2000"));
 const CPU_THROTTLE = Number(flag("--cpu-throttle", "1"));
 const KITTY_SIZE = Number(flag("--kitty-size", "200"));
+const HIDDEN_WORKSPACES = Number(flag("--hidden-workspaces", "6"));
+/**
+ * Hidden-leg delivery ceiling (issue #572): with N workspaces open but only
+ * the visible one mounted, terminal.delivery.bytes across the whole leg
+ * must stay under this. The hidden panes stream ~25 MiB aggregate, so a
+ * demand-driven regression (hidden panes subscribed/delivered) exceeds it
+ * by ~6x while idle visible-pane noise stays orders below.
+ */
+const HIDDEN_DELIVERY_MAX_BYTES = Number(flag("--max-hidden-delivery-mb", "4")) * 1024 * 1024;
 const CHROME = flag("--chrome", process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
 const OUT = flag("--out", join(REPO_ROOT, "perf-reports", `mem-${gitSha().slice(0, 8)}.json`));
 const CHECK = flag("--check", "false") === "true";
@@ -212,6 +223,8 @@ interface Sample {
   herdrMb: number;
 }
 const samples: Sample[] = [];
+/** Per-scenario bridge metric deltas (issue #572); null when /api/metrics was unreachable. */
+const scenarioBridge: Record<string, { counters: Record<string, number>; meters: Record<string, BridgeMeter> } | null> = {};
 let sampling = false;
 let sampleTimer: ReturnType<typeof setInterval> | null = null;
 let bridgePid = 0;
@@ -266,6 +279,53 @@ async function waitHttp(url: string, tries = 80): Promise<void> {
 }
 function herdrCli(session: string, args: string[]): string {
   return execFileSync("herdr", ["--session", session, ...args], { encoding: "utf8" });
+}
+
+// ---------- bridge /api/metrics deltas (issue #572) ----------
+// Per-scenario bridge counters/meters: terminal delivery bytes, attach/
+// detach counts, forwarded op counts and client.frame traffic — the
+// demand-driven signals the memory samples cannot see.
+interface BridgeMeter { count: number; total: number; avg: number; max: number; last: number }
+interface BridgeMetricsSnapshot {
+  counters: Record<string, number>;
+  meters: Record<string, BridgeMeter>;
+}
+async function bridgeMetrics(): Promise<BridgeMetricsSnapshot | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/metrics`);
+    if (!res.ok) return null;
+    const j = (await res.json()) as { counters?: Record<string, number>; meters?: Record<string, BridgeMeter> };
+    return { counters: j.counters ?? {}, meters: j.meters ?? {} };
+  } catch {
+    return null;
+  }
+}
+function bridgeMetricsDelta(
+  before: BridgeMetricsSnapshot,
+  after: BridgeMetricsSnapshot,
+): { counters: Record<string, number>; meters: Record<string, BridgeMeter> } {
+  const counters: Record<string, number> = {};
+  for (const k of new Set([...Object.keys(before.counters), ...Object.keys(after.counters)])) {
+    const d = (after.counters[k] ?? 0) - (before.counters[k] ?? 0);
+    if (d !== 0) counters[k] = d;
+  }
+  const meters: Record<string, BridgeMeter> = {};
+  for (const k of new Set([...Object.keys(before.meters), ...Object.keys(after.meters)])) {
+    const b = before.meters[k];
+    const a = after.meters[k];
+    const count = (a?.count ?? 0) - (b?.count ?? 0);
+    const total = (a?.total ?? 0) - (b?.total ?? 0);
+    if (count > 0) {
+      meters[k] = {
+        count,
+        total: Math.round(total * 100) / 100,
+        avg: Math.round((total / count) * 100) / 100,
+        max: Math.max(a?.max ?? 0, b?.max ?? 0),
+        last: a?.last ?? 0,
+      };
+    }
+  }
+  return { counters, meters };
 }
 
 // ---------- main ----------
@@ -341,6 +401,9 @@ async function main(): Promise<number> {
       {
         PORT: String(BRIDGE_PORT), HERDR_T3_PORT: String(BRIDGE_PORT), HOST: "127.0.0.1",
         HERDR_SOCKET: socket, HERDR_T3_ALLOWED_ORIGINS: allowedOrigins,
+        // Isolate the saved-machine registry so SSH probes from the
+        // developer's real endpoints.json cannot contaminate bridge deltas.
+        XDG_STATE_HOME: work,
       },
       bridgeLog,
     );
@@ -406,11 +469,14 @@ async function main(): Promise<number> {
 
     const runScenario = async (name: string, fn: () => Promise<void>) => {
       currentScenario = name;
+      const bridgeBefore = await bridgeMetrics();
       console.log(`--- scenario: ${name}`);
       await takeSample();
       await fn();
       await sleep(1500);
       await takeSample();
+      const bridgeAfter = await bridgeMetrics();
+      scenarioBridge[name] = bridgeBefore && bridgeAfter ? bridgeMetricsDelta(bridgeBefore, bridgeAfter) : null;
     };
 
     const storm = async (mb: number, seconds: number) => {
@@ -433,6 +499,34 @@ async function main(): Promise<number> {
     };
 
     const idle = async (seconds: number) => sleep(seconds * 1000);
+
+    // Hidden leg (issue #572): N extra workspaces run a throttled chunk
+    // looper (~300 KiB/s per pane) while the UI stays on wsId — only the
+    // visible workspace's panes may hold terminal attaches. The bridge
+    // metrics delta recorded for this scenario is the demand-driven
+    // assertion: terminal.delivery.bytes must stay near zero.
+    const hiddenRunner = join(work, "hidden-runner.sh");
+    writeFileSync(
+      hiddenRunner,
+      `end=$((SECONDS+$1)); i=0; while [ $SECONDS -lt $end ]; do cat ${work}/chunk-$(printf %02d $((i%24))).bin; i=$((i+1)); sleep 0.02; done\n`,
+    );
+    const hidden = async (seconds: number) => {
+      const created: { ws: string; pane: string }[] = [];
+      for (let i = 0; i < HIDDEN_WORKSPACES; i++) {
+        const c = JSON.parse(
+          herdrCli(sessionName, ["workspace", "create", "--label", `mem-hidden-${i}`, "--no-focus"]),
+        ).result as { workspace: { workspace_id: string }; root_pane: { pane_id: string } };
+        created.push({ ws: c.workspace.workspace_id, pane: c.root_pane.pane_id });
+      }
+      console.log(`hidden: ${created.length} workspaces with live output; UI stays on ${wsId}`);
+      for (const c of created) {
+        herdrCli(sessionName, ["pane", "run", c.pane, `bash ${hiddenRunner} ${seconds}`]);
+      }
+      await sleep(seconds * 1000);
+      for (const c of created) {
+        try { herdrCli(sessionName, ["workspace", "close", c.ws]); } catch { /* best-effort */ }
+      }
+    };
 
     const switchWs = async (cycles: number) => {
       // create a second workspace, then alternate the UI route — the real
@@ -460,6 +554,10 @@ async function main(): Promise<number> {
     // Second workspace-switch pass: catches slow cumulative growth that a
     // single switch cycle and the per-scenario ceilings cannot see.
     if (SCENARIO === "all" || SCENARIO === "switch2") await runScenario("switch2", () => switchWs(10));
+    // Hidden surfaces (issue #572): N workspaces with live output, one
+    // visible — RSS/procs plus bridge delivery bytes must reflect only
+    // the visible usage.
+    if (SCENARIO === "all" || SCENARIO === "hidden") await runScenario("hidden", () => hidden(14));
 
     stopSampling();
     await takeSample();
@@ -502,6 +600,9 @@ async function main(): Promise<number> {
         tailWindowSec: Math.round(tail.spanSec),
         bridgeEndMb: +last.bridgeMb.toFixed(1),
         herdrEndMb: +last.herdrMb.toFixed(1),
+        // Demand-driven delivery counters/meters for the scenario window
+        // (issue #572): terminal.delivery.bytes, bridge.terminal.*, client.frame.
+        bridge: scenarioBridge[name] ?? null,
       };
     }
     const report = {
@@ -527,6 +628,7 @@ async function main(): Promise<number> {
         jsHeapPeakMb: number; chromePeakMb: number; bridgeEndMb: number; herdrEndMb: number;
         chromeTailSlopeMbPerMin?: number; chromeStartMb?: number; chromeEndMb?: number;
         tailWindowSec?: number;
+        bridge?: { counters: Record<string, number>; meters: Record<string, { total?: number }> } | null;
       }][]) {
         const breaches: string[] = [];
         const notes: string[] = [];
@@ -559,6 +661,29 @@ async function main(): Promise<number> {
         if (name === "switch2" && firstSwitch?.chromeEndMb !== undefined &&
             (s.chromeEndMb ?? 0) > firstSwitch.chromeEndMb + 400) {
           breaches.push(`switch2 end ${s.chromeEndMb}MB vs switch ${firstSwitch.chromeEndMb}MB — cumulative growth`);
+        }
+        // Demand-driven gate (issue #572): hidden workspaces stream output
+        // the whole leg; terminal delivery must reflect only the visible
+        // surface. Unmeasured bridge metrics fail — a skipped check is
+        // not a pass.
+        if (name === "hidden") {
+          const meters = s.bridge?.meters;
+          if (!meters) {
+            breaches.push("bridge metrics unmeasured — hidden delivery volume unknown");
+          } else {
+            const delivered = Object.entries(meters)
+              .filter(([k]) => k.startsWith("terminal.delivery.bytes"))
+              .reduce((n, [, m]) => n + (m.total ?? 0), 0);
+            const attaches = Object.entries(s.bridge?.counters ?? {})
+              .filter(([k]) => k === "bridge.terminal.attach" || k.startsWith("bridge.terminal.attach{"))
+              .reduce((n, [, v]) => n + v, 0);
+            if (delivered > HIDDEN_DELIVERY_MAX_BYTES) {
+              breaches.push(
+                `hidden delivery ${(delivered / 1048576).toFixed(1)}MiB > ${HIDDEN_DELIVERY_MAX_BYTES / 1048576}MiB — hidden panes receiving terminal data`,
+              );
+            }
+            notes.push(`hidden delivery ${(delivered / 1048576).toFixed(2)}MiB, terminal attaches=${attaches}`);
+          }
         }
         if (breaches.length) {
           ok = false;

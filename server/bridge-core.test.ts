@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { RpcMethod, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { createBridgeSession, type BridgeEndpoint } from "./bridge-core.ts";
+import { decodeVarint } from "./client-link.ts";
+import { metricsSnapshot } from "./metrics.ts";
 import type { ByteStream, Connector, SocketHandlers } from "./socket.ts";
 
 /*
@@ -615,6 +617,264 @@ describe("subscription lifecycle (issue #527)", () => {
     pushEvent("pane.updated");
     await sleep(300);
     expect(snapshotFetches()).toBe(2);
+    session.close();
+  });
+});
+
+
+/* ------------- demand-driven delivery / non-interference (#572) ---------- */
+
+const MULTI: SessionSnapshot = {
+  ...SNAPSHOT,
+  panes: [pane("p1", "term-1"), pane("p2", "term-2"), pane("p3", "term-3"), pane("p4", "term-4")],
+};
+
+/** api connector serving a caller-chosen snapshot (apiConnector is SNAPSHOT-fixed). */
+function snapshotApiConnector(conns: ApiConn[], snapshot: SessionSnapshot): Connector {
+  return (handlers) => {
+    const conn: ApiConn = { handlers, stream: new FakeStream() };
+    conns.push(conn);
+    const rawWrite = conn.stream.write.bind(conn.stream);
+    conn.stream.write = (data) => {
+      rawWrite(data);
+      const line = typeof data === "string" ? data : decoder.decode(data);
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) return;
+      let request: { id?: string; method?: string };
+      try {
+        request = JSON.parse(trimmed);
+      } catch {
+        return;
+      }
+      const id = request.id ?? "";
+      const result =
+        request.method === "session.snapshot"
+          ? { snapshot }
+          : request.method === "events.subscribe"
+            ? { type: "subscription_started" }
+            : {};
+      handlers.data(encoder.encode(`${JSON.stringify({ id, result })}\n`));
+    };
+    return Promise.resolve(conn.stream);
+  };
+}
+
+/** One bridge session per `machine` tag sharing the same fake endpoint. */
+function makeTaggedSessions(machines: string[], snapshot: SessionSnapshot = MULTI) {
+  const apiConns: ApiConn[] = [];
+  const clientConns: ClientConn[] = [];
+  const frames: ServerFrame[][] = machines.map(() => []);
+  const endpoint: BridgeEndpoint = {
+    api: snapshotApiConnector(apiConns, snapshot),
+    client: clientConnector(clientConns),
+    label: "fake",
+  };
+  const sessions = machines.map((machine, i) =>
+    createBridgeSession((frame) => frames[i]!.push(frame), endpoint, machine),
+  );
+  return { sessions, apiConns, clientConns, frames };
+}
+
+/** Split a FakeStream's concatenated [u32 len][payload] frames. */
+function clientPayloads(stream: FakeStream): Uint8Array[] {
+  const buf = stream.bytes();
+  const out: Uint8Array[] = [];
+  let offset = 0;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  while (offset + 4 <= buf.length) {
+    const len = view.getUint32(offset, true);
+    out.push(buf.subarray(offset + 4, offset + 4 + len));
+    offset += 4 + len;
+  }
+  return out;
+}
+
+function frameVariant(payload: Uint8Array): number {
+  const [v] = decodeVarint(payload, 0);
+  return Number(v);
+}
+
+/** AttachTerminal payloads on a client conn: variant 5 → takeover flag. */
+function attachTakeovers(conn: ClientConn): boolean[] {
+  const out: boolean[] = [];
+  for (const payload of clientPayloads(conn.stream)) {
+    if (frameVariant(payload) !== 5) continue;
+    const [, o1] = decodeVarint(payload, 0);
+    const [slen, o2] = decodeVarint(payload, o1);
+    out.push(payload[o2 + Number(slen)] === 1);
+  }
+  return out;
+}
+
+/** ServerMessage::Terminal frame carrying `bytes`. */
+function terminalFrame(bytes: Uint8Array, seq = 1): Uint8Array {
+  const payload = [1, ...varint(seq), ...varint(80), ...varint(24), 1, ...varint(bytes.length), ...bytes];
+  return serverFrame(payload);
+}
+
+describe("demand-driven delivery: visible usage only (#572)", () => {
+  test("unsubscribed panes never open a client-protocol connection", async () => {
+    const { sessions, clientConns } = makeTaggedSessions(["m"], MULTI);
+    const session = sessions[0]!;
+    await session.start();
+    // Four panes in the snapshot, zero attaches: hidden surfaces cost
+    // nothing until a client subscribes.
+    expect(clientConns).toHaveLength(0);
+
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "one attach for the visible pane");
+    expect(clientConns).toHaveLength(1);
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await waitFor(() => attachTakeovers(clientConns[0]!).length === 1, "attach resolved");
+
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await waitFor(() => clientConns[0]!.stream.ended, "detach closes the link");
+    session.close();
+    for (const s of sessions) s.close();
+  });
+
+  test("scroll-up is an AttachScroll on the wire and delivered bytes are metered", async () => {
+    const { sessions, clientConns, frames } = makeTaggedSessions(["m"], MULTI);
+    const session = sessions[0]!;
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "attach");
+    const link = clientConns[0]!;
+    link.handlers.data(welcomeFrame());
+    await waitFor(() => attachTakeovers(link).length === 1, "attach frame");
+
+    const before = metricsSnapshot().meters["terminal.delivery.bytes{phase=initial}"]?.total ?? 0;
+    const scrollBefore = metricsSnapshot().meters["terminal.delivery.bytes{phase=scroll}"]?.total ?? 0;
+
+    // History paging: terminal_scroll up must encode AttachScroll (variant 6).
+    session.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up", lines: 5 });
+    await waitFor(
+      () => clientPayloads(link.stream).some((p) => frameVariant(p) === 6),
+      "AttachScroll frame",
+    );
+
+    // Bytes delivered after the scroll count toward the post-scroll phase.
+    link.handlers.data(terminalFrame(encoder.encode("history-page"), 2));
+    await waitFor(
+      () => frames[0]!.some((f) => f.type === "terminal_data" && f.paneId === "p1"),
+      "terminal_data forward",
+    );
+    await sleep(20);
+    const afterInitial = metricsSnapshot().meters["terminal.delivery.bytes{phase=initial}"]?.total ?? 0;
+    const afterScroll = metricsSnapshot().meters["terminal.delivery.bytes{phase=scroll}"]?.total ?? 0;
+    expect(afterInitial - before).toBe(0);
+    expect(afterScroll - scrollBefore).toBe(encoder.encode("history-page").length);
+    session.close();
+  });
+});
+
+describe("multi-client non-interference (#572)", () => {
+  test("a second non-takeover client cannot perturb the writable link", async () => {
+    const { sessions, clientConns } = makeTaggedSessions(["writable", "observer"], MULTI);
+    const [writable, observer] = sessions;
+    await writable!.start();
+    await observer!.start();
+
+    // Writable client takes the pane; the second client attaches without
+    // the takeover flag (post-#571 an absent `writable` flag still means
+    // writable AttachTerminal — the #572 contract is about takeover and
+    // wire isolation, not the observe mode covered below).
+    writable!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, takeover: true });
+    observer!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 2, "two attaches");
+    const [wConn, oConn] = clientConns;
+    wConn!.handlers.data(welcomeFrame());
+    oConn!.handlers.data(welcomeFrame());
+    await waitFor(() => attachTakeovers(wConn!).length === 1 && attachTakeovers(oConn!).length === 1, "attach frames");
+
+    // The takeover flag is the only size/focus authority the second client
+    // could exert: writable=1, observer=0.
+    expect(attachTakeovers(wConn!)).toEqual([true]);
+    expect(attachTakeovers(oConn!)).toEqual([false]);
+
+    // Observer input/scroll/resize stay on the observer's own link — they
+    // must never appear on the writable client's wire.
+    observer!.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OBSERVER-TYPED") });
+    observer!.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 132, rows: 40 });
+    observer!.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up", lines: 3 });
+    await waitFor(() => oConn!.stream.contains("OBSERVER-TYPED"), "observer input on its own link");
+    await sleep(30);
+    expect(wConn!.stream.contains("OBSERVER-TYPED")).toBe(false);
+    const wVariants = clientPayloads(wConn!.stream).map(frameVariant);
+    expect(wVariants).not.toContain(3); // Resize
+    expect(wVariants).not.toContain(6); // AttachScroll
+
+    // Observer detach closes only its own link; the writable link survives.
+    observer!.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await waitFor(() => oConn!.stream.ended, "observer detach");
+    await sleep(30);
+    expect(wConn!.stream.ended).toBe(false);
+    writable!.close();
+    observer!.close();
+  });
+
+  test("an ObserveTerminal client (writable:false) cannot perturb a writable attach on the same pane", async () => {
+    const { sessions, clientConns } = makeTaggedSessions(["writable", "observer"], MULTI);
+    const [writable, observer] = sessions;
+    await writable!.start();
+    await observer!.start();
+
+    writable!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, takeover: true });
+    observer!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 2, "two attaches");
+    const [wConn, oConn] = clientConns;
+    wConn!.handlers.data(welcomeFrame());
+    oConn!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Observe link carries variant 7 (ObserveTerminal), writable variant 5.
+    expect(frameVariants(oConn!.stream.bytes())).toEqual([0, 7]);
+    expect(frameVariants(wConn!.stream.bytes())).toEqual([0, 5]);
+
+    // Observer ops: input/mouse/scroll are dropped at the bridge (#571),
+    // resize still flows on the observer's own link only.
+    observer!.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OBSERVE-TYPED") });
+    observer!.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up", lines: 3 });
+    observer!.handleFrame({ type: "terminal_mouse", paneId: "p1", action: "press", column: 1, row: 1 });
+    observer!.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 132, rows: 40 });
+    await waitFor(
+      () => frameVariants(oConn!.stream.bytes()).includes(3),
+      "observer resize on its own link",
+    );
+    await sleep(20);
+
+    // Nothing the observer sent may appear on the writable client's wire.
+    const wBytes = wConn!.stream.bytes();
+    expect(Buffer.from(wBytes).toString("latin1")).not.toContain("OBSERVE-TYPED");
+    const wVariants = clientPayloads(wConn!.stream).map(frameVariant);
+    expect(wVariants).not.toContain(3); // Resize
+    expect(wVariants).not.toContain(6); // AttachScroll
+    const oVariants = clientPayloads(oConn!.stream).map(frameVariant);
+    expect(oVariants).toContain(3); // Resize flowed
+    expect(oVariants).not.toContain(6); // AttachScroll dropped
+    expect(Buffer.from(oConn!.stream.bytes()).toString("latin1")).not.toContain("OBSERVE-TYPED");
+
+    // Observer detach leaves the writable link alive.
+    observer!.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await waitFor(() => oConn!.stream.ended, "observer detach");
+    await sleep(20);
+    expect(wConn!.stream.ended).toBe(false);
+    writable!.close();
+    observer!.close();
+  });
+
+  test("server frames are tagged with their machine id (multi-host isolation)", async () => {
+    const { sessions, clientConns, frames } = makeTaggedSessions(["remote-a"], MULTI);
+    const session = sessions[0]!;
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "attach");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    clientConns[0]!.handlers.data(terminalFrame(encoder.encode("remote-bytes"), 3));
+    await waitFor(
+      () => frames[0]!.some((f) => f.type === "terminal_data" && f.machine === "remote-a"),
+      "machine-tagged terminal_data",
+    );
     session.close();
   });
 });

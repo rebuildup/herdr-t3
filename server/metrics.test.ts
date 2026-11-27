@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import {
+  metricAdd,
   metricGauge,
   metricInc,
   metricObserve,
@@ -48,6 +49,19 @@ describe("metrics", () => {
     const s = metricsSnapshot();
     expect(s.timers['op{ok=true,what=x}']!.count).toBe(1);
     expect(s.timers["op{ok=false}"]!.count).toBe(1);
+  });
+
+  test("meters accumulate quantities (bytes) per name+labels", () => {
+    metricAdd("terminal.delivery.bytes", 100, { phase: "initial" });
+    metricAdd("terminal.delivery.bytes", 300, { phase: "initial" });
+    metricAdd("terminal.delivery.bytes", 50, { phase: "scroll" });
+    const s = metricsSnapshot();
+    expect(s.meters['terminal.delivery.bytes{phase=initial}']!).toEqual({
+      count: 2, total: 400, avg: 200, max: 300, last: 300,
+    });
+    expect(s.meters['terminal.delivery.bytes{phase=scroll}']!.total).toBe(50);
+    // Meters are quantities, not durations: no *Ms fields leak in.
+    expect(s.meters['terminal.delivery.bytes{phase=initial}']!).not.toHaveProperty("totalMs");
   });
 
   test("gauges and snapshot metadata", () => {
