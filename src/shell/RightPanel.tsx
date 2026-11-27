@@ -84,14 +84,12 @@ import {
   closeSurface,
   moveSurface,
   openSurface,
+  RIGHT_PANEL_NARROW_QUERY,
   setPanelOpen,
   useRightPanelState,
   type RightPanelScopeState,
   type RightPanelSurface,
 } from "./rightPanelStore";
-
-/* Same narrow-layout breakpoint as T3 (rightPanelLayout.ts). */
-const NARROW_QUERY = "(max-width: 980px)";
 
 /* T3 RightPanelTabs tab-strip scrolling (issue #417 Windows leg): the
    active tab can sit outside the scrolled strip with no affordance, so
@@ -661,7 +659,7 @@ export function RightPanel() {
   const workspace = view.workspace ?? null;
   const scope = workspace ? `${machine}\n${workspace.workspace_id}` : "";
   const state = useRightPanelState(scope);
-  const narrow = useMediaQuery(NARROW_QUERY);
+  const narrow = useMediaQuery(RIGHT_PANEL_NARROW_QUERY);
   // T3 `ownsDesktopTitleBar`: only the inline (wide) panel on Electron
   // doubles as the frameless titlebar drag region; the sheet never does.
   const ownsDesktopTitleBar = isElectron && !narrow;
