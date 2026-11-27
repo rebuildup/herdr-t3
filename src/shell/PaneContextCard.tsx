@@ -476,7 +476,13 @@ function CardBody({
   const [busyAutomation, setBusyAutomation] = useState<string | null>(null);
   const directory =
     agent?.foreground_cwd ?? agent?.cwd ?? pane.foreground_cwd ?? pane.cwd ?? null;
-  const data = useContextCardData({ machine, pane, workspace, directory });
+  const data = useContextCardData({
+    machine,
+    pane,
+    workspace,
+    directory,
+    visibility,
+  });
 
   /* Section visibility: item toggle AND density rung AND actual
    * content, so no empty section steals the divider rule (T3's `show`
