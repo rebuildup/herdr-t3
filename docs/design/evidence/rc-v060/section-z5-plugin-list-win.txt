@@ -1,14 +1,29 @@
-﻿rebuildup.artifacts-9b3dbc56527b d23205af0cd2
-rebuildup.automations-3337553a505a 6c1cfa501323
-rebuildup.checkpoints-fc10acec6f65 ae4f214c523d
-rebuildup.controls-7614553f1950 d23205af0cd2
-rebuildup.conversations-d684e1ea03fe d23205af0cd2
-rebuildup.git-87a9c8de9896 d0578307a856
-rebuildup.handoff-e83dfaf288b9 d23205af0cd2
-rebuildup.inbox-91021cbdd6f7 414e87dea9fa
-rebuildup.machines-384c7bf84d97 d23205af0cd2
-rebuildup.mcp-6578ff8ece0d d23205af0cd2
-rebuildup.projects-005ddcc80d92 2dcb2abfa57b
-rebuildup.secrets-e12a241b1fbe d23205af0cd2
-rebuildup.textgen-60eb0e5fed1e d23205af0cd2
-rebuildup.usage-a99ab0a0247b d23205af0cd2
+﻿14 plugins installed:
+- rebuildup.artifacts (Artifacts) enabled [github:rebuildup/herdr-plugins/plugins/artifacts@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.artifacts
+- rebuildup.automations (Automations) enabled [github:rebuildup/herdr-plugins/plugins/automations@6c1cfa501323772e7c1c008c3dbcd7e364feb0b3]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.automations
+- rebuildup.checkpoints (Checkpoints) enabled [github:rebuildup/herdr-plugins/plugins/checkpoints@ae4f214c523d05128354a8c4ba493b62cd8e843f]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.checkpoints
+- rebuildup.controls (Controls) enabled [github:rebuildup/herdr-plugins/plugins/controls@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.controls
+- rebuildup.conversations (Conversations) enabled [github:rebuildup/herdr-plugins/plugins/conversations@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.conversations
+- rebuildup.git (Git) enabled [github:rebuildup/herdr-plugins/plugins/git@d0578307a856e53af210775f9cb95c9f593d6f87]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.git
+- rebuildup.handoff (Handoff) enabled [github:rebuildup/herdr-plugins/plugins/handoff@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.handoff
+- rebuildup.inbox (Inbox) enabled [github:rebuildup/herdr-plugins/plugins/inbox@414e87dea9faa5c221fb27508e5828f086849836]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.inbox
+- rebuildup.machines (Machines) enabled [github:rebuildup/herdr-plugins/plugins/machines@08f96a4d151f0edb72b61483376ff977177f92e8]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.machines
+- rebuildup.mcp (MCP) enabled [github:rebuildup/herdr-plugins/plugins/mcp@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.mcp
+- rebuildup.projects (Projects) enabled [github:rebuildup/herdr-plugins/plugins/projects@2dcb2abfa57b0adcf5d1109f76087e19b3dfae07]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.projects
+- rebuildup.secrets (Secrets) enabled [github:rebuildup/herdr-plugins/plugins/secrets@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.secrets
+- rebuildup.textgen (TextGen) enabled [github:rebuildup/herdr-plugins/plugins/textgen@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.textgen
+- rebuildup.usage (Usage) enabled [github:rebuildup/herdr-plugins/plugins/usage@d23205af0cd2ff7dba25f72e1f3b872762a108ee]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.usage
