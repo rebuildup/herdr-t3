@@ -84,6 +84,16 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
   レポートの契約は `terminal-io.md` が正本。GUI の選択・検索・
   scrollback は pane の mouse/keyboard モードを覗き見て分岐し、
   pane が要求した入力を GUI 都合で握り潰さない。
+- **入力フォーカスの handoff** (Issue #435): workspace/tab 選択・
+  ダイアログ/palette 閉鎖など GUI 側のフォーカス要求は、固定時間の
+  retry ではなく状態駆動の coordinator (`src/lib/focusHandoff.ts`)
+  が処理する。最新の要求だけを pending として保持し、bridge snapshot
+  が要求先 workspace/tab の focused pane を証明し、かつ対象 pane の
+  `.ghostty-input` が mount 済みの時点でのみ DOM focus を移す。
+  snapshot push・resize・再描画だけでは handoff を作らず、別の
+  編集可能 surface・dialog・menu へのフォーカス移動・workspace
+  route 離脱・deadline 超過で cancel する。DOM focus の移譲は
+  DECSET 1004 の pane focus report とは別系統 (terminal-io.md §4)。
 
 ## 6. 性能
 

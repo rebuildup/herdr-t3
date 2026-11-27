@@ -113,6 +113,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
+import { requestFocusHandoff } from "~/lib/focusHandoff";
 import { useWorkspaceBranch, useWorkspaceBranchIndex } from "./worktrees";
 import { LOCAL_MACHINE } from "~/lib/api";
 
@@ -187,7 +188,15 @@ function WorkspaceRow({
       type="button"
       data-sidebar-row={workspace.workspace_id}
       data-sidebar-workspace={workspace.workspace_id}
-      onClick={() => selectWorkspace(machine.id, workspace.workspace_id)}
+      onClick={() => {
+        // Issue #435: workspace selection hands focus to the displayed
+        // workspace's focused pane once snapshot + surface agree.
+        requestFocusHandoff({
+          machine: machine.id,
+          workspaceId: workspace.workspace_id,
+        });
+        selectWorkspace(machine.id, workspace.workspace_id);
+      }}
       className={cn(
         // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
         // rows): identity on line 1, branch/meta on line 2 — never squeezed
@@ -237,7 +246,13 @@ function WorkspaceRow({
       <ContextMenuTrigger className="w-full">{rowButton}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem
-          onSelect={() => selectWorkspace(machine.id, workspace.workspace_id)}
+          onSelect={() => {
+            requestFocusHandoff({
+              machine: machine.id,
+              workspaceId: workspace.workspace_id,
+            });
+            selectWorkspace(machine.id, workspace.workspace_id);
+          }}
         >
           <MousePointerClickIcon /> Focus
         </ContextMenuItem>
@@ -462,6 +477,10 @@ function AgentRow({
       : null,
   ].filter((part): part is string => part !== null);
   const focusAgent = () => {
+    requestFocusHandoff({
+      machine: machine.id,
+      workspaceId: agent.workspace_id,
+    });
     selectWorkspace(machine.id, agent.workspace_id);
     void ensureMachine(machine.id).then(() =>
       callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),

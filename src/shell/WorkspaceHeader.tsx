@@ -40,7 +40,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { focusPaneTerminal, requestFocusHandoff } from "~/lib/focusHandoff";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import {
@@ -307,7 +307,17 @@ export function WorkspaceHeader() {
                     // oxlint-disable-next-line herdr-t3/no-raw-control -- tab label is part of a composite tab row, not a standalone control
                     <button
                       type="button"
-                      onClick={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      onClick={() => {
+                        // Issue #435: selecting a tab hands keyboard focus
+                        // to the pane herdr focuses inside it once the
+                        // snapshot and the mounted surface agree.
+                        requestFocusHandoff({
+                          machine,
+                          workspaceId: workspace.workspace_id,
+                          tabId: t.tab_id,
+                        });
+                        void rpc("tab.focus", { tab_id: t.tab_id });
+                      }}
                       // Prevent mousedown focus: a clicked tab kept a
                       // persistent focus ring while hovering siblings
                       // (issue #204 review). Keyboard focus is unaffected.
@@ -342,7 +352,10 @@ export function WorkspaceHeader() {
                       size="icon-xs"
                       variant="ghost"
                       aria-label="Close tab"
-                      onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                      onClick={() => {
+                        requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
+                        void rpc("tab.close", { tab_id: t.tab_id });
+                      }}
                     >
                       <XIcon className="size-3" />
                     </Button>
@@ -372,7 +385,14 @@ export function WorkspaceHeader() {
                   <ContextMenuContent>
                     <ContextMenuItem
                       disabled={selected}
-                      onSelect={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      onSelect={() => {
+                        requestFocusHandoff({
+                          machine,
+                          workspaceId: workspace.workspace_id,
+                          tabId: t.tab_id,
+                        });
+                        void rpc("tab.focus", { tab_id: t.tab_id });
+                      }}
                     >
                       <MousePointerClickIcon /> Focus tab
                     </ContextMenuItem>
@@ -409,7 +429,10 @@ export function WorkspaceHeader() {
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       destructive
-                      onSelect={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                      onSelect={() => {
+                        requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
+                        void rpc("tab.close", { tab_id: t.tab_id });
+                      }}
                     >
                       <XIcon /> Close tab
                     </ContextMenuItem>
@@ -420,12 +443,13 @@ export function WorkspaceHeader() {
           </div>
           <HeaderIconButton
             label="New tab"
-            onClick={() =>
+            onClick={() => {
+              requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
               void rpc("tab.create", {
                 workspace_id: workspace.workspace_id,
                 focus: true,
-              })
-            }
+              });
+            }}
           >
             <PlusIcon className="size-4" />
           </HeaderIconButton>
