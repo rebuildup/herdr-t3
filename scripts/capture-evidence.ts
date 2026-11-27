@@ -191,7 +191,15 @@ async function main() {
     await sleep(6000);
     await shot("01-sidebar-populated");
 
-    // Collapse the sidebar via the topbar trigger.
+    // Collapse the sidebar via the topbar trigger. The CDP profile persists
+    // localStorage (`herdr-t3:sidebar-open`), so normalize to expanded first —
+    // a previous run may have left the sidebar collapsed.
+    const sidebarState = () =>
+      evaluate(`document.querySelector('[data-slot="sidebar"]')?.dataset.state`);
+    if ((await sidebarState()) === "collapsed") {
+      await click('[data-slot="sidebar-trigger"]');
+      await sleep(600);
+    }
     await click('[data-slot="sidebar-trigger"]');
     await sleep(600);
     await assertDom(
@@ -269,8 +277,19 @@ async function main() {
     await shot("09-dark");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
-    await sleep(4500);
-    await assertDom(`!document.documentElement.classList.contains("dark")`, "light theme applied");
+    // index.html ships class="dark" pre-hydration; theme.ts removes it only
+    // after JS loads, so poll instead of asserting on a fixed sleep.
+    {
+      const deadline = Date.now() + 20000;
+      let ok = false;
+      while (Date.now() < deadline) {
+        ok = (await evaluate(`!document.documentElement.classList.contains("dark")`)) === true;
+        if (ok) break;
+        await sleep(300);
+      }
+      console.log(`light theme applied: ${ok ? "OK" : "FAILED"}`);
+      if (!ok) throw new Error("DOM assertion failed: light theme applied");
+    }
     await shot("10-light");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "system")`);
 
