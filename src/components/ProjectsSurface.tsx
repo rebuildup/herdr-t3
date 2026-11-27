@@ -349,7 +349,7 @@ function DetailSection({
               <Textarea
                 value={repoPaths}
                 onChange={(e) => setRepoPaths(e.currentTarget.value)}
-                placeholder={"/path/to/repo\n/path/to/other-checkout"}
+                placeholder={"path/to/repo\npath/to/other-checkout"}
                 rows={2}
               />
             </label>
@@ -606,7 +606,7 @@ function RegisterSection({
           <Input
             value={path}
             onChange={(e) => setPath(e.currentTarget.value)}
-            placeholder="/path/to/repo"
+            placeholder="path/to/repo"
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-2xs text-muted-foreground">

@@ -1,14 +1,14 @@
 {
   "format": "herdr-t3/recorded-manifest",
   "version": 1,
-  "recorded_at": "2026-11-26T18:05:35.589Z",
+  "recorded_at": "2026-11-26T19:31:26.531Z",
   "bun": "1.4.4",
-  "git": "f6594a67c45f92ad4ee44e306a96f20a0b1dcf6b",
+  "git": "c3a6e52d662de03a6c858454b6d17028adc2d56f",
   "scenarios": [
     {
-      "id": "terminal.surface-select-reverse",
-      "path": "scenarios/terminal/surface-select-reverse.json",
-      "input_sha256": "d7b70c150a71a94a267bdf763e384f6b2c58299911d841ce361bf22d2204fe5e"
+      "id": "terminal.scene-viewport-shift",
+      "path": "scenarios/terminal/scene-viewport-shift.json",
+      "input_sha256": "dc8f4c81108c0c36f637c4e254f0c43600a6f4b21f4db128f92ddab29392bcfa"
     }
   ]
 }

@@ -153,6 +153,9 @@ pub struct GhosttyScene<M: TextMetrics> {
     metrics: Option<SceneMetrics>,
     selection: Option<ScreenRange>,
     highlights: Vec<ScreenRange>,
+    /// rows the host viewport sits above the engine's bottom-anchored
+    /// viewport_top (server-side scroll, issue #436)
+    viewport_shift: i64,
     cursor_on: bool,
     bg_image: Option<SceneBackgroundImage>,
     bg_opacity: f64,
@@ -175,6 +178,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
             metrics: None,
             selection: None,
             highlights: Vec::new(),
+            viewport_shift: 0,
             cursor_on: true,
             bg_image: None,
             bg_opacity: 1.0,
@@ -225,6 +229,12 @@ impl<M: TextMetrics> GhosttyScene<M> {
 
     pub fn set_highlights(&mut self, ranges: Vec<ScreenRange>) {
         self.highlights = ranges;
+    }
+
+    /// rows the host's authoritative viewport sits above the engine's
+    /// bottom-anchored `viewport_top` (server-side scroll, issue #436)
+    pub fn set_viewport_shift(&mut self, shift: i64) {
+        self.viewport_shift = shift;
     }
 
     pub fn set_cursor_visible(&mut self, visible: bool) {
@@ -624,7 +634,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
         out.push(PaintOp::Clear {
             rect: Rect { x: 0.0, y: 0.0, w: m.cols as f64 * m.cell_w, h: m.rows as f64 * m.cell_h },
         });
-        let viewport_top = self.session.history()?.viewport_top;
+        let viewport_top = self.session.history()?.viewport_top as i64 - self.viewport_shift;
         let selection = self.selection;
         let selection_color = self
             .options
@@ -654,7 +664,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
         out: &mut Vec<PaintOp>,
         range: ScreenRange,
         color: &str,
-        viewport_top: u64,
+        viewport_top: i64,
         m: &SceneMetrics,
     ) {
         // TS `if (!color) return` — an empty wash colour emits nothing
@@ -662,13 +672,13 @@ impl<M: TextMetrics> GhosttyScene<M> {
             return;
         }
         // the cells of a screen range on the viewport, row by row — eachCell
-        let top = (range.start.y as i64).max(viewport_top as i64);
-        let bottom = (range.end.y as i64).min(viewport_top as i64 + m.rows as i64 - 1);
+        let top = (range.start.y as i64).max(viewport_top);
+        let bottom = (range.end.y as i64).min(viewport_top + m.rows as i64 - 1);
         if bottom < top {
             return;
         }
         for y in top..=bottom {
-            let vy = y - viewport_top as i64;
+            let vy = y - viewport_top;
             let from = if y == range.start.y as i64 { range.start.x as i64 } else { 0 };
             let to = if y == range.end.y as i64 { range.end.x as i64 } else { m.cols as i64 - 1 };
             if to >= from {

@@ -168,11 +168,59 @@
   },
   {
    "id": "plugin-artifacts",
-   "version": 1,
-   "title": "herdr-plugins.artifacts/v1 artifact registry read surface",
+   "version": 2,
+   "title": "herdr-plugins.artifacts/v1 artifact registry surface",
    "spec": "docs/migration/contracts/plugin-artifacts.md",
    "oracle": "conformance",
-   "summary": "Read-only artifacts surface via plugin_call: capability/export/search/verify consumed @d23205af — export is the contract-designated client read surface (annotated records + orphans/corrupt honesty fields) fetched eagerly, search (metadata-only, since/until bounds) and verify (ok|corrupt|missing + issues) lazy; missing_ref/owner_stale/oversize rendered verbatim; advertised mutation_commands gated off by an empty local allowlist; resolved_path is text+copy only (no inline render, no shell-open bridge)."
+   "summary": "Artifacts surface via plugin_call: capability/export/search/verify reads plus register/delete/deliver/gc mutations consumed @d23205af — export is the contract-designated client read surface (annotated records + orphans/corrupt honesty fields) fetched eagerly, search (metadata-only, since/until bounds) and verify (ok|corrupt|missing + issues) lazy; mutations gated on mutation_commands ∩ commands behind confirmation dialogs naming the exact target, results rendered verbatim, registry refetched after success; register is --path only (--stdin cannot cross plugin_call), delete --force needs explicit opt-in for referenced records, gc defaults to --dry-run; missing_ref/owner_stale/oversize rendered verbatim; resolved_path is text+copy only (no inline render, no shell-open bridge)."
+  },
+  {
+   "id": "plugin-handoff",
+   "version": 1,
+   "title": "herdr-plugins.handoff/v1 handoff/delegation records",
+   "spec": "docs/migration/contracts/plugin-handoff.md",
+   "oracle": "conformance",
+   "summary": "Read-only handoff surface via plugin_call: capability/list/status/resume-info consumed @d23205af — list eager per machine (relationship kind, child_count, transfer_check staleness, execution target), status on-demand with --no-reconcile and owner-CLI ref resolution, resume-info provider table on demand; mutations are top-level commands gated off by an empty allowlist."
+  },
+  {
+   "id": "plugin-controls",
+   "version": 1,
+   "title": "herdr-plugins.controls/v1 agent control surface",
+   "spec": "docs/migration/contracts/plugin-controls.md",
+   "oracle": "conformance",
+   "summary": "Agent control surface via plugin_call consumed @d23205af: capability discovery (provider launch table, advisory slash-command lists, dialogs verdicts, upstream gaps), command (provider slash passthrough), wait, interrupt (PTY-level), and start (structured launch options) gated on the local CONTROLS_MUTATION_COMMANDS allowlist ∩ advertised mutation_commands ∩ commands; --expect-* generation guards derived from snapshot agents; send/rename/read and --arg/--unsafe-args deliberately not consumed (bridge RPCs already cover them)."
+  },
+  {
+   "id": "plugin-textgen",
+   "version": 2,
+   "title": "herdr-plugins.textgen/v1 structured text generation surface",
+   "spec": "docs/migration/contracts/plugin-textgen.md",
+   "oracle": "conformance",
+   "summary": "Textgen surface via plugin_call: capability/git-context/generate consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; generate (confirm-gated mutation, input via plugin_call stdin, transient result display) since #458; contract has no list/history/result commands so results are shown once and labeled not-retained (retention gap: herdr-plugins#249); watch-next-prompt/config writes gated off; results are never auto-applied."
+  },
+  {
+   "id": "plugin-secrets",
+   "version": 1,
+   "title": "herdr-plugins.secrets/v1 secret reference resolution and env injection",
+   "spec": "docs/migration/contracts/plugin-secrets.md",
+   "oracle": "conformance",
+   "summary": "Secrets bindings surface via plugin_call: capability (+on-demand --probe reachability) eager, metadata-only resolve on demand, run/inject mutations gated by local allowlist [run,inject] intersected with advertised commands @d23205af — values never cross the bridge (contract guarantee enforced twice: field-by-field parsers drop value-shaped fields, argv builders have no value input); config/--init never offered; run's inherited child stdio surfaces only as bridge-level errors, never fabricated success."
+  },
+  {
+   "id": "plugin-machines",
+   "version": 1,
+   "title": "herdr-plugins.machines/v1 saved-machine inventory and probe",
+   "spec": "docs/migration/contracts/plugin-machines.md",
+   "oracle": "conformance",
+   "summary": "Read-only machines surface via plugin_call: capability/list eager (live herdr machine list merged with last-known probe metadata, never probes), probe <selector|--all> on-demand only with 120s timeout — probe outcomes are data (ok|disabled|unreachable|unsupported_remote|error, plugin_surface supported|unsupported|unknown) rendered verbatim; read-only contract so mutation gating fails closed."
+  },
+  {
+   "id": "plugin-mcp",
+   "version": 1,
+   "title": "herdr-plugins.mcp/v1 MCP server diagnostics",
+   "spec": "docs/migration/contracts/plugin-mcp.md",
+   "oracle": "conformance",
+   "summary": "Diagnostics-only mcp surface via plugin_call: capability is the sole consumed command (stable contract — read/mutation/events surfaces) rendering session resolution, access levels + t3_mapping, tool table (access/read_only/status/backs_onto), sibling-plugin availability, error_codes, upstream_gaps and remote excluded_v1 tracking herdrdev/herdr#6199; serve/tools never spawned or invoked, empty mutation allowlist fails closed."
   }
  ],
  "capabilities": [
@@ -563,7 +611,10 @@
      "herdr-plugins.automations/v1 @6c1cfa5",
      "herdr-plugins.conversations/v1 @d23205af",
      "herdr-plugins.usage/v1 @d23205af",
-     "herdr-plugins.artifacts/v1 @d23205af"
+     "herdr-plugins.artifacts/v1 @d23205af",
+     "herdr-plugins.handoff/v1 @d23205af",
+     "herdr-plugins.textgen/v1 @d23205af",
+     "herdr-plugins.controls/v1 @d23205af"
     ],
     "excluded": false
    }
@@ -1491,7 +1542,7 @@
    "boundary": "B3",
    "contracts": [
     "plugins-boundary@1",
-    "plugin-artifacts@1",
+    "plugin-artifacts@2",
     "workspace-pane-ops@1"
    ],
    "os": [
@@ -1503,6 +1554,11 @@
     "export read surface (annotated records + returned/complete/filters echo + orphans/corrupt) fetched eagerly, refetched with kind/pane/created-by filters",
     "search free-text over metadata with since/until ISO bounds (submit-triggered)",
     "verify integrity report (ok|corrupt|missing + issues + checks) on demand — re-hashes payloads plugin-side",
+    "register mutation (--path only; --stdin cannot cross plugin_call) with kind/storage/title/pane/created-by/refs options",
+    "delete mutation per record ([--force] only after explicit opt-in when refs are present)",
+    "deliver mutation per record (--agent agent.prompt / --pane pane.send_text + optional note; exact sent message rendered)",
+    "gc mutation (--older-than ISO, dry-run default) with verbatim per-entry action/reason/error report",
+    "every mutation gated on mutation_commands ∩ commands behind a confirmation dialog naming the exact target; registry refetched after success",
     "kind badges, resolved_path text + copy affordance (no inline render, no shell-open bridge), honest missing_ref/owner_stale/oversize/orphans/corrupt rendering",
     "empty registry renders as honest empty state (producers may not exist)",
     "snapshot/status/machines-triggered refresh (inbox pattern)"
@@ -1516,7 +1572,8 @@
     "export failure keeps machine ready with reportError; last-good registry retained"
    ],
    "side_effects": [
-    "plugin_call reads only — mutation_commands (register/delete/deliver/gc) are advertised but gated off by the empty local ARTIFACTS_MUTATION_COMMANDS allowlist"
+    "plugin_call reads (capability/export/search/verify) plus capability-gated mutations (register/delete/deliver/gc); deliver sends the resolved path inside agent.prompt/pane.send_text text — pane/agent scrollback is not plugin-owned state",
+    "delete removes index records and state_copy payloads; path_ref external files are never removed; gc collects only unreferenced expired records (referenced skipped verbatim)"
    ],
    "scenarios": [
     "src/shell/artifacts.test.ts",
@@ -1536,11 +1593,415 @@
     "known_issues": [
      "resolved_path has no open action — no shell-open bridge exists; copy affordance only, html never rendered inline (client-side isolated rendering is a later concern)",
      "record-session --session filter is unusable upstream (CLI consumes it as the herdr session selector) — not emitted",
-     "list/get commands remain unconsumed (export is the designated client read surface); mutations (register/delete/deliver/gc) are a separate ticket"
+     "register --stdin is unsupported (payload bytes cannot cross plugin_call) — existing host paths only; list/get commands remain unconsumed (export is the designated client read surface)"
     ],
     "os_gaps": [],
     "upstream_deps": [
      "herdr-plugins.artifacts/v1 @d23205af",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "handoffs.surface",
+   "title": "Handoffs surface via herdr-plugins.handoff/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.handoff",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-handoff@1",
+    "plugin-conversations@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (commands/mutation_commands/execution)",
+    "list registry fetched eagerly per machine (--limit 500; total/count/truncated verbatim)",
+    "record rows: status/strategy badges, relationship kind, derived child_count, transfer_check staleness, execution target (target_pane_id > target intent > provider_hint)",
+    "lazy --status filter refetch (list --status)",
+    "status detail on selection: full record + transfer/target/remote checks + lineage parent/children + payload_resolution verdicts + execution block; always --no-reconcile, never --remote",
+    "resume-info provider native-resume table on demand (supported|unsupported|unknown verbatim)",
+    "honest empty registry (items:[]) and unchecked transfer_check (foreign session/snapshot unavailable) rendered as data",
+    "execute mutation behind confirmation dialog: target surface (auto/new-workspace/worktree/pane/workspace), provider/model, wait-ms, cleanup-on-failure, optional --remote saved machine gated on capability.execution",
+    "delegate mutation behind confirmation dialog: task/strategy/link-note/target/execute flags + record-only (--no-execute); same-session only, --remote never emitted",
+    "merge-back mutation behind confirmation dialog on lineage-linked records: result text/wait-ms/link-note/record-only; delivers via agent.prompt to existing parent pane",
+    "mutation gating: HANDOFF_MUTATION_COMMANDS allowlist + advertised commands + mutation_commands membership when the plugin advertises the field (plugin >= v0.7.0); pinned v0.9.0 falls back to allowlist + commands",
+    "mutation results displayed verbatim (outcome/record/remote identity); never auto-applied; list + open detail refetched after success"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (handoff_not_found/unsupported_strategy/other_session/remote_*) stay error with verbatim detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "list failure keeps machine ready with listError and last-good list"
+   ],
+   "side_effects": [
+    "plugin_call reads plus execute/delegate/merge-back mutations — create stays agent-side and is never invoked; mutations go through the confirmation dialog only",
+    "execute/delegate may create herdr surfaces and start agents on the plugin host (or a saved remote machine for execute --remote); merge-back delivers agent.prompt to an existing pane",
+    "status is invoked with --no-reconcile so the read never triggers the plugin's lazy delivered->done state write"
+   ],
+   "scenarios": [
+    "src/shell/handoffs.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/handoffs.ts",
+    "src/components/HandoffsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-handoff.md",
+    "docs/adr/ADR-0030.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "status --remote <machine> probing is not consumed — remote-executed records render remote_check/target_check verdicts verbatim from a local status call",
+     "payload_resolution event_refs are listed but event-level checks stay consumer-side (conversations show) per contract",
+     "execute --remote takes a free-text saved-machine label/id (no enumeration via remote-probe); an unknown/disabled machine is refused by the plugin's pre-mutation probe",
+     "create is intentionally not offered — record authoring stays agent-side CLI/MCP"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.handoff/v1 @d23205af",
+     "herdr-plugins.conversations/v1 @d23205af",
+     "herdr-plugins.checkpoints/v1 @ae4f214",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "controls.surface",
+   "title": "Controls surface via herdr-plugins.controls/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.controls",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-controls@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (commands/mutation_commands/providers launch table/dialogs/upstream_gaps verbatim)",
+    "agent picker from live snapshot agents + free-form agent target; slash-command picker seeded from provider advisory commands.known (fragile/unverified rendered verbatim)",
+    "command slash passthrough with --wait/--wait-until/--timeout-ms and auto --expect-pane/--expect-state-seq/--expect-agent-session guards; provider known_command/fragile verdicts rendered verbatim",
+    "wait status observation (--until repeat, --timeout-ms) — non-mutating, no confirmation",
+    "interrupt PTY-level key injection (--key repeat, plugin default esc) — pty_level:true rendered verbatim, confirmation dialog",
+    "start launch in shell pane with provider-gated structured options (model/reasoning/permission-mode/resume vs resume-from, --timeout-ms bound, --wait flags); confirmation dialog",
+    "blocked agents get the requires_interactive_input warning before submit; post-mutation snapshot refresh"
+   ],
+   "errors": [
+    "capability-gated per host (local allowlist ∩ mutation_commands ∩ commands; fail closed on probe)",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (requires_interactive_input/stale_generation/agent_not_found/agent_blocked/timeout/unsupported_launch_option/unsafe_agent_argument/no_agent_session/resume_session_mismatch/usage) stay error with verbatim detail",
+    "foreign contract and malformed documents rejected",
+    "refresh failures keep last-good capability with error detail"
+   ],
+   "side_effects": [
+    "explicit user-confirmed plugin_call mutations only; send/rename/read/--arg/--unsafe-args never invoked (bridge RPCs cover them — boundary decision documented in docs/migration/contracts/plugin-controls.md)",
+    "interrupt injects PTY keys via the plugin (agent.send_keys), labeled pty_level in UI",
+    "wait is read-only per contract"
+   ],
+   "scenarios": [
+    "src/shell/controls.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/controls.ts",
+    "src/components/ControlsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-controls.md",
+    "docs/adr/ADR-0032.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "provider slash-command lists are advisory/fragile per contract — unknown names still submit (known_command hint only)",
+     "dialogs verdicts (approval/interactive_fallback) are displayed but all are unsupported/pty_level in v1",
+     "send/rename/read remain bridge-owned; plugin identity guards apply only to the consumed agent-target commands"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.controls/v1 @d23205af",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "textgen.surface",
+   "title": "Text Generation surface via herdr-plugins.textgen/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.textgen",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-textgen@2",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (tasks×paths matrix, agent/api provider matrix, guards, integrations.git, redacted config, config_warnings) fetched eagerly",
+    "git-context read-only preview (collected task input + repo_root/branch + sources + warnings) on submit — no provider invoked",
+    "generate on demand behind confirm dialog: task select, per-task input form from input_fields/required_input, provider/model overrides, --git-pane collection for git tasks, optional cwd/timeout, --allow-expensive for requires_opt_in tasks; input JSON sent via plugin_call stdin",
+    "transient result display (string/text_list/pr_content shapes) with copy affordance and explicit not-retained label; plugin-side kinds (task_not_opted_in/quota_exceeded/provider_*/output_*/input_*) render verbatim",
+    "task rows: kind/description/paths/input_fields/required_input/output shape/max_output_chars/requires_opt_in verbatim",
+    "provider rows: agent availability (manifest|not_in_manifests|unverified) + warnings, api enabled + credential_configured booleans (never key material), cli unsupported status",
+    "guards section: expensiveTaskOptIn, quota check enabled/max_used_percent/provider, agent_manifests reachability",
+    "git integration resolved/unavailable rendered verbatim; collected input JSON with copy affordance",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (git_unavailable/task_not_opted_in/quota_exceeded/provider_*/output_invalid_json/usage) stay error with verbatim detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "capability failure retains last-good document; unavailable states are honest"
+   ],
+   "side_effects": [
+    "generate is the one allowlisted mutation (drives dedicated herdr agent panes / opt-in API calls, may spend provider quota) — confirm-gated; input travels on plugin CLI stdin via plugin_call.stdin; watch-next-prompt and config writes stay gated off by TEXTGEN_MUTATION_COMMANDS; generation results are never auto-applied and never persisted plugin-side"
+   ],
+   "scenarios": [
+    "src/shell/textgen.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/textgen.ts",
+    "src/components/TextGenSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-textgen.md",
+    "docs/adr/ADR-0031.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "contract has no list/history/result commands — generation results are not persisted plugin-side, so the surface shows the latest result transiently with a not-retained label; retention gap recorded as herdr-plugins#249",
+     "watch-next-prompt (long-running agent-pane watcher) and config writes remain gated off — separate tickets",
+     "next_prompt composer presentation is a separate concern (watch path records pane metadata upstream)"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.textgen/v1 @d23205af",
+     "rebuildup.git plugin for git-context collection (soft dependency — unresolved renders as unavailable)",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "secrets.surface",
+   "title": "Secrets surface via herdr-plugins.secrets/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.secrets",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-secrets@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (provider cli/domain/reachability, bindings, invalid_bindings, config_warnings) fetched eagerly",
+    "capability --probe on demand — sentinel-secret reachability classification, never touches a real value",
+    "resolve --binding metadata-only preview on demand (per-binding resolved|unresolved|provider_* statuses + sanitized detail; ok:false document is data, not a throw)",
+    "inject mutation (gated + confirmed): --surface workspace|tab|pane with targeting flags; returns surface ids + env_names only",
+    "run mutation (gated + confirmed): -- <cmd> argv passthrough; child stdio inherited plugin-side and NOT streamed — any non-resolution_failed result reported honestly",
+    "binding rows: name/env/ref/projectId + invalid_bindings verbatim; selection model for resolve/inject/run",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (config_error/resolution_failed/spawn_failed/provider statuses) stay error with verbatim sanitized detail",
+    "structured error.hint surfaced verbatim",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "capability failure retains last-good document; unavailable states are honest",
+    "SECRET VALUES NEVER RENDERED — parsers drop value-shaped fields (unit-tested with planted sentinel), argv builders take no value input, UI shows env_names only"
+   ],
+   "side_effects": [
+    "plugin_call reads (capability/resolve) plus gated mutations run/inject — local SECRETS_MUTATION_COMMANDS=[run,inject] intersected with advertised commands (mutation_commands honored when present); config/--init never offered",
+    "inject creates a herdr surface carrying resolved env in creation params; run spawns a child with resolved env — both confirmed explicitly in UI"
+   ],
+   "scenarios": [
+    "src/shell/secrets.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/secrets.ts",
+    "src/components/SecretsSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-secrets.md",
+    "docs/adr/ADR-0033.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "run's child stdio is inherited by the plugin process which the plugin_call bridge pipes and JSON-parses — a successful run can only surface as a bridge-level plugin_bad_output/plugin_error; env injection still happens plugin-side and the UI reports 'ran, output not streamed' rather than fabricating success",
+     "binding management (config.json editing, config --init) is plugin/user territory — surface is read + resolve/run/inject only",
+     "capability --probe spawns the provider CLI — on-demand only, never eager"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.secrets/v1 @d23205af",
+     "infisical CLI on the plugin host (provider)",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "machines.surface",
+   "title": "Machines surface via herdr-plugins.machines/v1",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.machines",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-machines@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability probe per host (contract_status/read_only/commands/probe_states/plugin_surfaces vocabularies) fetched eagerly",
+    "list fetched eagerly — live herdr machine list merged with last-known MachineProbe metadata; never probes live",
+    "per-row probe and probe-all on explicit user action only (120s plugin_call timeout; SSH + remote api snapshot + remote plugin list per machine)",
+    "probe verdicts rendered verbatim: state ok|disabled|unreachable|unsupported_remote|error, reachable tri-state, server_version/protocol, plugin_surface supported|unsupported|unknown, plugins[], error_kind/error",
+    "enabled/selected flags, never-probed (last_probe:null) and empty inventory as honest states",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds (machine_list_failed/machine_not_found/machine_ambiguous/machine_unavailable/remote_*) stay error with verbatim detail",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "list failure keeps machine ready with listError + last-good list retained",
+    "probe outcomes are data — unreachable machines do not fail the command"
+   ],
+   "side_effects": [
+    "plugin_call reads only — read-only contract (read_only:true, mutation_commands:[]) and empty local MACHINES_MUTATION_COMMANDS allowlist fail closed",
+    "probe writes last-known metadata to plugin state upstream (timestamps/versions only, no credentials)"
+   ],
+   "scenarios": [
+    "src/shell/machines.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/machines.ts",
+    "src/components/MachinesSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-machines.md",
+    "docs/adr/ADR-0033.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "contract status is draft upstream (plugin v0.1.0) — additive-only assumption recorded; a breaking revision requires a new contract version + re-pin ADR",
+     "machine lifecycle (add/remove/enable/disable) stays herdr CLI territory — not consumed",
+     "remote plugin inventory is a point-in-time probe result, not live"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.machines/v1 @d23205af",
+     "herdr machine list + saved-machine SSH bridges on the plugin host",
+     "bun on the plugin host"
+    ],
+    "excluded": false
+   },
+   "parity": "docs/design/t3-parity.md"
+  },
+  {
+   "id": "mcp.surface",
+   "title": "MCP surface via herdr-plugins.mcp/v1 (diagnostics)",
+   "area": "plugins",
+   "owner": "plugin:rebuildup.mcp",
+   "boundary": "B3",
+   "contracts": [
+    "plugins-boundary@1",
+    "plugin-mcp@1",
+    "workspace-pane-ops@1"
+   ],
+   "os": [
+    "macos",
+    "windows-11"
+   ],
+   "operations": [
+    "capability fetched eagerly per host — the only consumed command (contract is stable: read/mutation/events surfaces implemented upstream)",
+    "session resolution rendered verbatim: resolved_via, targeting rule (--socket > --session/HERDR_SESSION > HERDR_SOCKET_PATH > default; pane env ignored), live session reachable/session_name/error",
+    "access levels: levels/default/semantics/t3_mapping + negotiated_access_level",
+    "tools[] table: name/access/read_only/status/backs_onto verbatim",
+    "sibling plugin availability (plugins[] available/resolved_via/error — plugin_unavailable is honest data)",
+    "error_codes vocabulary, upstream_gaps, remote excluded_v1 + tracking ref (herdrdev/herdr#6199), no-durable-state note",
+    "snapshot/status/machines-triggered refresh (inbox pattern)"
+   ],
+   "errors": [
+    "capability-gated per host",
+    "plugin_not_installed/disabled/incompatible/unreachable taxonomy",
+    "plugin-side kinds stay error with verbatim detail",
+    "foreign contract and malformed documents rejected (plugin_bad_output)",
+    "capability failure retains last-good document; unavailable states are honest",
+    "unreachable session is data (session.reachable:false + error), not a surface failure"
+   ],
+   "side_effects": [
+    "plugin_call read of capability only — serve is never spawned, no MCP protocol is spoken, no tool is invoked; MCP_MUTATION_COMMANDS empty and mcpSupportsMutation fails closed for every command"
+   ],
+   "scenarios": [
+    "src/shell/mcp.test.ts",
+    "src/shell/rightPanelStore.test.ts"
+   ],
+   "evidence": [
+    "src/shell/mcp.ts",
+    "src/components/McpSurface.tsx",
+    "src/shell/RightPanel.tsx",
+    "src/shell/rightPanelStore.ts",
+    "docs/migration/contracts/plugin-mcp.md",
+    "docs/adr/ADR-0033.md"
+   ],
+   "stage": "current-verified",
+   "status": {
+    "implemented": true,
+    "known_issues": [
+     "diagnostics only — this client is not an MCP client; connecting to the stdio server (or any MCP client UX) is a separate ticket",
+     "remote HTTP/OAuth is an upstream gap tracked as herdrdev/herdr#6199 (remote.status excluded_v1)",
+     "saved-machine (--machine) targeting is deferred upstream post-v1"
+    ],
+    "os_gaps": [],
+    "upstream_deps": [
+     "herdr-plugins.mcp/v1 @d23205af",
+     "herdr socket reachable for the session probe (soft — unreachable renders as data)",
      "bun on the plugin host"
     ],
     "excluded": false

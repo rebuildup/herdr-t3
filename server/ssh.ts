@@ -560,11 +560,17 @@ function sshExecEndpoint(
   endpoint: SshEndpoint,
   command: string,
   timeoutMs: number,
+  stdin?: string,
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
+    // stdin is a pipe so plugin_call payloads reach the remote CLI's
+    // stdin through ssh (issue #458); it is always ended immediately so
+    // stdin-reading remote commands see EOF instead of hanging.
     const child = spawn("ssh", [...sshArgs(endpoint), command], {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(stdin ?? "");
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -686,6 +692,7 @@ export function sshPluginHost(
         endpoint,
         remoteArgvCommand(endpoint, remotePluginArgv(endpoint, argv), options.cwd, options.envRemove ?? [], options.envSet ?? {}),
         options.timeoutMs,
+        options.stdin,
       ).then((r) => ({
         code: r.code,
         stdout: r.stdout,

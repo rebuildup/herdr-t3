@@ -584,6 +584,7 @@ export class MachineManager {
               plugin: frame.plugin,
               command: frame.command,
               args: frame.args,
+              stdin: frame.stdin,
               timeoutMs: frame.timeout_ms,
               coalesce: frame.coalesce,
             });

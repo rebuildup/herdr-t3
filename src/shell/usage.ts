@@ -68,8 +68,8 @@ export interface UsageMachineState {
   status: UsageMachineStatus;
   /** Latest `quota` report; null until the first successful fetch. */
   quota: UsageQuotaReport | null;
-  /** Classified failure detail when the last quota fetch failed. */
-  quotaError: string | null;
+  /** Classified failure when the last quota fetch failed. */
+  quotaError: UsageErrorInfo | null;
 }
 
 /* ------------------------------ model -------------------------------- */
@@ -908,6 +908,41 @@ export function usageErrorHint(error: unknown): string | null {
   return str(fields["hint"]);
 }
 
+/** Section-facing failure text: short summary + verbatim detail. */
+export interface UsageErrorInfo {
+  /** One-line reason with the plugin's recovery hint, e.g. "timed out (retry)". */
+  summary: string;
+  /** Raw plugin/bridge detail; render as secondary text, never merged. */
+  detail: string | null;
+}
+
+const ERROR_SUMMARY_LABELS: Record<UsageUnavailableReason, string> = {
+  not_installed: "plugin not installed",
+  disabled: "plugin disabled",
+  incompatible: "contract incompatible",
+  unreachable: "host unreachable",
+  error: "request failed",
+};
+
+/**
+ * Section-facing error text (issue #417). The old format inlined the
+ * classified reason plus the raw detail, so a timeout rendered as
+ * "unreachable — rebuildup.usage usage timed out" — the plugin name
+ * twice in one line. The summary is now a short label ("timed out"
+ * for `plugin_timeout`, the recovery hint in parens when the plugin
+ * sends one); the raw detail stays available for a secondary line.
+ */
+export function describeUsageError(error: unknown): UsageErrorInfo {
+  const classified = classifyUsageError(error);
+  const hint = usageErrorHint(error);
+  const isTimeout = (error as { code?: string } | null)?.code === "plugin_timeout";
+  const label = isTimeout ? "timed out" : ERROR_SUMMARY_LABELS[classified.reason];
+  return {
+    summary: hint !== null ? `${label} (${hint})` : label,
+    detail: classified.detail === "" ? null : classified.detail,
+  };
+}
+
 /* --------------------------- argv builders (pure) --------------------- */
 
 /** `quota [--provider ID] [--refresh] [--timeout MS]`. */
@@ -983,6 +1018,16 @@ export function usageAggregationArgs(
 
 /* -------------------------------- reads -------------------------------- */
 
+/**
+ * Bridge timeout for the index-aggregating reads (`usage`/`cost`/
+ * `divergence`). Each call rescans the conversations index plugin-side
+ * and can exceed the 15s bridge default on a cold host or a large
+ * index — the v0.6.0 RC review hit `plugin_timeout` on all three while
+ * `quota` (index-independent) succeeded (issue #417). 60s stays well
+ * under the 120s bridge maximum.
+ */
+const USAGE_AGGREGATION_TIMEOUT_MS = 60_000;
+
 async function callUsage(
   machine: string,
   command: string,
@@ -1038,7 +1083,13 @@ export async function fetchUsageReport(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageReport> {
-  const doc = await callUsage(machine, "usage", usageAggregationArgs(options), undefined, true);
+  const doc = await callUsage(
+    machine,
+    "usage",
+    usageAggregationArgs(options),
+    USAGE_AGGREGATION_TIMEOUT_MS,
+    true,
+  );
   const report = usageReportFromDoc(doc);
   if (report === null) throw badOutput("usage");
   return report;
@@ -1049,7 +1100,13 @@ export async function fetchUsageCost(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageCostReport> {
-  const doc = await callUsage(machine, "cost", usageAggregationArgs(options), undefined, true);
+  const doc = await callUsage(
+    machine,
+    "cost",
+    usageAggregationArgs(options),
+    USAGE_AGGREGATION_TIMEOUT_MS,
+    true,
+  );
   const report = usageCostFromDoc(doc);
   if (report === null) throw badOutput("cost");
   return report;
@@ -1060,7 +1117,13 @@ export async function fetchUsageDivergence(
   machine: string,
   options: UsageAggregationOptions = {},
 ): Promise<UsageDivergenceReport> {
-  const doc = await callUsage(machine, "divergence", usageAggregationArgs(options), undefined, true);
+  const doc = await callUsage(
+    machine,
+    "divergence",
+    usageAggregationArgs(options),
+    USAGE_AGGREGATION_TIMEOUT_MS,
+    true,
+  );
   const report = usageDivergenceFromDoc(doc);
   if (report === null) throw badOutput("divergence");
   return report;
@@ -1286,13 +1349,12 @@ export async function refreshUsage(machine: string): Promise<void> {
           quotaError: null,
         });
       } catch (quotaError) {
-        const classified = classifyUsageError(quotaError);
         const current = states.get(machine);
         setState(machine, {
           status:
             current?.status ?? { kind: "ready", contract: cap.contract, version: cap.version },
           quota: current?.quota ?? null,
-          quotaError: `${classified.reason}${classified.detail ? ` — ${classified.detail}` : ""}`,
+          quotaError: describeUsageError(quotaError),
         });
       }
     } catch (error) {

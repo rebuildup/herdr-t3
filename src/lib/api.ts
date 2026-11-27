@@ -120,6 +120,8 @@ export type TerminalClosedListener = (machine: string, paneId: string, reason: s
 export type TerminalMouseCaptureListener = (machine: string, paneId: string, enabled: boolean) => void;
 export type MachinesListener = (machines: MachineInfo[]) => void;
 export type MachineStatusListener = (machine: MachineInfo) => void;
+/** Raw herdr `events.subscribe` frame (`{event, data}`), already machine-tagged by the bridge. */
+export type HerdrEventListener = (event: { event?: string; data?: Record<string, unknown> }, machine: string) => void;
 
 let ws: WebSocket | null = null;
 let ipcOff: (() => void) | null = null;
@@ -130,6 +132,7 @@ let terminalClosedListeners = new Set<TerminalClosedListener>();
 let terminalMouseCaptureListeners = new Set<TerminalMouseCaptureListener>();
 let machinesListeners = new Set<MachinesListener>();
 let machineStatusListeners = new Set<MachineStatusListener>();
+let herdrEventListeners = new Set<HerdrEventListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 let rpcCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -182,6 +185,13 @@ function handleFrame(frame: ServerFrame): void {
       return;
     case "machine_status":
       for (const listener of machineStatusListeners) listener(frame.machine);
+      return;
+    case "event":
+      if (frame.event !== null && typeof frame.event === "object" && !Array.isArray(frame.event)) {
+        for (const listener of herdrEventListeners) {
+          listener(frame.event as { event?: string; data?: Record<string, unknown> }, frame.machine);
+        }
+      }
       return;
   }
 }
@@ -278,6 +288,12 @@ export function onMachines(listener: MachinesListener): () => void {
 export function onMachineStatus(listener: MachineStatusListener): () => void {
   machineStatusListeners.add(listener);
   return () => machineStatusListeners.delete(listener);
+}
+
+/** Subscribed herdr events (`pane.scroll_changed`, structure changes, …) the bridge forwards. */
+export function onHerdrEvent(listener: HerdrEventListener): () => void {
+  herdrEventListeners.add(listener);
+  return () => herdrEventListeners.delete(listener);
 }
 
 function sendFrame(frame: ClientFrame): void {
@@ -437,6 +453,7 @@ export function pluginCall(
     plugin: string;
     command: string;
     args?: string[];
+    stdin?: string;
     timeout_ms?: number;
     /** Set only for reads; mutations must never coalesce (issue #424). */
     coalesce?: boolean;
@@ -450,11 +467,12 @@ export function pluginCall(
       plugin: request.plugin,
       command: request.command,
       ...(request.args !== undefined ? { args: request.args } : {}),
+      ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
       ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
       ...(request.coalesce === true ? { coalesce: true } : {}),
     }) as Promise<PluginCallResult>;
   if (request.coalesce !== true) return run();
-  const key = `call ${machine} ${request.plugin} ${request.command} ${JSON.stringify(request.args ?? [])} ${request.timeout_ms ?? ""}`;
+  const key = `call ${machine} ${request.plugin} ${request.command} ${JSON.stringify(request.args ?? [])} ${request.stdin ?? ""} ${request.timeout_ms ?? ""}`;
   return pluginSingleFlight(key, run);
 }
 

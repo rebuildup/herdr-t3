@@ -123,6 +123,7 @@ const SURFACE_OPS = new Set([
   "surface_scroll_to",
   "surface_scroll_by",
   "surface_scroll_to_bottom",
+  "surface_host_scroll",
   "surface_cell_at",
   "surface_search",
   "surface_search_step",

@@ -5,6 +5,8 @@
  * action is a whitelisted herdr RPC or shell navigation.
  */
 import {
+  ArrowLeftRightIcon,
+  BotIcon,
   CalendarClockIcon,
   Columns2,
   FolderGit2Icon,
@@ -12,10 +14,13 @@ import {
   FolderKanbanIcon,
   GitBranchIcon,
   HistoryIcon,
+  KeyRoundIcon,
   Maximize2Icon,
   MessagesSquareIcon,
   MonitorIcon,
   PackageIcon,
+  PlugIcon,
+  ServerIcon,
   MoonIcon,
   PanelLeftIcon,
   SettingsIcon,
@@ -25,6 +30,7 @@ import {
   SquarePenIcon,
   SquarePlusIcon,
   SquareSplitHorizontalIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -117,6 +123,13 @@ export function CommandMenu({
   const { toggleSidebar } = useSidebar();
   const [query, setQuery] = useState("");
   const [gotoOpen, setGotoOpen] = useState(false);
+
+  // Fresh query on every open: the palette stays mounted, so without a
+  // reset the next session's typing concatenates onto the stale query
+  // ("usagesource control", issue #417).
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
 
   // Explicit Escape fallback: the footer advertises "Esc Close", so closing
   // must not depend solely on the dialog primitive's dismissal path (issue #94).
@@ -257,6 +270,54 @@ export function CommandMenu({
           icon: <PackageIcon className="size-4" />,
           keywords: "artifacts registry files html pdf images deliver verify plugin",
           run: panelSurface({ id: "artifacts", kind: "artifacts" }),
+        },
+        {
+          id: "panel-handoffs",
+          label: "Handoffs",
+          group: "Actions",
+          icon: <ArrowLeftRightIcon className="size-4" />,
+          keywords: "handoffs delegation transfer records resume lineage plugin",
+          run: panelSurface({ id: "handoffs", kind: "handoffs" }),
+        },
+        {
+          id: "panel-controls",
+          label: "Controls",
+          group: "Actions",
+          icon: <BotIcon className="size-4" />,
+          keywords: "controls agent command slash interrupt wait start launch plugin",
+          run: panelSurface({ id: "controls", kind: "controls" }),
+        },
+        {
+          id: "panel-textgen",
+          label: "Text Generation",
+          group: "Actions",
+          icon: <SparklesIcon className="size-4" />,
+          keywords: "textgen generation tasks commit message pr content review guide next prompt plugin",
+          run: panelSurface({ id: "textgen", kind: "textgen" }),
+        },
+        {
+          id: "panel-secrets",
+          label: "Secrets",
+          group: "Actions",
+          icon: <KeyRoundIcon className="size-4" />,
+          keywords: "secrets bindings infisical env inject run provider plugin",
+          run: panelSurface({ id: "secrets", kind: "secrets" }),
+        },
+        {
+          id: "panel-machines",
+          label: "Machines",
+          group: "Actions",
+          icon: <ServerIcon className="size-4" />,
+          keywords: "machines saved remote probe ssh inventory plugin",
+          run: panelSurface({ id: "machines", kind: "machines" }),
+        },
+        {
+          id: "panel-mcp",
+          label: "MCP",
+          group: "Actions",
+          icon: <PlugIcon className="size-4" />,
+          keywords: "mcp diagnostics tools access level session plugin availability",
+          run: panelSurface({ id: "mcp", kind: "mcp" }),
         },
       );
       list.push(
@@ -540,19 +601,26 @@ export function CommandMenu({
           </CommandPanel>
           <CommandFooter className="max-sm:flex-col max-sm:items-start">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-              <KbdGroup>
-                <Kbd variant="outline">
-                  <ArrowUpIcon />
-                </Kbd>
-                <Kbd variant="outline">
-                  <ArrowDownIcon />
-                </Kbd>
-                <span>Navigate</span>
-              </KbdGroup>
-              <KbdGroup>
-                <Kbd variant="outline">Enter</Kbd>
-                <span>Select</span>
-              </KbdGroup>
+              {/* Selection hints only make sense when there is something
+                  to select — an empty result list leaves just Esc
+                  (issue #417). */}
+              {groups.length > 0 ? (
+                <>
+                  <KbdGroup>
+                    <Kbd variant="outline">
+                      <ArrowUpIcon />
+                    </Kbd>
+                    <Kbd variant="outline">
+                      <ArrowDownIcon />
+                    </Kbd>
+                    <span>Navigate</span>
+                  </KbdGroup>
+                  <KbdGroup>
+                    <Kbd variant="outline">Enter</Kbd>
+                    <span>Select</span>
+                  </KbdGroup>
+                </>
+              ) : null}
               <KbdGroup>
                 <Kbd variant="outline">Esc</Kbd>
                 <span>Close</span>
