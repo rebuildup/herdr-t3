@@ -1,0 +1,1795 @@
+{
+  "issue": 499,
+  "sha": "0e5d6a7ae025568276448b0900d764aa1864a02f",
+  "session": "ht3mem",
+  "at": "2026-11-27T06:05:49.841Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 10,
+    "totalMemMb": 24576,
+    "loadavg": [
+      9.193359375,
+      11.65966796875,
+      14.7333984375
+    ]
+  },
+  "config": {
+    "stormMb": 128,
+    "stormSeconds": 15,
+    "scenario": "all"
+  },
+  "summary": {
+    "idle": {
+      "samples": 9,
+      "jsHeapStartMb": 19.4,
+      "jsHeapEndMb": 35.4,
+      "jsHeapPeakMb": 35.4,
+      "chromeStartMb": 1338.3,
+      "chromeEndMb": 1342.1,
+      "chromePeakMb": 1348.8,
+      "chromePeakTop": [
+        {
+          "kind": "renderer",
+          "mb": 278.1875
+        },
+        {
+          "kind": "browser",
+          "mb": 228.84375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.21875
+        }
+      ],
+      "bridgeEndMb": 60.7,
+      "herdrEndMb": 0
+    },
+    "storm": {
+      "samples": 12,
+      "jsHeapStartMb": 35.4,
+      "jsHeapEndMb": 41.1,
+      "jsHeapPeakMb": 55.3,
+      "chromeStartMb": 1342.1,
+      "chromeEndMb": 978,
+      "chromePeakMb": 1346.5,
+      "chromePeakTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.515625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.15625
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.4375
+        }
+      ],
+      "bridgeEndMb": 72.3,
+      "herdrEndMb": 0
+    },
+    "kitty": {
+      "samples": 14,
+      "jsHeapStartMb": 16.9,
+      "jsHeapEndMb": 57.4,
+      "jsHeapPeakMb": 74,
+      "chromeStartMb": 977.4,
+      "chromeEndMb": 1019.8,
+      "chromePeakMb": 1019.8,
+      "chromePeakTop": [
+        {
+          "kind": "renderer",
+          "mb": 398.75
+        },
+        {
+          "kind": "browser",
+          "mb": 230.609375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeEndMb": 81,
+      "herdrEndMb": 0
+    },
+    "switch": {
+      "samples": 11,
+      "jsHeapStartMb": 57.4,
+      "jsHeapEndMb": 21.8,
+      "jsHeapPeakMb": 57.4,
+      "chromeStartMb": 1039.4,
+      "chromeEndMb": 1016.7,
+      "chromePeakMb": 1039.4,
+      "chromePeakTop": [
+        {
+          "kind": "renderer",
+          "mb": 397.375
+        },
+        {
+          "kind": "browser",
+          "mb": 230.75
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeEndMb": 81.8,
+      "herdrEndMb": 0
+    },
+    "storm2": {
+      "samples": 12,
+      "jsHeapStartMb": 21.8,
+      "jsHeapEndMb": 23,
+      "jsHeapPeakMb": 34.8,
+      "chromeStartMb": 1016.7,
+      "chromeEndMb": 953.4,
+      "chromePeakMb": 1016.8,
+      "chromePeakTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.640625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.5625
+        }
+      ],
+      "bridgeEndMb": 70.5,
+      "herdrEndMb": 0
+    }
+  },
+  "samples": [
+    {
+      "t": 1795759456449,
+      "scenario": "idle",
+      "jsHeapUsedMb": 19.41083526611328,
+      "jsHeapTotalMb": 52.328125,
+      "nodes": 391,
+      "chromeTreeMb": 1338.25,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 275.34375
+        },
+        {
+          "kind": "browser",
+          "mb": 225.25
+        },
+        {
+          "kind": "renderer",
+          "mb": 109.953125
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.015625
+        }
+      ],
+      "bridgeMb": 54.421875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759456582,
+      "scenario": "idle",
+      "jsHeapUsedMb": 19.41083526611328,
+      "jsHeapTotalMb": 52.328125,
+      "nodes": 391,
+      "chromeTreeMb": 1298.171875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 275.34375
+        },
+        {
+          "kind": "browser",
+          "mb": 225.21875
+        },
+        {
+          "kind": "renderer",
+          "mb": 109.953125
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.09375
+        }
+      ],
+      "bridgeMb": 54.421875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759458481,
+      "scenario": "idle",
+      "jsHeapUsedMb": 19.423152923583984,
+      "jsHeapTotalMb": 52.328125,
+      "nodes": 391,
+      "chromeTreeMb": 1298.640625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 275.421875
+        },
+        {
+          "kind": "browser",
+          "mb": 225.21875
+        },
+        {
+          "kind": "renderer",
+          "mb": 109.953125
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.09375
+        }
+      ],
+      "bridgeMb": 55.3125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759460530,
+      "scenario": "idle",
+      "jsHeapUsedMb": 21.57611083984375,
+      "jsHeapTotalMb": 52.328125,
+      "nodes": 434,
+      "chromeTreeMb": 1303.8125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 276.171875
+        },
+        {
+          "kind": "browser",
+          "mb": 225.296875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.328125
+        }
+      ],
+      "bridgeMb": 57.25,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759462496,
+      "scenario": "idle",
+      "jsHeapUsedMb": 16.05794906616211,
+      "jsHeapTotalMb": 52.078125,
+      "nodes": 421,
+      "chromeTreeMb": 1302.4375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 277.140625
+        },
+        {
+          "kind": "browser",
+          "mb": 226.671875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.03125
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.171875
+        }
+      ],
+      "bridgeMb": 57.0625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759464495,
+      "scenario": "idle",
+      "jsHeapUsedMb": 16.10128402709961,
+      "jsHeapTotalMb": 52.078125,
+      "nodes": 421,
+      "chromeTreeMb": 1348.828125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 278.1875
+        },
+        {
+          "kind": "browser",
+          "mb": 228.84375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.21875
+        }
+      ],
+      "bridgeMb": 57.78125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759466505,
+      "scenario": "idle",
+      "jsHeapUsedMb": 35.289794921875,
+      "jsHeapTotalMb": 55.328125,
+      "nodes": 421,
+      "chromeTreeMb": 1317.3125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.453125
+        },
+        {
+          "kind": "browser",
+          "mb": 228.859375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.21875
+        }
+      ],
+      "bridgeMb": 60.390625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759468483,
+      "scenario": "idle",
+      "jsHeapUsedMb": 35.348121643066406,
+      "jsHeapTotalMb": 55.328125,
+      "nodes": 421,
+      "chromeTreeMb": 1317.4375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.5
+        },
+        {
+          "kind": "browser",
+          "mb": 228.859375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.203125
+        }
+      ],
+      "bridgeMb": 60.625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759470249,
+      "scenario": "idle",
+      "jsHeapUsedMb": 35.35356140136719,
+      "jsHeapTotalMb": 55.328125,
+      "nodes": 421,
+      "chromeTreeMb": 1342.109375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.515625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.203125
+        }
+      ],
+      "bridgeMb": 60.71875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759470415,
+      "scenario": "storm",
+      "jsHeapUsedMb": 35.3538932800293,
+      "jsHeapTotalMb": 55.328125,
+      "nodes": 421,
+      "chromeTreeMb": 1342.109375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.515625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.203125
+        }
+      ],
+      "bridgeMb": 60.84375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759470934,
+      "scenario": "storm",
+      "jsHeapUsedMb": 35.35637664794922,
+      "jsHeapTotalMb": 55.328125,
+      "nodes": 421,
+      "chromeTreeMb": 1346.453125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 281.515625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.15625
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.4375
+        }
+      ],
+      "bridgeMb": 61,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759472643,
+      "scenario": "storm",
+      "jsHeapUsedMb": 43.57584762573242,
+      "jsHeapTotalMb": 83.578125,
+      "nodes": 423,
+      "chromeTreeMb": 1280.34375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 312.328125
+        },
+        {
+          "kind": "browser",
+          "mb": 228.75
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.59375
+        }
+      ],
+      "bridgeMb": 63.078125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759474736,
+      "scenario": "storm",
+      "jsHeapUsedMb": 41.48775100708008,
+      "jsHeapTotalMb": 82.328125,
+      "nodes": 423,
+      "chromeTreeMb": 1278,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 314.28125
+        },
+        {
+          "kind": "browser",
+          "mb": 228.671875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.40625
+        }
+      ],
+      "bridgeMb": 66.140625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759476694,
+      "scenario": "storm",
+      "jsHeapUsedMb": 49.87371063232422,
+      "jsHeapTotalMb": 84.828125,
+      "nodes": 423,
+      "chromeTreeMb": 1281.21875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 317.578125
+        },
+        {
+          "kind": "browser",
+          "mb": 228.671875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.375
+        }
+      ],
+      "bridgeMb": 67.484375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759478695,
+      "scenario": "storm",
+      "jsHeapUsedMb": 49.13782501220703,
+      "jsHeapTotalMb": 88.328125,
+      "nodes": 423,
+      "chromeTreeMb": 1290.734375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 326.96875
+        },
+        {
+          "kind": "browser",
+          "mb": 228.71875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.375
+        }
+      ],
+      "bridgeMb": 68.8125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759480719,
+      "scenario": "storm",
+      "jsHeapUsedMb": 51.00779342651367,
+      "jsHeapTotalMb": 92.328125,
+      "nodes": 423,
+      "chromeTreeMb": 1299.609375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 334.703125
+        },
+        {
+          "kind": "browser",
+          "mb": 229.828125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.21875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.359375
+        }
+      ],
+      "bridgeMb": 70.109375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759482653,
+      "scenario": "storm",
+      "jsHeapUsedMb": 48.221622467041016,
+      "jsHeapTotalMb": 96.828125,
+      "nodes": 423,
+      "chromeTreeMb": 1075.65625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 344.484375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.203125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.140625
+        }
+      ],
+      "bridgeMb": 71.296875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759484677,
+      "scenario": "storm",
+      "jsHeapUsedMb": 45.044891357421875,
+      "jsHeapTotalMb": 101.078125,
+      "nodes": 423,
+      "chromeTreeMb": 1084.1875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 353.015625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.203125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.140625
+        }
+      ],
+      "bridgeMb": 71.71875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759486658,
+      "scenario": "storm",
+      "jsHeapUsedMb": 55.2898063659668,
+      "jsHeapTotalMb": 102.328125,
+      "nodes": 423,
+      "chromeTreeMb": 1000.421875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 357.265625
+        },
+        {
+          "kind": "browser",
+          "mb": 229
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.03125
+        }
+      ],
+      "bridgeMb": 72.21875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759488627,
+      "scenario": "storm",
+      "jsHeapUsedMb": 55.313819885253906,
+      "jsHeapTotalMb": 102.328125,
+      "nodes": 423,
+      "chromeTreeMb": 975.921875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 357.34375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.03125
+        }
+      ],
+      "bridgeMb": 72.21875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759489153,
+      "scenario": "storm",
+      "jsHeapUsedMb": 41.05446243286133,
+      "jsHeapTotalMb": 103.828125,
+      "nodes": 423,
+      "chromeTreeMb": 977.953125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.03125
+        }
+      ],
+      "bridgeMb": 72.25,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759489327,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 16.879806518554688,
+      "jsHeapTotalMb": 97.328125,
+      "nodes": 423,
+      "chromeTreeMb": 977.4375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 358.859375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.03125
+        }
+      ],
+      "bridgeMb": 72.25,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759490703,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 34.151248931884766,
+      "jsHeapTotalMb": 97.328125,
+      "nodes": 423,
+      "chromeTreeMb": 977.9375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.4375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.953125
+        }
+      ],
+      "bridgeMb": 72.34375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759492683,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 49.941402435302734,
+      "jsHeapTotalMb": 97.828125,
+      "nodes": 423,
+      "chromeTreeMb": 978.8125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 360.296875
+        },
+        {
+          "kind": "browser",
+          "mb": 229.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.96875
+        }
+      ],
+      "bridgeMb": 72.453125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759494950,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 35.53675842285156,
+      "jsHeapTotalMb": 100.328125,
+      "nodes": 423,
+      "chromeTreeMb": 979.046875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 360.515625
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.953125
+        }
+      ],
+      "bridgeMb": 72.796875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759496745,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 37.581573486328125,
+      "jsHeapTotalMb": 100.328125,
+      "nodes": 423,
+      "chromeTreeMb": 976.171875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 357.578125
+        },
+        {
+          "kind": "browser",
+          "mb": 229.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.96875
+        }
+      ],
+      "bridgeMb": 73.125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759498638,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 57.996490478515625,
+      "jsHeapTotalMb": 100.578125,
+      "nodes": 423,
+      "chromeTreeMb": 977.078125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 358.46875
+        },
+        {
+          "kind": "browser",
+          "mb": 229.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.953125
+        }
+      ],
+      "bridgeMb": 73.140625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759500679,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 52.01041793823242,
+      "jsHeapTotalMb": 101.828125,
+      "nodes": 423,
+      "chromeTreeMb": 978.8125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 360.234375
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.96875
+        }
+      ],
+      "bridgeMb": 73.609375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759502659,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 51.198055267333984,
+      "jsHeapTotalMb": 106.328125,
+      "nodes": 423,
+      "chromeTreeMb": 984.078125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 365.46875
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.984375
+        }
+      ],
+      "bridgeMb": 73.84375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759504650,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 49.69142150878906,
+      "jsHeapTotalMb": 109.828125,
+      "nodes": 423,
+      "chromeTreeMb": 993.296875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 374.703125
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.96875
+        }
+      ],
+      "bridgeMb": 75.125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759506805,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 73.43796920776367,
+      "jsHeapTotalMb": 113.078125,
+      "nodes": 423,
+      "chromeTreeMb": 1001.203125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 382.75
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.828125
+        }
+      ],
+      "bridgeMb": 77.109375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759508673,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 68.92830276489258,
+      "jsHeapTotalMb": 117.328125,
+      "nodes": 423,
+      "chromeTreeMb": 1011.40625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 392.953125
+        },
+        {
+          "kind": "browser",
+          "mb": 229.046875
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.8125
+        }
+      ],
+      "bridgeMb": 79.328125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759510658,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 73.98868942260742,
+      "jsHeapTotalMb": 118.578125,
+      "nodes": 423,
+      "chromeTreeMb": 1016.328125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 396.796875
+        },
+        {
+          "kind": "browser",
+          "mb": 229.328125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeMb": 81.046875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759512951,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 57.434024810791016,
+      "jsHeapTotalMb": 120.078125,
+      "nodes": 423,
+      "chromeTreeMb": 1019.84375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 398.75
+        },
+        {
+          "kind": "browser",
+          "mb": 230.609375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeMb": 81.046875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759513325,
+      "scenario": "kitty",
+      "jsHeapUsedMb": 57.434024810791016,
+      "jsHeapTotalMb": 120.078125,
+      "nodes": 423,
+      "chromeTreeMb": 1019.84375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 398.75
+        },
+        {
+          "kind": "browser",
+          "mb": 230.609375
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeMb": 81.046875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759513854,
+      "scenario": "switch",
+      "jsHeapUsedMb": 57.44013214111328,
+      "jsHeapTotalMb": 120.078125,
+      "nodes": 423,
+      "chromeTreeMb": 1039.359375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 397.375
+        },
+        {
+          "kind": "browser",
+          "mb": 230.75
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeMb": 81.046875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759514685,
+      "scenario": "switch",
+      "jsHeapUsedMb": 22.547462463378906,
+      "jsHeapTotalMb": 54.078125,
+      "nodes": 445,
+      "chromeTreeMb": 975.1875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 318.3125
+        },
+        {
+          "kind": "browser",
+          "mb": 231.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 110.921875
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 100.875
+        }
+      ],
+      "bridgeMb": 81.0625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759516638,
+      "scenario": "switch",
+      "jsHeapUsedMb": 35.731597900390625,
+      "jsHeapTotalMb": 57.578125,
+      "nodes": 574,
+      "chromeTreeMb": 957.828125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 330.78125
+        },
+        {
+          "kind": "browser",
+          "mb": 231.578125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.65625
+        }
+      ],
+      "bridgeMb": 81.234375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759518616,
+      "scenario": "switch",
+      "jsHeapUsedMb": 23.133682250976562,
+      "jsHeapTotalMb": 71.578125,
+      "nodes": 533,
+      "chromeTreeMb": 997.75,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 344.1875
+        },
+        {
+          "kind": "browser",
+          "mb": 258.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.6875
+        }
+      ],
+      "bridgeMb": 81.28125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759520643,
+      "scenario": "switch",
+      "jsHeapUsedMb": 40.316165924072266,
+      "jsHeapTotalMb": 79.078125,
+      "nodes": 521,
+      "chromeTreeMb": 1011.1875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 356.21875
+        },
+        {
+          "kind": "browser",
+          "mb": 258.984375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.546875
+        }
+      ],
+      "bridgeMb": 81.390625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759522656,
+      "scenario": "switch",
+      "jsHeapUsedMb": 31.80657958984375,
+      "jsHeapTotalMb": 79.328125,
+      "nodes": 439,
+      "chromeTreeMb": 1009.703125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 352.71875
+        },
+        {
+          "kind": "browser",
+          "mb": 261
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.53125
+        }
+      ],
+      "bridgeMb": 81.453125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759524811,
+      "scenario": "switch",
+      "jsHeapUsedMb": 24.12582778930664,
+      "jsHeapTotalMb": 86.328125,
+      "nodes": 574,
+      "chromeTreeMb": 1019.75,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 362.734375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.53125
+        }
+      ],
+      "bridgeMb": 81.46875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759526630,
+      "scenario": "switch",
+      "jsHeapUsedMb": 23.763202667236328,
+      "jsHeapTotalMb": 85.328125,
+      "nodes": 439,
+      "chromeTreeMb": 1013.015625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 355.9375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.53125
+        }
+      ],
+      "bridgeMb": 81.484375,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759528729,
+      "scenario": "switch",
+      "jsHeapUsedMb": 17.630008697509766,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 444,
+      "chromeTreeMb": 1016.625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.5
+        },
+        {
+          "kind": "browser",
+          "mb": 261.109375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.546875
+        }
+      ],
+      "bridgeMb": 81.625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759530671,
+      "scenario": "switch",
+      "jsHeapUsedMb": 21.758464813232422,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 498,
+      "chromeTreeMb": 1016.6875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.65625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.46875
+        }
+      ],
+      "bridgeMb": 81.78125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759530838,
+      "scenario": "switch",
+      "jsHeapUsedMb": 21.758464813232422,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 498,
+      "chromeTreeMb": 1016.6875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.65625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.46875
+        }
+      ],
+      "bridgeMb": 81.78125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759531005,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 21.758464813232422,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 498,
+      "chromeTreeMb": 1016.6875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.65625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.09375
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.46875
+        }
+      ],
+      "bridgeMb": 81.78125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759532680,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 21.890731811523438,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 498,
+      "chromeTreeMb": 1012.484375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.578125
+        },
+        {
+          "kind": "browser",
+          "mb": 261.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 81.8125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759534693,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 34.80366516113281,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 500,
+      "chromeTreeMb": 1016.796875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 359.640625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 105.5625
+        }
+      ],
+      "bridgeMb": 81.828125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759536667,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.454143524169922,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 500,
+      "chromeTreeMb": 1009.203125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 356.296875
+        },
+        {
+          "kind": "browser",
+          "mb": 261.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 78.5625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759538701,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 33.64086151123047,
+      "jsHeapTotalMb": 86.078125,
+      "nodes": 500,
+      "chromeTreeMb": 1009.203125,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 356.390625
+        },
+        {
+          "kind": "browser",
+          "mb": 261.03125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 75.78125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759540693,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 18.241416931152344,
+      "jsHeapTotalMb": 21.078125,
+      "nodes": 404,
+      "chromeTreeMb": 944.171875,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 291.328125
+        },
+        {
+          "kind": "browser",
+          "mb": 261.0625
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 76.03125,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759542756,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 21.926036834716797,
+      "jsHeapTotalMb": 27.828125,
+      "nodes": 404,
+      "chromeTreeMb": 950.84375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 298
+        },
+        {
+          "kind": "browser",
+          "mb": 261.0625
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 76.15625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759544702,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.00006866455078,
+      "jsHeapTotalMb": 27.828125,
+      "nodes": 404,
+      "chromeTreeMb": 950.984375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 298.078125
+        },
+        {
+          "kind": "browser",
+          "mb": 261.125
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 76.140625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759546649,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.002483367919922,
+      "jsHeapTotalMb": 27.828125,
+      "nodes": 404,
+      "chromeTreeMb": 951.140625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 298.109375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.25
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 67.6875,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759548675,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.950550079345703,
+      "jsHeapTotalMb": 30.078125,
+      "nodes": 404,
+      "chromeTreeMb": 953.375,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 300.34375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.25
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 70.515625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759549662,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.953903198242188,
+      "jsHeapTotalMb": 30.078125,
+      "nodes": 404,
+      "chromeTreeMb": 953.390625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 300.359375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.25
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 70.515625,
+      "herdrMb": 0
+    },
+    {
+      "t": 1795759549812,
+      "scenario": "storm2",
+      "jsHeapUsedMb": 22.953903198242188,
+      "jsHeapTotalMb": 30.078125,
+      "nodes": 404,
+      "chromeTreeMb": 953.390625,
+      "chromeTop": [
+        {
+          "kind": "renderer",
+          "mb": 300.359375
+        },
+        {
+          "kind": "browser",
+          "mb": 261.25
+        },
+        {
+          "kind": "renderer",
+          "mb": 111.015625
+        },
+        {
+          "kind": "gpu-process",
+          "mb": 101.3125
+        }
+      ],
+      "bridgeMb": 70.515625,
+      "herdrMb": 0
+    }
+  ]
+}

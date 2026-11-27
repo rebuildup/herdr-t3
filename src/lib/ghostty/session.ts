@@ -295,6 +295,11 @@ export class GhosttySession {
     return this.call(() => this.engine.imagePixels(id));
   }
 
+  /** cheap Kitty-image existence check — no pixel copy (issue #499) */
+  hasImage(id: number): boolean {
+    return this.call(() => this.engine.hasImage(id));
+  }
+
   /** the bytes a key sends the program in the keyboard mode it asked for; empty when it cannot see the chord */
   encodeKey(key: EngineKey): Uint8Array {
     return this.call(() => this.engine.encodeKey(key));

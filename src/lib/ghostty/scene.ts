@@ -7,6 +7,7 @@
  * mirrors it in Rust.
  */
 import type { GhosttySession } from "./session.ts";
+import { LruCache } from "../lru.ts";
 import type {
   GhosttyBackgroundImageFit,
   GhosttyBackgroundImagePosition,
@@ -118,6 +119,13 @@ export type PaintOp =
       repeat?: boolean;
       clip?: Rect;
     };
+
+/**
+ * Bound on cached grapheme advance measurements (issue #499): the key space
+ * is every distinct grapheme × font a session ever draws, which grows without
+ * limit on image/emoji-heavy output. LRU eviction only costs a re-measure.
+ */
+const ADVANCE_CACHE_MAX = 4096;
 
 export interface SceneFrame {
   /** bottom canvas ops, in call order */
@@ -368,7 +376,7 @@ export class GhosttyScene {
       const y = image.row * m.cellH + image.offsetY;
       const h = image.height;
       if (y + h <= top || y >= bandBottom) continue;
-      if (!this.session.imagePixels(image.id)) continue;
+      if (!this.session.hasImage(image.id)) continue;
       const { source } = image;
       if (source.width > 0 && source.height > 0) {
         out.push({
@@ -406,8 +414,8 @@ export class GhosttyScene {
   private textBox: { key: string; ascent: number; descent: number } | null = null;
   /** draw-font string per bold/italic flag pair (issue #213) */
   private readonly fontStrings = new Map<number, string>();
-  /** grapheme advance measurements, keyed by font + text (issue #213) */
-  private readonly advanceCache = new Map<string, number>();
+  /** grapheme advance measurements, keyed by font + text (issue #213); bounded (issue #499) */
+  private readonly advanceCache = new LruCache<string, number>(ADVANCE_CACHE_MAX);
 
   /**
    * The alphabetic baseline y for a cell row: the font's ink box is centered
