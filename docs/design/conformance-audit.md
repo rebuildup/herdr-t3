@@ -90,9 +90,9 @@ a proxy for monolithic local state vs T3's store/atom decomposition.
 | --- | --- | --- | --- | --- | --- |
 | `CheckpointsSurface.tsx` | 2331 | ~36 | 70 | 66/75 | bespoke section tree; no Empty/Skeleton primitives (now available); own loading/error copy |
 | `GitSurface.tsx` | 2024 | ~34 | 73 | 38/49 | largest state surface; index-key warnings; mutation feedback bespoke |
-| `UsageSurface.tsx` | 1032 | — | 22 | 52/54 | heaviest type flattening; provider rows bespoke |
-| `ProjectScriptsSurface.tsx` | 903 | — | 31 | 19/26 | run/preview states bespoke; no empty state |
-| `ProjectsSurface.tsx` | 813 | — | 36 | 24/30 | set-state-in-effect warnings ×4 |
+| `UsageSurface.tsx` | ~1090 | — | ~14 | 4/47 | **rewritten (#410)**: SurfaceSection/Group/Row composition, T3 UsagePage table markup, Skeleton rows, Alert errors, quota window bars |
+| `ProjectScriptsSurface.tsx` | ~1010 | — | ~28 | 0 | **rewritten (#410)**: grouped project/script/run rows, row-level empty/error states, toast mutation feedback |
+| `ProjectsSurface.tsx` | ~880 | — | ~30 | 0 | **rewritten (#410)**: settings-family sections/groups/rows, toast mutation feedback |
 | `RightPanel.tsx` (chrome) | 595 | — | — | — | tab strip lacks `ownsDesktopTitleBar` semantics → issue #408 |
 | `AutomationsSurface.tsx` | 594 | — | 17 | 13/17 | set-state-in-effect ×2 |
 | `ConversationsSurface.tsx` | 574 | — | 20 | 16/20 | — |
@@ -114,12 +114,25 @@ Cross-cutting findings:
   `react(set-state-in-effect)` warnings cluster in Projects,
   ProjectScripts, Automations, Conversations, Git, Checkpoints.
 - **Missing primitives** (vs T3's 58): `empty`, `skeleton` now ported.
-  Still absent and needed by #409–#411 as discovered: `table` (Usage),
-  `alert` (mutation feedback), `checkbox` (Git allow-empty, settings),
-  `collapsible` (long sections), `anchoredCopyToast` (copy
+  `alert` was ported verbatim for #410 (`ui/alert.tsx`; the `glass`
+  surface variant is unused — `alert-glass` is not in the theme).
+  `table` was **not** ported: T3's own UsagePage breakdown tables use
+  raw `<table>` markup (`text-sm` body, `text-xs` muted header rule,
+  `tabular-nums`), which #410 mirrors; port `ui/table.tsx` only if a
+  surface needs the primitive's default styling. Still absent and
+  needed by #409/#411 as discovered: `checkbox` (Git allow-empty,
+  settings), `collapsible` (long sections), `anchoredCopyToast` (copy
   feedback). `toast` itself was ported for #428 (`ui/toast.tsx` +
   `toast.logic.ts`, minus thread scoping/i18n/anchored variant).
   Port on demand from the pinned upstream, verbatim.
+- **Surface composition** (#410): `src/components/surfaceLayout.tsx`
+  now carries the shared panel-density analog of T3's
+  `settingsLayout.tsx` — `SurfaceSection` (`text-sm font-medium`
+  title), `SurfaceGroup` (T3 `SettingsGroup` card container),
+  `SurfaceRow` (T3 `SettingsRow` `px-3 py-2.5 sm:px-4` density with
+  `text-sm`/`text-xs` ramp), `SurfaceLoadingRow`, and
+  `SurfaceSkeletonRows`. #409/#411 should reuse it rather than
+  re-inventing section headers per surface.
 - **Internal information**: surfaces print raw plugin codes/IDs in
   places T3 would route through Details/Copy affordances — verify per
   surface during rewrite (info-architecture.md §5).

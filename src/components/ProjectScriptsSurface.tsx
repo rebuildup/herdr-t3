@@ -17,6 +17,13 @@
  *   metadata, never as active triggers.
  * - Multi-repo `scripts run` without `--repo` fails `repo_ambiguous`;
  *   the repo selector is explicit and nothing is auto-picked.
+ *
+ * Composition follows the T3 Code settings/scheduled-tasks idiom
+ * (issue #410, docs/design/conformance-audit.md): `SurfaceSection`
+ * headers, grouped `SurfaceGroup`/`SurfaceRow` lists, `Skeleton`
+ * loading rows, row-level title/description empty and error states,
+ * and transient mutation feedback through the shared toast store
+ * (`pushNotice`) instead of inline banners.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshIcon } from "./ui/refresh-icon";
@@ -32,6 +39,14 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  SurfaceGroup,
+  SurfaceLoadingRow,
+  SurfaceRow,
+  SurfaceSection,
+  SurfaceSkeletonRows,
+} from "./surfaceLayout";
+import { pushNotice } from "../shell/notices";
 import {
   classifyProjectScriptsError,
   fetchProjectsList,
@@ -131,20 +146,6 @@ function supportsMutation(
 
 const UNSUPPORTED_TEXT = "not supported by this plugin version";
 
-function SectionMessage({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs text-muted-foreground">{children}</div>;
-}
-
-function MutationFeedback({ error, notice }: { error: string | null; notice: string | null }) {
-  if (error !== null) {
-    return <div className="text-2xs text-destructive">{error}</div>;
-  }
-  if (notice !== null) {
-    return <div className="text-2xs text-muted-foreground">{notice}</div>;
-  }
-  return null;
-}
-
 function formatTime(iso: string | null): string {
   if (iso === null || iso === "") return "—";
   const date = new Date(iso);
@@ -215,8 +216,8 @@ function AutoFlags({ script }: { script: ProjectScript }) {
     <Tooltip>
       <TooltipTrigger
         render={
-          <span className="text-2xs text-muted-foreground/70">
-            auto: {flags.join(", ")} · not wired
+          <span className="text-xs text-muted-foreground">
+            Auto: {flags.join(", ")} · not wired
           </span>
         }
       />
@@ -227,6 +228,46 @@ function AutoFlags({ script }: { script: ProjectScript }) {
       </TooltipPopup>
     </Tooltip>
   );
+}
+
+/** Capability gate states shared by the panes (T3 unavailable idiom). */
+function CapabilityMessage({
+  cap,
+  supported,
+  command,
+}: {
+  cap: ProjectsCapability | null | undefined;
+  supported: boolean | null;
+  command?: string;
+}) {
+  if (cap === null) {
+    return (
+      <SurfaceGroup>
+        <SurfaceRow
+          title="Projects plugin unavailable"
+          description="Install or enable rebuildup.projects on this host and reopen."
+        />
+      </SurfaceGroup>
+    );
+  }
+  if (supported === null) {
+    return (
+      <SurfaceGroup>
+        <SurfaceLoadingRow>Checking plugin capabilities…</SurfaceLoadingRow>
+      </SurfaceGroup>
+    );
+  }
+  if (supported === false) {
+    return (
+      <SurfaceGroup>
+        <SurfaceRow
+          title={UNSUPPORTED_TEXT}
+          description={command !== undefined ? `(${command})` : undefined}
+        />
+      </SurfaceGroup>
+    );
+  }
+  return null;
 }
 
 /* ------------------------------ left column ----------------------------- */
@@ -254,8 +295,6 @@ function ScriptsPane({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   // `auto` = contract default: the plugin resolves the shell family
   // itself (flag → pane.process_info → host default) and records
   // `shell_source`; an explicit family sends `--shell <family>`.
@@ -292,8 +331,6 @@ function ScriptsPane({
 
   const run = async (script: ProjectScript) => {
     setBusyName(script.name);
-    setRunError(null);
-    setNotice(null);
     try {
       const { run: started } = await runProjectScript(machine, project.id, script.name, {
         repo: effectiveRepo ?? undefined,
@@ -301,7 +338,11 @@ function ScriptsPane({
       });
       // Display the record exactly as returned — `running` does not mean
       // the process is alive and is never upgraded to `success`.
-      setNotice(`started ${started.script?.name ?? script.name} — ${started.result}`);
+      pushNotice({
+        kind: "info",
+        title: `Started "${started.script?.name ?? script.name}"`,
+        body: started.result,
+      });
       onRan();
       load();
     } catch (err: unknown) {
@@ -314,28 +355,32 @@ function ScriptsPane({
         const candidates = repoAmbiguousRepoRoots(err) ?? project.repos.map((r) => r.root);
         if (candidates.length > 0) text += ` — candidates: ${candidates.join(", ")}`;
       }
-      setRunError(text);
+      pushNotice({ kind: "error", title: "Could not run script", body: text });
     } finally {
       setBusyName(null);
     }
   };
 
-  if (cap === null) return <SectionMessage>projects plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return <CapabilityMessage cap={cap} supported={supported} command="scripts" />;
+  }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium">{project.title}</div>
-          <div className="truncate font-mono text-2xs text-muted-foreground">{project.id}</div>
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-foreground">
+            {project.title}
+          </div>
+          <div className="truncate font-mono text-xs text-muted-foreground">
+            {project.id}
+          </div>
         </div>
-        {project.pinned ? <Badge size="sm" variant="secondary">pinned</Badge> : null}
+        {project.pinned ? <Badge variant="secondary">Pinned</Badge> : null}
       </div>
 
       {multiRepo ? (
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           Repo
           <Select
             value={repoRoot ?? project.repos[0]?.root ?? ""}
@@ -357,7 +402,7 @@ function ScriptsPane({
         <Tooltip>
           <TooltipTrigger
             render={
-              <div className="truncate font-mono text-2xs text-muted-foreground" />
+              <div className="truncate font-mono text-xs text-muted-foreground" />
             }
           >
             {project.repos[0]?.root}
@@ -369,7 +414,7 @@ function ScriptsPane({
       ) : null}
 
       {canRun === true ? (
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           Shell
           <Select
             value={shell}
@@ -379,7 +424,7 @@ function ScriptsPane({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">auto (detect)</SelectItem>
+              <SelectItem value="auto">Auto (detect)</SelectItem>
               <SelectItem value="sh">sh</SelectItem>
               <SelectItem value="cmd">cmd</SelectItem>
               <SelectItem value="powershell">powershell</SelectItem>
@@ -389,32 +434,43 @@ function ScriptsPane({
       ) : null}
 
       {project.repos.length === 0 ? (
-        <SectionMessage>This project has no repos.</SectionMessage>
+        <SurfaceGroup>
+          <SurfaceRow title="This project has no repos" />
+        </SurfaceGroup>
       ) : loading && result === null ? (
-        <SectionMessage>loading scripts…</SectionMessage>
+        <SurfaceSkeletonRows />
       ) : error !== null ? (
-        <SectionMessage>scripts unavailable: {error}</SectionMessage>
+        <SurfaceGroup>
+          <SurfaceRow title="Scripts unavailable" description={error} />
+        </SurfaceGroup>
       ) : result !== null && result.scripts.length === 0 ? (
-        <SectionMessage>no scripts resolved for this project/repo</SectionMessage>
+        <SurfaceGroup>
+          <SurfaceRow
+            title="No scripts resolved"
+            description="The plugin resolved no scripts for this project/repo."
+          />
+        </SurfaceGroup>
       ) : (
-        <div className="flex max-h-72 flex-col gap-1 overflow-auto pr-1">
+        <SurfaceGroup>
           {result?.scripts.map((script) => {
             const busy = busyName === script.name;
             return (
-              <div
+              <SurfaceRow
                 key={`${script.source}:${script.id}`}
-                className="flex items-start gap-2 rounded-md px-1.5 py-1.5 hover:bg-accent/50"
+                className="flex items-start gap-2"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate text-xs font-medium">{script.name}</span>
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {script.name}
+                    </span>
                     {script.source !== "" ? (
-                      <Badge size="sm" variant="outline">
+                      <Badge variant="outline">
                         {SCRIPT_SOURCE_LABELS[script.source] ?? script.source}
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="truncate font-mono text-2xs text-muted-foreground">
+                  <div className="truncate font-mono text-xs text-muted-foreground">
                     {script.command}
                   </div>
                   <AutoFlags script={script} />
@@ -429,14 +485,17 @@ function ScriptsPane({
                     {busy ? "Running…" : "Run"}
                   </Button>
                 ) : null}
-              </div>
+              </SurfaceRow>
             );
           })}
-        </div>
+        </SurfaceGroup>
       )}
 
-      <MutationFeedback error={runError} notice={notice} />
-      {canRun === false ? <SectionMessage>{UNSUPPORTED_TEXT} (scripts run)</SectionMessage> : null}
+      {canRun === false ? (
+        <SurfaceGroup>
+          <SurfaceRow title={UNSUPPORTED_TEXT} description="(scripts run)" />
+        </SurfaceGroup>
+      ) : null}
     </div>
   );
 }
@@ -474,14 +533,14 @@ function RunDetail({
   }, [machine, run.run_id]);
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-2">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-2xs">{run.run_id}</span>
-        <Badge size="sm" variant={resultBadgeVariant(run.result)}>
-          {run.result}
-        </Badge>
+    <SurfaceGroup divided={false} className="flex flex-col gap-3 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-xs">{run.run_id}</span>
+        <Badge variant={resultBadgeVariant(run.result)}>{run.result}</Badge>
         {run.exit_code !== null ? (
-          <span className="text-2xs text-muted-foreground">exit {run.exit_code}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            exit {run.exit_code}
+          </span>
         ) : null}
         {isActiveScriptRunResult(run.result) && canStop ? (
           <Button
@@ -495,41 +554,45 @@ function RunDetail({
         ) : null}
       </div>
       {run.result === "stopping" || run.result === "stop_unconfirmed" ? (
-        <div className="text-2xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {run.result === "stopping"
-            ? "stop requested — awaiting exit confirmation"
-            : "stop requested but exit could not be confirmed — still reconciling"}
+            ? "Stop requested — awaiting exit confirmation"
+            : "Stop requested but exit could not be confirmed — still reconciling"}
           {run.stop_requested_at !== null
             ? ` (since ${formatTime(run.stop_requested_at)})`
             : ""}
-        </div>
+        </p>
       ) : null}
-      <dl className="flex flex-col gap-0.5 text-2xs">
+      <dl className="flex flex-col gap-1 text-xs">
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-muted-foreground">script</dt>
-          <dd className="min-w-0 flex-1 truncate">{run.script?.name ?? run.script?.id ?? "—"}</dd>
+          <dt className="w-16 shrink-0 text-muted-foreground">Script</dt>
+          <dd className="min-w-0 flex-1 truncate">
+            {run.script?.name ?? run.script?.id ?? "—"}
+          </dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-muted-foreground">repo</dt>
-          <dd className="min-w-0 flex-1 truncate font-mono">{run.repo?.root ?? run.cwd ?? "—"}</dd>
+          <dt className="w-16 shrink-0 text-muted-foreground">Repo</dt>
+          <dd className="min-w-0 flex-1 truncate font-mono">
+            {run.repo?.root ?? run.cwd ?? "—"}
+          </dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-muted-foreground">started</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">Started</dt>
           <dd className="min-w-0 flex-1">{formatTime(run.started_at)}</dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-muted-foreground">finished</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">Finished</dt>
           <dd className="min-w-0 flex-1">{formatTime(run.finished_at)}</dd>
         </div>
         {run.stop_requested_at !== null ? (
           <div className="flex gap-2">
-            <dt className="w-16 shrink-0 text-muted-foreground">stop req.</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">Stop req.</dt>
             <dd className="min-w-0 flex-1">{formatTime(run.stop_requested_at)}</dd>
           </div>
         ) : null}
         {run.shell_family !== null ? (
           <div className="flex gap-2">
-            <dt className="w-16 shrink-0 text-muted-foreground">shell</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">Shell</dt>
             <dd className="min-w-0 flex-1">
               {run.shell_family}
               {run.shell_source !== null
@@ -540,7 +603,7 @@ function RunDetail({
         ) : null}
         {run.host !== null || run.session_key !== null ? (
           <div className="flex gap-2">
-            <dt className="w-16 shrink-0 text-muted-foreground">host</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">Host</dt>
             <dd className="min-w-0 flex-1 truncate font-mono">
               {run.host ?? "—"}
               {run.session_key !== null ? ` · ${run.session_key}` : ""}
@@ -549,31 +612,31 @@ function RunDetail({
         ) : null}
         {run.error !== null ? (
           <div className="flex gap-2">
-            <dt className="w-16 shrink-0 text-muted-foreground">error</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">Error</dt>
             <dd className="min-w-0 flex-1 text-destructive">{run.error}</dd>
           </div>
         ) : null}
       </dl>
       {run.command_line !== null ? (
-        <pre className="max-h-24 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
+        <pre className="max-h-24 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap break-all">
           {run.command_line}
         </pre>
       ) : null}
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-        Log
-      </div>
+      <div className="text-xs font-medium text-muted-foreground">Log</div>
       {logsLoading ? (
-        <SectionMessage>loading log…</SectionMessage>
+        <p className="text-xs text-muted-foreground" role="status">
+          Loading log…
+        </p>
       ) : logsError !== null ? (
-        <SectionMessage>log unavailable: {logsError}</SectionMessage>
+        <p className="text-xs text-destructive">Log unavailable: {logsError}</p>
       ) : logs !== null && logs.log !== null && logs.log !== "" ? (
-        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
+        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap break-all">
           {logs.log}
         </pre>
       ) : (
-        <SectionMessage>no log captured for this run</SectionMessage>
+        <p className="text-xs text-muted-foreground">No log captured for this run</p>
       )}
-    </div>
+    </SurfaceGroup>
   );
 }
 
@@ -607,25 +670,46 @@ function RunsPane({
     [runs, selectedRunId],
   );
 
-  if (cap === null) return <SectionMessage>projects plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
-  if (loading && runs === null) return <SectionMessage>loading runs…</SectionMessage>;
-  if (error !== null) return <SectionMessage>runs unavailable: {error}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return (
+      <SurfaceSection title="Runs">
+        <CapabilityMessage cap={cap} supported={supported} command="scripts" />
+      </SurfaceSection>
+    );
+  }
+  if (loading && runs === null) {
+    return (
+      <SurfaceSection title="Runs">
+        <SurfaceSkeletonRows />
+      </SurfaceSection>
+    );
+  }
+  if (error !== null) {
+    return (
+      <SurfaceSection title="Runs">
+        <SurfaceGroup>
+          <SurfaceRow title="Runs unavailable" description={error} />
+        </SurfaceGroup>
+      </SurfaceSection>
+    );
+  }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium">Runs</div>
+    <SurfaceSection
+      title="Runs"
+      action={
         <Button size="xs" variant="ghost" onClick={onRefresh} disabled={loading}>
           <RefreshIcon refreshing={loading} />
           Refresh
         </Button>
-      </div>
+      }
+    >
       {runs !== null && runs.length === 0 ? (
-        <SectionMessage>no script runs recorded</SectionMessage>
+        <SurfaceGroup>
+          <SurfaceRow title="No script runs recorded" />
+        </SurfaceGroup>
       ) : (
-        <div className="flex max-h-56 flex-col gap-0.5 overflow-auto pr-1">
+        <SurfaceGroup>
           {runs?.map((run) => {
             const selected = run.run_id === selectedRunId;
             return (
@@ -634,33 +718,36 @@ function RunsPane({
                 key={run.run_id}
                 type="button"
                 onClick={() => onSelectRun(selected ? null : run.run_id)}
-                className={`flex items-center gap-2 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
+                className={`flex w-full items-center gap-2 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4 ${
                   selected ? "bg-accent" : ""
                 }`}
               >
-                <Badge size="sm" variant={resultBadgeVariant(run.result)}>
+                <Badge variant={resultBadgeVariant(run.result)}>
                   {run.result}
                 </Badge>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs">
+                  <span className="block truncate text-sm text-foreground">
                     {run.script?.name ?? run.script?.id ?? run.run_id}
                   </span>
-                  <span className="block truncate font-mono text-2xs text-muted-foreground">
-                    {run.repo?.root ?? run.cwd ?? run.run_id} · {formatTime(run.started_at)}
+                  <span className="block truncate font-mono text-xs text-muted-foreground">
+                    {run.repo?.root ?? run.cwd ?? run.run_id} ·{" "}
+                    {formatTime(run.started_at)}
                   </span>
                 </span>
                 {run.exit_code !== null ? (
-                  <span className="shrink-0 text-2xs text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     exit {run.exit_code}
                   </span>
                 ) : null}
               </button>
             );
           })}
-        </div>
+        </SurfaceGroup>
       )}
       {canStop === false ? (
-        <SectionMessage>{UNSUPPORTED_TEXT} (scripts stop)</SectionMessage>
+        <SurfaceGroup>
+          <SurfaceRow title={UNSUPPORTED_TEXT} description="(scripts stop)" />
+        </SurfaceGroup>
       ) : null}
       {selectedRun !== null ? (
         <RunDetail
@@ -671,7 +758,7 @@ function RunsPane({
           onStop={onStop}
         />
       ) : null}
-    </div>
+    </SurfaceSection>
   );
 }
 
@@ -695,8 +782,6 @@ export function ProjectScriptsSurface({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [stopBusy, setStopBusy] = useState(false);
-  const [stopError, setStopError] = useState<string | null>(null);
-  const [stopNotice, setStopNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -771,17 +856,23 @@ export function ProjectScriptsSurface({
   const stopRun = useCallback(
     async (runId: string) => {
       setStopBusy(true);
-      setStopError(null);
-      setStopNotice(null);
       try {
         const result = await stopProjectScripts(machine, runId);
         const summary = result.outcomes
           .map((o: ScriptRunOutcome) => `${o.run.run_id}: ${stopActionLabel(o.action)}`)
           .join(", ");
-        setStopNotice(summary === "" ? "stop requested" : summary);
+        pushNotice({
+          kind: "info",
+          title: "Stop requested",
+          body: summary === "" ? undefined : summary,
+        });
         loadRuns();
       } catch (err: unknown) {
-        setStopError(projectsErrorText(err));
+        pushNotice({
+          kind: "error",
+          title: "Could not stop script run",
+          body: projectsErrorText(err),
+        });
       } finally {
         setStopBusy(false);
       }
@@ -792,40 +883,61 @@ export function ProjectScriptsSurface({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <p className="text-2xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Project-defined scripts from the rebuildup.projects plugin. Runs
           execute in dedicated herdr workspaces; results and logs are
           reported as the plugin records them.
         </p>
-          {cap === null ? (
-            <SectionMessage>
-              projects plugin unavailable on this host — install or enable
-              rebuildup.projects and reopen
-            </SectionMessage>
-          ) : cap === undefined ? (
-            <SectionMessage>checking plugin capabilities…</SectionMessage>
-          ) : (
+        {cap === null ? (
+          <CapabilityMessage cap={cap} supported={projectsSupported} command="list" />
+        ) : cap === undefined ? (
+          <SurfaceGroup>
+            <SurfaceLoadingRow>Checking plugin capabilities…</SurfaceLoadingRow>
+          </SurfaceGroup>
+        ) : (
+          <>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-medium">Projects</div>
-                  <Button size="xs" variant="ghost" onClick={loadProjects} disabled={projectsLoading}>
+              <SurfaceSection
+                title="Projects"
+                action={
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={loadProjects}
+                    disabled={projectsLoading}
+                  >
                     <RefreshIcon refreshing={projectsLoading} />
                     Refresh
                   </Button>
-                </div>
+                }
+              >
                 {projectsSupported === null ? (
-                  <SectionMessage>checking plugin capabilities…</SectionMessage>
+                  <SurfaceSkeletonRows />
                 ) : projectsSupported === false ? (
-                  <SectionMessage>{UNSUPPORTED_TEXT} (list)</SectionMessage>
+                  <SurfaceGroup>
+                    <SurfaceRow
+                      title={UNSUPPORTED_TEXT}
+                      description="(list)"
+                    />
+                  </SurfaceGroup>
                 ) : projectsLoading && projects === null ? (
-                  <SectionMessage>loading projects…</SectionMessage>
+                  <SurfaceSkeletonRows />
                 ) : projectsError !== null ? (
-                  <SectionMessage>projects unavailable: {projectsError}</SectionMessage>
+                  <SurfaceGroup>
+                    <SurfaceRow
+                      title="Projects unavailable"
+                      description={projectsError}
+                    />
+                  </SurfaceGroup>
                 ) : projects !== null && projects.projects.length === 0 ? (
-                  <SectionMessage>no projects registered</SectionMessage>
+                  <SurfaceGroup>
+                    <SurfaceRow
+                      title="No projects registered"
+                      description="Register a repo below or discover repos from session panes."
+                    />
+                  </SurfaceGroup>
                 ) : (
-                  <div className="flex max-h-56 flex-col gap-0.5 overflow-auto pr-1">
+                  <SurfaceGroup>
                     {projects?.projects.map((project) => {
                       const selected = project.id === selectedProjectId;
                       return (
@@ -834,30 +946,30 @@ export function ProjectScriptsSurface({
                           key={project.id}
                           type="button"
                           onClick={() => setSelectedProjectId(project.id)}
-                          className={`flex items-center gap-2 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
+                          className={`flex w-full items-center gap-2 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4 ${
                             selected ? "bg-accent" : ""
                           }`}
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium">
+                            <span className="block truncate text-sm font-medium text-foreground">
                               {project.title}
                             </span>
-                            <span className="block truncate font-mono text-2xs text-muted-foreground">
+                            <span className="block truncate font-mono text-xs text-muted-foreground">
                               {project.id} · {project.repos.length} repo
                               {project.repos.length === 1 ? "" : "s"}
                             </span>
                           </span>
                           {project.pinned ? (
-                            <Badge size="sm" variant="secondary">pinned</Badge>
+                            <Badge variant="secondary">Pinned</Badge>
                           ) : null}
                         </button>
                       );
                     })}
-                  </div>
+                  </SurfaceGroup>
                 )}
-              </div>
+              </SurfaceSection>
 
-              <div className="flex min-w-0 flex-col gap-2 border-l border-border pl-4 max-sm:border-l-0 max-sm:border-t max-sm:pl-0 max-sm:pt-4">
+              <div className="min-w-0 border-border max-sm:border-t max-sm:pt-4 sm:border-l sm:pl-4">
                 {selectedProject !== null ? (
                   <ScriptsPane
                     key={selectedProject.id}
@@ -873,30 +985,27 @@ export function ProjectScriptsSurface({
                     refreshKey={refreshKey}
                   />
                 ) : (
-                  <SectionMessage>select a project to list its scripts</SectionMessage>
+                  <SurfaceGroup>
+                    <SurfaceRow title="Select a project to list its scripts" />
+                  </SurfaceGroup>
                 )}
               </div>
             </div>
-          )}
 
-          {cap !== null && cap !== undefined ? (
-            <div className="mt-4 border-t border-border pt-3">
-              <RunsPane
-                machine={machine}
-                cap={cap}
-                runs={runs}
-                loading={runsLoading}
-                error={runsError}
-                selectedRunId={selectedRunId}
-                onSelectRun={setSelectedRunId}
-                busy={stopBusy}
-                onStop={(runId) => void stopRun(runId)}
-                onRefresh={refreshAll}
-              />
-            </div>
-          ) : null}
-
-          <MutationFeedback error={stopError} notice={stopNotice} />
+            <RunsPane
+              machine={machine}
+              cap={cap}
+              runs={runs}
+              loading={runsLoading}
+              error={runsError}
+              selectedRunId={selectedRunId}
+              onSelectRun={setSelectedRunId}
+              busy={stopBusy}
+              onStop={(runId) => void stopRun(runId)}
+              onRefresh={refreshAll}
+            />
+          </>
+        )}
       </DialogPanel>
     </div>
   );

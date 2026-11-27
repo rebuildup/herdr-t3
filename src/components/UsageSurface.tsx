@@ -16,10 +16,20 @@
  * accounting is a tri-state (`reported`|`unsupported`|`unknown`)
  * shown as the plugin reports it; estimated cost always carries the
  * contract disclaimer and is labeled an estimate, never a bill.
+ *
+ * Composition follows the T3 Code usage screen (issue #410,
+ * docs/design/conformance-audit.md): `SurfaceSection` headers at
+ * `text-sm font-medium`, grouped `SurfaceGroup`/`SurfaceRow` lists,
+ * T3 UsagePage's raw breakdown-table markup (`text-sm` body, `text-xs`
+ * muted header rule, tabular figures), `Skeleton` loading rows and
+ * `Alert` for section errors — the same hierarchy T3's UsagePage
+ * uses (`text-sm` primary, `text-xs` secondary, `text-2xs` metadata
+ * only).
  */
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
+import { InfoIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -30,7 +40,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Skeleton } from "./ui/skeleton";
 import { DialogPanel } from "./ui/dialog";
+import {
+  SurfaceGroup,
+  SurfaceLoadingRow,
+  SurfaceRow,
+  SurfaceSection,
+  SurfaceSkeletonRows,
+} from "./surfaceLayout";
 import {
   USAGE_BREAKDOWN_DIMENSIONS,
   describeUsageError,
@@ -63,17 +81,17 @@ const UNAVAILABLE_LABELS: Record<UsageUnavailableReason, string> = {
   error: "usage unavailable",
 };
 
-/** Section failure line: short summary in destructive, raw detail secondary. */
+/** Section failure: T3 `Alert` error composition (icon + title + detail). */
 function SectionError({ label, error }: { label: string; error: UsageErrorInfo }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <p className="text-2xs text-destructive">
-        {label} failed: {error.summary}
-      </p>
-      {error.detail !== null ? (
-        <p className="text-2xs text-muted-foreground/70">{error.detail}</p>
-      ) : null}
-    </div>
+    <Alert variant="error">
+      <TriangleAlertIcon />
+      <AlertTitle>{label} failed</AlertTitle>
+      <AlertDescription>
+        {error.summary}
+        {error.detail !== null ? ` — ${error.detail}` : ""}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -159,6 +177,21 @@ function verdictVariant(
 
 /* ------------------------------ quota cards ---------------------------- */
 
+function formatWindowDuration(mins: number): string {
+  if (mins % 60 === 0) return `${mins / 60}h`;
+  if (mins > 60 && mins % 60 !== 0) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+  }
+  return `${mins}m`;
+}
+
+/**
+ * One quota window: label + used share on the first line, a T3
+ * `WindowBar`-style track underneath (muted track, ink fill — the T3
+ * fallback when no provider accent color exists), resets metadata last.
+ */
 function QuotaWindowRow({ window }: { window: UsageQuotaWindow }) {
   // The kind suffix only earns its place when it adds information —
   // "Session · session" / "Weekly · weekly" printed the same word twice
@@ -167,47 +200,62 @@ function QuotaWindowRow({ window }: { window: UsageQuotaWindow }) {
     window.kind !== null &&
     (window.label === null ||
       window.label.toLowerCase() !== window.kind.toLowerCase());
+  const used = window.used_percent;
+  const usedClamped =
+    used === null ? null : Math.min(100, Math.max(0, used));
+  const label =
+    window.label ?? window.id ?? "window";
   return (
-    <div className="flex min-w-0 items-center gap-2 text-2xs">
-      <span className="min-w-0 flex-1 truncate">
-        {window.label ?? window.id ?? "window"}
-        {kindDiffers ? (
-          <span className="text-muted-foreground/70"> · {window.kind}</span>
-        ) : null}
-      </span>
-      <span className="shrink-0 font-medium">{formatPercent(window.used_percent)}</span>
-      <span className="shrink-0 text-muted-foreground">
-        resets {formatTime(window.resets_at)}
-      </span>
-      {window.window_duration_mins !== null ? (
-        <span className="shrink-0 text-muted-foreground/70">
-          {window.window_duration_mins}m
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {label}
+          {kindDiffers ? ` · ${window.kind}` : ""}
         </span>
+        <span className="shrink-0 text-xs font-medium text-foreground tabular-nums">
+          {formatPercent(used)} used
+        </span>
+      </div>
+      {usedClamped !== null ? (
+        <div
+          role="img"
+          aria-label={`${label}: ${formatPercent(used)} used`}
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-foreground"
+            style={{ width: `${usedClamped}%` }}
+          />
+        </div>
       ) : null}
+      <p className="text-2xs text-muted-foreground">
+        Resets {formatTime(window.resets_at)}
+        {window.window_duration_mins !== null
+          ? ` · ${formatWindowDuration(window.window_duration_mins)} window`
+          : ""}
+      </p>
     </div>
   );
 }
 
 function QuotaProviderCard({ provider }: { provider: UsageQuotaProvider }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/60 px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge size="sm" variant="outline">
-          {provider.provider}
-        </Badge>
-        <Badge size="sm" variant={quotaStatusVariant(provider.status)}>
+    <SurfaceRow className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-foreground">{provider.provider}</span>
+        <Badge variant={quotaStatusVariant(provider.status)}>
           {provider.status}
         </Badge>
         {provider.plan !== null ? (
-          <span className="truncate text-2xs text-muted-foreground">{provider.plan}</span>
+          <span className="truncate text-xs text-muted-foreground">{provider.plan}</span>
         ) : null}
         {provider.stale ? (
-          <Badge size="sm" variant="warning" title={provider.stale_reason ?? undefined}>
+          <Badge variant="warning" title={provider.stale_reason ?? undefined}>
             stale{provider.stale_reason !== null ? `: ${provider.stale_reason}` : ""}
           </Badge>
         ) : null}
         {provider.cache?.hit === true ? (
-          <Badge size="sm" variant="secondary" title="served from the plugin quota cache">
+          <Badge variant="secondary" title="served from the plugin quota cache">
             cached
             {provider.cache.age_seconds !== null
               ? ` ${Math.round(provider.cache.age_seconds)}s`
@@ -215,17 +263,17 @@ function QuotaProviderCard({ provider }: { provider: UsageQuotaProvider }) {
           </Badge>
         ) : null}
         {provider.reset_credits_available !== null ? (
-          <Badge size="sm" variant="info">
+          <Badge variant="info">
             {provider.reset_credits_available} reset credit
             {provider.reset_credits_available === 1 ? "" : "s"}
           </Badge>
         ) : null}
       </div>
       {provider.detail !== null ? (
-        <p className="text-2xs text-muted-foreground">{provider.detail}</p>
+        <p className="text-xs text-muted-foreground">{provider.detail}</p>
       ) : null}
       {provider.status === "ok" ? (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-2">
           {provider.windows.map((window, index) => (
             <QuotaWindowRow
               key={window.id ?? `${provider.provider}-${index}`}
@@ -233,67 +281,63 @@ function QuotaProviderCard({ provider }: { provider: UsageQuotaProvider }) {
             />
           ))}
           {provider.checked_at !== null ? (
-            <p className="text-2xs text-muted-foreground/70">
-              checked {formatTime(provider.checked_at)}
+            <p className="text-2xs text-muted-foreground">
+              Checked {formatTime(provider.checked_at)}
             </p>
           ) : null}
         </div>
       ) : (
-        <p className="text-2xs text-muted-foreground">
-          no quota data{provider.status !== "ok" ? ` — ${provider.status}` : ""}
+        <p className="text-xs text-muted-foreground">
+          No quota data{provider.status !== "ok" ? ` — ${provider.status}` : ""}
         </p>
       )}
-    </div>
+    </SurfaceRow>
   );
 }
 
 function QuotaHubCard({ hub }: { hub: UsageQuotaHub }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border/60 px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge size="sm" variant="outline">
-          hub:{hub.id ?? "unknown"}
-        </Badge>
-        <Badge size="sm" variant={quotaStatusVariant(hub.status)}>
-          {hub.status}
-        </Badge>
+    <SurfaceRow className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Badge variant="outline">hub:{hub.id ?? "unknown"}</Badge>
+        <Badge variant={quotaStatusVariant(hub.status)}>{hub.status}</Badge>
         {hub.endpoint !== null ? (
-          <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {hub.endpoint}
           </span>
         ) : null}
         {hub.stale ? (
-          <Badge size="sm" variant="warning" title={hub.stale_reason ?? undefined}>
+          <Badge variant="warning" title={hub.stale_reason ?? undefined}>
             stale
           </Badge>
         ) : null}
       </div>
       {hub.detail !== null ? (
-        <p className="text-2xs text-muted-foreground">{hub.detail}</p>
+        <p className="text-xs text-muted-foreground">{hub.detail}</p>
       ) : null}
       {hub.accounts.length > 0 ? (
-        <div className="flex flex-col gap-1 pl-2">
+        <div className="flex flex-col gap-2">
           {hub.accounts.map((account, index) => (
             <div
               key={`${account.account ?? "acct"}-${index}`}
-              className="flex min-w-0 flex-col gap-0.5 border-l border-border/60 pl-2"
+              className="flex flex-col gap-1.5 border-l border-border/60 pl-3"
             >
-              <div className="flex min-w-0 items-center gap-2 text-2xs">
-                <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
                   {account.account ?? "account"}
                 </span>
-                <Badge size="sm" variant="outline">
-                  {account.provider ?? "?"}
-                </Badge>
-                <Badge size="sm" variant={quotaStatusVariant(account.status)}>
+                <Badge variant="outline">{account.provider ?? "?"}</Badge>
+                <Badge variant={quotaStatusVariant(account.status)}>
                   {account.status}
                 </Badge>
                 {account.plan !== null ? (
-                  <span className="shrink-0 text-muted-foreground">{account.plan}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {account.plan}
+                  </span>
                 ) : null}
               </div>
               {account.detail !== null ? (
-                <p className="text-2xs text-muted-foreground/70">{account.detail}</p>
+                <p className="text-xs text-muted-foreground">{account.detail}</p>
               ) : null}
               {account.windows.map((window, wIndex) => (
                 <QuotaWindowRow
@@ -305,7 +349,7 @@ function QuotaHubCard({ hub }: { hub: UsageQuotaHub }) {
           ))}
         </div>
       ) : null}
-    </div>
+    </SurfaceRow>
   );
 }
 
@@ -313,50 +357,55 @@ function QuotaSection({ machine }: { machine: string }) {
   const state = useUsageState(machine);
 
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-        Quota
-      </h3>
+    <SurfaceSection title="Quota">
       {state.quotaError !== null ? (
-        <SectionError label="quota" error={state.quotaError} />
+        <SectionError label="Quota" error={state.quotaError} />
       ) : null}
       {state.quota === null ? (
-        <p className="text-2xs text-muted-foreground">
-          {state.status.kind === "ready" ? "loading quota…" : "quota unavailable"}
-        </p>
+        state.status.kind === "ready" ? (
+          <SurfaceSkeletonRows />
+        ) : (
+          <SurfaceGroup>
+            <SurfaceLoadingRow>Quota unavailable</SurfaceLoadingRow>
+          </SurfaceGroup>
+        )
       ) : (
         <>
           {state.quota.providers.length === 0 && state.quota.hubs.length === 0 ? (
-            <p className="text-2xs text-muted-foreground">no quota providers reported</p>
-          ) : null}
-          <div className="grid grid-cols-1 gap-1.5">
-            {state.quota.providers.map((provider) => (
-              <QuotaProviderCard key={provider.provider} provider={provider} />
-            ))}
-          </div>
+            <SurfaceGroup>
+              <SurfaceRow
+                title="No quota providers reported"
+                description="The usage plugin returned an empty quota report."
+              />
+            </SurfaceGroup>
+          ) : (
+            <SurfaceGroup>
+              {state.quota.providers.map((provider) => (
+                <QuotaProviderCard key={provider.provider} provider={provider} />
+              ))}
+            </SurfaceGroup>
+          )}
           {state.quota.hubs.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-2xs text-muted-foreground/70">
-                quota hubs (CLIProxyAPI-compatible)
-              </p>
-              <div className="grid grid-cols-1 gap-1.5">
+            <SurfaceSection
+              title="Quota hubs"
+              description="CLIProxyAPI-compatible hubs reporting nested accounts."
+              className="gap-2"
+            >
+              <SurfaceGroup>
                 {state.quota.hubs.map((hub, index) => (
-                  <QuotaHubCard
-                    key={hub.id ?? `hub-${index}`}
-                    hub={hub}
-                  />
+                  <QuotaHubCard key={hub.id ?? `hub-${index}`} hub={hub} />
                 ))}
-              </div>
-            </div>
+              </SurfaceGroup>
+            </SurfaceSection>
           ) : null}
           {state.quota.cache_ttl_seconds !== null ? (
-            <p className="text-2xs text-muted-foreground/70">
-              quota cache ttl {state.quota.cache_ttl_seconds}s (plugin-side)
+            <p className="text-xs text-muted-foreground">
+              Quota cache ttl {state.quota.cache_ttl_seconds}s (plugin-side)
             </p>
           ) : null}
         </>
       )}
-    </section>
+    </SurfaceSection>
   );
 }
 
@@ -391,34 +440,32 @@ function FilterBar({
   onChange: (next: UsageFilters) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <Input
         size="sm"
         value={filters.provider}
         onChange={(e) => onChange({ ...filters, provider: e.target.value })}
-        placeholder="provider filter"
+        placeholder="Provider"
         aria-label="Provider filter"
-        className="w-32"
+        className="w-36"
       />
       {/* Visible range labels: two identical datetime fields read as a
           duplicate pair without them (issue #417). */}
-      <span className="text-2xs text-muted-foreground/70">from</span>
+      <span className="text-xs text-muted-foreground">From</span>
       <Input
         size="sm"
         type="datetime-local"
         value={filters.from}
         onChange={(e) => onChange({ ...filters, from: e.target.value })}
         aria-label="From"
-        title="From (inclusive)"
       />
-      <span className="text-2xs text-muted-foreground/70">to</span>
+      <span className="text-xs text-muted-foreground">To</span>
       <Input
         size="sm"
         type="datetime-local"
         value={filters.to}
         onChange={(e) => onChange({ ...filters, to: e.target.value })}
         aria-label="To"
-        title="To (inclusive)"
       />
     </div>
   );
@@ -436,94 +483,91 @@ function useDebouncedOptions(filters: UsageFilters): UsageAggregationOptions {
   return options;
 }
 
+/** Muted plugin notes: warnings get the T3 warning alert, hints stay text. */
 function ReportNotes({ report }: { report: UsageReport }) {
   return (
     <>
       {report.warnings.length > 0 ? (
-        <p className="text-2xs text-muted-foreground">
-          warnings: {report.warnings.join(", ")}
-        </p>
+        <Alert variant="warning">
+          <TriangleAlertIcon />
+          <AlertTitle>Usage warnings</AlertTitle>
+          <AlertDescription>{report.warnings.join(", ")}</AlertDescription>
+        </Alert>
       ) : null}
       {report.hint !== null ? (
-        <p className="text-2xs text-muted-foreground">{report.hint}</p>
+        <p className="text-sm text-muted-foreground">{report.hint}</p>
       ) : null}
       {report.source !== null && report.source.complete === false ? (
-        <p className="text-2xs text-warning">
-          export incomplete — totals are partial
-        </p>
+        <Alert variant="warning">
+          <TriangleAlertIcon />
+          <AlertTitle>Export incomplete</AlertTitle>
+          <AlertDescription>Totals are partial.</AlertDescription>
+        </Alert>
       ) : null}
     </>
   );
 }
 
+/** Totals as a T3 metric row: `dl` label/value pairs, tabular figures. */
 function TotalsRow({ report }: { report: UsageReport }) {
   const t = report.totals;
+  const stats: Array<{ label: string; value: string; hint?: string }> = [
+    { label: "Events", value: formatTokens(t.events) },
+    { label: "Input tokens", value: formatTokens(t.input_tokens) },
+    { label: "Output tokens", value: formatTokens(t.output_tokens) },
+    { label: "Cache read", value: formatTokens(t.cache_read_input_tokens) },
+    { label: "Cache write", value: formatTokens(t.cache_creation_input_tokens) },
+    { label: "Total tokens", value: formatTokens(t.total_tokens) },
+    { label: "Thinking", value: formatTokens(t.thinking_tokens) },
+    {
+      label: "Provider cost",
+      value: formatUsd(t.provider_reported_cost_usd),
+      hint:
+        t.provider_reported_cost_usd !== null
+          ? `${formatTokens(t.provider_reported_cost_events)} events`
+          : "not reported",
+    },
+  ];
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
-      <span>
-        <span className="font-medium text-foreground">{formatTokens(t.events)}</span> events
-      </span>
-      <span>
-        in <span className="font-medium text-foreground">{formatTokens(t.input_tokens)}</span>
-      </span>
-      <span>
-        out <span className="font-medium text-foreground">{formatTokens(t.output_tokens)}</span>
-      </span>
-      <span>
-        cache read{" "}
-        <span className="font-medium text-foreground">
-          {formatTokens(t.cache_read_input_tokens)}
-        </span>
-      </span>
-      <span>
-        cache write{" "}
-        <span className="font-medium text-foreground">
-          {formatTokens(t.cache_creation_input_tokens)}
-        </span>
-      </span>
-      <span>
-        total <span className="font-medium text-foreground">{formatTokens(t.total_tokens)}</span>
-      </span>
-      <span>
-        thinking{" "}
-        <span className="font-medium text-foreground">{formatTokens(t.thinking_tokens)}</span>
-      </span>
-      <span>
-        provider cost{" "}
-        <span className="font-medium text-foreground">
-          {formatUsd(t.provider_reported_cost_usd)}
-        </span>
-        {t.provider_reported_cost_usd !== null
-          ? ` (${formatTokens(t.provider_reported_cost_events)} events)`
-          : " (not reported)"}
-      </span>
-    </div>
+    <SurfaceGroup divided={false}>
+      <SurfaceRow>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+          {stats.map((stat) => (
+            <div key={stat.label} className="flex min-w-0 flex-col gap-0.5">
+              <dt className="text-xs text-muted-foreground">{stat.label}</dt>
+              <dd className="text-sm font-medium text-foreground tabular-nums">
+                {stat.value}
+              </dd>
+              {stat.hint !== undefined ? (
+                <dd className="text-2xs text-muted-foreground">{stat.hint}</dd>
+              ) : null}
+            </div>
+          ))}
+        </dl>
+      </SurfaceRow>
+    </SurfaceGroup>
   );
 }
 
 function CacheTokenRow({ entry }: { entry: UsageCacheTokenProvider }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 text-2xs">
-      <Badge size="sm" variant="outline">
-        {entry.provider}
-      </Badge>
-      <Badge size="sm" variant={cacheTokenVariant(entry.status)}>
-        {entry.status}
-      </Badge>
-      <span className="shrink-0 text-muted-foreground">
+    <SurfaceRow className="flex flex-wrap items-center gap-2">
+      <Badge variant="outline">{entry.provider}</Badge>
+      <Badge variant={cacheTokenVariant(entry.status)}>{entry.status}</Badge>
+      <span className="text-xs text-muted-foreground tabular-nums">
         {formatTokens(entry.events)} event{entry.events === 1 ? "" : "s"}
       </span>
       {entry.status === "reported" ? (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-          read {formatTokens(entry.cache_read_input_tokens)} · write{" "}
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          Read {formatTokens(entry.cache_read_input_tokens)} · write{" "}
           {formatTokens(entry.cache_creation_input_tokens)}
         </span>
       ) : (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground/70">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {entry.detail ?? "cache tokens not measured"}
         </span>
       )}
-    </div>
+    </SurfaceRow>
   );
 }
 
@@ -536,41 +580,55 @@ function BreakdownTable({
 }) {
   if (entries.length === 0) {
     return (
-      <p className="text-2xs text-muted-foreground">
-        no measured usage for this {DIMENSION_LABELS[dimension]}
-      </p>
+      <SurfaceGroup>
+        <SurfaceRow
+          title={`No measured usage for this ${DIMENSION_LABELS[dimension]}`}
+          description="The plugin reports zeros, not measured zero usage, when the conversations index has no events in this window."
+        />
+      </SurfaceGroup>
     );
   }
+  // T3 UsagePage table idiom: raw <table> with text-sm body, xs muted
+  // header rule, py-2.5 rows and tabular figures — the same markup T3
+  // uses for its breakdown tables (ui/table is not used there either).
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 border-b border-border/60 px-1.5 py-1 text-2xs font-medium text-muted-foreground">
-        <span className="min-w-0 flex-1">{DIMENSION_LABELS[dimension]}</span>
-        <span className="w-12 shrink-0 text-right">events</span>
-        <span className="w-16 shrink-0 text-right">input</span>
-        <span className="w-16 shrink-0 text-right">output</span>
-        <span className="w-20 shrink-0 text-right">cache r/w</span>
-        <span className="w-14 shrink-0 text-right">total</span>
-      </div>
-      {entries.map((entry, index) => (
-        <div
-          key={`${entry.key ?? "null"}-${index}`}
-          className="flex items-center gap-2 rounded-sm px-1.5 py-1 text-2xs hover:bg-accent/40"
-        >
-          <span className="min-w-0 flex-1 truncate font-mono">
-            {entry.key ?? "—"}
-          </span>
-          <span className="w-12 shrink-0 text-right">{formatTokens(entry.events)}</span>
-          <span className="w-16 shrink-0 text-right">{formatTokens(entry.input_tokens)}</span>
-          <span className="w-16 shrink-0 text-right">{formatTokens(entry.output_tokens)}</span>
-          <span className="w-20 shrink-0 text-right">
-            {formatTokens(entry.cache_read_input_tokens)}/
-            {formatTokens(entry.cache_creation_input_tokens)}
-          </span>
-          <span className="w-14 shrink-0 text-right font-medium">
-            {formatTokens(entry.total_tokens)}
-          </span>
-        </div>
-      ))}
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-right text-xs text-muted-foreground">
+            <th className="py-2 pr-3 pl-2 text-left font-normal">
+              {DIMENSION_LABELS[dimension]}
+            </th>
+            <th className="py-2 pl-4 font-normal">Events</th>
+            <th className="py-2 pl-4 font-normal">Input</th>
+            <th className="py-2 pl-4 font-normal">Output</th>
+            <th className="py-2 pl-4 font-normal">Cache r/w</th>
+            <th className="py-2 pr-2 pl-4 font-normal">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry, index) => (
+            <tr
+              key={`${entry.key ?? "null"}-${index}`}
+              className="border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50"
+            >
+              <td className="max-w-48 truncate py-2.5 pr-3 pl-2 text-left font-mono text-foreground">
+                {entry.key ?? "—"}
+              </td>
+              <td className="py-2.5 pl-4">{formatTokens(entry.events)}</td>
+              <td className="py-2.5 pl-4">{formatTokens(entry.input_tokens)}</td>
+              <td className="py-2.5 pl-4">{formatTokens(entry.output_tokens)}</td>
+              <td className="py-2.5 pl-4">
+                {formatTokens(entry.cache_read_input_tokens)}/
+                {formatTokens(entry.cache_creation_input_tokens)}
+              </td>
+              <td className="py-2.5 pr-2 pl-4 font-medium text-foreground">
+                {formatTokens(entry.total_tokens)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -578,69 +636,70 @@ function BreakdownTable({
 function UsageSection({ machine, filters }: { machine: string; filters: UsageFilters }) {
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageReport | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<UsageErrorInfo | null>(null);
   const [dimension, setDimension] = useState<UsageBreakdownDimension>("by_provider");
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     fetchUsageReport(machine, options)
       .then((next) => {
-        if (!cancelled) setReport(next);
+        if (!cancelled) {
+          setReport(next);
+          setError(null);
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(describeUsageError(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [machine, options]);
 
+  // Skeleton only while the first fetch is in flight: a settled report
+  // or error stays visible during refetches (stale-while-revalidate,
+  // matching T3's figureClass pattern).
+  const loading = report === null && error === null;
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-        Usage
-      </h3>
-      {loading && report === null ? (
-        <p className="text-2xs text-muted-foreground">loading usage…</p>
-      ) : null}
-      {error !== null ? <SectionError label="usage" error={error} /> : null}
+    <SurfaceSection title="Usage">
+      {loading ? <SurfaceSkeletonRows /> : null}
+      {error !== null ? <SectionError label="Usage" error={error} /> : null}
       {report !== null ? (
-        <>
+        <div className="flex flex-col gap-3">
           {report.totals.events === 0 ? (
-            <p className="text-2xs text-muted-foreground">
-              no measured usage in this window — indexed sessions
-              contributed no usage events; the plugin reports zeros, not
-              measured zero usage
+            <p className="text-sm text-muted-foreground">
+              No measured usage in this window — indexed sessions contributed
+              no usage events; the plugin reports zeros, not measured zero
+              usage.
             </p>
           ) : null}
           <TotalsRow report={report} />
           <ReportNotes report={report} />
           {report.cache_tokens.providers.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
-              <p className="text-2xs text-muted-foreground/70">
-                cache tokens (provider-reported accounting)
-              </p>
-              {report.cache_tokens.providers.map((entry) => (
-                <CacheTokenRow key={entry.provider} entry={entry} />
-              ))}
-            </div>
+            <SurfaceSection
+              title="Cache tokens"
+              description="Provider-reported cache accounting."
+              className="gap-2"
+            >
+              <SurfaceGroup>
+                {report.cache_tokens.providers.map((entry) => (
+                  <CacheTokenRow key={entry.provider} entry={entry} />
+                ))}
+              </SurfaceGroup>
+            </SurfaceSection>
           ) : null}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-2xs text-muted-foreground/70">breakdown</span>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Breakdown
+              </span>
               <Select
                 value={dimension}
                 onValueChange={(value) =>
                   setDimension(value as UsageBreakdownDimension)
                 }
               >
-                <SelectTrigger aria-label="Breakdown dimension" className="w-28">
+                <SelectTrigger aria-label="Breakdown dimension" className="w-32">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -657,104 +716,103 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
               dimension={dimension}
             />
           </div>
-          <div className="flex flex-col gap-0.5">
-            <p className="text-2xs text-muted-foreground/70">
-              coverage: {formatTokens(report.coverage.sessions_total)} indexed
-              session{report.coverage.sessions_total === 1 ? "" : "s"} (
-              {formatTokens(report.coverage.sessions_ok)} ok
-              {report.coverage.sessions_with_issues > 0
-                ? `, ${formatTokens(report.coverage.sessions_with_issues)} with issues`
-                : ""}
-              {report.coverage.sessions_stale > 0
-                ? `, ${formatTokens(report.coverage.sessions_stale)} stale`
-                : ""}
-              {report.coverage.sessions_events_missing > 0
-                ? `, ${formatTokens(report.coverage.sessions_events_missing)} missing events`
-                : ""}
-              )
-            </p>
-          </div>
-        </>
+          <p className="text-xs text-muted-foreground">
+            Coverage: {formatTokens(report.coverage.sessions_total)} indexed
+            session{report.coverage.sessions_total === 1 ? "" : "s"} (
+            {formatTokens(report.coverage.sessions_ok)} ok
+            {report.coverage.sessions_with_issues > 0
+              ? `, ${formatTokens(report.coverage.sessions_with_issues)} with issues`
+              : ""}
+            {report.coverage.sessions_stale > 0
+              ? `, ${formatTokens(report.coverage.sessions_stale)} stale`
+              : ""}
+            {report.coverage.sessions_events_missing > 0
+              ? `, ${formatTokens(report.coverage.sessions_events_missing)} missing events`
+              : ""}
+            )
+          </p>
+        </div>
       ) : null}
-    </section>
+    </SurfaceSection>
   );
 }
 
 function CostSection({ machine, filters }: { machine: string; filters: UsageFilters }) {
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageCostReport | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<UsageErrorInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     fetchUsageCost(machine, options)
       .then((next) => {
-        if (!cancelled) setReport(next);
+        if (!cancelled) {
+          setReport(next);
+          setError(null);
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(describeUsageError(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [machine, options]);
 
+  const loading = report === null && error === null;
   const cost = report?.cost ?? null;
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-        Estimated cost
-      </h3>
-      {loading && report === null ? (
-        <p className="text-2xs text-muted-foreground">loading cost…</p>
-      ) : null}
-      {error !== null ? <SectionError label="cost" error={error} /> : null}
+    <SurfaceSection
+      title="Estimated cost"
+      description="List-price estimate from the plugin's pricing table — never a bill."
+    >
+      {loading ? <SurfaceSkeletonRows /> : null}
+      {error !== null ? <SectionError label="Cost" error={error} /> : null}
       {cost !== null ? (
-        <>
+        <div className="flex flex-col gap-3">
           {cost.disclaimer !== null ? (
-            <p className="text-2xs text-muted-foreground">{cost.disclaimer}</p>
-          ) : (
-            <p className="text-2xs text-muted-foreground">
-              estimated list-price cost — not a bill
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs">
-            <span>
-              estimate{" "}
-              <span className="font-medium text-foreground">
-                {formatUsd(cost.estimated_cost_usd)}
-              </span>
-            </span>
-            {!cost.estimate_complete ? (
-              <Badge size="sm" variant="warning">
-                partial — unpriced models excluded
-              </Badge>
-            ) : null}
-            <span className="text-muted-foreground">
-              {formatTokens(cost.priced_models)} priced model
-              {cost.priced_models === 1 ? "" : "s"}
-            </span>
-            {cost.provider_reported_cost_usd !== null ? (
-              <span className="text-muted-foreground">
-                provider-reported {formatUsd(cost.provider_reported_cost_usd)} (separate
-                figure, not blended)
-              </span>
-            ) : null}
-          </div>
+            <p className="text-sm text-muted-foreground">{cost.disclaimer}</p>
+          ) : null}
+          <SurfaceGroup divided={false}>
+            <SurfaceRow>
+              <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+                <div className="flex flex-col gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Estimate</dt>
+                  <dd className="text-sm font-medium text-foreground tabular-nums">
+                    {formatUsd(cost.estimated_cost_usd)}
+                  </dd>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Priced models</dt>
+                  <dd className="text-sm font-medium text-foreground tabular-nums">
+                    {formatTokens(cost.priced_models)}
+                  </dd>
+                </div>
+                {cost.provider_reported_cost_usd !== null ? (
+                  <div className="flex flex-col gap-0.5">
+                    <dt className="text-xs text-muted-foreground">
+                      Provider-reported
+                    </dt>
+                    <dd className="text-sm font-medium text-foreground tabular-nums">
+                      {formatUsd(cost.provider_reported_cost_usd)}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            </SurfaceRow>
+          </SurfaceGroup>
+          {!cost.estimate_complete ? (
+            <Badge variant="warning">Partial — unpriced models excluded</Badge>
+          ) : null}
           {cost.unpriced_models.length > 0 ? (
-            <p className="text-2xs text-muted-foreground">
-              unpriced: {cost.unpriced_models.map((m) => m.key ?? "(no model)").join(", ")}
+            <p className="text-xs text-muted-foreground">
+              Unpriced:{" "}
+              {cost.unpriced_models.map((m) => m.key ?? "(no model)").join(", ")}
             </p>
           ) : null}
           {cost.pricing !== null ? (
-            <p className="text-2xs text-muted-foreground/70">
-              pricing {cost.pricing.status}
+            <p className="text-xs text-muted-foreground">
+              Pricing {cost.pricing.status}
               {cost.pricing.known_models !== null
                 ? ` · ${formatTokens(cost.pricing.known_models)} models`
                 : ""}
@@ -766,162 +824,167 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
           ) : null}
           {report !== null ? <ReportNotes report={report} /> : null}
           {cost.by_model.length > 0 ? (
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2 border-b border-border/60 px-1.5 py-1 text-2xs font-medium text-muted-foreground">
-                <span className="min-w-0 flex-1">model</span>
-                <span className="w-14 shrink-0 text-right">tokens</span>
-                <span className="w-20 shrink-0 text-right">est. cost</span>
-                <span className="w-20 shrink-0 text-right">reported</span>
-              </div>
-              {cost.by_model.map((row, index) => (
-                <div
-                  key={`${row.key ?? "null"}-${index}`}
-                  className="flex items-center gap-2 rounded-sm px-1.5 py-1 text-2xs hover:bg-accent/40"
-                >
-                  <span className="min-w-0 flex-1 truncate font-mono">
-                    {row.key ?? "—"}
-                  </span>
-                  <span className="w-14 shrink-0 text-right">
-                    {formatTokens(row.total_tokens)}
-                  </span>
-                  <span className="w-20 shrink-0 text-right font-medium">
-                    {formatUsd(row.estimated_cost_usd)}
-                  </span>
-                  <span className="w-20 shrink-0 text-right text-muted-foreground">
-                    {formatUsd(row.provider_reported_cost_usd)}
-                  </span>
-                  {row.cost_source === "unpriced" ? (
-                    <Badge size="sm" variant="outline">
-                      unpriced
-                    </Badge>
-                  ) : null}
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-right text-xs text-muted-foreground">
+                    <th className="py-2 pr-3 pl-2 text-left font-normal">Model</th>
+                    <th className="py-2 pl-4 font-normal">Tokens</th>
+                    <th className="py-2 pl-4 font-normal">Est. cost</th>
+                    <th className="py-2 pr-2 pl-4 font-normal">Reported</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cost.by_model.map((row, index) => (
+                    <tr
+                      key={`${row.key ?? "null"}-${index}`}
+                      className="border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50"
+                    >
+                      <td className="max-w-48 truncate py-2.5 pr-3 pl-2 text-left font-mono text-foreground">
+                        {row.key ?? "—"}
+                        {row.cost_source === "unpriced" ? (
+                          <Badge variant="outline" className="ml-2">
+                            unpriced
+                          </Badge>
+                        ) : null}
+                      </td>
+                      <td className="py-2.5 pl-4">{formatTokens(row.total_tokens)}</td>
+                      <td className="py-2.5 pl-4 font-medium text-foreground">
+                        {formatUsd(row.estimated_cost_usd)}
+                      </td>
+                      <td className="py-2.5 pr-2 pl-4">
+                        {formatUsd(row.provider_reported_cost_usd)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
-        </>
+        </div>
       ) : report !== null ? (
-        <p className="text-2xs text-muted-foreground">
-          no cost estimate in this window
-        </p>
+        <SurfaceGroup>
+          <SurfaceRow title="No cost estimate in this window" />
+        </SurfaceGroup>
       ) : null}
-    </section>
+    </SurfaceSection>
   );
 }
 
 function DivergenceSection({ machine, filters }: { machine: string; filters: UsageFilters }) {
   const options = useDebouncedOptions(filters);
   const [report, setReport] = useState<UsageDivergenceReport | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<UsageErrorInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     fetchUsageDivergence(machine, options)
       .then((next) => {
-        if (!cancelled) setReport(next);
+        if (!cancelled) {
+          setReport(next);
+          setError(null);
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(describeUsageError(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [machine, options]);
 
+  const loading = report === null && error === null;
+
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-        Quota vs measured divergence
-      </h3>
-      {loading && report === null ? (
-        <p className="text-2xs text-muted-foreground">loading divergence…</p>
-      ) : null}
-      {error !== null ? <SectionError label="divergence" error={error} /> : null}
+    <SurfaceSection
+      title="Quota vs measured divergence"
+      description="Compares subscription quota reports against measured usage from the conversations index."
+    >
+      {loading ? <SurfaceSkeletonRows /> : null}
+      {error !== null ? <SectionError label="Divergence" error={error} /> : null}
       {report !== null ? (
-        <>
+        <div className="flex flex-col gap-3">
           {report.hint !== null ? (
-            <p className="text-2xs text-muted-foreground">{report.hint}</p>
+            <p className="text-sm text-muted-foreground">{report.hint}</p>
           ) : null}
           {report.comparisons.length === 0 ? (
-            <p className="text-2xs text-muted-foreground">no comparisons reported</p>
-          ) : null}
-          <div className="flex flex-col gap-1">
-            {report.comparisons.map((comparison) => (
-              <div
-                key={comparison.provider}
-                className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <Badge size="sm" variant="outline">
-                    {comparison.provider}
-                  </Badge>
-                  <Badge size="sm" variant={verdictVariant(comparison.verdict)}>
-                    {comparison.verdict}
-                  </Badge>
-                  {comparison.window_alignment !== null ? (
-                    <span className="shrink-0 text-2xs text-muted-foreground/70">
-                      window: {comparison.window_alignment}
+            <SurfaceGroup>
+              <SurfaceRow title="No comparisons reported" />
+            </SurfaceGroup>
+          ) : (
+            <SurfaceGroup>
+              {report.comparisons.map((comparison) => (
+                <SurfaceRow
+                  key={comparison.provider}
+                  className="flex flex-col gap-2"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">
+                      {comparison.provider}
                     </span>
-                  ) : null}
-                </div>
-                {comparison.detail !== null ? (
-                  <p className="text-2xs text-muted-foreground">{comparison.detail}</p>
-                ) : null}
-                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-2xs text-muted-foreground">
-                  <span>
-                    quota:{" "}
-                    <span className="font-medium text-foreground">
-                      {comparison.quota?.status ?? "—"}
-                    </span>
-                    {comparison.quota?.plan !== null &&
-                    comparison.quota?.plan !== undefined
-                      ? ` (${comparison.quota.plan})`
-                      : ""}
-                    {comparison.quota?.stale === true ? " (stale)" : ""}
-                  </span>
-                  <span>
-                    measured tokens:{" "}
-                    <span className="font-medium text-foreground">
-                      {comparison.measured !== null
-                        ? formatTokens(comparison.measured.total_tokens)
-                        : "—"}
-                    </span>
-                    {comparison.measured !== null
-                      ? ` (${formatTokens(comparison.measured.events)} events)`
-                      : ""}
-                  </span>
-                </div>
-                {comparison.quota !== null && comparison.quota.windows.length > 0 ? (
-                  <div className="flex flex-col gap-0.5 pl-2">
-                    {comparison.quota.windows.map((window, index) => (
-                      <QuotaWindowRow
-                        key={window.id ?? `${comparison.provider}-${index}`}
-                        window={window}
-                      />
-                    ))}
+                    <Badge variant={verdictVariant(comparison.verdict)}>
+                      {comparison.verdict}
+                    </Badge>
+                    {comparison.window_alignment !== null ? (
+                      <span className="text-xs text-muted-foreground">
+                        window: {comparison.window_alignment}
+                      </span>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
+                  {comparison.detail !== null ? (
+                    <p className="text-xs text-muted-foreground">
+                      {comparison.detail}
+                    </p>
+                  ) : null}
+                  <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                    <div className="flex items-baseline gap-1.5">
+                      <dt className="text-muted-foreground">Quota</dt>
+                      <dd className="font-medium text-foreground">
+                        {comparison.quota?.status ?? "—"}
+                        {comparison.quota?.plan != null
+                          ? ` (${comparison.quota.plan})`
+                          : ""}
+                        {comparison.quota?.stale === true ? " (stale)" : ""}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <dt className="text-muted-foreground">Measured tokens</dt>
+                      <dd className="font-medium text-foreground tabular-nums">
+                        {comparison.measured !== null
+                          ? formatTokens(comparison.measured.total_tokens)
+                          : "—"}
+                        {comparison.measured !== null
+                          ? ` (${formatTokens(comparison.measured.events)} events)`
+                          : ""}
+                      </dd>
+                    </div>
+                  </dl>
+                  {comparison.quota !== null && comparison.quota.windows.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {comparison.quota.windows.map((window, index) => (
+                        <QuotaWindowRow
+                          key={window.id ?? `${comparison.provider}-${index}`}
+                          window={window}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </SurfaceRow>
+              ))}
+            </SurfaceGroup>
+          )}
           {report.notes.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-1">
               {report.notes.map((note, index) => (
-                <p key={index} className="text-2xs text-muted-foreground/70">
+                <p key={index} className="text-xs text-muted-foreground">
                   {note}
                 </p>
               ))}
             </div>
           ) : null}
-        </>
+        </div>
       ) : null}
-    </section>
+    </SurfaceSection>
   );
 }
 
@@ -967,10 +1030,10 @@ export function UsageSurface({ machine }: { machine: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Token usage, subscription quota, estimated cost, and
             quota-vs-measured divergence from the rebuildup.usage plugin.
-            Usage/cost/divergence aggregate the conversations index;
+            Usage, cost and divergence aggregate the conversations index;
             estimated cost is a list-price estimate, never a bill.
           </p>
           <Button
@@ -986,33 +1049,42 @@ export function UsageSurface({ machine }: { machine: string }) {
         </div>
 
         {state.status.kind === "loading" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            loading usage…
-          </p>
+          <div className="flex flex-col gap-6" role="status" aria-label="Loading usage">
+            <Skeleton className="h-4 w-2/3" />
+            <SurfaceSkeletonRows />
+            <SurfaceSkeletonRows />
+          </div>
         ) : state.status.kind === "unavailable" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            {UNAVAILABLE_LABELS[state.status.reason]}
-            {state.status.detail ? ` — ${state.status.detail}` : ""}
-            {state.quota !== null ? " (showing last known quota)" : ""}
-          </p>
+          <Alert>
+            <InfoIcon />
+            <AlertTitle>Usage unavailable</AlertTitle>
+            <AlertDescription>
+              {UNAVAILABLE_LABELS[state.status.reason]}
+              {state.status.detail ? ` — ${state.status.detail}` : ""}
+              {state.quota !== null ? " (showing last known quota)" : ""}
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         {indexUnavailable ? (
-          <p className="rounded-md border border-border/60 px-2 py-1.5 text-2xs text-muted-foreground">
-            conversations index{" "}
-            {indexSource?.status === "unavailable" ? "unavailable" : "not reported"}
-            {indexSource?.detail ? ` — ${indexSource.detail}` : ""} — usage, cost
-            and divergence will be empty until the index is built
-            (rebuildup.conversations index). Quota is unaffected.
-          </p>
+          <Alert variant="warning">
+            <TriangleAlertIcon />
+            <AlertTitle>Conversations index unavailable</AlertTitle>
+            <AlertDescription>
+              {indexSource?.status === "unavailable"
+                ? "unavailable"
+                : "not reported"}
+              {indexSource?.detail ? ` — ${indexSource.detail}` : ""} Usage,
+              cost and divergence will be empty until the index is built
+              (rebuildup.conversations index). Quota is unaffected.
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         {state.status.kind === "ready" || state.quota !== null ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
             <QuotaSection machine={machine} />
-            <div className="flex flex-col gap-1.5">
-              <FilterBar filters={filters} onChange={setFilters} />
-            </div>
+            <FilterBar filters={filters} onChange={setFilters} />
             <UsageSection machine={machine} filters={filters} />
             <CostSection machine={machine} filters={filters} />
             <DivergenceSection machine={machine} filters={filters} />
