@@ -17,11 +17,12 @@ evidence is collected at RC freeze — see below).
 
 | Gate | Verdict | Note |
 |---|---|---|
-| contracts-registry | PASS | 56 capabilities, 12 contracts, validator + self-test in CI |
+| contracts-registry | PASS | 70 capabilities, 26 contracts, validator + self-test in CI |
 | differential-harness | PASS | codec/terminal/projection scenarios; TS + Rust adapters parity (attach-codec reference + product protocol.codec) |
 | persistence-compat | PASS | format rules frozen; fault-injection contract tests; live-profile OS evidence → RC |
 | performance-baseline | PASS | reproducible bench + gate + first baseline; comprehensive suite → RC |
 | ui-conformance | PASS | real Electron (CDP) + GPUI test-host adapters run the same scenarios; fault-injection FAIL evidence recorded under `harness/ui/evidence/` |
+| design-conformance | PASS | `design-system@1` contract + canonical T3 sources (conformance-audit, verification matrix, tokens, primitives, surfaceLayout) present; B6 capabilities must pin it; per-capability proof is cutover/equivalence evidence + T3-reference visual review (#412) |
 | os-real-device | DEFERRED | real-device/IME/clipboard/packaged evidence at RC freeze on same SHA |
 
 A BLOCKED/DEFERRED gate is a correct state, not a failure — it means
@@ -80,8 +81,11 @@ report.
    Remaining: a Rust surface consumer (GPUI view) and the
    ui-conformance render assertions — tracked under #305+.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
-   (Electron + GPUI host evidence recorded); remaining prerequisite is
-   the terminal/render pipeline (boundary 4) it renders.
+   (Electron + GPUI host evidence recorded); design-system conformance
+   is contract-bound via `design-system@1` (#412) and proven per
+   capability at cutover by T3-reference visual review; remaining
+   prerequisite is the terminal/render pipeline (boundary 4) it
+   renders.
 6. **native shell/OS/distribution** (B7/B8): last; depends on
    persistence-compat migration plan execution + pc-setup coordination
    (upstream dependency, explicit Issue required before any pc-setup

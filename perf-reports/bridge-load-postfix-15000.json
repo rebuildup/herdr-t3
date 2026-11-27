@@ -1,0 +1,228 @@
+{
+  "format": "herdr-t3/bridge-load",
+  "version": 1,
+  "recorded_at": "2026-11-27T02:26:22.515Z",
+  "git_sha": "5df73ad101c0985b953bfb822f1b6b9ae7c6c1d4",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "condition": {
+    "loadavg_1m": 139.04638671875,
+    "loadavg_5m": 74.09326171875,
+    "loadavg_15m": 55.47412109375
+  },
+  "leg_seconds": 15,
+  "plugin_refresh_ms": 15000,
+  "server_metrics": true,
+  "plugins_discovered": [],
+  "legs": {
+    "idle": {
+      "delta": {
+        "seconds": 15,
+        "counters": {},
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 1,
+            "totalMs": 4211,
+            "avgMs": 4211,
+            "maxMs": 4211
+          }
+        }
+      },
+      "issued": {},
+      "verdict": {
+        "leg": "idle",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "herdr.rpc avg=4211ms max=4211ms n=1"
+        ]
+      },
+      "client_frames": {
+        "machine_status": 2,
+        "snapshot": 1
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "rpc-read": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "client.frame{type=rpc}": 12
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 12,
+            "totalMs": 2363.62,
+            "avgMs": 196.97,
+            "maxMs": 4211
+          }
+        }
+      },
+      "issued": {
+        "rpc": 12,
+        "rpc_read": 12
+      },
+      "verdict": {
+        "leg": "rpc-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 12 rpc frames",
+          "herdr.rpc avg=196.97ms max=4211ms n=12"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 12
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "plugin-read": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "machine.refresh": 1,
+          "machine.probe": 3,
+          "client.frame{type=plugin_call}": 4,
+          "plugin.discovery.hit": 4,
+          "plugin.capability.miss": 4
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 2,
+            "totalMs": 4639.82,
+            "avgMs": 2319.91,
+            "maxMs": 4211
+          },
+          "plugin.exec{ok=true,what=capability}": {
+            "count": 4,
+            "totalMs": 3479.81,
+            "avgMs": 869.95,
+            "maxMs": 1521.51
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 2,
+            "totalMs": 2608.02,
+            "avgMs": 1304.01,
+            "maxMs": 1494.56
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 1,
+            "totalMs": 1530.89,
+            "avgMs": 1530.89,
+            "maxMs": 1530.89
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 1,
+            "totalMs": 957.23,
+            "avgMs": 957.23,
+            "maxMs": 957.23
+          }
+        }
+      },
+      "issued": {
+        "plugin_call": 4
+      },
+      "verdict": {
+        "leg": "plugin-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "plugin.exec/plugin_call=1.00 (4 execs / 4 calls)",
+          "herdr.rpc avg=2319.91ms max=4211ms n=2"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "snapshot": 2,
+        "rpc_result": 4
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "activity": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "machine.refresh": 1,
+          "machine.probe": 3,
+          "bridge.subscription.open": 2,
+          "client.frame{type=rpc}": 1,
+          "plugin.discovery.miss": 1,
+          "client.frame{type=plugin_call}": 4,
+          "bridge.snapshot.schedule{cause=event}": 5,
+          "bridge.snapshot.push": 2,
+          "plugin.capability.hit": 4
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 5,
+            "totalMs": 16943.55,
+            "avgMs": 3388.71,
+            "maxMs": 12877.9
+          },
+          "plugin.exec{ok=true,what=plugin_list}": {
+            "count": 1,
+            "totalMs": 4606.51,
+            "avgMs": 4606.51,
+            "maxMs": 5035.92
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 2,
+            "totalMs": 1710.49,
+            "avgMs": 855.25,
+            "maxMs": 1494.56
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 1,
+            "totalMs": 1131.47,
+            "avgMs": 1131.47,
+            "maxMs": 1530.89
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 1,
+            "totalMs": 865.46,
+            "avgMs": 865.46,
+            "maxMs": 957.23
+          }
+        }
+      },
+      "issued": {
+        "rpc": 1,
+        "rpc_read": 1,
+        "plugin_call": 4
+      },
+      "verdict": {
+        "leg": "activity",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 1 rpc frames",
+          "plugin.exec/plugin_call=1.00 (4 execs / 4 calls)",
+          "herdr.rpc avg=3388.71ms max=12877.9ms n=5",
+          "snapshot pushes=2 unchanged=0 scheduled=0"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "snapshot": 4,
+        "rpc_result": 5,
+        "event": 5
+      },
+      "plugin_exec_pids_observed": 0
+    }
+  },
+  "client": {
+    "rpc_latencies_ms": {
+      "p50": 2026.486042000004,
+      "p95": 6654.835000000006,
+      "max": 6656.541542000006
+    },
+    "errors": 0,
+    "frames_received": 44
+  }
+}

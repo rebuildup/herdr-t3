@@ -1,0 +1,110 @@
+{
+  "format": "herdr-t3/bridge-load",
+  "version": 1,
+  "recorded_at": "2026-11-27T02:23:07.053Z",
+  "git_sha": "d8b0345c71a46efdb73fa3369c1bd61f0214c3c2",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "condition": {
+    "loadavg_1m": 45.890625,
+    "loadavg_5m": 44.43212890625,
+    "loadavg_15m": 44.07666015625
+  },
+  "leg_seconds": 15,
+  "plugin_refresh_ms": null,
+  "server_metrics": false,
+  "plugins_discovered": [],
+  "legs": {
+    "idle": {
+      "delta": null,
+      "issued": {},
+      "verdict": {
+        "leg": "idle",
+        "ok": true,
+        "failures": [],
+        "notes": []
+      },
+      "client_frames": {
+        "machine_status": 2,
+        "snapshot": 1
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "rpc-read": {
+      "delta": null,
+      "issued": {
+        "rpc": 12,
+        "rpc_read": 12
+      },
+      "verdict": {
+        "leg": "rpc-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 12 rpc frames"
+        ]
+      },
+      "client_frames": {
+        "snapshot": 4,
+        "rpc_result": 12
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "plugin-read": {
+      "delta": null,
+      "issued": {
+        "plugin_call": 12
+      },
+      "verdict": {
+        "leg": "plugin-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "plugin.exec/plugin_call=0.00 (0 execs / 12 calls)"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 12
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "activity": {
+      "delta": null,
+      "issued": {
+        "rpc": 2,
+        "rpc_read": 2,
+        "plugin_call": 8
+      },
+      "verdict": {
+        "leg": "activity",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 2 rpc frames",
+          "plugin.exec/plugin_call=0.00 (0 execs / 8 calls)"
+        ]
+      },
+      "client_frames": {
+        "snapshot": 7,
+        "rpc_result": 10,
+        "event": 10
+      },
+      "plugin_exec_pids_observed": 0
+    }
+  },
+  "client": {
+    "rpc_latencies_ms": {
+      "p50": 2013.971749999997,
+      "p95": 8572.412459,
+      "max": 8574.157707999999
+    },
+    "errors": 0,
+    "frames_received": 68
+  }
+}

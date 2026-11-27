@@ -132,7 +132,10 @@ A capability may enter implementation only when:
    judgments — see #237);
 2. performance non-regression holds on the measured baseline (#240);
 3. persistence/OS compatibility contracts hold (#239) where applicable;
-4. both implementations coexist only inside the window; the registry
+4. UI-facing capabilities additionally satisfy `design-system@1`
+   (issue #412, §4.5): inherited token/primitive/composition rules and
+   T3-reference visual comparison evidence;
+5. both implementations coexist only inside the window; the registry
    records which is authoritative.
 
 ### 4.3 Old-implementation removal
@@ -153,6 +156,37 @@ suite, herdr/plugin ownership is unchanged, and the dependency tree /
 distribution artifact contains no Electron and no unnecessary
 Node/Bun runtime. This gate is independent and is **not** part of this
 program's delivery.
+
+### 4.5 Design-system conformance (issue #412)
+
+The T3 Code design-system machinery established by #407
+(`docs/design/conformance-audit.md`) and the #409–#411 surface
+re-implementations is a **capability-level requirement**, not a
+one-time port: every UI-rendering capability inherits it on the
+GPUI/Rust target through contract `design-system@1`
+(`docs/migration/contracts/design-system.md`), which all B6
+capabilities must pin (registry-enforced).
+
+- **Canonical sources are inherited, not re-derived.** Tokens
+  (`src/index.css` roles), primitives (`src/components/ui/*` and the
+  `surfaceLayout` composition layer), composition rules, the type
+  hierarchy, and the state-primitive requirements (`Empty*`/`Skeleton`/
+  `Alert`/toast) are the spec; GPUI equivalents reproduce the
+  semantics, not the DOM. Deliberate non-ports recorded in the audit
+  (e.g. `ui/table.tsx` — T3's UsagePage uses raw table markup) are part
+  of the spec.
+- **Acceptance requires visual-diff evidence.** Cutover/equivalence for
+  UI-facing capabilities includes the `docs/design/verification.md`
+  pipeline: captures on an isolated herdr session at fixed
+  viewport/theme/font/DPI, side-by-side T3 Code reference comparison,
+  and recorded verdicts. Semantic ui-conformance scenarios and visual
+  fidelity are separate judgments; neither substitutes for the other.
+  Pixel-perfect equality is not required — deviations must be
+  deliberate and justified.
+- **Lint-equivalent on Rust/GPUI** is layered: semantic contract tests
+  for token roles and state mapping, the ui-conformance scenario suite
+  on both adapters, visual-diff review, and manual composition/density
+  review at RC — there is no Rust port of oxlint, and none is implied.
 
 ## 5. Toolchain and code policy (for the Rust side)
 
@@ -213,7 +247,9 @@ allowed before product porting per #233):
 Design-semantics mapping: T3 tokens/primitives behavior are the spec;
 GPUI's Tailwind-like styling API is an implementation detail. The UI
 conformance harness (#238) asserts semantic scenarios, so a GPUI adapter
-and the current Electron adapter run the same suite.
+and the current Electron adapter run the same suite. Design-system
+conformance beyond semantics — tokens, primitives, composition, visual
+fidelity — is governed by `design-system@1` and §4.5 (issue #412).
 
 ## 7. Open items carried to later tickets
 
