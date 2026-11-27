@@ -1,0 +1,76 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "electron",
+  "scenario": "shell.settings-modal-frame-contract",
+  "capability": "ui.shell",
+  "contract": "settings-modal-frame@1",
+  "fixture": "single-workspace",
+  "pass": true,
+  "injected_fault": null,
+  "git_sha": "933ea494f8848d2f0076cbf5bdc9be39af39abf2",
+  "recorded_at": "2026-11-27T15:40:36.662Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "action",
+      "name": "activate nav.settings",
+      "ok": true
+    },
+    {
+      "index": 1,
+      "kind": "wait",
+      "name": "wait state.settings_open",
+      "ok": true
+    },
+    {
+      "index": 2,
+      "kind": "assert",
+      "name": "dialog.section",
+      "ok": true
+    },
+    {
+      "index": 3,
+      "kind": "assert",
+      "name": "dialog.settings_frame_contract",
+      "ok": true
+    },
+    {
+      "index": 4,
+      "kind": "action",
+      "name": "activate nav.settings-section",
+      "ok": true
+    },
+    {
+      "index": 5,
+      "kind": "wait",
+      "name": "wait dialog.section",
+      "ok": true
+    },
+    {
+      "index": 6,
+      "kind": "assert",
+      "name": "dialog.settings_frame_contract",
+      "ok": true
+    },
+    {
+      "index": 7,
+      "kind": "action",
+      "name": "activate nav.settings-section",
+      "ok": true
+    },
+    {
+      "index": 8,
+      "kind": "wait",
+      "name": "wait dialog.section",
+      "ok": true
+    },
+    {
+      "index": 9,
+      "kind": "assert",
+      "name": "dialog.settings_frame_contract",
+      "ok": true
+    }
+  ],
+  "error": null
+}

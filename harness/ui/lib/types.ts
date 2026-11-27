@@ -24,6 +24,8 @@ export interface UiScenario {
   contract?: string;
   fixture?: string;
   os?: string[];
+  /** adapters this scenario claims; absent means every adapter (electron + gpui) */
+  adapters?: string[];
   steps: UiStep[];
 }
 

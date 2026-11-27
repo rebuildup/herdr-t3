@@ -103,14 +103,16 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
   const scenariosDir = join(ROOT, "harness/ui/scenarios");
   const evidenceDir = join(ROOT, "harness/ui/evidence");
   if (!existsSync(scenariosDir)) return "BLOCKED";
-  const scenarioIds: string[] = [];
+  // id -> adapters the scenario claims; absent/empty means every adapter.
+  const scenarioAdapters = new Map<string, string[]>();
   const walk = (dir: string) => {
     for (const e of readdirSync(dir)) {
       const p = join(dir, e);
       try {
         if (statSync(p).isDirectory()) walk(p);
         else if (e.endsWith(".json")) {
-          scenarioIds.push(JSON.parse(readFileSync(p, "utf8")).id as string);
+          const sc = JSON.parse(readFileSync(p, "utf8")) as { id?: string; adapters?: string[] };
+          if (typeof sc.id === "string") scenarioAdapters.set(sc.id, sc.adapters ?? []);
         }
       } catch {
         /* unreadable scenario — the scenario validator reports it */
@@ -118,7 +120,11 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
     }
   };
   walk(scenariosDir);
-  if (scenarioIds.length === 0) return "BLOCKED";
+  if (scenarioAdapters.size === 0) return "BLOCKED";
+  const claims = (id: string, adapter: string) => {
+    const list = scenarioAdapters.get(id);
+    return list === undefined || list.length === 0 || list.includes(adapter);
+  };
 
   const readEvidence = (adapter: string, file: string): { pass?: boolean } | null => {
     const p = join(evidenceDir, adapter, file);
@@ -131,7 +137,8 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
   };
 
   for (const adapter of ["electron", "gpui"]) {
-    for (const id of scenarioIds) {
+    for (const id of scenarioAdapters.keys()) {
+      if (!claims(id, adapter)) continue;
       if (readEvidence(adapter, `${id}.json`)?.pass !== true) return "BLOCKED";
     }
     // detection proofs: injected faults must produce FAIL evidence
