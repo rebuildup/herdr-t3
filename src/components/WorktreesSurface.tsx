@@ -284,8 +284,8 @@ export function WorktreesSurface({
           </div>
         ) : null}
 
-          <div className="flex items-end gap-2 border-t border-border pt-3">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
+          <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs text-muted-foreground">
             Branch
             <Input
               value={branch}
@@ -293,7 +293,7 @@ export function WorktreesSurface({
               placeholder="auto"
             />
           </label>
-          <label className="flex w-28 flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex w-28 shrink-0 flex-col gap-1 text-xs text-muted-foreground">
             Base
             <Input
               value={base}
@@ -301,7 +301,7 @@ export function WorktreesSurface({
               placeholder="HEAD"
             />
           </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs text-muted-foreground">
             Label
             <Input
               value={label}
@@ -311,6 +311,7 @@ export function WorktreesSurface({
           </label>
           <Button
             size="sm"
+            className="shrink-0"
             disabled={createDisabled}
             onClick={createWorktree}
           >

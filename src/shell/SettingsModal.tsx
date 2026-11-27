@@ -828,7 +828,7 @@ export function SettingsModal() {
             initialFocus={popupRef}
             aria-label="Settings"
             data-app-modal=""
-            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:max-h-[60rem] sm:max-w-[72rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
+            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:h-auto sm:max-h-[60rem] sm:max-w-[72rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
           >
             <div
               aria-hidden
@@ -915,7 +915,7 @@ export function SettingsModal() {
                           >
                             <Settings2Icon className="size-4 shrink-0" />
                             <span className="min-w-0 flex-1 truncate">{r.label}</span>
-                            <span className="shrink-0 text-xs text-sidebar-muted-foreground/60">
+                            <span className="shrink-0 text-xs text-sidebar-muted-foreground/70">
                               {sectionLabel}
                             </span>
                           </button>
