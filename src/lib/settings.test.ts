@@ -64,6 +64,31 @@ describe("terminal settings", () => {
   });
 });
 
+describe("notifications settings", () => {
+  test("defaults to top-right and round-trips through its own key", () => {
+    expect(settings.getNotificationsSettings()).toEqual(settings.NOTIFICATIONS_DEFAULTS);
+    expect(settings.NOTIFICATIONS_DEFAULTS.position).toBe("top-right");
+    settings.setNotificationsSettings({ position: "bottom-left" });
+    expect(settings.getNotificationsSettings().position).toBe("bottom-left");
+    const raw = storage.getItem("herdr-t3:settings:notifications");
+    expect(raw).not.toBeNull();
+    expect(settings.parseNotificationsSettings(JSON.parse(raw!))).toEqual(
+      settings.getNotificationsSettings(),
+    );
+    settings.setNotificationsSettings({ position: "top-right" });
+  });
+
+  test("invalid persisted values fall back to the default", () => {
+    expect(settings.parseNotificationsSettings({ position: "middle" }).position).toBe(
+      "top-right",
+    );
+    expect(settings.parseNotificationsSettings({}).position).toBe("top-right");
+    expect(settings.parseNotificationsSettings({ position: 42 }).position).toBe(
+      "top-right",
+    );
+  });
+});
+
 describe("general settings", () => {
   test("round-trips through its own key", () => {
     settings.setGeneralSettings({ confirmCloseWorkspace: true });

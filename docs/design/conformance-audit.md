@@ -113,8 +113,10 @@ Cross-cutting findings:
 - **Missing primitives** (vs T3's 58): `empty`, `skeleton` now ported.
   Still absent and needed by #409–#411 as discovered: `table` (Usage),
   `alert` (mutation feedback), `checkbox` (Git allow-empty, settings),
-  `collapsible` (long sections), `toast`/`anchoredCopyToast` (copy
-  feedback). Port on demand from the pinned upstream, verbatim.
+  `collapsible` (long sections), `anchoredCopyToast` (copy
+  feedback). `toast` itself was ported for #428 (`ui/toast.tsx` +
+  `toast.logic.ts`, minus thread scoping/i18n/anchored variant).
+  Port on demand from the pinned upstream, verbatim.
 - **Internal information**: surfaces print raw plugin codes/IDs in
   places T3 would route through Details/Copy affordances — verify per
   surface during rewrite (info-architecture.md §5).

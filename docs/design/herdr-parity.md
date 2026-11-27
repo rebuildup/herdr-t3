@@ -84,7 +84,7 @@ herdr TUI (`src/client/shell/`) が提供する操作・情報と、herdr-t3 で
 | goto / aggregate navigation | agent/pane/workspace へのジャンプ、検索・status フィルタ・workspace グルーピング | `GotoDialog` (palette の "Go to…")。workspace/tab/pane の3階層、複数語 AND 検索、先頭 status token (`blocked`/`working`/`idle`/`done`/`b`/`w`/`i`/`d`) で agent status フィルタ。行モデルは `src/shell/goto.ts` | ✅ #114 |
 | ドラッグ並び替え | tab 挿入 indicator (`│`)、workspace reorder、pane drag/swap | #111 | 🔶 #111 |
 | コンテキストメニュー | pane/tab/workspace の右クリック操作 | 既存 context menu を拡張 (move/swap/rename 等) | 🔶 #111/#113 |
-| 通知 toast (`notifications.rs`) | herdr イベントの toast (位置・遅延・delivery は config) | アプリ内 toast (既存 ui primitive があれば流用)。blocked/done の attention 通知 | 🔶 #113 |
+| 通知 toast (`notifications.rs`) | herdr イベントの toast (位置・遅延・delivery は config) | アプリ内 toast。#428 で T3 `toast.tsx` primitive (Base UI Toast) を port し、位置は Settings → General → Notifications で四隅+辺中央から選択・永続化 (既定 top-right)。内容は snapshot diff 由来の構造化データのみ (status icon、agent/work title、workspace、machine、cache 済み branch、時刻)。blocked/done の attention 通知 | ✅ #113/#428 |
 | リンク hover/click (`link_hover.rs`) | pane 内リンクの検出・open | surface の link detection + `pane.link.*` (#113) | 🔶 #113 |
 | コピーモード | scrollback 内検索・選択・yank | GUI は DOM selection + terminal scrollback で代替。検索は #113 で検討 | ⏸ |
 | ワークツリービュー (`worktrees.rs`) | repo の worktree 一覧・open・remove overlay | `WorktreesSurface` (header overflow / palette)。一覧は `worktree.list`、open/create/remove は対応 RPC。branch/path は #109 の `worktree.list` cache が sidebar/header に表示 | ✅ #114 |

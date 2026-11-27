@@ -98,10 +98,44 @@ describe("observeSnapshotAttention", () => {
     );
     const notice = getNotices().find((n) => n.title === "Agent needs input");
     expect(notice).toBeDefined();
-    expect(notice?.body).toContain("ws");
+    // Issue #428: location moved to the meta context line; the body carries
+    // agent identity + work target.
+    expect(notice?.context).toContain("ws");
+    expect(notice?.body).toContain("agent");
+    expect(notice?.status).toBe("blocked");
     notice?.action?.run();
     expect(calls).toEqual([{ machine: m, workspaceId: "w1", paneId: "p1" }]);
     dismissNotice(notice!.id);
+  });
+
+  test("notice carries agent name, work title and machine label (issue #428)", () => {
+    clearNotices();
+    const m = machine();
+    const { sink: s } = sink();
+    const enriched = { ...s, machineLabel: () => "Build server" };
+    const working = snapshot([
+      agent({ agent: "claude", terminal_title: "Fix the bug" }),
+    ]);
+    observeSnapshotAttention(m, null, working, enriched);
+    observeSnapshotAttention(
+      m,
+      working,
+      snapshot([
+        agent({
+          agent: "claude",
+          terminal_title: "Fix the bug",
+          agent_status: "blocked",
+          state_change_seq: 2,
+        }),
+      ]),
+      enriched,
+    );
+    const notice = getNotices().find((n) => n.title === "Agent needs input");
+    expect(notice?.body).toContain("claude");
+    expect(notice?.body).toContain("Fix the bug");
+    expect(notice?.context).toContain("ws");
+    expect(notice?.context).toContain("Build server");
+    if (notice) dismissNotice(notice.id);
   });
 
   test("transition into done pushes 'Agent finished'", () => {
@@ -130,7 +164,9 @@ describe("observeSnapshotAttention", () => {
       snapshot([agent({ agent_status: "working", state_change_seq: 2 })]),
       s,
     );
-    expect(getNotices().filter((n) => n.body?.includes("· ws")).length).toBe(0);
+    expect(
+      getNotices().filter((n) => n.context?.includes("· ws")).length,
+    ).toBe(0);
   });
 
   test("repeated snapshot pushes do not re-fire for the same state signature", () => {
@@ -169,7 +205,7 @@ describe("observeSnapshotAttention", () => {
     observeSnapshotAttention(m, null, snapshot([agent({})]), s);
     observeSnapshotAttention(m, snapshot([agent({})]), next, s);
     const notice = getNotices().find((n) => n.title === "Agent needs input");
-    expect(notice?.body).toContain("w1");
+    expect(notice?.context).toContain("w1");
     if (notice) dismissNotice(notice.id);
   });
 });

@@ -21,8 +21,37 @@ export interface GeneralSettings {
   confirmCloseWorkspace: boolean;
 }
 
+/**
+ * In-app notice (toast) placement (issue #428). Mirrors the position
+ * vocabulary of the ported T3 toast primitive (`ToastPosition` in
+ * src/components/ui/toast.tsx); the four corners are the required
+ * minimum, edge centers come with the upstream primitive.
+ */
+export type NotificationPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export const NOTIFICATION_POSITIONS: readonly NotificationPosition[] = [
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+];
+
+export interface NotificationsSettings {
+  /** screen corner/edge the notice toasts stack from; default top-right */
+  position: NotificationPosition;
+}
+
 const TERMINAL_KEY = "herdr-t3:settings:terminal";
 const GENERAL_KEY = "herdr-t3:settings:general";
+const NOTIFICATIONS_KEY = "herdr-t3:settings:notifications";
 
 export const TERMINAL_DEFAULTS: TerminalSettings = {
   fontFamily: "",
@@ -33,6 +62,10 @@ export const TERMINAL_DEFAULTS: TerminalSettings = {
 
 export const GENERAL_DEFAULTS: GeneralSettings = {
   confirmCloseWorkspace: false,
+};
+
+export const NOTIFICATIONS_DEFAULTS: NotificationsSettings = {
+  position: "top-right",
 };
 
 function storage(): Storage | null {
@@ -90,6 +123,19 @@ export function parseGeneralSettings(raw: Record<string, unknown>): GeneralSetti
   return { confirmCloseWorkspace: raw["confirmCloseWorkspace"] === true };
 }
 
+export function parseNotificationsSettings(
+  raw: Record<string, unknown>,
+): NotificationsSettings {
+  const position = raw["position"];
+  return {
+    position: (NOTIFICATION_POSITIONS as readonly string[]).includes(
+      position as string,
+    )
+      ? (position as NotificationPosition)
+      : NOTIFICATIONS_DEFAULTS.position,
+  };
+}
+
 let terminal: TerminalSettings = load(TERMINAL_KEY, TERMINAL_DEFAULTS, parseTerminalSettings);
 
 const terminalListeners = new Set<() => void>();
@@ -134,4 +180,32 @@ export function setGeneralSettings(patch: Partial<GeneralSettings>): GeneralSett
 export function onGeneralSettingsChange(listener: () => void): () => void {
   generalListeners.add(listener);
   return () => generalListeners.delete(listener);
+}
+
+/* ----------------------------- notifications --------------------------- */
+
+let notifications: NotificationsSettings = load(
+  NOTIFICATIONS_KEY,
+  NOTIFICATIONS_DEFAULTS,
+  parseNotificationsSettings,
+);
+
+const notificationsListeners = new Set<() => void>();
+
+export function getNotificationsSettings(): NotificationsSettings {
+  return notifications;
+}
+
+export function setNotificationsSettings(
+  patch: Partial<NotificationsSettings>,
+): NotificationsSettings {
+  notifications = parseNotificationsSettings({ ...notifications, ...patch });
+  save(NOTIFICATIONS_KEY, notifications);
+  for (const listener of notificationsListeners) listener();
+  return notifications;
+}
+
+export function onNotificationsSettingsChange(listener: () => void): () => void {
+  notificationsListeners.add(listener);
+  return () => notificationsListeners.delete(listener);
 }

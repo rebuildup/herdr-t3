@@ -24,7 +24,7 @@ import { CommandMenu } from "./shell/CommandMenu";
 import { NoticeToasts } from "./shell/NoticeToasts";
 import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
-import { callRpc, ensureMachine, initBridge, selectWorkspace } from "./shell/bridge";
+import { callRpc, ensureMachine, getBridgeState, initBridge, selectWorkspace } from "./shell/bridge";
 import { initInbox } from "./shell/inbox";
 import { initAutomations } from "./shell/automations";
 import { initConversations } from "./shell/conversations";
@@ -77,6 +77,9 @@ export default function App() {
             callRpc(m, "pane.focus", { pane_id: paneId }).catch(() => {}),
           );
         },
+        // Notice meta line (issue #428): the machine registry label,
+        // resolved lazily at notify time — no extra RPC.
+        machineLabel: (m) => getBridgeState().machines[m]?.label,
       });
       previous.set(machine, snapshot);
     });

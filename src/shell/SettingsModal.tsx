@@ -69,13 +69,18 @@ import {
 } from "~/lib/theme";
 import {
   GENERAL_DEFAULTS,
+  NOTIFICATION_POSITIONS,
   TERMINAL_DEFAULTS,
   getGeneralSettings,
+  getNotificationsSettings,
   getTerminalSettings,
   onGeneralSettingsChange,
+  onNotificationsSettingsChange,
   onTerminalSettingsChange,
   setGeneralSettings,
+  setNotificationsSettings,
   setTerminalSettings,
+  type NotificationPosition,
   type TerminalSettings,
 } from "~/lib/settings";
 import {
@@ -104,6 +109,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms: string }[] = [
   { anchor: "setting-launch-at-login", label: "Launch at login", section: "general", terms: "startup boot open at login" },
   { anchor: "setting-confirm-close", label: "Confirm before closing workspace", section: "general", terms: "close ask confirm panes" },
+  { anchor: "setting-notification-position", label: "Notification position", section: "general", terms: "toast notice corner position top right bottom left center" },
   { anchor: "setting-theme-mode", label: "Appearance", section: "appearance", terms: "theme mode light dark system color scheme" },
   { anchor: "setting-ghostty-sync", label: "Ghostty theme sync", section: "appearance", terms: "ghostty terminal colors palette sync" },
   { anchor: "setting-add-machine", label: "Add machine", section: "connections", terms: "ssh remote endpoint add machine" },
@@ -187,8 +193,25 @@ function useAppearanceMode(): AppearanceMode {
   );
 }
 
+const POSITION_LABELS: Record<NotificationPosition, string> = {
+  "top-left": "Top left",
+  "top-center": "Top center",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-center": "Bottom center",
+  "bottom-right": "Bottom right",
+};
+
 function useTerminalSettings(): TerminalSettings {
   return useSyncExternalStore(onTerminalSettingsChange, getTerminalSettings, getTerminalSettings);
+}
+
+function useNotificationsSettings() {
+  return useSyncExternalStore(
+    onNotificationsSettingsChange,
+    getNotificationsSettings,
+    getNotificationsSettings,
+  );
 }
 
 function useGhosttyEngine() {
@@ -299,6 +322,7 @@ function SectionPage({ section }: { section: SectionId }) {
     getGeneralSettings,
     getGeneralSettings,
   );
+  const notifications = useNotificationsSettings();
   const [loginItem, setLoginItemState] = useState<LoginItemState | null>(null);
   const [machineDialog, setMachineDialog] = useState<MachineDialogState | null>(null);
   const bridge = useBridgeState();
@@ -354,6 +378,31 @@ function SectionPage({ section }: { section: SectionId }) {
                   setGeneralSettings({ confirmCloseWorkspace: checked === true })
                 }
               />
+            </SettingsRow>
+          </SettingsSection>
+          <SettingsSection title="Notifications">
+            <SettingsRow
+              anchor="setting-notification-position"
+              label="Notification position"
+              description="Where in-app notices stack. Top positions stay clear of the window titlebar."
+            >
+              <Select
+                value={notifications.position}
+                onValueChange={(v) =>
+                  setNotificationsSettings({ position: v as NotificationPosition })
+                }
+              >
+                <SelectTrigger className="w-36" aria-label="Notification position">
+                  <SelectValue>{POSITION_LABELS[notifications.position]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {NOTIFICATION_POSITIONS.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {POSITION_LABELS[p]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </SettingsRow>
           </SettingsSection>
         </div>
