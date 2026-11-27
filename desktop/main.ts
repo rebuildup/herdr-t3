@@ -10,7 +10,8 @@
  * Node.js runtime, so only node:* APIs and the electron module are used.
  */
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -155,13 +156,48 @@ const MEMORY_SLOPE_WINDOW_MS = 15 * 60_000;
 /** MB/min sustained growth that escalates one level. */
 const MEMORY_SLOPE_MB_PER_MIN = 96;
 /**
- * OS-level memory pressure: when free RAM drops under this fraction of
- * physical memory the OS is already compressing/swapping — shed caches
- * early even if our own RSS has not crossed warn yet. OS pressure alone
- * never triggers breach: a small herdr-t3 on a busy machine must not
- * reload itself for pressure it did not cause.
+ * OS-level memory pressure: when *available* RAM drops under this
+ * fraction of physical memory the OS is already compressing/swapping —
+ * shed caches early even if our own RSS has not crossed warn yet. OS
+ * pressure alone never triggers breach: a small herdr-t3 on a busy
+ * machine must not reload itself for pressure it did not cause.
+ *
+ * Availability is platform-aware: Node's `os.freemem()` on macOS counts
+ * only truly-free pages (file cache excluded), which sits near 0% on a
+ * healthy machine — using it directly made the pressure signal a
+ * permanent false positive (observed: warn level for an entire healthy
+ * run). macOS therefore estimates available as free+inactive+
+ * speculative+purgeable pages from `vm_stat`; Linux uses MemAvailable;
+ * other platforms fall back to freemem.
  */
-const OS_FREE_PRESSURE_PCT = 0.08;
+const OS_AVAILABLE_PRESSURE_PCT = 0.08;
+
+/** Bytes the OS can still give out without swapping, best-effort per platform. */
+function osAvailableBytes(): number {
+  try {
+    if (process.platform === "darwin") {
+      const out = execFileSync("vm_stat", { encoding: "utf8" });
+      const page = Number(/page size of (\d+) bytes/.exec(out)?.[1] ?? 16384);
+      const pages = (name: string): number =>
+        Number(new RegExp(`${name}:\\s+(\\d+)\\.?`).exec(out)?.[1] ?? 0);
+      return (
+        (pages("Pages free") +
+          pages("Pages inactive") +
+          pages("Pages speculative") +
+          pages("Pages purgeable")) *
+        page
+      );
+    }
+    if (process.platform === "linux") {
+      const meminfo = readFileSync("/proc/meminfo", "utf8");
+      const kb = Number(/^MemAvailable:\s+(\d+)/m.exec(meminfo)?.[1] ?? 0);
+      return kb * 1024;
+    }
+  } catch {
+    /* fall through to freemem */
+  }
+  return freemem();
+}
 type MemoryLevel = "ok" | "warn" | "critical" | "breach";
 let lastMemory: {
   totalMb: number;
@@ -169,7 +205,7 @@ let lastMemory: {
   level: MemoryLevel;
   baselineMb: number;
   slopeMbPerMin: number;
-  osFreePct: number;
+  osAvailPct: number;
 } | null = null;
 let memoryHistory: { t: number; mb: number }[] = [];
 let lastMemoryLevel: MemoryLevel = "ok";
@@ -192,7 +228,7 @@ function memorySlopeMbPerMin(now: number): number {
   return minutes > 0 ? (last.mb - first.mb) / minutes : 0;
 }
 
-function evaluateMemoryLevel(totalMb: number, now: number): MemoryLevel {
+function evaluateMemoryLevel(totalMb: number, now: number, osAvailPct: number): MemoryLevel {
   const baseline = memoryBaselineMb();
   // Clamp warn below critical: a high baseline must not push warn past
   // the fixed critical threshold and make the levels non-monotonic.
@@ -201,7 +237,7 @@ function evaluateMemoryLevel(totalMb: number, now: number): MemoryLevel {
     MEMORY_CRIT_MB - 256,
   );
   const slope = memorySlopeMbPerMin(now);
-  const osPressured = freemem() / totalmem() < OS_FREE_PRESSURE_PCT;
+  const osPressured = osAvailPct < OS_AVAILABLE_PRESSURE_PCT;
   let level: MemoryLevel = "ok";
   if (totalMb >= MEMORY_HARD_CAP_MB) level = "breach";
   else if (totalMb >= MEMORY_CRIT_MB || (slope >= MEMORY_SLOPE_MB_PER_MIN * 2 && totalMb >= warnMb * 1.2)) {
@@ -231,15 +267,17 @@ function sampleProcessMemory(): void {
   memoryHistory.push({ t: now, mb: totalMb });
   const cutoff = now - MEMORY_HISTORY_MS;
   while (memoryHistory.length > 0 && memoryHistory[0]!.t < cutoff) memoryHistory.shift();
-  const level = evaluateMemoryLevel(totalMb, now);
+  const osAvailPct = Math.round((osAvailableBytes() / totalmem()) * 1000) / 10;
+  const level = evaluateMemoryLevel(totalMb, now, osAvailPct / 100);
   lastMemory = {
     totalMb,
     byType,
     level,
     baselineMb: memoryBaselineMb(),
     slopeMbPerMin: Math.round(memorySlopeMbPerMin(now) * 10) / 10,
-    osFreePct: Math.round((freemem() / totalmem()) * 1000) / 10,
+    osAvailPct,
   };
+  recordMemorySample(lastMemory);
   reportStatus(lastStatus.ok, lastStatus.detail);
   if (level !== lastMemoryLevel) {
     lastMemoryLevel = level;
@@ -277,6 +315,35 @@ function sampleProcessMemory(): void {
   }
 }
 setInterval(sampleProcessMemory, 30_000).unref();
+
+/*
+ * Bounded forensic time series (issue #499): memoryHistory lives only in
+ * this process, so a crash or reload erases the evidence around an
+ * anomaly. Every sample is appended to userData/memory-history.jsonl —
+ * ~16 h at the 30 s cadence — and the file is compacted to its tail once
+ * it exceeds the cap. This is the record that makes a recurrence
+ * attributable after the fact.
+ */
+const MEMORY_HISTORY_FILE_MAX_BYTES = 512 * 1024;
+const MEMORY_HISTORY_KEEP_LINES = 800;
+let memoryHistoryBytes = 0;
+
+function recordMemorySample(sample: NonNullable<typeof lastMemory>): void {
+  try {
+    const dir = app.getPath("userData");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "memory-history.jsonl");
+    appendFileSync(file, JSON.stringify({ t: new Date().toISOString(), ...sample }) + "\n");
+    memoryHistoryBytes += 512;
+    if (memoryHistoryBytes > MEMORY_HISTORY_FILE_MAX_BYTES) {
+      const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+      writeFileSync(file, lines.slice(-MEMORY_HISTORY_KEEP_LINES).join("\n") + "\n");
+      memoryHistoryBytes = MEMORY_HISTORY_KEEP_LINES * 512;
+    }
+  } catch {
+    /* forensics must never break the app */
+  }
+}
 
 function reportStatus(ok: boolean, detail: string): void {
   lastStatus = { ok, detail };
