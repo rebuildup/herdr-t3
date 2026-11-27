@@ -3,7 +3,7 @@
  *
  * `rebuildup.git` on the pane's host owns repository reads through the
  * `herdr-plugins.git/v1` contract, pinned at
- * rebuildup/herdr-plugins@d057830 (release-0-2-0, strict option parsing —
+ * rebuildup/hoxay-plugins@d057830 (release-0-2-0, strict option parsing —
  * ADR-0018): `status`, `files`,
  * `diff`, `log`, `compare`, `capability`. Hosts may still run the older
  * Stage-1 build (`status`/`diff`/`project` only, drifted `diff`/`stat`

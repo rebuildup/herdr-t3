@@ -1,7 +1,7 @@
 /*
  * Usage surface (issue #375, ADR-0011 boundary): the host's
  * `rebuildup.usage` plugin (`herdr-plugins.usage/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0) owns token-usage
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0) owns token-usage
  * aggregation, subscription quota/reset reporting, estimated cost,
  * and the quota-vs-measured divergence report. The plugin is
  * read-only (`mutation_commands: []`) — this surface never offers a

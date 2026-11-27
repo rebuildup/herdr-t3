@@ -2,14 +2,14 @@
 
 Version: 2. Scope: consuming `herdr-plugins.textgen/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as artifacts-v1/usage-v1/conversations-v1).
 The plugin owns structured text generation — thread titles, branch
 names, commit-message candidates, PR content, review guides and
 next-prompt predictions — and this client renders its surfaces
 (issues #442 read surface, #458 generation). Upstream spec:
-`herdr-plugins/docs/contracts/textgen-v1.md` (STABLE since
-herdr-plugins v0.6.0; plugin `rebuildup.textgen` v0.7.0+).
+`hoxay-plugins/docs/contracts/textgen-v1.md` (STABLE since
+hoxay-plugins v0.6.0; plugin `rebuildup.textgen` v0.7.0+).
 
 The contract advertises mutations (`mutation_commands`: `generate`,
 `watch-next-prompt`, `config set-default-provider`,
@@ -21,7 +21,7 @@ allowlist. There are still NO list/history/result commands:
 generation results are returned to the caller and never persisted
 plugin-side, so the surface renders the latest result transiently
 with an explicit "not retained" label (retention gap recorded
-upstream as rebuildup/herdr-plugins#249).
+upstream as rebuildup/hoxay-plugins#249).
 
 ## Operations consumed
 
@@ -81,7 +81,7 @@ the bare discovery document without the `ok` envelope):
   is always the caller's explicit action. This surface never applies
   anything; the separation is contractual (ADR-0017 upstream).
 - Result retention/history — the contract persists nothing; if
-  upstream adds retention (rebuildup/herdr-plugins#249), a follow-up
+  upstream adds retention (rebuildup/hoxay-plugins#249), a follow-up
   ticket adds history/review on top of this generate path.
 
 ## Errors and freshness

@@ -1,5 +1,5 @@
 /**
- * herdr-plugins contract boundary (ADR-0011, issue #219).
+ * hoxay-plugins contract boundary (ADR-0011, issue #219).
  *
  * The bridge never proxies plugin sockets and never reads plugin state
  * files: every capability is consumed by executing the plugin's own CLI
@@ -215,7 +215,7 @@ const MAX_TIMEOUT_MS = 600_000;
  * the socket as `HERDR_SOCKET_PATH` > `--session`/`HERDR_SESSION` >
  * default, so an ambient `HERDR_SOCKET_PATH` would silently override the
  * explicit `--session` appended for named sessions and point mutations
- * at a foreign Host/Session/Pane (upstream herdr-plugins#83, issue
+ * at a foreign Host/Session/Pane (upstream hoxay-plugins#83, issue
  * #270). The list mirrors herdr's own `scrub_herdr_runtime_env` for
  * plugin-spawned commands (src/cli/plugin.rs).
  *
@@ -254,7 +254,7 @@ export const PLUGIN_ENV_SCRUB = [
   "HERDR_PLUGIN_CLICKED_URL",
   "HERDR_PLUGIN_LINK_HANDLER_ID",
   // Git repo/config/transport targeting (ADR-0023, issue #280,
-  // upstream herdr-plugins#96). Plugin git invocations inherit this
+  // upstream hoxay-plugins#96). Plugin git invocations inherit this
   // environment verbatim — upstream git-core spreads process.env into
   // every `git` spawn with only GIT_TERMINAL_PROMPT/GIT_OPTIONAL_LOCKS
   // pinned — so ambient GIT_* vars can point plugin git operations at a
@@ -470,7 +470,7 @@ function outcomeToJson(
     const doc = parseJson(outcome.stderr.trim());
     if (isRecord(doc) && isRecord(doc["error"])) {
       // Partial-failure convention (checkpoints-v1 `save` /
-      // `restore-group` / `gc` / `prune`, herdr-plugins#75): the plugin
+      // `restore-group` / `gc` / `prune`, hoxay-plugins#75): the plugin
       // prints the FULL per-repo report on stdout, a summary error on
       // stderr and exits 1. Returning a bare HerdrError would silently
       // drop that report, so when stdout also carries a contract

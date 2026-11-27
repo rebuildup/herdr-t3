@@ -13,7 +13,7 @@
  *   `stopped`. `stale_pane` stop outcomes are labelled distinctly —
  *   ownership re-validation failed and no pane was touched.
  * - `runOnWorktreeCreate`/`runOnSettle`/`stopOnSettle` have no upstream
- *   execution mapping (herdr-plugins#60): shown as inert "not wired"
+ *   execution mapping (hoxay-plugins#60): shown as inert "not wired"
  *   metadata, never as active triggers.
  * - Multi-repo `scripts run` without `--repo` fails `repo_ambiguous`;
  *   the repo selector is explicit and nothing is auto-picked.
@@ -223,7 +223,7 @@ function AutoFlags({ script }: { script: ProjectScript }) {
       />
       <TooltipPopup side="bottom" className="max-w-72">
         Declared in the script definition, but upstream has no execution
-        mapping for auto triggers yet (herdr-plugins#60). Listed as inert
+        mapping for auto triggers yet (hoxay-plugins#60). Listed as inert
         metadata only.
       </TooltipPopup>
     </Tooltip>

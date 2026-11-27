@@ -2,13 +2,13 @@
 
 Version: 1. Scope: consuming `herdr-plugins.machines/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@08f96a4d151f0edb72b61483376ff977177f92e8`
+`rebuildup/hoxay-plugins@08f96a4d151f0edb72b61483376ff977177f92e8`
 (RC defect fix: `--socket`/`--session` target-arg acceptance backported
-onto the v0.6.0 pin base `d23205af`; see herdr-plugins#264 / #483)). The plugin owns
+onto the v0.6.0 pin base `d23205af`; see hoxay-plugins#264 / #483)). The plugin owns
 read-only saved-machine inventory: live `herdr machine list` merged
 with last-known probe metadata, plus an on-demand live probe over the
 saved-machine SSH bridge. This client renders the surface (issue
-#454). Upstream spec: `herdr-plugins/docs/contracts/machines-v1.md`
+#454). Upstream spec: `hoxay-plugins/docs/contracts/machines-v1.md`
 (**draft** contract status at plugin v0.1.0 — additive changes only
 once stable).
 

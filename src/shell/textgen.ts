@@ -5,7 +5,7 @@
  * generation — thread titles, branch names, commit-message
  * candidates, PR content, review guides and next-prompt predictions —
  * through the `herdr-plugins.textgen/v1` contract, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/textgen-v1.md, plugin v0.7.0+). Generation is
  * strictly separated from execution: the plugin returns validated
  * candidate text and adopting it (git, forge, composer) is always the
@@ -22,7 +22,7 @@
  * commands — generation results are returned to the caller and never
  * persisted plugin-side, so the surface shows the latest result
  * transiently and labels it "not retained" (retention gap recorded
- * upstream as rebuildup/herdr-plugins#249). `generate` is a mutation
+ * upstream as rebuildup/hoxay-plugins#249). `generate` is a mutation
  * (it drives herdr agent panes); `watch-next-prompt` and the `config`
  * write subcommands stay gated off — `TEXTGEN_MUTATION_COMMANDS`
  * allows `generate` only. Generation stays separated from execution:

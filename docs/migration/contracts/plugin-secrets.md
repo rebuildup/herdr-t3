@@ -2,13 +2,13 @@
 
 Version: 1. Scope: consuming `herdr-plugins.secrets/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as artifacts-v1/usage-v1/conversations-v1/
 handoff-v1/textgen-v1). The plugin owns secret-reference resolution
 and env injection — binding declarations, per-binding resolve status,
 `run` (child env) and `inject` (surface-create env params) — and this
 client renders its surfaces (issue #454). Upstream spec:
-`herdr-plugins/docs/contracts/secrets-v1.md`.
+`hoxay-plugins/docs/contracts/secrets-v1.md`.
 
 The contract advertises mutations (`commands` includes `run` and
 `inject`; plugin v0.9.0 does not emit `mutation_commands` — gating

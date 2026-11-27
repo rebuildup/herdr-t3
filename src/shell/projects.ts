@@ -4,7 +4,7 @@
  *
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
- * rebuildup/herdr-plugins@2dcb2abf (release-0-3-0, schema v2 run
+ * rebuildup/hoxay-plugins@2dcb2abf (release-0-3-0, schema v2 run
  * records + shell-family fields — ADR-0015/0019/0020): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The

@@ -2,7 +2,7 @@
  * Artifacts surface (issue #396 read surface, #455 mutations;
  * ADR-0011 boundary): the host's `rebuildup.artifacts` plugin
  * (`herdr-plugins.artifacts/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0) owns the artifact registry
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0) owns the artifact registry
  * — references to generated files (HTML pages, images, PDFs, generic
  * files) with kind validation, verify, deliver and gc.
  *

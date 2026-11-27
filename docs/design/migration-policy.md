@@ -64,7 +64,7 @@ State ownership today:
 | Domain | Owner | Persistence |
 | --- | --- | --- |
 | pty, scrollback, agent state | herdr (remote or local) | herdr session |
-| plugin feature state (inbox, git, …) | herdr-plugins on the herdr host | plugin state files (never read by herdr-t3) |
+| plugin feature state (inbox, git, …) | hoxay-plugins on the herdr host | plugin state files (never read by herdr-t3) |
 | workspace/tab/pane projection, drafts, UI state | renderer stores (`src/shell/*`) | session snapshot from bridge; drafts in memory |
 | user settings, machines, keys | renderer + Electron `userData` | localStorage / profile files (see #239 inventory) |
 | organize-state legacy overlay | `src/shell/agentOrganizeStore.ts` localStorage | one-time migration to plugin state (#173 → ADR-0011) |

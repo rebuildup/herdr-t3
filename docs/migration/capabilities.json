@@ -38,7 +38,7 @@
   {
    "id": "plugins-boundary",
    "version": 1,
-   "title": "herdr-plugins contract boundary",
+   "title": "hoxay-plugins contract boundary",
    "spec": "docs/migration/contracts/plugins-boundary.md",
    "oracle": "conformance",
    "summary": "plugin_list/plugin_call, per-host capability gating, error-kind passthrough, no state-file reads."
@@ -210,7 +210,7 @@
    "title": "herdr-plugins.textgen/v1 structured text generation surface",
    "spec": "docs/migration/contracts/plugin-textgen.md",
    "oracle": "conformance",
-   "summary": "Textgen surface via plugin_call: capability/git-context/generate consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; generate (confirm-gated mutation, input via plugin_call stdin, transient result display) since #458; contract has no list/history/result commands so results are shown once and labeled not-retained (retention gap: herdr-plugins#249); watch-next-prompt/config writes gated off; results are never auto-applied."
+   "summary": "Textgen surface via plugin_call: capability/git-context/generate consumed @d23205af — capability (task×path matrix, agent/api provider matrix, guards, integrations.git, redacted config warnings) fetched eagerly; git-context (read-only collected-input preview, no provider invoked) lazy on submit; generate (confirm-gated mutation, input via plugin_call stdin, transient result display) since #458; contract has no list/history/result commands so results are shown once and labeled not-retained (retention gap: hoxay-plugins#249); watch-next-prompt/config writes gated off; results are never auto-applied."
   },
   {
    "id": "plugin-secrets",
@@ -1251,7 +1251,7 @@
     "capability-gated per host",
     "repo_ambiguous/unknown_script/run_not_found kind passthrough",
     "shell_unknown/not_a_shell/invalid_shell pre-injection aborts classified distinctly",
-    "auto triggers inert (upstream herdr-plugins#60)"
+    "auto triggers inert (upstream hoxay-plugins#60)"
    ],
    "side_effects": [
     "user-defined commands execute in dedicated herdr workspace/pane",
@@ -1274,13 +1274,13 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert — no upstream execution mapping (herdr-plugins#60)"
+     "runOnWorktreeCreate/runOnSettle/stopOnSettle listed but inert — no upstream execution mapping (hoxay-plugins#60)"
     ],
     "os_gaps": [],
     "upstream_deps": [
      "herdr-plugins.projects/v1 @2dcb2abf",
      "herdr pane execution API",
-     "auto triggers: herdr-plugins#60 (upstream gap)"
+     "auto triggers: hoxay-plugins#60 (upstream gap)"
     ],
     "excluded": false
    },
@@ -1348,7 +1348,7 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "per-turn auto-capture remains a non-goal (upstream gap); auto-capture granularity is agent_status work-units. multi-repo save groups and bounded gc/prune are implemented @ae4f214 (herdr-plugins#75 closed)"
+     "per-turn auto-capture remains a non-goal (upstream gap); auto-capture granularity is agent_status work-units. multi-repo save groups and bounded gc/prune are implemented @ae4f214 (hoxay-plugins#75 closed)"
     ],
     "os_gaps": [],
     "upstream_deps": [
@@ -1811,7 +1811,7 @@
    "status": {
     "implemented": true,
     "known_issues": [
-     "contract has no list/history/result commands — generation results are not persisted plugin-side, so the surface shows the latest result transiently with a not-retained label; retention gap recorded as herdr-plugins#249",
+     "contract has no list/history/result commands — generation results are not persisted plugin-side, so the surface shows the latest result transiently with a not-retained label; retention gap recorded as hoxay-plugins#249",
      "watch-next-prompt (long-running agent-pane watcher) and config writes remain gated off — separate tickets",
      "next_prompt composer presentation is a separate concern (watch path records pane metadata upstream)"
     ],

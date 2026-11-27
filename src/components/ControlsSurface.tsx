@@ -1,7 +1,7 @@
 /*
  * Controls surface (issue #450, ADR-0011 boundary): the host's
  * `rebuildup.controls` plugin (`herdr-plugins.controls/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0 — v1 stable since plugin
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0 — v1 stable since plugin
  * v0.6.0) is the agent operation core: provider slash-command
  * passthrough, PTY-level interrupt, status wait, and agent launch with
  * per-provider launch options — all over herdr's `agent.*` socket API.

@@ -4,7 +4,7 @@
  * `rebuildup.mcp` on each target host is a local stdio MCP server that
  * exposes herdr sessions and sibling plugin contracts to outside MCP
  * clients — contract `herdr-plugins.mcp/v1` (STABLE), pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/mcp-v1.md; upstream boundary ADR-0025).
  *
  * DIAGNOSTICS ONLY: the MCP server itself is never rendered as a

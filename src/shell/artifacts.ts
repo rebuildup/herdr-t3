@@ -5,7 +5,7 @@
  * register/validate/index/deliver references to generated files (HTML
  * pages, images, PDFs, generic files) — through the
  * `herdr-plugins.artifacts/v1` contract, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/artifacts-v1.md, plugin v0.2.0+). The contract
  * advertises mutations (`mutation_commands: ["register", "delete",
  * "deliver", "gc"]`, `read_only: false`). This surface consumes the

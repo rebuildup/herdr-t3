@@ -102,7 +102,7 @@ describe("automations argv builders (herdr-plugins.automations/v1 @6c1cfa5)", ()
   });
 
   test("mutation argv (set-enabled/run-now/delete/reconcile)", () => {
-    // herdr-plugins plugins/automations/src/cli.ts @6c1cfa5:
+    // hoxay-plugins plugins/automations/src/cli.ts @6c1cfa5:
     //   set-enabled <task_id> <true|false>
     //   run-now <task_id>
     //   delete <task_id>

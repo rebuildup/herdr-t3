@@ -4,7 +4,7 @@
  * `rebuildup.machines` on each target host owns the READ-ONLY saved-
  * machine inventory — reachability, remote herdr version/protocol, and
  * remote plugin surface — through the `herdr-plugins.machines/v1`
- * contract (DRAFT), pinned at rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * contract (DRAFT), pinned at rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/machines-v1.md; upstream boundary ADR-0028).
  *
  * READ-ONLY BY CONTRACT: machine lifecycle (add/remove/rename/enable/

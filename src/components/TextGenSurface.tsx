@@ -1,7 +1,7 @@
 /*
  * TextGen surface (issue #442, ADR-0011 boundary): the host's
  * `rebuildup.textgen` plugin (`herdr-plugins.textgen/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0) owns structured text
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0) owns structured text
  * generation — thread titles, branch names, commit-message
  * candidates, PR content, review guides and next-prompt predictions.
  *
@@ -9,7 +9,7 @@
  * results are returned to the caller and never persisted
  * plugin-side, so there is no history to render. This surface shows
  * the latest result transiently and labels it "not retained"
- * (retention gap recorded upstream as rebuildup/herdr-plugins#249).
+ * (retention gap recorded upstream as rebuildup/hoxay-plugins#249).
  * Reads: `capability` (task×path matrix, agent/api provider
  * matrix, guards, git-integration status, redacted config warnings)
  * fetched eagerly per machine, and `git-context` (read-only preview

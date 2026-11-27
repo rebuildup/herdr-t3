@@ -1,7 +1,7 @@
 /*
  * Machines surface (issue #454, ADR-0011 boundary): the host's
  * `rebuildup.machines` plugin (`herdr-plugins.machines/v1` DRAFT,
- * pinned at rebuildup/herdr-plugins@d23205af, v0.9.0) owns the
+ * pinned at rebuildup/hoxay-plugins@d23205af, v0.9.0) owns the
  * read-only saved-machine inventory — reachability, remote herdr
  * version/protocol, and remote plugin surface.
  *

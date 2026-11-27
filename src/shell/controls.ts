@@ -2,9 +2,9 @@
  * Plugin-backed agent-control store (ADR-0011 boundary; issue #450).
  *
  * `rebuildup.controls` on each target host is the agent operation core
- * of rebuildup/herdr-plugins, consumed through the
+ * of rebuildup/hoxay-plugins, consumed through the
  * `herdr-plugins.controls/v1` contract pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/controls-v1.md; v1 stable since plugin v0.6.0). Every
  * command is a flat `plugin_call` argv invocation; the plugin wraps
  * herdr's `agent.*` socket API and echoes the resolved identity

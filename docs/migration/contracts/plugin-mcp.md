@@ -2,14 +2,14 @@
 
 Version: 1. Scope: consuming `herdr-plugins.mcp/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as the other plugin surfaces). The plugin is a
 **local stdio MCP server** exposing herdr sessions and sibling plugin
 contracts to outside MCP clients; contract status is **stable**
 (read/mutation/events surfaces all implemented upstream, T2–T4).
 This client renders DIAGNOSTICS ONLY (issue #454): it never spawns
 `serve`, never speaks MCP protocol, and never invokes a tool.
-Upstream spec: `herdr-plugins/docs/contracts/mcp-v1.md`.
+Upstream spec: `hoxay-plugins/docs/contracts/mcp-v1.md`.
 
 ## Operations consumed
 

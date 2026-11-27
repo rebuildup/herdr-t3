@@ -1,7 +1,7 @@
 /*
  * Projects surface (issue #252, ADR-0011/ADR-0014): the host's
  * `rebuildup.projects` plugin (`herdr-plugins.projects/v1` pinned at
- * rebuildup/herdr-plugins@2dcb2abf) owns the project registry —
+ * rebuildup/hoxay-plugins@2dcb2abf) owns the project registry —
  * list/show/discover/register/update/flag setters, settings
  * get/set/unset, and repos list/add/remove. Registry state is
  * host-global, so this surface is machine-scoped, not pane-scoped.

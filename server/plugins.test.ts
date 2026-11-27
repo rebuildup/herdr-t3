@@ -325,7 +325,7 @@ describe("PluginService.call", () => {
     // ambient GIT_DIR/GIT_CONFIG_*/GIT_SSH* would redirect plugin git
     // operations (checkpoints capture/restore, git status/diff/stage)
     // to a foreign repository, object store, config or transport —
-    // upstream herdr-plugins#96. Discovery, capability probes and
+    // upstream hoxay-plugins#96. Discovery, capability probes and
     // contract calls must all carry the extended scrub list.
     expect(host.calls).toHaveLength(3);
     for (const options of host.options) {

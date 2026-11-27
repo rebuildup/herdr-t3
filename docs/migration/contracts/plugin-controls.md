@@ -2,15 +2,15 @@
 
 Version: 1. Scope: consuming `herdr-plugins.controls/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`). The plugin is the agent operation core — provider
 slash-command passthrough, PTY-level interrupt, status wait, scrollback
 read, rename, and agent launch with per-provider launch options — all
 over herdr's `agent.*` socket API with a resolved-identity echo and
 `--expect-*` generation guards. This client consumes a deliberate
 subset (issue #450). Upstream spec:
-`herdr-plugins/docs/contracts/controls-v1.md` (**v1 stable** since
-herdr-plugins v0.6.0 / plugin v0.6.0).
+`hoxay-plugins/docs/contracts/controls-v1.md` (**v1 stable** since
+hoxay-plugins v0.6.0 / plugin v0.6.0).
 
 ## Boundary decision: what is NOT consumed and why
 

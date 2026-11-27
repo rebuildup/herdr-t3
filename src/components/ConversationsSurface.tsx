@@ -1,7 +1,7 @@
 /*
  * Conversations surface (issue #374, ADR-0011 boundary): the host's
  * `rebuildup.conversations` plugin (`herdr-plugins.conversations/v1`
- * pinned at rebuildup/herdr-plugins@d23205af, v0.9.0) owns the provider
+ * pinned at rebuildup/hoxay-plugins@d23205af, v0.9.0) owns the provider
  * transcript index (claude/codex/opencode). Session rows carry the
  * plugin's read-time verdicts verbatim — `status`/`error`,
  * `stale`/`stale_reason`, `transcript_present`/`events_present` — and

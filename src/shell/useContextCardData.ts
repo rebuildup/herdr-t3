@@ -1,5 +1,5 @@
 /*
- * Context card data (issue #390) — aggregates the herdr-plugins reads
+ * Context card data (issue #390) — aggregates the hoxay-plugins reads
  * the card's sections need, each fetched independently so a missing or
  * failing plugin hides only its own section. Every fetch reuses the
  * existing `src/shell/*.ts` helpers; nothing here is a new canonical
