@@ -2,7 +2,7 @@
 
 This is the always-on contract for AI agents working on `herdr-t3`.
 
-The repository follows the `rebuildup/project-init` release-driven operating
+The repository follows the `rebuildup/aude-skills` release-driven operating
 model. Keep this root contract project-specific; do not copy the complete
 upstream initialization prompt here.
 
@@ -120,7 +120,7 @@ Follow `organization/profiles/release-driven-solo.md`:
 
 ## 8. Project-local skills
 
-Skills reconciled from `rebuildup/project-init` live in `.agents/skills/`
+Skills reconciled from `rebuildup/aude-skills` live in `.agents/skills/`
 (`.claude/skills/` symlinks them for Claude Code) with `skills-lock.json` as
 freshness metadata. Do not hand-edit upstream-managed Skill bodies; record
 project-specific refinements in this file, ADRs, or `docs/`. Update via
