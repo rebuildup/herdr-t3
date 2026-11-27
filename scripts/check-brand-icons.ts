@@ -11,13 +11,15 @@
  *     into the NSIS installer. No `icon:` override may point elsewhere
  *     without the file existing.
  *
- * The current binaries are the herdr-t3 application icon (commit
- * 168167a). hoxay derivatives are produced from the Rikyū master SVG
- * (docs/brand/, PR #491) under docs/brand production rules and replace
- * these files when that work lands — originals are never redrawn.
+ * The binaries are hoxay derivatives produced from the Rikyū master SVG
+ * (docs/brand/originals/, PR #491) by scripts/generate-brand-icons.ts —
+ * recolor/placement/scale only, master geometry untouched. Provenance is
+ * bound by docs/brand/icon-manifest.json (source + output SHA-256),
+ * verified below; originals are never redrawn.
  *
  * `bun scripts/check-brand-icons.ts --self-test` proves detection.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -143,10 +145,38 @@ if (process.argv.includes("--self-test")) {
   process.exit(ok ? 0 : 1);
 }
 
+/** Manifest provenance: master SVG hash + recorded output hashes must
+ *  match the files actually shipped. .icns is presence/format-checked
+ *  above (iconutil output is not byte-stable across versions). */
+function checkManifest() {
+  const mp = join(ROOT, "docs/brand/icon-manifest.json");
+  if (!existsSync(mp)) return fail("docs/brand/icon-manifest.json: missing — run scripts/generate-brand-icons.ts");
+  let m: { source?: { path?: string; sha256?: string }; outputs?: Record<string, string> };
+  try {
+    m = JSON.parse(readFileSync(mp, "utf8"));
+  } catch {
+    return fail("docs/brand/icon-manifest.json: invalid JSON");
+  }
+  const src = m.source?.path;
+  if (!src || !existsSync(join(ROOT, src))) return fail(`manifest source ${src ?? "?"} missing`);
+  const sha = createHash("sha256").update(readFileSync(join(ROOT, src))).digest("hex");
+  if (m.source?.sha256 !== sha) {
+    fail(`master SVG drift: manifest=${m.source?.sha256} actual=${sha} — regenerate icons`);
+  }
+  for (const [rel, hash] of Object.entries(m.outputs ?? {})) {
+    if (rel.endsWith(".icns")) continue;
+    const p = join(ROOT, rel);
+    if (!existsSync(p)) { fail(`${rel}: missing`); continue; }
+    const actual = createHash("sha256").update(readFileSync(p)).digest("hex");
+    if (actual !== hash) fail(`${rel}: output hash mismatch — regenerate icons`);
+  }
+}
+
 checkPng("icon.png", 512);
 checkIcns("icon.icns");
 checkIco("icon.ico");
 checkBuilderConfig();
+checkManifest();
 
 for (const e of errors) console.log(`FAIL ${e}`);
 if (errors.length) {
