@@ -160,13 +160,55 @@ function diagnose(): number {
   return 0;
 }
 
+interface ReportEnvelope {
+  summary?: Record<string, ScenarioSummary>;
+  config?: Record<string, unknown>;
+  host?: { totalMemMb?: number; cpus?: number; loadavg?: number[] };
+  sha?: string;
+}
+
 function compare(baselinePath: string, candidatePath: string): number {
-  const load = (p: string): Record<string, ScenarioSummary> => {
-    const j = JSON.parse(readFileSync(p, "utf8")) as { summary?: Record<string, ScenarioSummary> };
-    return j.summary ?? {};
+  const load = (p: string): ReportEnvelope => JSON.parse(readFileSync(p, "utf8")) as ReportEnvelope;
+  const baseEnv = load(baselinePath);
+  const candEnv = load(candidatePath);
+  const base = baseEnv.summary ?? {};
+  const cand = candEnv.summary ?? {};
+
+  // Environment consistency (issue #416): deltas are only meaningful when
+  // both runs used the same workload shape and host class. Reports with
+  // different storm sizes/seconds or a different host produce flags that
+  // are artifacts, not regressions — observed with mem-baseline
+  // (128 MiB/15 s, load ~10) vs mem-postfix (256 MiB/20 s, load ~16)
+  // where every "regression" dissolved under the heavier run.
+  const bc = baseEnv.config ?? {};
+  const cc = candEnv.config ?? {};
+  const workloadKeys = ["stormMb", "stormSeconds", "scenario"];
+  const workloadDiffs = workloadKeys
+    .filter((k) => bc[k] !== undefined && cc[k] !== undefined && bc[k] !== cc[k])
+    .map((k) => `${k}: ${bc[k]} vs ${cc[k]}`);
+  const bh = baseEnv.host ?? {};
+  const ch = candEnv.host ?? {};
+  const hostDiffs: string[] = [];
+  if (bh.totalMemMb !== undefined && ch.totalMemMb !== undefined && bh.totalMemMb !== ch.totalMemMb) {
+    hostDiffs.push(`totalMemMb ${bh.totalMemMb} vs ${ch.totalMemMb}`);
+  }
+  if (bh.cpus !== undefined && ch.cpus !== undefined && bh.cpus !== ch.cpus) {
+    hostDiffs.push(`cpus ${bh.cpus} vs ${ch.cpus}`);
+  }
+  const loadDelta =
+    bh.loadavg?.[0] !== undefined && ch.loadavg?.[0] !== undefined
+      ? Math.abs(ch.loadavg[0] - bh.loadavg[0])
+      : 0;
+  const comparable = workloadDiffs.length === 0 && hostDiffs.length === 0;
+  const comparability = {
+    comparable,
+    workloadDiffs,
+    hostDiffs,
+    loadavg1Delta: Math.round(loadDelta * 100) / 100,
+    note: comparable
+      ? "same workload shape and host class"
+      : "deltas are NOT comparable — differences reflect the changed conditions, not the code",
   };
-  const base = load(baselinePath);
-  const cand = load(candidatePath);
   const scenarios = [...new Set([...Object.keys(base), ...Object.keys(cand)])].sort();
   const METRICS: { key: keyof ScenarioSummary; label: string; lowerBetter: boolean }[] = [
     { key: "jsHeapPeakMb", label: "jsHeapPeak", lowerBetter: true },
@@ -186,7 +228,13 @@ function compare(baselinePath: string, candidatePath: string): number {
       const bv = b[m.key] as number | undefined;
       const cv = c[m.key] as number | undefined;
       if (bv === undefined || cv === undefined) continue;
-      const deltaPct = bv === 0 ? (cv === 0 ? 0 : 100) : ((cv - bv) / bv) * 100;
+      // A zero baseline means "not measured" (e.g. herdr pid uncaptured),
+      // not "zero usage" — flag it instead of reporting a fake +100%.
+      if (bv === 0) {
+        deltas[m.label] = { base: bv, cand: cv, flag: "baseline-unmeasured" };
+        continue;
+      }
+      const deltaPct = ((cv - bv) / bv) * 100;
       const worse = m.lowerBetter ? cv > bv : cv < bv;
       const flag = worse && Math.abs(deltaPct) >= REGRESSION_PCT ? `regression >${REGRESSION_PCT}%` : undefined;
       if (flag) regressions++;
@@ -198,6 +246,9 @@ function compare(baselinePath: string, candidatePath: string): number {
     generatedAt: new Date().toISOString(),
     baseline: baselinePath,
     candidate: candidatePath,
+    baselineSha: baseEnv.sha,
+    candidateSha: candEnv.sha,
+    comparability,
     regressionPct: REGRESSION_PCT,
     regressions,
     scenarios: rows,
@@ -206,9 +257,15 @@ function compare(baselinePath: string, candidatePath: string): number {
     console.log(JSON.stringify(report, null, 2));
     return regressions > 0 ? 1 : 0;
   }
+  if (!comparability.comparable) {
+    console.log(`WARNING: ${comparability.note}`);
+    for (const d of [...comparability.workloadDiffs, ...comparability.hostDiffs]) console.log(`  ${d}`);
+    if (comparability.loadavg1Delta > 4) console.log(`  loadavg[0] delta ${comparability.loadavg1Delta} (>4 — host load differed)`);
+    console.log("");
+  }
   for (const r of rows) {
     const parts = Object.entries(r.deltas as Record<string, { deltaPct?: number; flag?: string }>)
-      .map(([k, v]) => `${k} ${v.deltaPct! >= 0 ? "+" : ""}${v.deltaPct}%${v.flag ? " ⚠" : ""}`);
+      .map(([k, v]) => `${k} ${v.deltaPct !== undefined ? (v.deltaPct >= 0 ? "+" : "") + v.deltaPct + "%" : "n/a"}${v.flag ? ` ⚠${v.flag}` : ""}`);
     console.log(`${(r as { scenario: string }).scenario}: ${parts.join(", ") || "n/a"}`);
   }
   console.log(regressions ? `\n${regressions} regression(s) beyond ±${REGRESSION_PCT}%` : "\nno regressions beyond threshold");
