@@ -1,0 +1,64 @@
+[herdr-t3] cloning b49bcebb3d7762cae97edf9d2f50e42443de0a4f into C:\Users\rebui\AppData\Local\herdr-t3\releases\b49bcebb3d7762cae97edf9d2f50e42443de0a4f
+[herdr-t3] building b49bcebb3d7762cae97edf9d2f50e42443de0a4f (b49bcebb3d7762cae97edf9d2f50e42443de0a4f)
+mise by @jdx – installing 40 tools
+mise ⇢ bun@1.4.4                                            4ms · already installed
+mise ⇢ node@24                                              3ms · already installed
+mise ⇢ python@3.14                                          3ms · already installed
+mise ⇢ pnpm@latest                                          1ms · already installed
+mise ⇢ rust@stable                                          198ms · already installed
+mise ⇢ gh@latest                                            0ms · already installed
+mise ⇢ infisical@latest                                     0ms · already installed
+mise ⇢ claude@latest                                        0ms · already installed
+mise ⇢ codex@latest                                         0ms · already installed
+mise ⇢ agy@latest                                           1ms · already installed
+mise ⇢ npm:@opencode/cli@latest                             1ms · already installed
+mise ⇢ worktrunk@latest                                     1ms · already installed
+mise ⇢ npm:npkill@latest                                    0ms · already installed
+mise ⇢ cargo:cargo-clean-all@latest                         1ms · already installed
+mise ⇢ cargo:cargo-cleaner@latest                           0ms · already installed
+mise ⇢ cargo:cargo-compete@latest                           0ms · already installed
+mise ⇢ cargo:cargo-generate@latest                          0ms · already installed
+mise ⇢ cargo:cargo-ndk@latest                               0ms · already installed
+mise ⇢ cargo:cargo-update@latest                            0ms · already installed
+mise ⇢ cargo:just@latest                                    0ms · already installed
+mise ⇢ cargo:llmfit@latest                                  0ms · already installed
+mise ⇢ cargo:tauri-cli@latest                               0ms · already installed
+mise ⇢ cargo:wasm-pack@latest                               0ms · already installed
+mise ⇢ cargo:rtk-ai/rtk@tag:v0.42.4                         0ms · already installed
+mise ⇢ cargo:rust-mcp-stack/rust-mcp-filesystem@tag:v0.4.2  0ms · already installed
+mise ⇢ ripgrep@latest                                       0ms · already installed
+mise ⇢ fd@latest                                            0ms · already installed
+mise ⇢ fzf@latest                                           1ms · already installed
+mise ⇢ jq@latest                                            0ms · already installed
+mise ⇢ bat@latest                                           0ms · already installed
+mise ⇢ gdu@latest                                           0ms · already installed
+mise ⇢ shellcheck@latest                                    0ms · already installed
+mise ⇢ neovim@latest                                        0ms · already installed
+mise ⇢ npm:@earendil-works/pi-coding-agent@latest           2ms · already installed
+mise ⇢ npm:@deepseek-ai/dsh@0.2.0-rc.2                      2ms · already installed
+mise ⇢ oh-my-pi@latest                                      2ms · already installed
+mise ⇢ npm:devin@latest                                     1ms · already installed
+mise ⇢ ruby@4                                               1ms · already installed
+mise ⇢ github:herdrdev/herdr@latest                         2ms · already installed
+mise ⇢ github:alibaba/open-code-review@latest               2ms · already installed
+mise ████████████████ 40/40 · installed 0 tools · 40 already installed in 250ms
+mise all tools are installed
+$ bun run build && bun run desktop:build && electron-builder --publish never
+$ bun --bun vite build
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[33m[33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 7.8s of this 21.9s build (36%).
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin @tailwindcss/vite:generate:build transform (26%, 5.7s, 2 calls)
+  - plugin vite:css transform (9%, 1.9s, 2 calls)
+Additional callback time came from the callbacks below and from callbacks under 1s.
+1 callback is listed without a time. Its calls overlapped, so the time inside one call includes work from other calls. To find its cost, profile the build with `node --cpu-prof`:
+  - plugin vite:asset load (15 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+[39m
+$ bun run scripts/build-desktop.ts
+[herdr-t3] installed b49bcebb3d7762cae97edf9d2f50e42443de0a4f (b49bcebb3d7762cae97edf9d2f50e42443de0a4f); current -> b49bcebb3d7762cae97edf9d2f50e42443de0a4f (C:\Users\rebui\AppData\Local\herdr-t3\releases\b49bcebb3d7762cae97edf9d2f50e42443de0a4f\release\win-unpacked\herdr-t3.exe)
+EXIT=0 

@@ -1949,7 +1949,7 @@
     ],
     "os_gaps": [],
     "upstream_deps": [
-     "herdr-plugins.machines/v1 @d23205af",
+     "herdr-plugins.machines/v1 @08f96a4",
      "herdr machine list + saved-machine SSH bridges on the plugin host",
      "bun on the plugin host"
     ],

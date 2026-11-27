@@ -662,8 +662,11 @@ function RegisterSection({
     <SurfaceSection title="Register project">
       <SurfaceGroup divided={false}>
         <SurfaceRow>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+          {/* Repo path spans two of four columns: it carries a
+              filesystem path and needs more room than the optional
+              Title/Id fields (issue #480). */}
+          <div className="grid gap-2 sm:grid-cols-4">
+            <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
               Repo path
               <Input
                 value={path}

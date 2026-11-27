@@ -408,6 +408,7 @@ export const RPC_METHODS = [
   "pane.clear",
   "layout.set_split_ratio",
   "pane.send_text",
+  "pane.send_input",
   "pane.send_keys",
   "agent.get",
   "agent.prompt",

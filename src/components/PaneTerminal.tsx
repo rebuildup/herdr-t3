@@ -31,7 +31,7 @@ import { createSelectionCopy } from "../lib/selectionCopy";
 import { registerPaneSurface, unregisterPaneSurface } from "../lib/paneSurfaces";
 import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
-import { sanitizePasteText } from "../lib/ghostty/pasteText.ts";
+import { deliverPanePaste } from "../lib/panePaste.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
 
 /** the configured font family, or the --font-mono stack when unset */
@@ -205,14 +205,12 @@ export function PaneTerminal({
           onInput: send,
           onSelectionCommit: copySelection,
           onPasteText: (text) => {
-            // pane.send_text wraps \x1b[200~…\x1b[201~ iff the pane enabled
-            // bracketed paste — the attach stream carries no mode state, so
-            // the local engine could never bracket (issue #434, herdr#6215).
-            void rpc(
-              "pane.send_text",
-              { pane_id: paneId, text: sanitizePasteText(text) },
-              machine,
-            ).catch(() => {});
+            // pane.send_input routes the body through herdr's
+            // encode_api_text, which wraps \x1b[200~…\x1b[201~ iff the pane
+            // enabled bracketed paste — the attach stream carries no mode
+            // state, so the local engine could never bracket (issue #434,
+            // herdr#6215). See deliverPanePaste for the full contract.
+            deliverPanePaste(rpc, machine, paneId, text);
           },
           onMouse: (event) => terminalMouse(machine, paneId, event),
           onWheel: (event) => {

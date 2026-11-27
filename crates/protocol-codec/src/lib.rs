@@ -27,7 +27,7 @@ use serde_json::{Map, Number, Value};
 
 /// Mirror of `RPC_METHODS` in shared/protocol.ts — order and membership
 /// are part of the contract.
-pub const RPC_METHODS: [&str; 38] = [
+pub const RPC_METHODS: [&str; 39] = [
     "session.snapshot",
     "workspace.create",
     "workspace.focus",
@@ -51,6 +51,7 @@ pub const RPC_METHODS: [&str; 38] = [
     "pane.clear",
     "layout.set_split_ratio",
     "pane.send_text",
+    "pane.send_input",
     "pane.send_keys",
     "agent.get",
     "agent.prompt",
