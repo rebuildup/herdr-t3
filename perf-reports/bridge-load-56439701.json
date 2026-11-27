@@ -1,0 +1,219 @@
+{
+  "format": "herdr-t3/bridge-load",
+  "version": 1,
+  "recorded_at": "2026-11-27T06:35:02.671Z",
+  "git_sha": "56439701f343876a1bd42bbf8334e91c071c3a6b",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "condition": {
+    "loadavg_1m": 18.40380859375,
+    "loadavg_5m": 17.10986328125,
+    "loadavg_15m": 16.7548828125
+  },
+  "leg_seconds": 15,
+  "plugin_refresh_ms": 800,
+  "server_metrics": true,
+  "plugins_discovered": [],
+  "legs": {
+    "idle": {
+      "delta": {
+        "seconds": 15,
+        "counters": {},
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 1,
+            "totalMs": 4689.35,
+            "avgMs": 4689.35,
+            "maxMs": 4689.35
+          }
+        }
+      },
+      "issued": {},
+      "verdict": {
+        "leg": "idle",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "herdr.rpc avg=4689.35ms max=4689.35ms n=1"
+        ]
+      },
+      "client_frames": {
+        "machine_status": 2,
+        "snapshot": 1
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "rpc-read": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "client.frame{type=rpc}": 48
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 48,
+            "totalMs": 4925.3,
+            "avgMs": 102.61,
+            "maxMs": 4689.35
+          }
+        }
+      },
+      "issued": {
+        "rpc": 48,
+        "rpc_read": 48
+      },
+      "verdict": {
+        "leg": "rpc-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 48 rpc frames",
+          "herdr.rpc avg=102.61ms max=4689.35ms n=48"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 48
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "plugin-read": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "client.frame{type=plugin_call}": 24,
+          "plugin.discovery.hit": 24,
+          "plugin.capability.miss": 4,
+          "plugin.capability.hit": 20
+        },
+        "timers": {
+          "plugin.exec{ok=true,what=capability}": {
+            "count": 4,
+            "totalMs": 713.57,
+            "avgMs": 178.39,
+            "maxMs": 243.94
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 6,
+            "totalMs": 3255.74,
+            "avgMs": 542.62,
+            "maxMs": 662.93
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 12,
+            "totalMs": 4771.54,
+            "avgMs": 397.63,
+            "maxMs": 622.9
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 6,
+            "totalMs": 3404.17,
+            "avgMs": 567.36,
+            "maxMs": 1640.39
+          }
+        }
+      },
+      "issued": {
+        "plugin_call": 24
+      },
+      "verdict": {
+        "leg": "plugin-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "plugin.exec/plugin_call=1.00 (24 execs / 24 calls)"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 24
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "activity": {
+      "delta": {
+        "seconds": 15,
+        "counters": {
+          "machine.refresh": 1,
+          "machine.probe": 3,
+          "bridge.subscription.open": 8,
+          "client.frame{type=rpc}": 4,
+          "plugin.discovery.miss": 1,
+          "client.frame{type=plugin_call}": 16,
+          "plugin.discovery.hit": 12,
+          "plugin.capability.hit": 16,
+          "bridge.snapshot.schedule{cause=event}": 20,
+          "bridge.snapshot.push": 8
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 14,
+            "totalMs": 5152.29,
+            "avgMs": 368.02,
+            "maxMs": 4689.35
+          },
+          "plugin.exec{ok=true,what=plugin_list}": {
+            "count": 1,
+            "totalMs": 63.84,
+            "avgMs": 63.84,
+            "maxMs": 76.67
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 4,
+            "totalMs": 2821.53,
+            "avgMs": 705.38,
+            "maxMs": 839.38
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 8,
+            "totalMs": 4722.19,
+            "avgMs": 590.27,
+            "maxMs": 821.23
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 4,
+            "totalMs": 2155.71,
+            "avgMs": 538.93,
+            "maxMs": 1640.39
+          }
+        }
+      },
+      "issued": {
+        "rpc": 4,
+        "rpc_read": 4,
+        "plugin_call": 16
+      },
+      "verdict": {
+        "leg": "activity",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 4 rpc frames",
+          "plugin.exec/plugin_call=1.00 (16 execs / 16 calls)",
+          "herdr.rpc avg=368.02ms max=4689.35ms n=14",
+          "snapshot pushes=8 unchanged=0 scheduled=0"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "snapshot": 9,
+        "rpc_result": 20,
+        "event": 20
+      },
+      "plugin_exec_pids_observed": 0
+    }
+  },
+  "client": {
+    "rpc_latencies_ms": {
+      "p50": 511.8955419999984,
+      "p95": 1671.875291999997,
+      "max": 2133.3600000000006
+    },
+    "errors": 0,
+    "frames_received": 132
+  }
+}

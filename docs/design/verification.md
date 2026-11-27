@@ -93,6 +93,23 @@ real TUI can prove.
 | 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
 | 16 | Canvas session 状態 (#421, info-architecture.md §10): cold start の Loading 表示中に "No workspaces" が出ないこと、最後の workspace/pane を閉じた後の真の空状態 + New workspace 回復、machine 切断時の Reconnect、fetch 失敗時の Retry、disabled machine の Open Connections | ☐ | ☐ | 隔離 session で `workspace.close`/`pane.close` を実行して確認 |
 | 17 | ブロックカーソル描画 (#382, terminal-render.md §Cursor): 通常文字・ANSI 色・inverse・全角・結合文字・空セル・選択範囲上で cursor セルが不透明 fill + cursor-text 色の文字再描画になること (半透明 wash でない)。`cursor-color`/`cursor-text` (色・`cell-foreground`/`cell-background` キーワード) が Ghostty config から反映されること。bar/underline カーソル形状・点滅・非フォーカス時の退行がないこと | ☐ | ☐ | 実機の視覚評価は #413 RC に集約。contract/harness は `terminal.scene-cursor` scenario が固定 |
+| 18 | Agents 棚 (#418): Working 初期4件・段階開示 (Show more)・固定トグルと一覧スクロールの分離・複数棚展開・狭幅/低高さでトグルが行スクロールに巻き込まれない | ☐ | ☐ | |
+| 19 | Agent identity/status (#419): 左端ブランドアイコン + 外周ステータスリングの統合表示、全状態/テーマ/密度で重複表示なし | ☐ | ☐ | |
+| 20 | Windows アニメーション (#420): motion 許可・前景可視で Working/進行中アニメーションが実際に動く (時系列で確認、静止画不可)。画面外・折りたたみ・非表示・reduced-motion で停止/復帰 | ☐ | ☐ | Windows leg 必須。Settings → Diagnostics の 'Motion visibility gate' Copy report を証跡に添付 |
+| 21 | 通知 UX (#428): 右上既定・配置設定・WCO/traffic-light 回避・複数通知の積み上げ・情報階層・アクション・テーマ・狭幅 | ☐ | ☐ | Windows leg で WCO 領域との非干渉を確認 |
+| 22 | 構造化コピー (#429): 報告メッセージ/範囲候補から選択してコピー、TUI 整形ノイズ (余白) なし・構造保持。対象不明/不完全時の挙動 | ☐ | ☐ | `docs/design/report-copy.md` の契約と照合 |
+| 23 | Terminal canvas 外観 (#432): ペイン境界の視覚的強調抑制・外周余白、単一/分割/zoom・フォーカス・両OS/テーマ/背景/狭幅・split 操作 | ☐ | ☐ | |
+| 24 | 選択ドラッグの自動スクロール (#433): 上下端でドラッグ保持→複数画面 scrollback を連続選択、逆方向・停止・実コピー内容一致 | ☐ | ☐ | |
+| 25 | ペースト配送 (#434/#478): 対応 TUI (bracketed paste mode on) で複数行が一括入力、mode off/on 切替・再接続・LF/CRLF・Unicode・末尾改行の保持・意図しない行ごと確定なし | ☐ | ☐ | `pane.send_input` 経路。実 pane の受信バイト列を証跡に |
+| 26 | 入力フォーカス handoff (#435): GUI で workspace/tab 選択・新規作成・切替後、再クリックなしで対象 focused pane に入力可能。連続切替・複数 pane/machine・rename/search/dialog で誤入力/フォーカス奪取なし | ☐ | ☐ | |
+| 27 | 選択ハイライトのスクロール追従 (#436): 選択文字列を上下スクロールで画面内→外→内へ移動し、ハイライトとコピーが対象文字に一致 (実 herdr attach 経路) | ☐ | ☐ | |
+| 28 | copy-on-select (#440): 設定 ON/OFF・永続化・選択確定時のみ正確な OS clipboard 書込み・通常コピーとの共存 | ☐ | ☐ | |
+| 29 | 選択オーバーレイ motion (#441): 選択開始/伸縮/確定/解除・コピー成功時の短い overlay motion、scroll 追従・reduced-motion・非表示時停止 | ☐ | ☐ | 動的証跡 (録画/連続キャプチャ) で評価。静止画で代替しない |
+
+Rows 18–29 are the #407 program tickets (#418–#441); the authoritative
+acceptance wording lives in issue #413 and each ticket issue. Evidence
+for the 0.7.0 train goes to `docs/design/evidence/` under the RC
+candidate's own directory — do not reuse 0.6.0 captures.
 
 ### Human acceptance procedures
 
