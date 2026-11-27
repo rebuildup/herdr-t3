@@ -97,6 +97,23 @@ export type SurfaceEffect =
    * decision (the surface stays DOM-free).
    */
   | { type: "selection_commit"; text: string }
+  /**
+   * renderer: play a transient selection-overlay response (issue #441).
+   * `enter` fires when a select drag's painted range first becomes
+   * non-empty (re-fires when a reverse drag re-grows it); `commit` once
+   * per committed non-empty selection; `clear` carries the just-cleared
+   * range for the fade-out; `cancel` tells the host to drop any playing
+   * response because the range's history coordinates lost their
+   * identity (resize/reflow/history prune). Selection *geometry* is
+   * never delayed — `render_set_selection` still tracks the pointer
+   * immediately; this effect only drives paint-side emphasis.
+   */
+  | {
+      type: "render_selection_fx";
+      kind: "enter" | "commit" | "clear" | "cancel";
+      /** engine-history range; present for `clear` (the just-cleared selection) */
+      range?: ScreenRange;
+    }
   /** `options.onScroll` — rows above the bottom */
   | { type: "scroll"; rows: number }
   /** `options.onResize` — the cell grid changed; host tells the pty */
@@ -274,6 +291,10 @@ function ordered(a: ScreenPoint, b: ScreenPoint): ScreenRange {
     : { start: b, end: a };
 }
 
+function rangeEmpty(range: ScreenRange): boolean {
+  return range.start.x === range.end.x && range.start.y === range.end.y;
+}
+
 /**
  * The surface's whole non-DOM state machine. One instance per pane;
  * `surface.ts` (and later the GPUI view / Rust port) drives it with
@@ -391,6 +412,13 @@ export class SurfaceCore {
     return this.selection;
   }
 
+  /** the selection as painted — null while it covers a single point */
+  private paintedSelection(): ScreenRange | null {
+    return this.selection !== null && !rangeEmpty(this.selection)
+      ? this.selection
+      : null;
+  }
+
   // ---- shared helpers -------------------------------------------------------
 
   private static modsOf(event: {
@@ -505,9 +533,15 @@ export class SurfaceCore {
   clearSelection(): CoreResult {
     const effects: SurfaceEffect[] = [];
     if (!this.selection) return ok(effects, undefined);
+    const cleared = this.paintedSelection();
     this.selection = null;
     effects.push({ type: "render_set_selection", range: null });
     effects.push({ type: "selection_change", text: null });
+    // the fade-out is only offered when the cleared range's history
+    // coordinates still identify the same content (issue #441)
+    if (cleared) {
+      effects.push({ type: "render_selection_fx", kind: "clear", range: cleared });
+    }
     this.schedule(effects);
     return ok(effects, undefined);
   }
@@ -630,6 +664,10 @@ export class SurfaceCore {
       this.highlightRanges = [];
       effects.push({ type: "render_set_highlights", ranges: [] });
     }
+    // stored coordinates are untrustworthy now: any playing selection
+    // response must stop rather than paint whatever rows moved into its
+    // place (issue #441)
+    effects.push({ type: "render_selection_fx", kind: "cancel" });
   }
 
   /**
@@ -855,6 +893,7 @@ export class SurfaceCore {
     const end = this.dragEndCell(drag, effects);
     if (end) {
       const range = ordered(drag.anchor, end);
+      const wasPainted = this.paintedSelection() !== null;
       const same =
         this.selection !== null &&
         this.selection.start.x === range.start.x &&
@@ -862,10 +901,14 @@ export class SurfaceCore {
         this.selection.end.x === range.end.x &&
         this.selection.end.y === range.end.y;
       this.selection = range;
+      const empty = rangeEmpty(range);
       if (!same) {
-        const empty =
-          range.start.x === range.end.x && range.start.y === range.end.y;
         effects.push({ type: "render_set_selection", range: empty ? null : range });
+      }
+      // a reverse drag that shrank to nothing and grows again re-fires
+      // the enter response (issue #441)
+      if (!wasPainted && !empty) {
+        effects.push({ type: "render_selection_fx", kind: "enter" });
       }
     }
     if (drag.edge) {
@@ -1254,8 +1297,14 @@ export class SurfaceCore {
         };
         this.drag.edge = null;
       }
+      // a new gesture replaces any painted selection: offer the old range
+      // a fade-out — its history coordinates still name the same content
+      const replaced = this.paintedSelection();
       this.selection = { start: cell, end: cell };
       effects.push({ type: "render_set_selection", range: null });
+      if (replaced) {
+        effects.push({ type: "render_selection_fx", kind: "clear", range: replaced });
+      }
     }
     const mods = SurfaceCore.modsOf(input);
     if (toMouse) {
@@ -1316,9 +1365,15 @@ export class SurfaceCore {
     const end = this.dragEndCell(drag, effects);
     if (end) {
       const range = ordered(drag.anchor, end);
+      const wasPainted = this.paintedSelection() !== null;
       this.selection = range;
-      const empty = range.start.x === range.end.x && range.start.y === range.end.y;
+      const empty = rangeEmpty(range);
       effects.push({ type: "render_set_selection", range: empty ? null : range });
+      // the drag's first non-empty range — and any re-grow after a
+      // reverse drag emptied it — gets the enter response (issue #441)
+      if (!wasPainted && !empty) {
+        effects.push({ type: "render_selection_fx", kind: "enter" });
+      }
     }
     this.schedule(effects);
     return ok(effects, undefined);
@@ -1355,7 +1410,10 @@ export class SurfaceCore {
         effects.push({ type: "render_set_selection", range: widened });
         const text = this.trySession(effects, () => this.session.textOf(widened));
         effects.push({ type: "selection_change", text: text || null });
-        if (text) effects.push({ type: "selection_commit", text });
+        if (text) {
+          effects.push({ type: "selection_commit", text });
+          effects.push({ type: "render_selection_fx", kind: "commit" });
+        }
         this.schedule(effects);
         return ok(effects, undefined);
       }
@@ -1371,7 +1429,10 @@ export class SurfaceCore {
       } else {
         const text = this.trySession(effects, () => this.session.textOf(this.selection!));
         effects.push({ type: "selection_change", text: text || null });
-        if (text) effects.push({ type: "selection_commit", text });
+        if (text) {
+          effects.push({ type: "selection_commit", text });
+          effects.push({ type: "render_selection_fx", kind: "commit" });
+        }
       }
     }
     this.schedule(effects);

@@ -20,6 +20,13 @@ export interface SelectionCopyDeps {
   enabled(): boolean;
   /** OS clipboard write; may reject — rejections are ignored */
   writeText(text: string): Promise<unknown>;
+  /**
+   * Called once per *successful* write, in commit order (issue #441) —
+   * the host uses it for copy-success feedback on the selection overlay.
+   * Never invoked on failure or when the setting is off, so the feedback
+   * can never impersonate a copy that did not happen.
+   */
+  onCopied?(text: string): void;
 }
 
 /**
@@ -36,6 +43,7 @@ export function createSelectionCopy(deps: SelectionCopyDeps): (text: string) => 
     tail = tail.then(async () => {
       try {
         await deps.writeText(text);
+        deps.onCopied?.(text);
       } catch {
         /* clipboard unavailable or denied — never reported as success */
       }

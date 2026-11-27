@@ -56,6 +56,12 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
   top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
   から選択 (既定 top-right)、top 系は `--workspace-topbar-height`
   (titlebar/WCO 予約領域) の下に逃げる。
+- ターミナル選択オーバーレイの一時応答 (issue #441): 選択範囲の
+  形状は pointer に即時追従させ、enter/commit/copy/clear の短い
+  強調だけを `--motion-duration-fast`/`--motion-duration-base` の
+  token 時間で再生する。`prefers-reduced-motion` と
+  `forced-colors` では応答を出さず即時切替、非表示・画面外・
+  dispose では中断する (terminal-io.md §5.2)。
 
 ## 3. ドラッグ & ドロップ (#111)
 

@@ -156,6 +156,24 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   コピーを上書きしない。失敗は握り潰し、本文をログ・外部送信しない。
   明示 copy・OSC 52 (`onClipboardWrite`)・#429 の構造化コピー経路とは
   独立に共存する。
+- 選択オーバーレイの一時応答 (issue #441): 選択の **形状** (wash の
+  範囲) は常に pointer に即時追従し、遅延も補間もしない。その上で
+  短い視覚フィードバックだけを重ねる — ドラッグで範囲が最初に
+  非空になった瞬間の `enter` フェードイン (逆方向ドラッグで一度
+  空になり再び伸びたときも再発火)、pointer-up 確定時の `commit`
+  パルス、明示 copy / copy-on-select の書き込み成功時の `copy`
+  アクセント帯、選択が消えるときの `clear` フェードアウト。core は
+  `render_selection_fx{kind,range?}` effect で発火タイミングだけを
+  決め、進行度 `progress` は host の rAF が供給する。`clear` は
+  消えた直後の範囲を履歴座標で運び、表示中のコンテンツに追従して
+  フェードする。座標の信頼性を失う invalidate (reflow/prune) では
+  `cancel` で再生中の応答を止める。reduced-motion / forced-colors
+  では応答自体を出さず即時切替に縮退し、非表示・画面外・dispose
+  では中断してベースフレームへ戻る。paint 側は選択 wash の alpha
+  と専用アクセントのみを変え、text surface は再描画しない
+  (overlay canvas のみ)。契約は `terminal-surface.md` /
+  `terminal-render.md`、differential scenario は
+  `terminal.surface-selection-fx` / `terminal.scene-selection-fx`。
 - ドラッグ選択のアンカーは pointer-down 時点のセルに固定し、移動端点と
   独立して保持する。表示・コピー時のみ `ordered()` で正規化する
   (issue #427 — 正規化済み start を次のアンカーに再利用すると逆方向

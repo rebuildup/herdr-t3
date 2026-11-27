@@ -269,6 +269,74 @@ fn selection_commit_follows_the_commit_paths_only() {
         .any(|e| matches!(e, SurfaceEffect::SelectionCommit { .. })));
 }
 
+fn fx_kinds(effects: &[SurfaceEffect]) -> Vec<&'static str> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            SurfaceEffect::RenderSelectionFx { kind, .. } => Some(*kind),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn selection_fx_enter_commit_clear_cancel() {
+    // issue #441: transient selection-overlay responses — `enter` once per
+    // freshly painted drag range, `commit` per committed selection,
+    // `clear` carrying the just-cleared range, `cancel` when stored
+    // coordinates lose their identity.
+    let mut c = core(false, false, false);
+    c.write(b"l0\r\nl1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7\r\nl8\r\nl9");
+    measure(&mut c);
+
+    // enter: first non-empty move only; later moves track geometry silently
+    c.pointer_down(&pointer(0, 25.0, 45.0, 2000.0), rect());
+    let first = c.pointer_move(&pointer(0, 30.0, 45.0, 2050.0), rect());
+    assert_eq!(fx_kinds(&first.effects), vec!["enter"]);
+    let second = c.pointer_move(&pointer(0, 50.0, 65.0, 2100.0), rect());
+    assert!(fx_kinds(&second.effects).is_empty());
+    // commit: once on release, after selection_commit
+    let up = c.pointer_up(&pointer(0, 50.0, 65.0, 2150.0), rect());
+    assert_eq!(fx_kinds(&up.effects), vec!["commit"]);
+    let commit_at = up
+        .effects
+        .iter()
+        .position(|e| matches!(e, SurfaceEffect::SelectionCommit { .. }))
+        .expect("selection_commit");
+    let fx_at = up
+        .effects
+        .iter()
+        .position(|e| matches!(e, SurfaceEffect::RenderSelectionFx { .. }))
+        .expect("render_selection_fx");
+    assert!(fx_at > commit_at);
+
+    // clearSelection: the fade-out carries the just-cleared range
+    let cleared = c.clear_selection();
+    assert_eq!(fx_kinds(&cleared.effects), vec!["clear"]);
+    let range = cleared
+        .effects
+        .iter()
+        .find_map(|e| match e {
+            SurfaceEffect::RenderSelectionFx { kind: "clear", range } => Some(range.clone()),
+            _ => None,
+        })
+        .expect("clear range");
+    assert!(range.is_some());
+    assert!(c.selection_range().is_none());
+
+    // a fresh pointerDown over a still-painted selection fades the old one
+    c.pointer_down(&pointer(0, 10.0, 65.0, 3000.0), rect());
+    c.pointer_move(&pointer(0, 30.0, 105.0, 3050.0), rect());
+    c.pointer_up(&pointer(0, 30.0, 105.0, 3100.0), rect());
+    let down = c.pointer_down(&pointer(0, 4.0, 85.0, 3200.0), rect());
+    assert_eq!(fx_kinds(&down.effects), vec!["clear"]);
+
+    // coordinate invalidation cancels any playing response
+    c.host_scroll_changed(host_scroll(0, 0, 6));
+    let invalidated = c.host_scroll_changed(host_scroll(0, 0, 99));
+    assert_eq!(fx_kinds(&invalidated.effects), vec!["cancel"]);
+}
+
 fn host_scroll(offset: i64, max: i64, rows: i64) -> HostScrollInfo {
     HostScrollInfo {
         offset_from_bottom: offset,

@@ -18,7 +18,7 @@ use std::fs;
 use terminal_core::{GhosttySession, ScreenRange, ScreenPoint, SessionOptions, SessionWidths};
 use terminal_render::{
     GhosttyScene, GhosttySceneOptions, SceneBackgroundImage, SceneFrame, SceneMetrics,
-    TextMetrics,
+    SelectionFx, TextMetrics,
 };
 
 /// The deterministic text-metrics fake shared with the TS adapter.
@@ -84,6 +84,22 @@ fn parse_range(v: &Value) -> Result<ScreenRange, String> {
         start: parse_point(o.get("start").ok_or("range.start required")?)?,
         end: parse_point(o.get("end").ok_or("range.end required")?)?,
     })
+}
+
+/// scene_set `selectionFx` — mirrors the TS adapter's parser (issue #441)
+fn parse_selection_fx(v: &Value) -> Result<SelectionFx, String> {
+    let o = v.as_object().ok_or("selectionFx must be an object")?;
+    let progress = o.get("progress").and_then(Value::as_f64).unwrap_or(0.0);
+    match o.get("kind").and_then(Value::as_str) {
+        Some("enter") => Ok(SelectionFx::Enter { progress }),
+        Some("commit") => Ok(SelectionFx::Commit { progress }),
+        Some("copy") => Ok(SelectionFx::Copy { progress }),
+        Some("clear") => Ok(SelectionFx::Clear {
+            progress,
+            range: parse_range(o.get("range").ok_or("selectionFx clear requires range")?)?,
+        }),
+        other => Err(format!("unknown selectionFx kind {}", other.unwrap_or("<missing>"))),
+    }
 }
 
 fn parse_metrics(input: &Map<String, Value>) -> Result<SceneMetrics, String> {
@@ -195,6 +211,10 @@ fn run_op(
             let s = state(scenes, input)?;
             Ok(frame_json(&s.scene.render()?))
         }
+        "scene_render_overlay" => {
+            let s = state(scenes, input)?;
+            Ok(json!(s.scene.render_overlay()?))
+        }
         "scene_set" => {
             let s = state(scenes, input)?;
             if input.get("invalidate").and_then(Value::as_bool) == Some(true) {
@@ -217,6 +237,13 @@ fn run_op(
                     None
                 } else {
                     Some(parse_range(sel)?)
+                });
+            }
+            if let Some(fx) = input.get("selectionFx") {
+                s.scene.set_selection_fx(if fx.is_null() {
+                    None
+                } else {
+                    Some(parse_selection_fx(fx)?)
                 });
             }
             if let Some(hs) = input.get("highlights").and_then(Value::as_array) {

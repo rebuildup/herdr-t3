@@ -73,6 +73,51 @@ pub struct SceneBackgroundImage {
 }
 
 // ---------------------------------------------------------------------------
+// Transient selection response (issue #441)
+// ---------------------------------------------------------------------------
+
+/// The transient selection-overlay response — port of the TS `SelectionFx`
+/// union. `progress` is the host-driven linear clock in [0, 1]; the scene
+/// owns the easing/pulse curves so every runtime paints identically.
+/// `progress >= 1` converges to the base frame (enter multiplier 1,
+/// pulses 0, clear alpha 0), so a forgotten clear is harmless.
+/// `Clear` carries its own history-coordinate range — the selection is
+/// already gone when the fade plays.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SelectionFx {
+    Enter { progress: f64 },
+    Commit { progress: f64 },
+    Copy { progress: f64 },
+    Clear { progress: f64, range: ScreenRange },
+}
+
+impl SelectionFx {
+    /// the host-driven linear clock in [0, 1] shared by every variant
+    pub fn progress(&self) -> f64 {
+        match *self {
+            Self::Enter { progress }
+            | Self::Commit { progress }
+            | Self::Copy { progress }
+            | Self::Clear { progress, .. } => progress,
+        }
+    }
+}
+
+fn clamp01(v: f64) -> f64 {
+    v.max(0.0).min(1.0)
+}
+
+/// ease-out cubic — the enter fade-in curve
+fn ease_out_cubic(p: f64) -> f64 {
+    1.0 - (1.0 - p).powi(3)
+}
+
+/// 0 -> 1 -> 0 bump over the fx's lifetime — commit/copy pulses
+fn pulse(p: f64) -> f64 {
+    4.0 * p * (1.0 - p)
+}
+
+// ---------------------------------------------------------------------------
 // Paint ops — serde shape mirrors the TS PaintOp objects exactly
 // ---------------------------------------------------------------------------
 
@@ -152,6 +197,7 @@ pub struct GhosttyScene<M: TextMetrics> {
     images: Vec<GhosttyImage>,
     metrics: Option<SceneMetrics>,
     selection: Option<ScreenRange>,
+    selection_fx: Option<SelectionFx>,
     highlights: Vec<ScreenRange>,
     /// rows the host viewport sits above the engine's bottom-anchored
     /// viewport_top (server-side scroll, issue #436)
@@ -177,6 +223,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
             images: Vec::new(),
             metrics: None,
             selection: None,
+            selection_fx: None,
             highlights: Vec::new(),
             viewport_shift: 0,
             cursor_on: true,
@@ -221,10 +268,37 @@ impl<M: TextMetrics> GhosttyScene<M> {
         self.rows.clear();
         self.pending.clear();
         self.pending_set.clear();
+        // a full repaint also ends any transient selection response — its
+        // anchors may no longer match what is on screen (issue #441)
+        self.selection_fx = None;
     }
 
     pub fn set_selection(&mut self, range: Option<ScreenRange>) {
         self.selection = range;
+    }
+
+    /// Start/replace the transient selection response (issue #441). The
+    /// host owns the clock: it calls this once per frame with a fresh
+    /// `progress` and clears with `None` on finish — port of the TS
+    /// `setSelectionFx`.
+    pub fn set_selection_fx(&mut self, fx: Option<SelectionFx>) {
+        self.selection_fx = fx;
+    }
+
+    /// Overlay ops only (selection/search/cursor) — port of the TS
+    /// `renderOverlay()`: a runtime repaints just the overlay canvas
+    /// between full frames while a selection fx plays, so the text
+    /// surface is not repainted.
+    pub fn render_overlay(&mut self) -> Result<Vec<PaintOp>, String> {
+        let mut overlay = Vec::new();
+        let Some(m) = self.metrics.clone() else {
+            return Ok(overlay);
+        };
+        if self.disposed {
+            return Ok(overlay);
+        }
+        self.paint_overlay(&mut overlay, &m)?;
+        Ok(overlay)
     }
 
     pub fn set_highlights(&mut self, ranges: Vec<ScreenRange>) {
@@ -641,8 +715,31 @@ impl<M: TextMetrics> GhosttyScene<M> {
             .selection
             .clone()
             .unwrap_or_else(|| "rgba(120,160,255,0.28)".to_string());
+        let fx = self.selection_fx;
+        let p = fx.map(|f| clamp01(f.progress())).unwrap_or(0.0);
         if let Some(range) = selection {
-            self.wash(out, range, &selection_color, viewport_top, m);
+            // enter fades the live selection wash in; the boundary
+            // geometry is already final — only the paint alpha follows
+            // the fx clock (issue #441)
+            let enter_alpha = match fx {
+                Some(SelectionFx::Enter { .. }) => ease_out_cubic(p),
+                _ => 1.0,
+            };
+            self.wash(out, range, &selection_color, enter_alpha, viewport_top, m);
+            // commit: one brief brighten over the committed range
+            if matches!(fx, Some(SelectionFx::Commit { .. })) {
+                self.wash(out, range, &selection_color, 0.55 * pulse(p), viewport_top, m);
+            }
+            // copy: a short accent tick under each selected row — a
+            // shape cue, not just another colour wash
+            if matches!(fx, Some(SelectionFx::Copy { .. })) {
+                self.copy_accent(out, range, 0.85 * pulse(p), m, viewport_top);
+            }
+        }
+        // clear: the just-cleared range fades out in place — history
+        // coordinates keep it on the same characters while they scroll by
+        if let Some(SelectionFx::Clear { progress, range }) = fx {
+            self.wash(out, range, &selection_color, 1.0 - clamp01(progress), viewport_top, m);
         }
         let highlights = self.highlights.clone();
         let search_color = self
@@ -651,7 +748,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
             .clone()
             .unwrap_or_else(|| "rgba(250,204,21,0.22)".to_string());
         for range in highlights {
-            self.wash(out, range, &search_color, viewport_top, m);
+            self.wash(out, range, &search_color, 1.0, viewport_top, m);
         }
         if self.cursor_on {
             self.paint_cursor(out, m)?;
@@ -659,16 +756,58 @@ impl<M: TextMetrics> GhosttyScene<M> {
         Ok(())
     }
 
+    /// The copy-success tick (issue #441): a thin accent strip along the
+    /// bottom edge of every selected row segment, in the theme's cursor
+    /// colour, fading with the fx pulse — port of `copyAccent`.
+    fn copy_accent(
+        &self,
+        out: &mut Vec<PaintOp>,
+        range: ScreenRange,
+        alpha: f64,
+        m: &SceneMetrics,
+        viewport_top: i64,
+    ) {
+        if alpha <= 0.0 {
+            return;
+        }
+        let color = self.options.cursor.clone();
+        let accent_h = (m.cell_h * 0.12).max(1.0);
+        let top = (range.start.y as i64).max(viewport_top);
+        let bottom = (range.end.y as i64).min(viewport_top + m.rows as i64 - 1);
+        if bottom < top {
+            return;
+        }
+        for y in top..=bottom {
+            let vy = y - viewport_top;
+            let from = if y == range.start.y as i64 { range.start.x as i64 } else { 0 };
+            let to = if y == range.end.y as i64 { range.end.x as i64 } else { m.cols as i64 - 1 };
+            if to >= from {
+                out.push(PaintOp::FillRect {
+                    rect: Rect {
+                        x: from as f64 * m.cell_w,
+                        y: vy as f64 * m.cell_h + m.cell_h - accent_h,
+                        w: (to - from + 1) as f64 * m.cell_w,
+                        h: accent_h,
+                    },
+                    color: color.clone(),
+                    alpha,
+                });
+            }
+        }
+    }
+
     fn wash(
         &self,
         out: &mut Vec<PaintOp>,
         range: ScreenRange,
         color: &str,
+        alpha: f64,
         viewport_top: i64,
         m: &SceneMetrics,
     ) {
-        // TS `if (!color) return` — an empty wash colour emits nothing
-        if color.is_empty() {
+        // TS `if (!color || alpha <= 0) return` — an empty wash colour or
+        // a fully faded response emits nothing
+        if color.is_empty() || alpha <= 0.0 {
             return;
         }
         // the cells of a screen range on the viewport, row by row — eachCell
@@ -690,7 +829,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
                         h: m.cell_h,
                     },
                     color: color.to_string(),
-                    alpha: 1.0,
+                    alpha,
                 });
             }
         }

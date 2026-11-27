@@ -165,3 +165,87 @@ describe("surface core: selection commit (issue #440)", () => {
     session.dispose();
   });
 });
+
+function fx(effects: SurfaceEffect[]) {
+  return effects.flatMap((e) => (e.type === "render_selection_fx" ? [e] : []));
+}
+
+describe("surface core: selection fx (issue #441)", () => {
+  it("enter fires once when the drag range first paints, commit once on release", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(2, 45), RECT);
+    // first move that makes the range non-empty
+    const first = core.pointerMove(pointer(30, 45), RECT).effects;
+    expect(fx(first).map((e) => e.kind)).toEqual(["enter"]);
+    // later moves keep tracking geometry but do not re-fire enter
+    const second = core.pointerMove(pointer(50, 65), RECT).effects;
+    expect(fx(second)).toEqual([]);
+    const up = core.pointerUp({ ...pointer(50, 65), at: 2100 }, RECT).effects;
+    expect(fx(up).map((e) => e.kind)).toEqual(["commit"]);
+    // the commit fx follows the commit signal in the effect stream
+    const commitAt = up.findIndex((e) => e.type === "selection_commit");
+    const fxAt = up.findIndex((e) => e.type === "render_selection_fx");
+    expect(fxAt).toBeGreaterThan(commitAt);
+    session.dispose();
+  });
+
+  it("a reverse drag that empties and re-grows the range re-fires enter", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(2, 45), RECT);
+    expect(fx(core.pointerMove(pointer(30, 45), RECT).effects).map((e) => e.kind)).toEqual(["enter"]);
+    // drag back onto the anchor: the painted range collapses
+    core.pointerMove(pointer(2, 45), RECT);
+    // growing again in a different direction earns a fresh enter
+    const regrow = core.pointerMove(pointer(30, 105), RECT).effects;
+    expect(fx(regrow).map((e) => e.kind)).toEqual(["enter"]);
+    session.dispose();
+  });
+
+  it("clearSelection offers the painted range a fade-out carrying its coordinates", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(2, 45), RECT);
+    drag(core, 2, 45, 30, 105, 2100);
+    const cleared = fx(core.clearSelection().effects);
+    expect(cleared.map((e) => e.kind)).toEqual(["clear"]);
+    // the fade keeps the just-cleared range — the selection itself is gone
+    expect(cleared[0]!.range).toBeDefined();
+    expect(core.selectionRange).toBeNull();
+    session.dispose();
+  });
+
+  it("a fresh pointerDown over a painted selection emits clear for the old range", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(2, 45), RECT);
+    drag(core, 2, 45, 30, 105, 2100);
+    // second gesture starts while the first selection is still painted
+    const down = core.pointerDown(pointer(4, 65), RECT).effects;
+    const kinds = fx(down).map((e) => e.kind);
+    expect(kinds).toEqual(["clear"]);
+    expect(fx(down)[0]!.range).toBeDefined();
+    session.dispose();
+  });
+
+  it("host scroll metadata that invalidates coordinates cancels the response", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(2, 45), RECT);
+    drag(core, 2, 45, 30, 105, 2100);
+    // first report establishes the baseline; a viewport-row change means
+    // the pane reflowed, so stored coordinates lose their identity
+    core.hostScrollChanged({ offsetFromBottom: 0, maxOffsetFromBottom: 0, viewportRows: 6 });
+    const invalidated = core.hostScrollChanged({
+      offsetFromBottom: 0,
+      maxOffsetFromBottom: 0,
+      viewportRows: 99,
+    }).effects;
+    expect(fx(invalidated).map((e) => e.kind)).toEqual(["cancel"]);
+    session.dispose();
+  });
+
+  it("an empty click emits no fx at all", async () => {
+    const { core, session } = await makeCore();
+    core.pointerDown(pointer(4, 45), RECT);
+    const up = core.pointerUp({ ...pointer(4, 45), at: 3000 }, RECT).effects;
+    expect(fx(up)).toEqual([]);
+    session.dispose();
+  });
+});

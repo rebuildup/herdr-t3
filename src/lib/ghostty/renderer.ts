@@ -16,6 +16,7 @@ import {
   GhosttyScene,
   type PaintOp,
   type SceneBackgroundImage,
+  type SelectionFx,
 } from "./scene.ts";
 
 export interface GhosttyRendererOptions {
@@ -103,6 +104,25 @@ export class GhosttyRenderer {
 
   setSelection(range: Parameters<GhosttyScene["setSelection"]>[0]): void {
     this.scene.setSelection(range);
+  }
+
+  /**
+   * The transient selection response (issue #441): the host drives
+   * `progress` per frame and clears with `null` on finish.
+   */
+  setSelectionFx(fx: SelectionFx | null): void {
+    this.scene.setSelectionFx(fx);
+  }
+
+  /**
+   * Repaint only the overlay canvas (selection/search/cursor) — used by
+   * the selection fx animator so text rows are not repainted between
+   * frames (issue #441).
+   */
+  renderOverlay(): void {
+    if (this.disposed) return;
+    const ops = this.scene.renderOverlay();
+    this.paintOverlay(ops);
   }
 
   setHighlights(ranges: Parameters<GhosttyScene["setHighlights"]>[0]): void {

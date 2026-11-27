@@ -3,9 +3,9 @@
 //! `terminal-render@1`: op kinds, ordering, paint state, and dirty-row
 //! incremental behaviour.
 
-use terminal_core::{GhosttySession, SessionOptions};
+use terminal_core::{GhosttySession, ScreenPoint, ScreenRange, SessionOptions};
 use terminal_render::{
-    GhosttyScene, GhosttySceneOptions, PaintOp, SceneMetrics, TextMetrics,
+    GhosttyScene, GhosttySceneOptions, PaintOp, SceneMetrics, SelectionFx, TextMetrics,
 };
 
 /// Same deterministic fake the differential adapters share.
@@ -327,6 +327,82 @@ fn metrics_change_and_font_change_repaint_everything() {
         .text
         .iter()
         .any(|o| matches!(o, PaintOp::FillText { font, .. } if font == "15px DejaVu Sans Mono")));
+}
+
+#[test]
+fn selection_fx_paints_transient_overlay_responses() {
+    let mut s = scene(20, 4);
+    s.session().write(b"0123456789abcdef").unwrap();
+    s.set_metrics(metrics(20, 4)); // 160x64, cell 8x16
+    let range = ScreenRange {
+        start: ScreenPoint { x: 0, y: 0 },
+        end: ScreenPoint { x: 4, y: 0 },
+    };
+    s.set_selection(Some(range));
+    s.set_cursor_visible(false);
+    s.collect().unwrap();
+
+    let sel_washes = |ops: &[PaintOp]| -> Vec<f64> {
+        ops.iter()
+            .filter_map(|o| match o {
+                PaintOp::FillRect { color, alpha, .. }
+                    if color.contains("120,160,255") =>
+                {
+                    Some(*alpha)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+
+    // enter at progress 0: the wash exists but is fully transparent —
+    // geometry is final, only the paint alpha follows the clock
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 0.0 }));
+    let overlay = s.render_overlay().unwrap();
+    assert!(sel_washes(&overlay).is_empty());
+    // ease-out cubic at p=0.5 -> 0.875
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![0.875]);
+    // progress >= 1 converges to the base frame
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 1.0 }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![1.0]);
+
+    // commit at p=0.5: base wash plus one 0.55 brighten pulse
+    s.set_selection_fx(Some(SelectionFx::Commit { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    let mut alphas = sel_washes(&overlay);
+    alphas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(alphas, vec![0.55, 1.0]);
+
+    // copy at p=0.5: the accent strip is a thin cursor-coloured band at
+    // the bottom of each selected row — a shape cue beyond the wash
+    s.set_selection_fx(Some(SelectionFx::Copy { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    assert!(overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, alpha, rect }
+            if color == "#ffffff" && (*alpha - 0.85).abs() < 1e-9
+                && (rect.h - 1.92).abs() < 1e-9
+                && (rect.y - 14.08).abs() < 1e-9
+    )));
+
+    // clear: the selection is gone but its range still fades out
+    s.set_selection(None);
+    s.set_selection_fx(Some(SelectionFx::Clear { progress: 0.25, range }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![0.75]);
+
+    // a full invalidate ends the response — the next overlay is the base
+    // frame even though the fx object is still set scene-side... and the
+    // scene itself drops it
+    s.set_selection(Some(range));
+    s.set_selection_fx(Some(SelectionFx::Commit { progress: 0.5 }));
+    s.invalidate();
+    s.collect().unwrap();
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![1.0]);
 }
 
 #[test]

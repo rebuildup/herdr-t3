@@ -1,0 +1,576 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.scene-selection-fx",
+  "capability": "terminal.scene",
+  "contract": "terminal-render@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "scene_new",
+      "input": {
+        "cols": 20,
+        "rows": 6,
+        "cellW": 8,
+        "cellH": 16,
+        "dpr": 1,
+        "scrollback": 50,
+        "options": {
+          "fontFamily": "monospace",
+          "fontSize": 13,
+          "foreground": "#d4d4d4",
+          "background": "#1e1e1e",
+          "cursor": "#ffffff",
+          "selection": "rgba(120,160,255,0.28)",
+          "search": "rgba(250,204,21,0.22)"
+        }
+      },
+      "note": "issue #441: scene-level selection fx — the host drives progress, the scene owns the curves",
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "sc1"
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "metrics": {
+          "cols": 20,
+          "rows": 6,
+          "cellW": 8,
+          "cellH": 16,
+          "dpr": 1
+        },
+        "cursorVisible": false
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "hello world\nsecond line\n"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": {
+          "start": {
+            "x": 0,
+            "y": 0
+          },
+          "end": {
+            "x": 4,
+            "y": 0
+          }
+        }
+      },
+      "note": "painted selection on row 0, cols 0..4",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selectionFx": {
+          "kind": "enter",
+          "progress": 0.5
+        }
+      },
+      "note": "enter at p=0.5 -> ease-out-cubic wash alpha 0.875",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "overlay-only repaint: selection wash at partial alpha, no text ops",
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 96
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 40,
+              "h": 16
+            },
+            "color": "rgba(120,160,255,0.28)",
+            "alpha": 0.875
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selectionFx": {
+          "kind": "commit",
+          "progress": 0.5
+        }
+      },
+      "note": "commit at p=0.5 -> base wash plus a 0.55 brighten pulse",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "full frame carries the same fx overlay",
+      "expect": {
+        "ok": true,
+        "value": {
+          "text": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 11.575,
+              "text": "hello world         ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 16,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 27.575000000000003,
+              "text": "           second li",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 32,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 43.574999999999996,
+              "text": "ne                  ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 48,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 59.574999999999996,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 64,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 75.575,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            },
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 80,
+                "w": 160,
+                "h": 16
+              },
+              "color": "#1e1e1e",
+              "alpha": 1
+            },
+            {
+              "op": "fill_text",
+              "x": 0,
+              "y": 91.575,
+              "text": "                    ",
+              "font": "13px monospace",
+              "color": "#d4d4d4",
+              "alpha": 1
+            }
+          ],
+          "overlay": [
+            {
+              "op": "clear",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 160,
+                "h": 96
+              }
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 1
+            },
+            {
+              "op": "fill_rect",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "w": 40,
+                "h": 16
+              },
+              "color": "rgba(120,160,255,0.28)",
+              "alpha": 0.55
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selectionFx": {
+          "kind": "copy",
+          "progress": 0.5
+        }
+      },
+      "note": "copy at p=0.5 -> cursor-coloured accent strip at each selected row's bottom edge",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 96
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 40,
+              "h": 16
+            },
+            "color": "rgba(120,160,255,0.28)",
+            "alpha": 1
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 14.08,
+              "w": 40,
+              "h": 1.92
+            },
+            "color": "#ffffff",
+            "alpha": 0.85
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": null,
+        "selectionFx": {
+          "kind": "clear",
+          "progress": 0.25,
+          "range": {
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 4,
+              "y": 0
+            }
+          }
+        }
+      },
+      "note": "selection gone; the just-cleared range fades out at alpha 0.75",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 96
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 40,
+              "h": 16
+            },
+            "color": "rgba(120,160,255,0.28)",
+            "alpha": 0.75
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": {
+          "start": {
+            "x": 0,
+            "y": 0
+          },
+          "end": {
+            "x": 4,
+            "y": 0
+          }
+        },
+        "selectionFx": {
+          "kind": "commit",
+          "progress": 0.5
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "invalidate": true
+      },
+      "note": "a full repaint ends the response — invalidate drops the fx",
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "note": "base frame: single full-alpha selection wash, no pulse",
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 96
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 40,
+              "h": 16
+            },
+            "color": "rgba(120,160,255,0.28)",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_dispose",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

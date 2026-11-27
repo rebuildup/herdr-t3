@@ -42,7 +42,8 @@ so runtimes need no canvas-state memory to reproduce it.
   7. Row text (below).
   8. Kitty images on layer 2 clipped to the band.
 - Pending set cleared. Overlay ops appended for the overlay layer:
-  clear, selection wash, search-match washes, cursor.
+  clear, selection wash (+ transient fx ops), search-match washes,
+  cursor.
 
 Row text, per run (skipped entirely when `flags & INVISIBLE`):
 
@@ -88,6 +89,20 @@ Background image (`backgroundDest`, pure geometry):
 
 Overlay (always repaints fully):
 
+- Transient selection response (issue #441): `setSelectionFx(fx)` stores
+  a host-clocked `SelectionFx` — `{kind:"enter"|"commit"|"copy",
+  progress}` tracking the live selection, or `{kind:"clear", progress,
+  range}` carrying its own history-coordinate range. `progress` is
+  linear [0,1]; the scene owns the curves: `enter` multiplies the
+  selection-wash alpha by `easeOutCubic(p)` (boundary geometry is never
+  delayed), `commit` adds a second wash at `0.55 * 4p(1-p)`, `copy`
+  adds a `0.85 * 4p(1-p)` accent strip (`max(1, cellH*0.12)` tall) along
+  the bottom edge of each selected row segment in `options.cursor`,
+  and `clear` washes `fx.range` at `1 - p` after the selection is gone.
+  `progress >= 1` converges to the base frame. `invalidate()` drops the
+  fx; `setSelectionFx(null)` clears it. `renderOverlay()` returns the
+  overlay ops only so a host can repaint just that layer between full
+  frames.
 - Selection wash then each search highlight, color
   `options.selection ?? "rgba(120,160,255,0.28)"` /
   `options.search ?? "rgba(250,204,21,0.22)"`.

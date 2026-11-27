@@ -179,6 +179,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -211,6 +215,10 @@
             {
               "type": "selection_commit",
               "text": "abc"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"

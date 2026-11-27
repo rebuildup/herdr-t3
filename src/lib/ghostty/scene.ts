@@ -71,6 +71,35 @@ export interface GhosttySceneOptions {
 
 interface Rect { x: number; y: number; w: number; h: number }
 
+/**
+ * A transient selection-overlay response (issue #441, contract
+ * `terminal-render@1`): short, restrained feedback anchored to engine
+ * history coordinates — never to screen pixels — so scrolling keeps it
+ * glued to the same characters and `invalidate()` drops it.
+ *
+ * - `enter` / `commit` / `copy` track the *live* selection: they modulate
+ *   or accent whatever `setSelection` currently paints, so the selection
+ *   boundary itself is never delayed, interpolated or painted early.
+ * - `clear` carries the just-cleared range explicitly (the selection is
+ *   already gone) and fades it out. Hosts must not start it when the
+ *   range's history coordinates lost their identity (resize/reflow/
+ *   history prune — the surface core reports `kind: "cancel"` instead).
+ *
+ * `progress` is the host-driven linear clock in [0, 1]; the scene owns
+ * the easing/pulse curves so every runtime paints identically.
+ * `progress >= 1` converges to the base frame (enter multiplier 1,
+ * pulses 0, clear alpha 0), so a forgotten clear is harmless.
+ */
+export type SelectionFx =
+  | { kind: "enter" | "commit" | "copy"; progress: number }
+  | { kind: "clear"; progress: number; range: ScreenRange };
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** ease-out cubic — the enter fade-in curve */
+const easeOutCubic = (p: number): number => 1 - Math.pow(1 - p, 3);
+/** 0 -> 1 -> 0 bump over the fx's lifetime — commit/copy pulses */
+const pulse = (p: number): number => 4 * p * (1 - p);
+
 /** One paint operation; every op carries its full state (contract §Operations). */
 export type PaintOp =
   | { op: "clear"; rect: Rect }
@@ -107,6 +136,7 @@ export class GhosttyScene {
   private images: GhosttyImage[] = [];
   private metrics: SceneMetrics | null = null;
   private selection: ScreenRange | null = null;
+  private selectionFx: SelectionFx | null = null;
   private highlights: ScreenRange[] = [];
   /**
    * Rows the host's authoritative viewport sits above the engine's
@@ -145,10 +175,24 @@ export class GhosttyScene {
   invalidate(): void {
     this.rows.clear();
     this.pending.clear();
+    // a full repaint also ends any transient selection response — its
+    // anchors may no longer match what is on screen (issue #441)
+    this.selectionFx = null;
   }
 
   setSelection(range: ScreenRange | null): void {
     this.selection = range;
+  }
+
+  /**
+   * Start/replace the transient selection response (issue #441). The
+   * host owns the clock: it calls this once per animation frame with a
+   * fresh `progress` and clears with `null` on finish. `enter`, `commit`
+   * and `copy` always track the live selection; `clear` carries its own
+   * history-coordinate range.
+   */
+  setSelectionFx(fx: SelectionFx | null): void {
+    this.selectionFx = fx;
   }
 
   setHighlights(ranges: ScreenRange[]): void {
@@ -255,6 +299,20 @@ export class GhosttyScene {
     this.pending.clear();
     this.paintOverlay(overlay, m);
     return { text, overlay };
+  }
+
+  /**
+   * Overlay ops only (selection/search/cursor) — the DOM shell repaints
+   * just the overlay canvas between full frames while a selection fx
+   * plays, so the text surface is not repainted (issue #441). May throw
+   * on a dead engine exactly like `render()`.
+   */
+  renderOverlay(): PaintOp[] {
+    const overlay: PaintOp[] = [];
+    const m = this.metrics;
+    if (!m || this.disposed) return overlay;
+    this.paintOverlay(overlay, m);
+    return overlay;
   }
 
   /**
@@ -463,14 +521,62 @@ export class GhosttyScene {
   private paintOverlay(out: PaintOp[], m: SceneMetrics): void {
     out.push({ op: "clear", rect: { x: 0, y: 0, w: m.cols * m.cellW, h: m.rows * m.cellH } });
     const viewportTop = this.session.history().viewportTop - this.viewportShift;
-    const wash = (range: ScreenRange, color: string | undefined): void => {
-      if (!color) return;
+    const selectionColor = this.options.selection ?? "rgba(120,160,255,0.28)";
+    const fx = this.selectionFx;
+    const p = fx ? clamp01(fx.progress) : 0;
+    const wash = (range: ScreenRange, color: string | undefined, alpha = 1): void => {
+      if (!color || alpha <= 0) return;
       this.eachCell(range, viewportTop, m, (x, y, w, h) =>
-        out.push({ op: "fill_rect", rect: { x: x * m.cellW, y: y * m.cellH, w: w * m.cellW, h: h * m.cellH }, color, alpha: 1 }));
+        out.push({ op: "fill_rect", rect: { x: x * m.cellW, y: y * m.cellH, w: w * m.cellW, h: h * m.cellH }, color, alpha }));
     };
-    if (this.selection) wash(this.selection, this.options.selection ?? "rgba(120,160,255,0.28)");
-    for (const match of this.highlights) wash(match, this.options.search ?? "rgba(250,204,21,0.22)");
+    // enter fades the live selection wash in; the boundary geometry is
+    // already final — only the paint alpha follows the fx clock
+    if (this.selection) {
+      wash(this.selection, selectionColor, fx?.kind === "enter" ? easeOutCubic(p) : 1);
+      // commit: one brief brighten over the committed range
+      if (fx?.kind === "commit") {
+        wash(this.selection, selectionColor, 0.55 * pulse(p));
+      }
+      // copy: a short accent tick under each selected row — a shape cue,
+      // not just another colour wash, so it reads differently from the
+      // commit pulse and from the selection itself (issue #441)
+      if (fx?.kind === "copy") {
+        this.copyAccent(out, this.selection, 0.85 * pulse(p), m, viewportTop);
+      }
+    }
+    // clear: the just-cleared range fades out in place — history
+    // coordinates keep it on the same characters while they scroll by
+    if (fx?.kind === "clear") {
+      wash(fx.range, selectionColor, 1 - p);
+    }
+    const searchColor = this.options.search ?? "rgba(250,204,21,0.22)";
+    for (const match of this.highlights) wash(match, searchColor);
     if (this.cursorOn) this.paintCursor(out, m);
+  }
+
+  /**
+   * The copy-success tick (issue #441): a thin accent strip along the
+   * bottom edge of every selected row segment, in the theme's cursor
+   * colour, fading with the fx pulse. Painted on the overlay layer only —
+   * the text surface is untouched.
+   */
+  private copyAccent(
+    out: PaintOp[],
+    range: ScreenRange,
+    alpha: number,
+    m: SceneMetrics,
+    viewportTop: number,
+  ): void {
+    if (alpha <= 0) return;
+    const color = this.options.cursor;
+    const accentH = Math.max(1, m.cellH * 0.12);
+    this.eachCell(range, viewportTop, m, (x, y, w, h) =>
+      out.push({
+        op: "fill_rect",
+        rect: { x: x * m.cellW, y: (y + h) * m.cellH - accentH, w: w * m.cellW, h: accentH },
+        color,
+        alpha,
+      }));
   }
 
   /** the cells of a screen range that are on the viewport, row by row */

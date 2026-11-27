@@ -23,6 +23,7 @@ import {
   type WheelInput,
   type KeyInput,
 } from "./surfaceCore.ts";
+import type { ScreenRange } from "../../../shared/ghostty/engine.ts";
 
 export interface GhosttySurfaceOptions {
   session: GhosttySession;
@@ -137,6 +138,25 @@ export class GhosttySurface {
   /** invalidates in-flight background-image loads so a stale spec cannot win */
   private backgroundToken = 0;
   private disposed = false;
+  /**
+   * The playing selection-overlay response (issue #441): a short rAF-driven
+   * emphasis the core requests via `render_selection_fx`. The selection
+   * geometry itself is never animated — only the overlay wash/accent
+   * follows this clock, and only the overlay canvas is repainted.
+   */
+  private selectionFx: {
+    kind: "enter" | "commit" | "clear" | "copy";
+    /** history-coordinate range for `clear`; null for live-selection kinds */
+    range: ScreenRange | null;
+    startedAt: number;
+    durationMs: number;
+    frame: number;
+  } | null = null;
+  private fxObserver: IntersectionObserver | null = null;
+  private motionQuery: MediaQueryList | null = null;
+  private readonly fxVisibility = (): void => {
+    if (document.visibilityState !== "visible") this.stopSelectionFx();
+  };
 
   constructor(host: HTMLElement, session: GhosttySession, options: GhosttySurfaceOptions) {
     this.host = host;
@@ -362,9 +382,22 @@ export class GhosttySurface {
     this.core.setMouseCapture(enabled);
   }
 
+  /**
+   * The host's clipboard write for a selection succeeded (issue #441):
+   * play the copy response on the current selection. Hosts call this only
+   * on success — copy-on-select reports through `onSelectionCommit` →
+   * clipboard → back here; the explicit `copy` event path calls it
+   * internally. There is deliberately no failure signal: a failed write
+   * must never impersonate success.
+   */
+  notifySelectionCopied(): void {
+    this.beginSelectionFx("copy", null);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopSelectionFx();
     this.core.dispose();
     this.observer?.disconnect();
     if (this.blinkTimer) clearTimeout(this.blinkTimer);
@@ -416,6 +449,15 @@ export class GhosttySurface {
         case "selection_commit":
           this.options.onSelectionCommit?.(effect.text);
           break;
+        case "render_selection_fx":
+          if (effect.kind === "cancel") {
+            this.stopSelectionFx();
+          } else if (effect.kind === "clear") {
+            if (effect.range) this.beginSelectionFx("clear", effect.range);
+          } else {
+            this.beginSelectionFx(effect.kind, null);
+          }
+          break;
         case "scroll":
           this.options.onScroll?.(effect.rows);
           break;
@@ -423,6 +465,7 @@ export class GhosttySurface {
           this.options.onResize?.(effect.cols, effect.rows);
           break;
         case "dead":
+          this.stopSelectionFx();
           this.options.onDead?.(new Error(effect.message));
           break;
         case "schedule":
@@ -455,20 +498,26 @@ export class GhosttySurface {
           this.renderer.setCursorVisible(effect.visible);
           break;
         case "render_invalidate":
+          // a full repaint ends any transient selection response — its
+          // anchors may no longer match the screen (issue #441)
+          this.stopSelectionFx();
           this.renderer.invalidate();
           break;
         case "render_set_metrics":
+          this.stopSelectionFx();
           this.root.dataset.cols = String(effect.metrics.cols);
           this.root.dataset.rows = String(effect.metrics.rows);
           this.renderer.setMetrics(effect.metrics);
           break;
         case "render_set_font":
+          this.stopSelectionFx();
           this.renderer.setFont({
             ...(effect.fontFamily !== undefined ? { fontFamily: effect.fontFamily } : {}),
             ...(effect.fontSize !== undefined ? { fontSize: effect.fontSize } : {}),
           });
           break;
         case "render_set_colors":
+          this.stopSelectionFx();
           this.renderer.setColors({
             foreground: effect.foreground,
             background: effect.background,
@@ -477,6 +526,7 @@ export class GhosttySurface {
           });
           break;
         case "render_set_background_opacity":
+          this.stopSelectionFx();
           this.renderer.setBackgroundOpacity(effect.alpha);
           break;
         case "render_collect":
@@ -695,5 +745,105 @@ export class GhosttySurface {
     if (!text) return;
     event.preventDefault();
     event.clipboardData?.setData("text/plain", text);
+    // reaching here means the synchronous clipboard write was accepted —
+    // the copy tick is honest feedback, distinct from the commit pulse
+    // (issue #441)
+    this.beginSelectionFx("copy", null);
+  }
+
+  // ---- selection fx (issue #441) ----------------------------------------------
+
+  /**
+   * Start a transient selection-overlay response. The core decides *when*
+   * (enter/commit/clear/cancel via `render_selection_fx`); the host owns
+   * the clock, visibility gating and the motion-preference check. The
+   * selection geometry is never animated — only the overlay paint
+   * follows this rAF, and only the overlay canvas is repainted, so the
+   * text surface sees no extra work.
+   */
+  private beginSelectionFx(
+    kind: "enter" | "commit" | "clear" | "copy",
+    range: ScreenRange | null,
+  ): void {
+    if (this.disposed || this.core.isDead) return;
+    this.motionQuery ??= window.matchMedia(
+      "(prefers-reduced-motion: reduce), (forced-colors: active)",
+    );
+    this.stopSelectionFx();
+    // reduced motion / forced colors: the state switch already happened
+    // instantly — there is nothing left to animate (interaction.md §2)
+    if (this.motionQuery.matches) return;
+    const startedAt = performance.now();
+    const durationMs = this.fxDurationMs(kind);
+    const fx = { kind, range, startedAt, durationMs, frame: 0 };
+    this.selectionFx = fx;
+    // stop when the surface leaves the screen or the page hides — the
+    // response is decorative, so finishing early just lands on the base
+    // frame (interaction.md §2/§6)
+    if (typeof IntersectionObserver !== "undefined") {
+      this.fxObserver = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => !entry.isIntersecting)) this.stopSelectionFx();
+      });
+      this.fxObserver.observe(this.root);
+    }
+    document.addEventListener("visibilitychange", this.fxVisibility);
+    const step = (now: number) => {
+      if (this.selectionFx !== fx || this.disposed) return;
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      this.paintSelectionFx(fx, progress);
+      if (progress >= 1) {
+        this.stopSelectionFx();
+      } else {
+        fx.frame = requestAnimationFrame(step);
+      }
+    };
+    fx.frame = requestAnimationFrame(step);
+  }
+
+  /** hand the current progress to the scene and repaint only the overlay */
+  private paintSelectionFx(
+    fx: NonNullable<GhosttySurface["selectionFx"]>,
+    progress: number,
+  ): void {
+    try {
+      this.renderer.setSelectionFx(
+        fx.kind === "clear"
+          ? { kind: "clear", progress, range: fx.range as ScreenRange }
+          : { kind: fx.kind, progress },
+      );
+      this.renderer.renderOverlay();
+    } catch {
+      /* dead engine — the frame pipeline reports it; the fx just stops */
+      this.stopSelectionFx();
+    }
+  }
+
+  /** end the playing response: cancel the clock, land on the base frame */
+  private stopSelectionFx(): void {
+    const fx = this.selectionFx;
+    this.selectionFx = null;
+    if (fx) cancelAnimationFrame(fx.frame);
+    this.fxObserver?.disconnect();
+    this.fxObserver = null;
+    document.removeEventListener("visibilitychange", this.fxVisibility);
+    // nothing was playing — no repaint needed (this runs on every
+    // invalidate-inducing effect, including plain scrolls)
+    if (!fx || this.disposed) return;
+    try {
+      this.renderer.setSelectionFx(null);
+      this.renderer.renderOverlay();
+    } catch {
+      /* dead engine — nothing left to repaint */
+    }
+  }
+
+  /** motion-token durations: fades on fast, pulses on base (index.css §2) */
+  private fxDurationMs(kind: "enter" | "commit" | "clear" | "copy"): number {
+    const pulse = kind === "commit" || kind === "copy";
+    const token = pulse ? "--motion-duration-base" : "--motion-duration-fast";
+    const fallback = pulse ? 200 : 120;
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+    const ms = Number.parseFloat(raw);
+    return Number.isFinite(ms) && ms > 0 ? ms : fallback;
   }
 }
