@@ -191,9 +191,25 @@ Honest limit: static analysis can enforce the slot/size boundary but
 cannot judge whether a given action's meaning requires text — that
 classification is recorded per call site and reviewed; the rule blocks
 *new unlabeled-in-spirit* regressions, it does not auto-approve meaning.
-Row-level action clusters outside the four header slots (e.g. Handoffs
-"Execute"/"Delegate" buttons) are not yet covered by the rule and are
-part of the #534 audit.
+Row-level action clusters outside the four header slots were audited
+under #534 and are **reviewed keeps**, not rule extensions:
+
+- `HandoffsSurface` "Execute"/"Delegate"/"Merge back" render as
+  confirmation-dialog labels for destructive/lifecycle mutations —
+  explicit scope exclusion (destructive confirms need text).
+- `SecretsSurface` "Probe reachability"/"Preview resolve" are
+  section-level capability-gated one-off actions whose meaning needs a
+  label (explicit scope exclusion); they already carry `title`
+  explanations.
+- `AutomationsSurface` "Enable"/"Disable"/"Run now"/"Delete" are
+  lifecycle actions in an expanded task detail, including a destructive
+  delete — label-justified per the scope boundary.
+- `ConversationsSurface` "Load more"/index-now are pagination/one-off
+  actions, not repeated accessory chrome.
+
+The slot rule stays scoped to the four accessory slots; extending it to
+row clusters would iconify destructive and lifecycle actions the scope
+explicitly excludes.
 
 **Fixtures.** `scripts/lint-fixtures/bad.tsx` carries a `size="xs"`
 "Refresh" text button inside `SurfacePanelHeader actions` (asserted by
@@ -207,9 +223,9 @@ show/hide form), `ConversationsSurface` (2), `AutomationsSurface` (2).
 `oxlint src` reports zero errors for the rule.
 
 **Status.** `fix+gate landed` — rule + fixtures + all known slot
-violations delivered in the #407 ticket PR. Rendered verification of
-the converted controls rides with the release-candidate review (#413);
-row-cluster coverage remains audit work under #534.
+violations delivered; row-cluster counter-examples audited and
+classified as reviewed keeps (see Detection). Rendered verification of
+the converted controls rides with the release-candidate review (#413).
 
 **Unguaranteed.** Does not prove every remaining text button is
 misclassified; borderline cases (rare but ambiguous actions) stay a
