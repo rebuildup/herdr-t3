@@ -3,14 +3,14 @@
 Version: 2 (was 1 — mutation surface added, issue #455). Scope:
 consuming `herdr-plugins.artifacts/v1` through `plugin_call`
 (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as usage-v1/conversations-v1). The plugin owns
 the artifact registry — register/validate/index references to
 generated files (HTML pages, images, PDFs, generic files) — and this
 client renders its read surfaces (issue #396) plus the mutation
 surface (issue #455). Upstream spec:
-`herdr-plugins/docs/contracts/artifacts-v1.md` (STABLE since
-herdr-plugins v0.7.0; plugin `rebuildup.artifacts` v0.2.0+).
+`hoxay-plugins/docs/contracts/artifacts-v1.md` (STABLE since
+hoxay-plugins v0.7.0; plugin `rebuildup.artifacts` v0.2.0+).
 
 The contract advertises mutations (`read_only: false`,
 `mutation_commands: ["register", "delete", "deliver", "gc"]`). This
@@ -113,7 +113,7 @@ records as the render-isolation notice.
   CallOptions session selector before command flags are parsed, so
   the flag can never reach the record filter. The argv builder
   deliberately never emits it (recorded as an upstream quirk; a fix
-  belongs in herdr-plugins).
+  belongs in hoxay-plugins).
 - Payload bytes / inline rendering — `resolved_path` is displayed as
   text with a copy affordance only. No shell-open bridge exists in
   herdr-t3 yet, so "open" is copy-then-open-external; `kind:"html"`

@@ -2,15 +2,15 @@
 
 Version: 1. Scope: consuming `herdr-plugins.usage/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`, same pin as conversations-v1). The plugin owns token
 aggregation over the `rebuildup.conversations` index, subscription
 quota/reset reporting (provider endpoints + CLIProxyAPI-compatible
 hubs), list-price cost estimates, and the quota-vs-measured
 divergence report; herdr-t3 renders all four read surfaces (issue
 #375). Upstream spec:
-`herdr-plugins/docs/contracts/usage-v1.md` (STABLE since
-herdr-plugins v0.5.0).
+`hoxay-plugins/docs/contracts/usage-v1.md` (STABLE since
+hoxay-plugins v0.5.0).
 
 The plugin is **read-only**: `capability` advertises
 `read_only: true` and `mutation_commands: []`. This client consumes

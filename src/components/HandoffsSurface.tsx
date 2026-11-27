@@ -1,7 +1,7 @@
 /*
  * Handoffs surface (issue #404, ADR-0011 boundary): the host's
  * `rebuildup.handoff` plugin (`herdr-plugins.handoff/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0 — v1 stable since plugin
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0 — v1 stable since plugin
  * v0.6.0) owns handoff/delegation records: payload references bound to
  * a source pane/agent generation, a status lifecycle, execution
  * targets, and derived lineage.

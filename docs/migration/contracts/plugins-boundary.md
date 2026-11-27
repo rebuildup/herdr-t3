@@ -1,6 +1,6 @@
 # Contract: plugin boundary (B2/B3)
 
-Version: 1. Scope: consuming published `herdr-plugins` contracts through
+Version: 1. Scope: consuming published `hoxay-plugins` contracts through
 `plugin_list`/`plugin_call` (ADR-0011), with per-host capability gating
 (ADR-0012). Plugins own feature state; herdr-t3 never opens plugin
 state files and never duplicates plugin-owned capabilities via direct
@@ -103,7 +103,7 @@ contract) at both the client (`api.ts`) and service layers.
 Upstream dependency: `mutation_commands` is a coarse read/write bit.
 Per-command side-effects, idempotency, coalescibility, freshness and
 invalidation declarations are tracked as the source of truth in
-rebuildup/herdr-plugins#263; once that contract extension lands, this
+rebuildup/hoxay-plugins#263; once that contract extension lands, this
 classification is replaced by the declared per-command semantics rather
 than extended heuristically. Until then, TTL caching of `plugin_call`
 results is deliberately NOT performed — staleness cannot be bounded

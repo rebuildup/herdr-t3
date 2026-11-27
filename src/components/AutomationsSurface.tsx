@@ -1,7 +1,7 @@
 /*
  * Automations surface (issues #361/#362, ADR-0011 boundary): the host's
  * `rebuildup.automations` plugin (`herdr-plugins.automations/v1` pinned
- * at rebuildup/herdr-plugins@6c1cfa5, v0.7.0) owns scheduled and
+ * at rebuildup/hoxay-plugins@6c1cfa5, v0.7.0) owns scheduled and
  * event-triggered agent tasks. Task rows carry schedule/enabled/driver/
  * missed state plus lazily fetched run history, and the lifecycle
  * mutations `set-enabled`/`run-now`/`delete`/`reconcile` are offered

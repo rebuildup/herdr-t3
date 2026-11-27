@@ -6,11 +6,11 @@
  * source pane/agent generation, with a status lifecycle and optional
  * lineage (`relationship{kind,parent_id}`; children derived by scan) —
  * through the `herdr-plugins.handoff/v1` contract, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/handoff-v1.md; v1 stable since plugin v0.6.0). The
  * plugin advertises mutations two ways across versions: `execute`/
  * `delegate`/`merge-back`/`create` are top-level `commands` in every
- * v1 build, and plugin v0.7.0+ (herdr-plugins#224, release-0-10-0,
+ * v1 build, and plugin v0.7.0+ (hoxay-plugins#224, release-0-10-0,
  * unpublished at pin time) additionally lists the persisting commands
  * in a `mutation_commands` capability field. This surface consumes
  * the read commands (`list`, `status`, `resume-info`) plus the
@@ -98,7 +98,7 @@ export interface HandoffCapability {
   mutationCommands: Set<string>;
   /**
    * True when the capability document carried a `mutation_commands`
-   * field at all (plugin ≥ v0.7.0, herdr-plugins#224). The pinned
+   * field at all (plugin ≥ v0.7.0, hoxay-plugins#224). The pinned
    * v0.9.0 build predates it; `false` selects the conservative
    * allowlist + `commands` fallback in `handoffsSupportsMutation`.
    */

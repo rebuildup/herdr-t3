@@ -2,15 +2,15 @@
 
 Version: 1. Scope: consuming `herdr-plugins.conversations/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`). The plugin owns the provider transcript index
 (claude/codex/opencode JSONL/SQLite normalization), the per-session
 event logs, and staleness verdicts; herdr-t3 renders the session list,
 paged event history, search results, and `show` reference resolution,
 and drives the explicit `index` mutation (issues #374/#457).
 Upstream spec:
-`herdr-plugins/docs/contracts/conversations-v1.md` (STABLE since
-herdr-plugins v0.5.0).
+`hoxay-plugins/docs/contracts/conversations-v1.md` (STABLE since
+hoxay-plugins v0.5.0).
 
 ## Operations consumed
 

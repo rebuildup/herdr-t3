@@ -5,7 +5,7 @@
  * subscription quota/reset reporting, estimated cost, and the
  * quota-vs-measured divergence report through the
  * `herdr-plugins.usage/v1` contract, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/usage-v1.md). The plugin is READ-ONLY
  * (`read_only: true`, `mutation_commands: []`): `usage`/`cost`/
  * `divergence` recompute from the `rebuildup.conversations` index on

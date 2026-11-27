@@ -5,7 +5,7 @@ Version: 3 (additive revision: `scripts run --shell`, run-record
 run records remain schema v2). Scope: consuming
 `herdr-plugins.projects/v1` through `plugin_call` (ADR-0011 boundary,
 ADR-0014 pin amended by ADR-0015/ADR-0019/ADR-0020 at
-`rebuildup/herdr-plugins@2dcb2abf`).
+`rebuildup/hoxay-plugins@2dcb2abf`).
 The plugin owns the registry and script run records; herdr-t3 renders
 them and forwards explicit user operations only.
 
@@ -83,7 +83,7 @@ Scripts:
   `success`. `stale_pane` outcomes/record errors are classified
   distinctly — the pane was provably not the record's.
 - `runOnWorktreeCreate`/`runOnSettle`/`stopOnSettle` are listed but have
-  no upstream execution mapping (herdr-plugins#60): the UI marks them
+  no upstream execution mapping (hoxay-plugins#60): the UI marks them
   inert and provides no trigger affordance.
 - Remote identity (#69, @`2dcb2abf`): `repos[].remote` keeps the path
   case verbatim (case-sensitive forges exist); host is lowercased and

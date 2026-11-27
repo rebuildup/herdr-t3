@@ -1,7 +1,7 @@
 /*
  * Secrets surface (issue #454, ADR-0011 boundary): the host's
  * `rebuildup.secrets` plugin (`herdr-plugins.secrets/v1` pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0) resolves declared env
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0) resolves declared env
  * bindings against Infisical and routes values to exactly two sinks —
  * a wrapped child's environment (`run`) and herdr surface-creation
  * `env` params (`inject`).

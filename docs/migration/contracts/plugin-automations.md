@@ -2,13 +2,13 @@
 
 Version: 2. Scope: consuming `herdr-plugins.automations/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@6c1cfa5` = tag `v0.7.0`). The plugin owns the
+`rebuildup/hoxay-plugins@6c1cfa5` = tag `v0.7.0`). The plugin owns the
 task registry, run records, missed-run derivation, and firing drivers;
 herdr-t3 renders them and forwards the lifecycle mutations
 `set-enabled`/`run-now`/`delete`/`reconcile` (issue #362; driver
 commands stay unconsumed). Upstream spec:
-`herdr-plugins/docs/contracts/automations-v1.md`
-(STABLE since herdr-plugins #147).
+`hoxay-plugins/docs/contracts/automations-v1.md`
+(STABLE since hoxay-plugins #147).
 
 ## Operations consumed
 
@@ -68,7 +68,7 @@ never show stale state. Failures surface the classified
   install|uninstall|status` — long-running or execution commands,
   outside the `plugin_call` timeout envelope.
 - `webhook` schedules: permanently unsupported in v1 (upstream gap,
-  herdr-plugins ADR-0026); stored tasks render the type verbatim.
+  hoxay-plugins ADR-0026); stored tasks render the type verbatim.
 
 ## Data shapes (defensive projections)
 

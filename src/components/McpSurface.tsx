@@ -1,7 +1,7 @@
 /*
  * MCP diagnostics surface (issue #454, ADR-0011 boundary): the host's
  * `rebuildup.mcp` plugin (`herdr-plugins.mcp/v1` STABLE, pinned at
- * rebuildup/herdr-plugins@d23205af, v0.9.0) is a local stdio MCP
+ * rebuildup/hoxay-plugins@d23205af, v0.9.0) is a local stdio MCP
  * server exposing herdr sessions and sibling plugin contracts to
  * outside MCP clients.
  *

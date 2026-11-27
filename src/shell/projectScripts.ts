@@ -3,7 +3,7 @@
  *
  * `rebuildup.projects` on the host owns the project registry and script
  * run records through the `herdr-plugins.projects/v1` contract, pinned
- * at rebuildup/herdr-plugins@2dcb2abf (release-0-3-0, schema v2 run
+ * at rebuildup/hoxay-plugins@2dcb2abf (release-0-3-0, schema v2 run
  * records + shell-family fields — ADR-0015/0019/0020). The
  * contract doc is docs/migration/contracts/plugin-projects.md.
  *
@@ -29,7 +29,7 @@
  * started_at, schema v2) failed re-validation — the plugin touched no
  * pane — and are classified distinctly. `runOn*` flags are inert
  * metadata:
- * upstream has no execution mapping for them (herdr-plugins#60), so the
+ * upstream has no execution mapping for them (hoxay-plugins#60), so the
  * UI marks them "not wired" and offers no trigger affordance.
  */
 import { pluginCall } from "../lib/api";
@@ -332,7 +332,7 @@ export async function fetchProjectsList(
  * (not nulled) when the source layer does not carry them; `source`
  * reports the resolution layer (`override`/`env-default`/`t3.json`/
  * `builtin`). `runOn*` flags are inert metadata — no upstream execution
- * mapping exists (herdr-plugins#60).
+ * mapping exists (hoxay-plugins#60).
  */
 export interface ProjectScript {
   id: string;

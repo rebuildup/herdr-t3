@@ -20,7 +20,7 @@
  *   and offer `--force` only as a separate, clearly-labelled action —
  *   never implicit. Mutation-phase failures surface the plugin's
  *   `pre_restore_*` fields with a recovery affordance.
- * - Since the @55df8d0a re-pin (herdr-plugins #74) entries carry
+ * - Since the @55df8d0a re-pin (hoxay-plugins #74) entries carry
  *   `kind` (manual/auto/pre_restore) shown as a badge, and every
  *   command payload may carry `auto_captures` drain outcomes —
  *   captured ids, skipped pane reasons and `session_unreachable` are
@@ -28,7 +28,7 @@
  *   granularity is herdr `agent_status` work-units, NOT per-turn.
  *   `create --auto` exists only as an explicit opt-in label; no
  *   agent-driven trigger is fabricated here.
- * - Since the @ae4f214 re-pin (herdr-plugins #75/#94, ADR-0024)
+ * - Since the @ae4f214 re-pin (hoxay-plugins #75/#94, ADR-0024)
  *   `save` captures multi-repo groups under a shared `group_id`
  *   (explicit repo list, focused pane, or live session discovery with
  *   `skipped_panes` shown), `list --group` filters and entries badge

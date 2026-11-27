@@ -3,7 +3,7 @@
  *
  * `rebuildup.automations` on each target host owns scheduled/event
  * agent tasks through the `herdr-plugins.automations/v1` contract,
- * pinned at rebuildup/herdr-plugins@6c1cfa5 (v0.7.0,
+ * pinned at rebuildup/hoxay-plugins@6c1cfa5 (v0.7.0,
  * docs/contracts/automations-v1.md). This module consumes the read
  * surface (`capability`, `list`, `get`, `runs`) plus the lifecycle
  * mutations `set-enabled`/`run-now`/`delete`/`reconcile` (issue #362).

@@ -4,7 +4,7 @@
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
- * pinned at rebuildup/herdr-plugins@ae4f214 (release-0-4-0, re-pin per
+ * pinned at rebuildup/hoxay-plugins@ae4f214 (release-0-4-0, re-pin per
  * ADR-0017/ADR-0021/ADR-0024). The contract doc is
  * docs/migration/contracts/plugin-checkpoints.md.
  *
@@ -31,7 +31,7 @@
  * `pre_restore_*` error fields (the recovery checkpoint) — surfaced
  * verbatim, never swallowed.
  *
- * Since @55df8d0a (herdr-plugins #74) every command except
+ * Since @55df8d0a (hoxay-plugins #74) every command except
  * `capability`/`help` lazily drains pending work-unit auto-captures
  * recorded by the plugin's `agent_status` event hooks; outcomes arrive
  * as `auto_captures` on the payload (omitted when empty) and are
@@ -43,7 +43,7 @@
  * `checkpoint_count` pane metadata after pane-targeted captures; this
  * client does not consume it.
  *
- * Since @ae4f214 (herdr-plugins #75/#94) the contract adds multi-repo
+ * Since @ae4f214 (hoxay-plugins #75/#94) the contract adds multi-repo
  * groups and bounded retention: `save` captures one checkpoint per
  * repo under a shared `group_id` (`grp-…`; explicit `--repo` list, a
  * pane target, or live discovery from session pane cwds with
@@ -281,7 +281,7 @@ export function checkpointsCapability(
 /* ------------------------------ documents ------------------------------ */
 
 /**
- * Capture provenance recorded by the plugin (@55df8d0a, herdr-plugins
+ * Capture provenance recorded by the plugin (@55df8d0a, hoxay-plugins
  * #74): `"manual"` (explicit `create`), `"auto"` (lazy work-unit drain
  * or `create --auto`), `"pre_restore"` (mandatory pre-restore safety
  * capture). Entries written before auto-capture carry no `kind` and

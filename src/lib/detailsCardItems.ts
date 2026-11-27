@@ -5,7 +5,7 @@
  * Only choices that differ from the default are stored, so a later
  * default change reaches everyone else (same rule as upstream).
  *
- * Sections mirror the herdr-plugins capabilities the card can actually
+ * Sections mirror the hoxay-plugins capabilities the card can actually
  * show: workspace identity (snapshot), related/past agents
  * (snapshot + rebuildup.conversations), git/PR (rebuildup.git),
  * project scripts (rebuildup.projects), checkpoints

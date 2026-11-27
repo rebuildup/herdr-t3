@@ -4,7 +4,7 @@
  * `rebuildup.conversations` on each target host owns the provider
  * transcript index (claude/codex/opencode) through the
  * `herdr-plugins.conversations/v1` contract, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/conversations-v1.md). This module consumes the read
  * surface (`capability`, `sessions`, `history`, `search`, `show`)
  * plus the explicit `index`/`refresh` mutations — both advertised in

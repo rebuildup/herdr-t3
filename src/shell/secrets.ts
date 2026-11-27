@@ -6,7 +6,7 @@
  * two sinks: a wrapped child's environment (`run`) and herdr surface
  * creation `env` params (`inject`) — contract
  * `herdr-plugins.secrets/v1`, pinned at
- * rebuildup/herdr-plugins@d23205af (v0.9.0,
+ * rebuildup/hoxay-plugins@d23205af (v0.9.0,
  * docs/contracts/secrets-v1.md; boundary ADR-0027 upstream).
  *
  * VALUE GUARANTEE (ADR-0027, non-negotiable): no command in this

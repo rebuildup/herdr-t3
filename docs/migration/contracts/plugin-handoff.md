@@ -2,7 +2,7 @@
 
 Version: 2. Scope: consuming `herdr-plugins.handoff/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
+`rebuildup/hoxay-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
 tag `v0.9.0`). The plugin owns handoff/delegation records — payload
 *references* (never transcript copies) bound to a source
 pane/agent generation, a `pending|ready|delivered|done|failed|
@@ -10,12 +10,12 @@ superseded` lifecycle, execution targets, and derived lineage; this
 client consumes the read surface (`list`/`status`/`resume-info`,
 issue #404) plus the mutation commands `execute`/`delegate`/
 `merge-back` (issue #451). Upstream spec:
-`herdr-plugins/docs/contracts/handoff-v1.md` (**v1 stable** since
-herdr-plugins v0.6.0 / plugin v0.6.0).
+`hoxay-plugins/docs/contracts/handoff-v1.md` (**v1 stable** since
+hoxay-plugins v0.6.0 / plugin v0.6.0).
 
 Mutation advertisement differs across plugin versions: every v1 build
 lists `execute`/`delegate`/`merge-back`/`create` as top-level
-`commands`, and plugin v0.7.0+ (herdr-plugins#224, release-0-10-0 —
+`commands`, and plugin v0.7.0+ (hoxay-plugins#224, release-0-10-0 —
 unpublished at the pin) additionally lists the persisting commands in
 a `mutation_commands` capability field. Gating
 (`handoffsSupportsMutation`) therefore requires the command in the
