@@ -106,9 +106,11 @@ function makeChunk(): Uint8Array {
   return enc.encode(parts.join(""));
 }
 
-// kitty image payload: transmit raw RGB (f=24, dims via s/v, id via i) then
-// place it (a=p) — the earlier c/r/q variant was rejected by the engine and
-// only stressed scrollback with undecoded APC text.
+// kitty image payload: full placement lifecycle — transmit raw RGB
+// (f=24, dims via s/v, id via i), place at the cursor (a=p with unique
+// placement id p), scroll, move the placement (new p + X/Y offsets), then
+// delete by image id (a=d,d=i). Earlier chunks only transmitted, so the
+// engine's placedImages/virtual-placement bookkeeping was never exercised.
 function makeKittyChunk(id: number): Uint8Array {
   const w = KITTY_SIZE, h = Math.round(KITTY_SIZE * 0.6);
   const rgb = new Uint8Array(w * h * 3);
@@ -116,7 +118,12 @@ function makeKittyChunk(id: number): Uint8Array {
   const b64 = Buffer.from(rgb).toString("base64");
   const cw = Math.max(1, Math.ceil(w / 9));
   const ch = Math.max(1, Math.ceil(h / 18));
-  const text = `\x1b_Ga=T,f=24,s=${w},v=${h},i=${id};${b64}\x1b\\\x1b_Ga=p,i=${id},c=${cw},r=${ch}\x1b\\\n`;
+  const text =
+    `\x1b_Ga=T,f=24,s=${w},v=${h},i=${id};${b64}\x1b\\` +
+    `\x1b_Ga=p,i=${id},p=${1000 + id},c=${cw},r=${ch}\x1b\\` +
+    `\n` +
+    `\x1b_Ga=p,i=${id},p=${2000 + id},c=${cw},r=${ch},X=1,Y=1\x1b\\` +
+    `\x1b_Ga=d,d=i,i=${id}\x1b\\`;
   return enc.encode(text);
 }
 
@@ -462,6 +469,16 @@ async function main(): Promise<number> {
       byScenario.set(s.scenario, arr);
     }
     const summary: Record<string, unknown> = {};
+    /** Chrome-tree MB/min slope over the last 3 min of a scenario's samples —
+     *  convergence check: a healthy scenario flattens or decays here. */
+    const tailSlope = (arr: Sample[]): number => {
+      const last = arr[arr.length - 1]!;
+      const windowed = arr.filter((s) => s.t >= last.t - 180_000);
+      if (windowed.length < 2) return 0;
+      const first = windowed[0]!;
+      const minutes = (last.t - first.t) / 60_000;
+      return minutes > 0 ? (last.chromeTreeMb - first.chromeTreeMb) / minutes : 0;
+    };
     for (const [name, arr] of byScenario) {
       const first = arr[0]!, last = arr[arr.length - 1]!;
       const peak = arr.reduce((a, s) => (s.chromeTreeMb > a.chromeTreeMb ? s : a), first);
@@ -474,6 +491,7 @@ async function main(): Promise<number> {
         chromeEndMb: +last.chromeTreeMb.toFixed(1),
         chromePeakMb: +peak.chromeTreeMb.toFixed(1),
         chromePeakTop: peak.chromeTop,
+        chromeTailSlopeMbPerMin: +tailSlope(arr).toFixed(1),
         bridgeEndMb: +last.bridgeMb.toFixed(1),
         herdrEndMb: +last.herdrMb.toFixed(1),
       };
@@ -499,12 +517,27 @@ async function main(): Promise<number> {
       let ok = true;
       for (const [name, s] of Object.entries(summary) as [string, {
         jsHeapPeakMb: number; chromePeakMb: number; bridgeEndMb: number; herdrEndMb: number;
+        chromeTailSlopeMbPerMin?: number; chromeStartMb?: number; chromeEndMb?: number;
       }][]) {
         const breaches: string[] = [];
         if (s.jsHeapPeakMb > MEM_BUDGETS.jsHeapPeakMb) breaches.push(`jsHeap ${s.jsHeapPeakMb}MB > ${MEM_BUDGETS.jsHeapPeakMb}MB`);
         if (s.chromePeakMb > MEM_BUDGETS.chromePeakMb) breaches.push(`chrome ${s.chromePeakMb}MB > ${MEM_BUDGETS.chromePeakMb}MB`);
         if (s.bridgeEndMb > MEM_BUDGETS.bridgeEndMb) breaches.push(`bridge ${s.bridgeEndMb}MB > ${MEM_BUDGETS.bridgeEndMb}MB`);
         if (s.herdrEndMb > MEM_BUDGETS.herdrEndMb) breaches.push(`herdr ${s.herdrEndMb}MB > ${MEM_BUDGETS.herdrEndMb}MB`);
+        // Convergence: after the workload stops, Chrome-tree RSS must flatten
+        // or decay. A sustained tail growth means a leak accumulates even
+        // under the absolute ceilings (issue #499 acceptance: steady state).
+        if ((name === "idle" || name === "switch") && (s.chromeTailSlopeMbPerMin ?? 0) > 64) {
+          breaches.push(`tail slope ${s.chromeTailSlopeMbPerMin}MB/min > 64MB/min (not converged)`);
+        }
+        // Reuse: storm2 re-runs the same storm after kitty/switch churn —
+        // its peak must not exceed the first storm's by more than slack,
+        // or each cycle leaks.
+        const storm = summary["storm"] as { chromePeakMb?: number } | undefined;
+        if (name === "storm2" && storm?.chromePeakMb !== undefined &&
+            s.chromePeakMb > storm.chromePeakMb * 1.5 + 300) {
+          breaches.push(`storm2 peak ${s.chromePeakMb}MB vs storm ${storm.chromePeakMb}MB — cumulative growth`);
+        }
         if (breaches.length) {
           ok = false;
           console.error(`FAIL  ${name}: ${breaches.join("; ")}`);

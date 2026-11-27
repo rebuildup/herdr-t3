@@ -326,11 +326,28 @@ export interface EngineOptions {
    */
   scrollbackLines?: number | undefined;
   /**
+   * byte cap on scrollback history when `scrollbackLines` is set (issue #499):
+   * the line limit alone leaves the worst case (100k lines of wide styled
+   * cells) unbounded per pane. The module enforces both limits, so history
+   * simply ends sooner on extreme output — the screen and viewport are never
+   * affected, and the attach stream remains the truth for resync.
+   */
+  scrollbackBytes?: bigint | undefined;
+  /**
    * a terminal screen's: the module calls back with replies, holds and effects, and the engine follows 9001
    * and records traps; without it none of that happens
    */
   events?: EngineEvents | undefined;
 }
+
+/**
+ * Default scrollback byte cap per engine when `scrollbackLines` is set
+ * (issue #499): ~64 MiB covers the 10k-line default at wide cell sizes
+ * and still bounds the 100k-line maximum to a sane per-pane envelope.
+ * The line limit and byte limit are enforced together — whichever binds
+ * first ends history; the screen and viewport are unaffected.
+ */
+export const SCROLLBACK_MAX_BYTES_DEFAULT = 64n * 1024n * 1024n;
 
 export const STYLE_BOLD = 1 << 0;
 export const STYLE_ITALIC = 1 << 1;
@@ -639,8 +656,12 @@ export class GhosttyEngine {
     if (options.widths === "core") this.setModeConfig(option.MODE_DEFAULT, MODE.graphemeCluster, true);
     if (options.scrollbackLines !== undefined) {
       this.setLineLimit(options.scrollbackLines);
-      // a NULL value removes the byte limit, which would otherwise cut history long before the line limit
-      this.check(exports.ghostty_terminal_set(this.terminal, option.SCROLLBACK_MAX_BYTES, 0), "scrollback bytes");
+      // bound history bytes too (issue #499): without a cap the line limit
+      // alone permits ~100k lines of wide cells per pane — the per-pane
+      // budget that keeps N panes inside the app-wide memory envelope.
+      const bytes = options.scrollbackBytes ?? SCROLLBACK_MAX_BYTES_DEFAULT;
+      this.view().setBigUint64(this.scratch, bytes, true);
+      this.check(exports.ghostty_terminal_set(this.terminal, option.SCROLLBACK_MAX_BYTES, this.scratch), "scrollback bytes");
     }
 
     if (this.events) {
@@ -1613,6 +1634,15 @@ export class GhosttyEngine {
       const graphics = this.view().getUint32(this.scratch, true);
       return x.ghostty_kitty_graphics_image(graphics, id) !== 0;
     });
+  }
+
+  /**
+   * Bytes of WASM linear memory this engine's module currently holds
+   * (issue #499). Linear memory only grows, so this is a high-water mark —
+   * the app-wide budget sums these across live sessions.
+   */
+  memoryBytes(): number {
+    return this.x.memory.buffer.byteLength;
   }
 
   /** frees the terminal and everything made for it; on a trapped module only the callback route is dropped */

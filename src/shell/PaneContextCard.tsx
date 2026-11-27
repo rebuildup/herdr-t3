@@ -22,6 +22,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -1023,6 +1024,9 @@ interface CardSurfaceProps
   mode: "inline" | "popover";
   placement: { right: number; top: number; width: number; height: number } | null;
   availableHeight: number;
+  /** Virtual anchor used instead of the header trigger when the narrow
+   * sheet is open, so the popover clears the sheet's right edge. */
+  popoverAnchor?: { getBoundingClientRect: () => DOMRect } | null;
 }
 
 /**
@@ -1035,9 +1039,11 @@ function CardSurface({
   mode,
   placement,
   availableHeight,
+  popoverAnchor,
   ...bodyProps
 }: CardSurfaceProps) {
   const { open, anchor } = useContextCardState(scope);
+  const effectiveAnchor = popoverAnchor ?? anchor;
   const [visibility, setVisibility] = useState<DetailsCardVisibility>(() =>
     resolveDetailsCardVisibility(),
   );
@@ -1148,7 +1154,7 @@ function CardSurface({
       <PopoverPopup
         role="dialog"
         aria-label="Context card"
-        anchor={anchor ?? undefined}
+        anchor={effectiveAnchor ?? undefined}
         align="end"
         alignOffset={CONTEXT_CARD_GAP - 8}
         collisionAvoidance={{
@@ -1297,6 +1303,24 @@ export function WorkspaceContextCard({
     rightInset,
   });
   const mode = placement ? "inline" : "popover";
+  /* Popover fallback while the sheet is open: the header trigger sits
+   * under the sheet's right edge, so anchor the popup to a virtual
+   * rect at the top-right of the canvas area left of the sheet —
+   * same spot the inline card would occupy (issue #480 z5). */
+  const popoverAnchor = useMemo(
+    () =>
+      sheetOpen
+        ? {
+            getBoundingClientRect: () => {
+              const rect = containerRef.current?.getBoundingClientRect();
+              if (!rect) return new DOMRect();
+              const right = rect.right - narrowSheetWidth() - CONTEXT_CARD_GAP;
+              return new DOMRect(right, rect.top, 0, 0);
+            },
+          }
+        : null,
+    [sheetOpen, containerRef],
+  );
   // T3 measures density against the inline height when placed, else
   // the container height minus gaps (the popover positioner adds its
   // own viewport constraint on top).
@@ -1315,6 +1339,7 @@ export function WorkspaceContextCard({
         mode={mode}
         placement={placement}
         availableHeight={availableHeight}
+        popoverAnchor={mode === "popover" ? popoverAnchor : null}
         machine={machine}
         machineLabel={machineLabel}
         showMachine={showMachine}

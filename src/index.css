@@ -225,10 +225,12 @@
   --secondary: var(--color-zinc-50);
   --secondary-foreground: var(--color-zinc-800);
   --muted: var(--color-zinc-50);
-  --muted-foreground: var(--color-zinc-500);
-  --placeholder: var(--muted-foreground);
+  /* zinc-800 keeps the design system's own /70 de-emphasis modifier at
+   * ~5.5:1 on white — zinc-500 dropped to ~2.7:1 (issue #480 z5). */
+  --muted-foreground: var(--color-zinc-800);
+  --placeholder: var(--color-zinc-500);
   --secondary-label: var(--muted-foreground);
-  --icon-muted: var(--muted-foreground);
+  --icon-muted: var(--color-zinc-500);
   --message-surface: color-mix(in srgb, var(--color-zinc-200) 55%, var(--color-zinc-100));
   --message-foreground: var(--foreground);
   --message-action: var(--primary);
@@ -352,12 +354,12 @@
   --accent: var(--color-zinc-100);
   --accent-foreground: var(--color-zinc-900);
   --muted: var(--color-zinc-50);
-  --muted-foreground: var(--color-zinc-500);
+  --muted-foreground: var(--color-zinc-800);
   --border: var(--color-zinc-200);
   --input: var(--color-zinc-300);
   --sidebar: var(--color-zinc-50);
   --sidebar-foreground: var(--color-zinc-900);
-  --sidebar-muted-foreground: var(--color-zinc-500);
+  --sidebar-muted-foreground: var(--color-zinc-800);
   --sidebar-control-surface: var(--color-zinc-100);
   --sidebar-row-hover: var(--color-zinc-25);
   --sidebar-row-active: var(--color-white);

@@ -317,6 +317,12 @@ export class GhosttyRenderer {
     };
   }
 
+  /** lossless cache eviction under memory pressure (issue #499): pixels and advance widths rebuild on next paint */
+  shedCaches(): void {
+    this.imageCache.clear();
+    this.scene.shedAdvanceCache();
+  }
+
   dispose(): void {
     this.disposed = true;
     this.scene.dispose();

@@ -112,7 +112,7 @@ function TaskRow({ task }: { task: TextgenTask }) {
         <Badge size="sm" variant="info">
           {task.kind}
         </Badge>
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+        <span className="line-clamp-2 min-w-0 flex-1 text-xs font-medium">
           {task.description ?? task.kind}
         </span>
         {task.requiresOptIn ? (

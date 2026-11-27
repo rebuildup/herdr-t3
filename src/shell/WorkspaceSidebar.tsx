@@ -1188,7 +1188,7 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
           </p>
         ) : null}
         {!searching && totalWorkspaces === 0 && bridge.connection === "open" ? (
-          <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
+          <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/70">
             <span>No workspaces yet</span>
             {/* oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 empty-state CTA; custom row chrome */}
             <button
