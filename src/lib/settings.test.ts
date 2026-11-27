@@ -62,6 +62,22 @@ describe("terminal settings", () => {
     settings.setTerminalSettings({ lineHeight: null });
     expect(settings.getTerminalSettings().lineHeight).toBeNull();
   });
+
+  test("copyOnSelect defaults off, rejects non-booleans and round-trips (issue #440)", () => {
+    // profiles written before the key existed, or with a corrupt value,
+    // must parse back to the OFF default — never a truthy accident
+    expect(settings.parseTerminalSettings({}).copyOnSelect).toBe(false);
+    expect(settings.parseTerminalSettings({ copyOnSelect: "yes" }).copyOnSelect).toBe(false);
+    expect(settings.parseTerminalSettings({ copyOnSelect: 1 }).copyOnSelect).toBe(false);
+    expect(settings.TERMINAL_DEFAULTS.copyOnSelect).toBe(false);
+
+    settings.setTerminalSettings({ copyOnSelect: true });
+    expect(settings.getTerminalSettings().copyOnSelect).toBe(true);
+    const raw = storage.getItem("herdr-t3:settings:terminal");
+    expect(settings.parseTerminalSettings(JSON.parse(raw!)).copyOnSelect).toBe(true);
+    settings.setTerminalSettings({ copyOnSelect: false });
+    expect(settings.getTerminalSettings().copyOnSelect).toBe(false);
+  });
 });
 
 describe("general settings", () => {

@@ -188,6 +188,10 @@
               "text": "25\nl26\nl2"
             },
             {
+              "type": "selection_commit",
+              "text": "25\nl26\nl2"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -431,6 +435,10 @@
           "effects": [
             {
               "type": "selection_change",
+              "text": "21\nl22\nl2"
+            },
+            {
+              "type": "selection_commit",
               "text": "21\nl22\nl2"
             },
             {
@@ -690,6 +698,10 @@
           "effects": [
             {
               "type": "selection_change",
+              "text": "23\nl24\nl2"
+            },
+            {
+              "type": "selection_commit",
               "text": "23\nl24\nl2"
             },
             {

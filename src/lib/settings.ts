@@ -14,6 +14,8 @@ export interface TerminalSettings {
   /** cell height as a multiple of fontSize; null measures the font's own line height */
   lineHeight: number | null;
   scrollbackLines: number;
+  /** copy a completed local selection to the OS clipboard (issue #440); applies to open panes live */
+  copyOnSelect: boolean;
 }
 
 export interface GeneralSettings {
@@ -29,6 +31,7 @@ export const TERMINAL_DEFAULTS: TerminalSettings = {
   fontSize: 13,
   lineHeight: null,
   scrollbackLines: 10_000,
+  copyOnSelect: false,
 };
 
 export const GENERAL_DEFAULTS: GeneralSettings = {
@@ -83,6 +86,9 @@ export function parseTerminalSettings(raw: Record<string, unknown>): TerminalSet
         ? null
         : num(raw["lineHeight"], TERMINAL_DEFAULTS.lineHeight ?? 1.2, 0.8, 2.5),
     scrollbackLines: Math.round(num(raw["scrollbackLines"], TERMINAL_DEFAULTS.scrollbackLines, 100, 100_000)),
+    // strict boolean: anything but `true` (missing key on old profiles,
+    // corrupt value) falls back to the OFF default
+    copyOnSelect: raw["copyOnSelect"] === true,
   };
 }
 
