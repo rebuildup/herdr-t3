@@ -7,8 +7,14 @@
 //! (Canvas2D today, GPUI later) needs no canvas-state memory. Text
 //! measurement is injected through [`TextMetrics`]; nothing here touches
 //! DOM, canvas, or pixels.
+//!
+//! [`memory_budget`] is the aggregate layer above scenes: per-session
+//! byte probes, lossless cache shedders and the watchdog level semantics
+//! of the "Memory budget contract" (issue #528).
 
 use std::collections::{HashMap, HashSet};
+
+pub mod memory_budget;
 use terminal_core::{
     CursorStyle, GhosttyImage, GhosttyRun, GhosttySession, RunColor, ScreenRange,
     STYLE_BOLD, STYLE_FAINT, STYLE_INVERSE, STYLE_INVISIBLE, STYLE_ITALIC, STYLE_STRIKE,
@@ -975,6 +981,16 @@ impl<M: TextMetrics> GhosttyScene<M> {
             }
         }
         Ok(())
+    }
+
+    /// Drop the grapheme-advance cache under memory pressure; it rebuilds
+    /// lazily on next paint — port of the TS `shedAdvanceCache`, the
+    /// scene half of `renderer.shedCaches()` (issue #499; the aggregate
+    /// driver is [`memory_budget::MemoryBudget`], issue #528). The
+    /// decoded-image cache lives in the host painter, not the scene, so
+    /// the host sheds that half itself.
+    pub fn shed_caches(&mut self) {
+        self.advance_cache.clear();
     }
 
     pub fn dispose(&mut self) {
