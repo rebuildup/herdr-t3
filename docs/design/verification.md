@@ -28,6 +28,7 @@ the maintainer's live session). Required states:
 | Pane grid | single pane, split panes, focused/unfocused (dimmed unfocused per `interaction.md`), zoomed, split-ratio drag, pane drag/swap affordance |
 | Pane chrome | agent kind + status indicator, title fallback chain, details/diagnostics access |
 | Status/utility area | bridge connecting/reconnecting, attention aggregate (blocked count), transient notice |
+| Canvas session states (issue #421, `info-architecture.md` §10) | cold-start loading, probe→live transition, machine fetch error + Retry, machine down + Reconnect, disabled machine, genuine empty session (`workspaces: []`) + New workspace, anomalous pane-less tab |
 | Terminal | idle shell, running agent, blocked prompt, scrollback, background image (fit/position/opacity variants), IME composition |
 | Global | light, dark (`html.dark`), connecting, reconnecting, offline, error, `prefers-reduced-motion` |
 
@@ -90,6 +91,7 @@ real TUI can prove.
 | 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant。`bun scripts/verify-reconnect-draft.ts --session <isolated>` (CDP、bridge kill→再起動で draft 残存・outage 入力の不達・明示 Enter での送信を検証)。Windows レグ自動化 PASS (6/6): `docs/design/evidence/rc-v060/section-n-windows.md` |
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
 | 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
+| 16 | Canvas session 状態 (#421, info-architecture.md §10): cold start の Loading 表示中に "No workspaces" が出ないこと、最後の workspace/pane を閉じた後の真の空状態 + New workspace 回復、machine 切断時の Reconnect、fetch 失敗時の Retry、disabled machine の Open Connections | ☐ | ☐ | 隔離 session で `workspace.close`/`pane.close` を実行して確認 |
 
 ### Human acceptance procedures
 

@@ -22,7 +22,15 @@ import { paneTitle } from "~/lib/workspace";
 import { focusPaneTerminal } from "~/lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
-import { callRpc, machineListOf, useBridgeState } from "./bridge";
+import { resolveCanvasSession } from "./canvasState";
+import {
+  callRpc,
+  ensureMachine,
+  machineListOf,
+  newWorkspace,
+  useBridgeState,
+} from "./bridge";
+import { navigate, settingsHash } from "./router";
 import { useWorkspaceBranch } from "./worktrees";
 import { WorkspaceContextCard } from "./PaneContextCard";
 import {
@@ -31,9 +39,19 @@ import {
   Info,
   Maximize2,
   MousePointerClick,
+  Plus,
+  RefreshCw,
   Rows2,
   X,
 } from "lucide-react";
+import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "~/components/ui/empty";
 
 function PaneSurface({
   machine,
@@ -190,7 +208,7 @@ function PaneSurface({
 }
 
 export function WorkspaceCanvas() {
-  const { machine, machineInfo, snapshot, view, stale } = useRouteWorkspace();
+  const { machine, machineInfo, snapshot, view, probe } = useRouteWorkspace();
   const bridge = useBridgeState();
   const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
   const zoomed = layout?.zoomed === true;
@@ -249,35 +267,140 @@ export function WorkspaceCanvas() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [machine, focusedPaneId]);
 
-  if (stale) {
+  // Session-state contract (issue #421): loading, probe-only, stale,
+  // down, disabled, error and genuinely-empty are distinct states with
+  // distinct presentations — never one "no workspaces" catch-all. The
+  // resolver is pure; see canvasState.ts for the upstream lifecycle
+  // evidence behind each branch.
+  const session = resolveCanvasSession({
+    snapshot,
+    probeSnapshot: probe,
+    machineInfo,
+    bridgeConnection: bridge.connection,
+    machineError: bridge.errors[machine],
+    machinePending: bridge.pendingMachines[machine] === true,
+  });
+  const machineLabel = machineInfo?.label ?? machine;
+
+  if (session.kind === "bridge") {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        {machineInfo?.label ?? machine} is {machineInfo?.status}
-        {machineInfo?.detail ? ` — ${machineInfo.detail}` : ""}. Reconnect from the sidebar to view live panes.
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
+        {session.connection === "connecting"
+          ? "Connecting to herdr…"
+          : "Bridge disconnected — retrying…"}
       </div>
     );
   }
-  if (!snapshot) {
+  if (session.kind === "connecting" || session.kind === "loading") {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        {bridge.connection === "open"
-          ? "Loading session…"
-          : bridge.connection === "connecting"
-            ? "Connecting to herdr…"
-            : "Bridge disconnected — retrying…"}
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
+        {session.kind === "connecting"
+          ? `Connecting to ${machineLabel}…`
+          : "Loading session…"}
       </div>
     );
   }
+  if (session.kind === "stale" || session.kind === "down") {
+    const status = machineInfo?.status ?? "offline";
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>
+            {machineLabel} is {status.replace(/_/g, " ")}
+          </EmptyTitle>
+          <EmptyDescription>
+            {machineInfo?.detail ?? "Reconnect to view live panes."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void ensureMachine(machine)}
+          >
+            <RefreshCw /> Reconnect
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  if (session.kind === "disabled") {
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>{machineLabel} is disabled</EmptyTitle>
+          <EmptyDescription>
+            Enable this machine in Settings → Connections to view its panes.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(settingsHash("connections"))}
+          >
+            Open Connections
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  if (session.kind === "error") {
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>Could not reach {machineLabel}</EmptyTitle>
+          <EmptyDescription>{session.message}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void ensureMachine(machine)}
+          >
+            <RefreshCw /> Retry
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  // session.kind === "live": a real session snapshot is held. An empty
+  // workspace list is a genuine herdr state (the session survives its
+  // last workspace — upstream close_workspaces keeps the server alive),
+  // so it gets the restrained empty treatment with a recovery action.
   if (!workspace) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        No workspaces on this machine.
-      </div>
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>No workspaces</EmptyTitle>
+          <EmptyDescription>
+            {machineLabel} has no workspaces in this herdr session.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button size="sm" onClick={() => void newWorkspace(machine)}>
+            <Plus /> New workspace
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
   if (!activeTab || tabPanes.length === 0) {
+    // herdr never persists a pane-less tab or a tab-less workspace
+    // (close_pane/close_active_tab cascade upward), so this is an
+    // anomalous or mid-transition snapshot — report it plainly and let
+    // the next pushed snapshot resolve it.
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
         No panes in this tab.
       </div>
     );

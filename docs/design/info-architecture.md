@@ -313,3 +313,53 @@ default rows (`src/ui/sidebar/tokens.rs` @ `e8d7d97`) に準拠する:
   整合する。T3 固有概念 (thread/lineage/side chats/context window)
   は herdr ドメインに存在する対応物 (agent record・過去 session)
   のみ採用する。
+
+## 10. Canvas session 状態契約 (v0.7.0 正本, Issue #421)
+
+workspace canvas (`src/shell/WorkspaceCanvas.tsx`) が snapshot/probe/
+route/bridge 信号から表示状態を決める規則の正本。判定は純粋関数
+`src/shell/canvasState.ts` の `resolveCanvasSession` が行い、契約
+テストは `src/shell/canvasState.test.ts`。状態の正本は herdr/bridge
+であり、クライアントは workspace を捏造しない。
+
+### 10.1 upstream ライフサイクルの根拠 (herdr @ e8d7d97)
+
+- `AppState::close_workspaces` (`src/app/actions.rs`) は workspace を
+  削除し、リストが空になれば `active = None` にする。**server session
+  自体は生き続ける** — `workspace.close`・最後の pane を閉じる
+  `pane.close`・最後の tab を閉じる `tab.close` はすべてここへ
+  集約される。したがって `workspaces: []` の live snapshot は
+  「取得前」ではなく**到達可能な真の空状態**。
+- `session_snapshot` (`src/app/api/session.rs`) はその場合
+  `focused_workspace_id: null` と空リストを返す。
+  `workspace.create` (`src/app/api/workspaces.rs` →
+  `src/app/creation.rs`) は空リストからでも成功する — これが真空
+  状態からの回復経路。
+- tab は pane 0 個・workspace は tab 0 個では永続化されない
+  (`src/workspace.rs` の `close_pane`/`close_active_tab` が上位へ
+  カスケード)。「workspace は解決したが pane が無い」は異常/遷移中
+  のみ到達する。
+- probe snapshot (issue #212) は list 表示用データであり session
+  ではない (`shared/protocol.ts` ServerFrame コメント)。canvas は
+  probe-only を live として描画しない。
+
+### 10.2 状態 → 表示 対応表
+
+| 状態 | 判定条件 | 表示 |
+| --- | --- | --- |
+| bridge 未接続 | `bridge.connection !== "open"` かつ live snapshot なし | 1行の muted status テキスト ("Connecting to herdr…" / "Bridge disconnected — retrying…")。永続 spinner にしない |
+| machine fetch 中 | `pendingMachines[machine]` or status connecting/reconnecting | 1行 "Connecting to {machine}…" (T3 `threadSyncLabel` 相当の控えめ表示) |
+| probe→live 遷移中 | probe snapshot のみ保持 (ensureMachine が route/effect で起動) | 同上 "Connecting to {machine}…"。probe データを pane 面として描画しない |
+| 初回 snapshot 待ち | 上記以外で snapshot 未着 | 1行 "Loading session…" |
+| fetch/接続失敗 | `bridge.errors[machine]` あり・live なし | `Empty` compact: "Could not reach {machine}" + error + **Retry** (`ensureMachine`) |
+| machine hard-down | status ∈ offline/unreachable/error/auth_required/incompatible (snapshot 保持の有無を問わず) | `Empty` compact: "{machine} is {status}" + detail + **Reconnect** (`ensureMachine`)。保持 snapshot は last-known であり pane 面として描画しない |
+| machine disabled | `enabled === false` | `Empty` compact + **Open Connections** (`#/settings/connections`)。Retry は出さない (ensureMachine が拒否するため) |
+| 真の空 (live) | live snapshot かつ `workspaces: []` | `Empty` compact: "No workspaces" + **New workspace** (`workspace.create`)。sidebar の空状態と同じ回復導線 |
+| 異常/遷移中 | live snapshot・workspace 解決済みだが tab/pane 0 | 1行 "No panes in this tab." — 次の push で解消する前提の最小表示 |
+| live | 上記以外 | pane grid + context card (従来どおり) |
+
+原則: **ロード/接続/切替は1行の status テキスト、真の空・失敗・
+stale は `Empty*` primitive + 回復 action**。説明文を大きく常時
+表示しない。"No workspaces" は live snapshot の `workspaces: []`
+でのみ出し、loading 中に誤表示しない。stale を live 扱いしない
+(probe/stale の pane 面は描画しない)。
