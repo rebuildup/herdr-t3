@@ -705,7 +705,7 @@ export class PluginService {
       (contractRead || request.coalesce === true);
     const outcome = mayCoalesce
       ? await this.coalesce(
-          `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
+          `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.stdin ?? ""}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
           exec,
         )
       : await exec();

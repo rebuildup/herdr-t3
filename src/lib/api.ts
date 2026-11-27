@@ -471,8 +471,8 @@ export function pluginCall(
       ...(request.timeout_ms !== undefined ? { timeout_ms: request.timeout_ms } : {}),
       ...(request.coalesce === true ? { coalesce: true } : {}),
     }) as Promise<PluginCallResult>;
-  if (request.coalesce !== true || request.stdin !== undefined) return run();
-  const key = `call ${machine} ${request.plugin} ${request.command} ${JSON.stringify(request.args ?? [])} ${request.timeout_ms ?? ""}`;
+  if (request.coalesce !== true) return run();
+  const key = `call ${machine} ${request.plugin} ${request.command} ${JSON.stringify(request.args ?? [])} ${request.stdin ?? ""} ${request.timeout_ms ?? ""}`;
   return pluginSingleFlight(key, run);
 }
 

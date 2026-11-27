@@ -202,8 +202,8 @@ function reconcileSubscriptions(state: SessionState, snapshot: SessionSnapshot):
 
 function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subscription {
   state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
-  state.scrollSubscribed = new Set(state.terminals.keys());
   metricInc("bridge.subscription.open");
+  state.scrollSubscribed = new Set(state.terminals.keys());
   return subscribeEvents(
     [
       ...STRUCTURE_SUBSCRIPTIONS,
