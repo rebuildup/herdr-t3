@@ -16,6 +16,13 @@ export interface TerminalSettings {
   scrollbackLines: number;
   /** copy a completed local selection to the OS clipboard (issue #440); applies to open panes live */
   copyOnSelect: boolean;
+  /**
+   * User-defined start/end regexes for the copy-report dialog's custom
+   * range candidate (issue #429). Empty string disables that side; an
+   * invalid pattern is treated as unset at match time, never at parse.
+   */
+  copyStartPattern: string;
+  copyEndPattern: string;
 }
 
 export interface GeneralSettings {
@@ -32,6 +39,8 @@ export const TERMINAL_DEFAULTS: TerminalSettings = {
   lineHeight: null,
   scrollbackLines: 10_000,
   copyOnSelect: false,
+  copyStartPattern: "",
+  copyEndPattern: "",
 };
 
 export const GENERAL_DEFAULTS: GeneralSettings = {
@@ -89,6 +98,16 @@ export function parseTerminalSettings(raw: Record<string, unknown>): TerminalSet
     // strict boolean: anything but `true` (missing key on old profiles,
     // corrupt value) falls back to the OFF default
     copyOnSelect: raw["copyOnSelect"] === true,
+    // bounded strings; regex validity is checked at match time so a bad
+    // pattern degrades to "no custom range", not a parse failure
+    copyStartPattern:
+      typeof raw["copyStartPattern"] === "string"
+        ? raw["copyStartPattern"].slice(0, 200)
+        : TERMINAL_DEFAULTS.copyStartPattern,
+    copyEndPattern:
+      typeof raw["copyEndPattern"] === "string"
+        ? raw["copyEndPattern"].slice(0, 200)
+        : TERMINAL_DEFAULTS.copyEndPattern,
   };
 }
 

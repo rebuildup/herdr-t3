@@ -291,6 +291,9 @@ highlight は engine の履歴座標 (absolute row) に保存したまま、
   `pane.send_text` が mode の正本を持つため機能差はない。
 - OSC 52 等の clipboard write は `onClipboardWrite` →
   `navigator.clipboard.writeText` (現行維持)。
+- 構造化コピー (issue #429): pane コンテキストメニューの
+  「Copy output…」が transcript/scrollback/pattern の候補から
+  明示コピーする経路。詳細契約は `docs/design/report-copy.md`。
 
 ## 7. 契約テスト要件 (#155 と連携)
 
