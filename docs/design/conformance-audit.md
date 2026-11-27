@@ -98,6 +98,25 @@ a proxy for monolithic local state vs T3's store/atom decomposition.
 | `ConversationsSurface.tsx` | 574 | — | 20 | 16/20 | — |
 | `WorktreesSurface.tsx` | 335 | — | 11 | 10/16 | smallest; closest to conformant |
 
+Post-#411 state (this branch): the four #411 surfaces are rewritten —
+`AutomationsSurface`, `ConversationsSurface`, `WorktreesSurface` compose
+`surfacePanel.tsx` (`SurfacePanelHeader`/`SurfaceNote`/
+`SurfaceLoadingRows`/`SurfaceEmpty`), `ui/alert.tsx` (ported verbatim,
+shared with #410) and `ui/skeleton.tsx`; mutation
+feedback moved to `pushNotice` toasts (T3 `toastManager` pattern);
+fetch state is keyed by request identity so workspace/machine switches
+no longer reset state synchronously inside effects (the
+`set-state-in-effect` warnings are resolved, not suppressed). Task and
+session titles sit at `text-sm font-medium` with `text-2xs` metadata
+lines, matching T3 `ThreadAutomationsPanel`. `RightPanel` chrome now
+implements T3 `ownsDesktopTitleBar` (inline-on-Electron drag region +
+`wco:` native-controls inset + no-drag children + fixed controls
+strip), T3 `RightPanelTab` `h-6 text-xs` density, the
+`RightPanelResizeHandle` coarse-pointer grab area, and the T3
+`RightPanelEmptyState` "Open a surface" launcher — reachable because
+closing the last tab now keeps the panel open (`setPanelOpen` no longer
+drops the open flag on an empty surface list).
+
 Cross-cutting findings:
 
 - **Composition**: every surface defines its own section header, row,

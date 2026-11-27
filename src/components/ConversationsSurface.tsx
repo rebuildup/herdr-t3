@@ -36,6 +36,13 @@ import { Button } from "./ui/button";
 import { RefreshIcon } from "./ui/refresh-icon";
 import { Input } from "./ui/input";
 import { DialogPanel } from "./ui/dialog";
+import {
+  SurfaceEmpty,
+  SurfaceLoadingRows,
+  SurfaceNote,
+  SurfacePanelHeader,
+} from "./surfacePanel";
+import { pushNotice } from "../shell/notices";
 import { cn } from "~/lib/utils";
 import {
   classifyConversationsError,
@@ -179,7 +186,7 @@ function EventRow({
     </>
   );
   if (onToggle === undefined) {
-    return <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-2xs">{body}</div>;
+    return <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs">{body}</div>;
   }
   return (
     // oxlint-disable-next-line herdr-t3/no-raw-control -- composite disclosure row, same pattern as SessionRow
@@ -187,7 +194,7 @@ function EventRow({
       type="button"
       aria-expanded={expanded}
       onClick={onToggle}
-      className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left text-2xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left text-xs outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
     >
       {body}
     </button>
@@ -213,66 +220,78 @@ function ShowDetail({
   sessionKey: string;
   showRef: string;
 }) {
-  const [page, setPage] = useState<ConversationsShowPage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Keyed by the request identity so a ref/session switch reads as
+  // "resolving" without a synchronous reset in the effect
+  // (react/set-state-in-effect, conformance-audit §4.5).
+  const requestKey = `${machine}${sessionKey}${showRef}`;
+  const [result, setResult] = useState<{
+    key: string;
+    page?: ConversationsShowPage;
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setPage(null);
-    setError(null);
-    setLoading(true);
     fetchConversationsShow(machine, showRef, { sessionId: sessionKey })
       .then((next) => {
-        if (!cancelled) setPage(next);
+        if (!cancelled) setResult({ key: requestKey, page: next });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(errorText(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setResult({ key: requestKey, error: errorText(e) });
       });
     return () => {
       cancelled = true;
     };
-  }, [machine, sessionKey, showRef]);
+  }, [machine, sessionKey, showRef, requestKey]);
 
-  if (loading) {
-    return <p className="px-2 py-1 pl-6 text-2xs text-muted-foreground">resolving {showRef}…</p>;
+  const current = result?.key === requestKey ? result : null;
+  if (current === null) {
+    return (
+      <SurfaceLoadingRows
+        label={`Resolving ${showRef}…`}
+        rows={2}
+        className="px-2 py-1 pl-6"
+      />
+    );
   }
-  if (error !== null) {
-    return <p className="px-2 py-1 pl-6 text-2xs text-destructive">show failed: {error}</p>;
+  if (current.error !== undefined) {
+    return (
+      <SurfaceNote tone="error" className="px-2 py-1 pl-6">
+        show failed: {current.error}
+      </SurfaceNote>
+    );
   }
-  if (page === null) return null;
+  const page = current.page;
+  if (page === null || page === undefined) return null;
   const matched = page.matched ?? page.results.length;
   return (
     <div className="flex flex-col gap-0.5 pb-1 pl-4">
-      <p className="px-1 py-0.5 text-2xs text-muted-foreground/70">
+      <SurfaceNote className="px-1 py-0.5">
         show {page.ref ?? showRef} → {page.resolvedKind ?? "?"} · {matched} match
         {matched === 1 ? "" : "es"} across {page.sessions.length} session
         {page.sessions.length === 1 ? "" : "s"}
         {page.truncated ? " · truncated at the 200-result cap — narrow the session" : ""}
         {page.selector_note !== null ? ` · ${page.selector_note}` : ""}
-      </p>
+      </SurfaceNote>
       {page.results.length === 0 ? (
-        <p className="px-1 py-0.5 text-2xs text-muted-foreground">no matches</p>
+        <SurfaceNote className="px-1 py-0.5">no matches</SurfaceNote>
       ) : (
-        page.results.map((result, index) => (
-          <div key={`${result.session_key}:${result.event?.event_id ?? index}`} className="flex flex-col">
-            <div className="flex min-w-0 items-center gap-2 px-1.5 text-2xs">
+        page.results.map((item, index) => (
+          <div key={`${item.session_key}:${item.event?.event_id ?? index}`} className="flex flex-col">
+            <div className="flex min-w-0 items-center gap-2 px-1.5 text-xs">
               <span className="shrink-0 truncate font-mono text-muted-foreground">
-                {result.session_key}
+                {item.session_key}
               </span>
-              {result.matched_fields.map((field) => (
+              {item.matched_fields.map((field) => (
                 <Badge key={field} size="sm" variant="outline">
                   {field}
                 </Badge>
               ))}
             </div>
-            {result.event !== null ? (
-              <EventRow event={result.event} />
+            {item.event !== null ? (
+              <EventRow event={item.event} />
             ) : (
-              <p className="px-1.5 py-1 text-2xs text-muted-foreground">unparseable event</p>
+              <SurfaceNote className="px-1.5 py-1">unparseable event</SurfaceNote>
             )}
           </div>
         ))
@@ -322,10 +341,16 @@ function SessionHistory({
   session: ConversationsSession;
   showEnabled: boolean;
 }) {
-  const [pages, setPages] = useState<ConversationsHistoryPage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Pages are keyed by the session so switching sessions reads as
+  // "loading" without a synchronous reset in the effect
+  // (react/set-state-in-effect, conformance-audit §4.5).
+  const requestKey = `${machine}${session.key}`;
+  const [state, setState] = useState<{
+    key: string;
+    pages: ConversationsHistoryPage[];
+    error: string | null;
+    loadingMore: boolean;
+  } | null>(null);
 
   const load = useCallback(
     async (cursor: string | undefined) => {
@@ -341,53 +366,84 @@ function SessionHistory({
 
   useEffect(() => {
     let cancelled = false;
-    setPages([]);
-    setError(null);
-    setLoading(true);
     load(undefined)
       .then((page) => {
-        if (!cancelled) setPages([page]);
+        if (!cancelled) {
+          setState({
+            key: requestKey,
+            pages: [page],
+            error: null,
+            loadingMore: false,
+          });
+        }
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(errorText(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setState({
+            key: requestKey,
+            pages: [],
+            error: errorText(e),
+            loadingMore: false,
+          });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, requestKey]);
+
+  const current = state !== null && state.key === requestKey ? state : null;
 
   const loadMore = useCallback(() => {
-    const last = pages[pages.length - 1];
+    const last = current?.pages[current.pages.length - 1];
     const cursor = last?.next_cursor ?? null;
-    if (cursor === null || loadingMore) return;
-    setLoadingMore(true);
-    setError(null);
+    if (cursor === null || current?.loadingMore === true) return;
+    setState((prev) =>
+      prev !== null && prev.key === requestKey
+        ? { ...prev, loadingMore: true, error: null }
+        : prev,
+    );
     void load(cursor)
-      .then((page) => setPages((prev) => [...prev, page]))
-      .catch((e: unknown) => setError(errorText(e)))
-      .finally(() => setLoadingMore(false));
-  }, [load, pages, loadingMore]);
+      .then((page) =>
+        setState((prev) =>
+          prev !== null && prev.key === requestKey
+            ? { ...prev, pages: [...prev.pages, page], loadingMore: false }
+            : prev,
+        ),
+      )
+      .catch((e: unknown) =>
+        setState((prev) =>
+          prev !== null && prev.key === requestKey
+            ? { ...prev, error: errorText(e), loadingMore: false }
+            : prev,
+        ),
+      );
+  }, [load, current, requestKey]);
 
-  if (loading) {
-    return <p className="px-2 py-1 text-2xs text-muted-foreground">loading history…</p>;
+  if (current === null) {
+    return <SurfaceLoadingRows label="Loading history…" rows={3} className="px-2 py-1" />;
   }
+  const pages = current.pages;
+  const error = current.error;
+  const loadingMore = current.loadingMore;
   const last = pages[pages.length - 1];
   if (error !== null && pages.length === 0) {
-    return <p className="px-2 py-1 text-2xs text-destructive">history failed: {error}</p>;
+    return (
+      <SurfaceNote tone="error" className="px-2 py-1">
+        history failed: {error}
+      </SurfaceNote>
+    );
   }
   const events = pages.flatMap((p) => p.events);
   const eventsPresent = last?.events_present ?? session.events_present;
   return (
     <div className="flex flex-col gap-0.5 pb-1">
       {eventsPresent === false ? (
-        <p className="px-2 py-1 text-2xs text-muted-foreground">
+        <SurfaceNote className="px-2 py-1">
           no event log on disk{session.status !== "ok" ? ` (status: ${session.status}${session.error !== null ? ` — ${session.error}` : ""})` : ""}
-        </p>
+        </SurfaceNote>
       ) : events.length === 0 ? (
-        <p className="px-2 py-1 text-2xs text-muted-foreground">no events</p>
+        <SurfaceNote className="px-2 py-1">no events</SurfaceNote>
       ) : (
         events.map((event, index) => (
           <ShowableEventRow
@@ -400,7 +456,9 @@ function SessionHistory({
         ))
       )}
       {error !== null ? (
-        <p className="px-2 py-1 text-2xs text-destructive">load failed: {error}</p>
+        <SurfaceNote tone="error" className="px-2 py-1">
+          load failed: {error}
+        </SurfaceNote>
       ) : null}
       {last !== undefined && last.has_more && last.next_cursor !== null ? (
         <div className="flex items-center gap-2 px-2 py-1">
@@ -413,11 +471,11 @@ function SessionHistory({
         </div>
       ) : null}
       {last !== undefined && (last.malformed_lines > 0 || last.duplicates_skipped > 0) ? (
-        <p className="px-2 py-1 text-2xs text-muted-foreground/70">
+        <SurfaceNote className="px-2 py-1">
           page notes: {last.malformed_lines} malformed line
           {last.malformed_lines === 1 ? "" : "s"} skipped, {last.duplicates_skipped} duplicate
           {last.duplicates_skipped === 1 ? "" : "s"} dropped
-        </p>
+        </SurfaceNote>
       ) : null}
     </div>
   );
@@ -458,7 +516,7 @@ function SessionRow({
             <Badge size="sm" variant="outline">
               {session.provider}
             </Badge>
-            <span className="truncate font-medium">{session.session_id}</span>
+            <span className="truncate text-sm font-medium">{session.session_id}</span>
           </span>
           <span className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground/70">
             <span className="truncate">{session.cwd ?? "unknown cwd"}</span>
@@ -498,7 +556,7 @@ function SessionRow({
 function SearchResultRow({ result }: { result: ConversationsSearchResult }) {
   const event = result.event;
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-2xs">
+    <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs">
       <span className="shrink-0 truncate font-mono text-muted-foreground">
         {result.session_key}
       </span>
@@ -582,14 +640,14 @@ function SearchPanel({ machine }: { machine: string }) {
         </Button>
       </form>
       {error !== null ? (
-        <p className="text-2xs text-destructive">search failed: {error}</p>
+        <SurfaceNote tone="error">search failed: {error}</SurfaceNote>
       ) : null}
       {searched !== null ? (
         <div className="flex flex-col gap-0.5">
           {results.length === 0 && !loading ? (
-            <p className="px-1 py-1 text-2xs text-muted-foreground">
+            <SurfaceNote className="px-1 py-1">
               no matches for &quot;{searched}&quot;
-            </p>
+            </SurfaceNote>
           ) : null}
           {results.map((result, index) => (
             <SearchResultRow
@@ -610,9 +668,9 @@ function SearchPanel({ machine }: { machine: string }) {
             </div>
           ) : null}
           {last !== undefined && last.restarted_sessions.length > 0 ? (
-            <p className="px-1 text-2xs text-muted-foreground/70">
+            <SurfaceNote className="px-1">
               restarted sessions (log rewritten): {last.restarted_sessions.join(", ")}
-            </p>
+            </SurfaceNote>
           ) : null}
         </div>
       ) : null}
@@ -624,12 +682,19 @@ function SearchPanel({ machine }: { machine: string }) {
 
 export function ConversationsSurface({ machine }: { machine: string }) {
   const state = useConversationsState(machine);
-  const [cap, setCap] = useState<ConversationsCapability | null | undefined>(undefined);
+  // Capability probe results are keyed by machine so a switch reads as
+  // "probing" (undefined) without a synchronous reset in the effect.
+  const [capResult, setCapResult] = useState<{
+    machine: string;
+    cap: ConversationsCapability | null;
+  } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [indexBusy, setIndexBusy] = useState(false);
-  const [indexError, setIndexError] = useState<string | null>(null);
-  const [indexNotice, setIndexNotice] = useState<string | null>(null);
 
+  const cap =
+    capResult !== null && capResult.machine === machine
+      ? capResult.cap
+      : undefined;
   const canIndex = conversationsSupportsMutation(cap, "index");
   // `show` is a read command — gated on the advertised commands list
   // only (issue #457); probing/older builds simply keep rows static.
@@ -637,9 +702,8 @@ export function ConversationsSurface({ machine }: { machine: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setCap(undefined);
     conversationsCapability(machine).then((next) => {
-      if (!cancelled) setCap(next);
+      if (!cancelled) setCapResult({ machine, cap: next });
     });
     return () => {
       cancelled = true;
@@ -653,21 +717,25 @@ export function ConversationsSurface({ machine }: { machine: string }) {
 
   const indexNow = useCallback(() => {
     setIndexBusy(true);
-    setIndexError(null);
-    setIndexNotice(null);
     void indexConversations(machine)
       .then(async (summary) => {
         // Plugin-reported counts only — skipped reasons stay plugin-side.
-        setIndexNotice(
-          `index: ${summary.sessions_indexed} session${summary.sessions_indexed === 1 ? "" : "s"} indexed, ${summary.events_appended} event${summary.events_appended === 1 ? "" : "s"} appended` +
+        pushNotice({
+          kind: "info",
+          title:
+            `Index: ${summary.sessions_indexed} session${summary.sessions_indexed === 1 ? "" : "s"} indexed, ${summary.events_appended} event${summary.events_appended === 1 ? "" : "s"} appended` +
             (summary.skipped.length > 0
               ? `, ${summary.skipped.length} skipped (${[...new Set(summary.skipped.map((s) => s.reason))].join(", ")})`
               : ""),
-        );
+        });
         await refreshConversations(machine);
       })
       .catch((e: unknown) => {
-        setIndexError(errorText(e));
+        pushNotice({
+          kind: "error",
+          title: "Index failed",
+          body: errorText(e),
+        });
       })
       .finally(() => setIndexBusy(false));
   }, [machine]);
@@ -681,67 +749,56 @@ export function ConversationsSurface({ machine }: { machine: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
-            Indexed provider transcripts (claude/codex/opencode) from the
-            rebuildup.conversations plugin. Reads go through plugin_call;
-            Index now rescans transcripts on the host and can take a
-            while — it writes only plugin state.
-          </p>
-          <div className="flex shrink-0 items-center gap-1">
-            {canIndex === true ? (
+        <SurfacePanelHeader
+          title="Conversations"
+          description="Indexed provider transcripts (claude/codex/opencode) from the rebuildup.conversations plugin. Reads go through plugin_call; Index now rescans transcripts on the host and can take a while — it writes only plugin state."
+          actions={
+            <>
+              {canIndex === true ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={indexNow}
+                  disabled={indexBusy}
+                  title="Rescan provider transcripts and rebuild the index (plugin state only)"
+                  aria-label="Index now"
+                >
+                  <DatabaseIcon className={indexBusy ? "animate-pulse" : undefined} />
+                  {indexBusy ? "Indexing…" : "Index now"}
+                </Button>
+              ) : null}
               <Button
                 size="xs"
                 variant="ghost"
-                onClick={indexNow}
-                disabled={indexBusy}
-                title="Rescan provider transcripts and rebuild the index (plugin state only)"
-                aria-label="Index now"
+                onClick={refresh}
+                disabled={refreshing}
+                aria-label="Refresh conversations"
               >
-                <DatabaseIcon className={indexBusy ? "animate-pulse" : undefined} />
-                {indexBusy ? "Indexing…" : "Index now"}
+                <RefreshIcon refreshing={refreshing} />
+                Refresh
               </Button>
-            ) : null}
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={refresh}
-              disabled={refreshing}
-              aria-label="Refresh conversations"
-            >
-              <RefreshIcon refreshing={refreshing} />
-              Refresh
-            </Button>
-          </div>
-        </div>
-        {indexError !== null ? (
-          <p className="text-2xs text-destructive">index failed: {indexError}</p>
-        ) : null}
-        {indexNotice !== null ? (
-          <p className="text-2xs text-muted-foreground">{indexNotice}</p>
-        ) : null}
+            </>
+          }
+        />
 
         <SearchPanel machine={machine} />
 
-        {state.status.kind === "loading" ? (
-          // Left-aligned row text, not a centered hero line — under the
-          // search divider a lone centered message read as orphaned
-          // (issue #417).
-          <p className="px-2 py-2 text-2xs text-muted-foreground">
-            loading conversations…
-          </p>
-        ) : state.status.kind === "unavailable" ? (
-          <p className="px-2 py-2 text-2xs text-muted-foreground">
+        {state.status.kind === "loading" && state.sessions.length === 0 ? (
+          <SurfaceLoadingRows label="Loading conversations…" />
+        ) : null}
+        {state.status.kind === "unavailable" ? (
+          <SurfaceNote>
             {UNAVAILABLE_LABELS[state.status.reason]}
             {state.status.detail ? ` — ${state.status.detail}` : ""}
             {state.sessions.length > 0 ? " (showing last known sessions)" : ""}
-          </p>
+          </SurfaceNote>
         ) : null}
 
         {state.status.kind === "ready" && state.sessions.length === 0 ? (
-          <p className="px-2 py-2 text-2xs text-muted-foreground">
-            no indexed sessions — run Index now to scan provider transcripts
-          </p>
+          <SurfaceEmpty
+            title="No indexed sessions"
+            description="Run Index now to scan provider transcripts."
+          />
         ) : null}
 
         {state.sessions.length > 0 ? (

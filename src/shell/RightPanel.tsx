@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { isElectron } from "~/lib/env";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { observeResize } from "~/lib/observeResize";
 import { getLocalStorageNumber, setLocalStorageNumber } from "~/lib/localStorage";
@@ -241,6 +242,7 @@ function PanelFrame({
   workspace,
   snapshotPanes,
   addActions,
+  ownsDesktopTitleBar,
   onHide,
 }: {
   scope: string;
@@ -249,6 +251,9 @@ function PanelFrame({
   workspace: WorkspaceInfo | null;
   snapshotPanes: PaneInfo[];
   addActions: AddAction[];
+  /** T3 `ownsDesktopTitleBar`: inline panel on Electron doubles as the
+      frameless titlebar drag region (RightPanelTabs.tsx @ 9cc4018c). */
+  ownsDesktopTitleBar: boolean;
   onHide: () => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
@@ -351,15 +356,29 @@ function PanelFrame({
 
   return (
     <>
-      {/* Tab bar — T3's RightPanelTabs header strip at topbar height. */}
-      <div className="flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5">
+      {/* Tab bar — T3's RightPanelTabs header strip at topbar height.
+          Inline-on-Electron owns the desktop titlebar: drag-region +
+          native-controls inset, interactive children stay no-drag. */}
+      <div
+        className={cn(
+          "flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1 border-b border-border/60 pl-2 pr-1.5",
+          ownsDesktopTitleBar && "drag-region",
+          ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
+        )}
+        data-right-panel-tabbar
+      >
         {/* T3 RightPanelTabs: ScrollArea + scrollFade gives the overflow
             edge fade; chevrons appear while the strip overflows. */}
         <ScrollArea
           ref={attachTabList}
           hideScrollbars
           scrollFade
-          className="min-w-0 flex-1"
+          className={cn(
+            "min-w-0 flex-1",
+            ownsDesktopTitleBar &&
+              tabScrollState.hasOverflow &&
+              "[-webkit-app-region:no-drag]",
+          )}
         >
           <div className="flex h-full w-max min-w-full items-center gap-1">
           {surfaces.map((surface, index) => {
@@ -403,7 +422,10 @@ function PanelFrame({
                 }}
                 onDragEnd={finishDrag}
                 className={cn(
-                  "group relative flex min-w-0 shrink-0 items-center rounded-md text-sm",
+                  // T3 RightPanelTab: h-6 text-xs chip, icon+label with a
+                  // hover close affordance.
+                  "group relative flex h-6 min-w-0 shrink-0 items-center gap-0.5 rounded-md pr-1.5 pl-1 text-xs",
+                  ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
                   active
                     ? "bg-accent text-foreground inset-ring-1 inset-ring-border"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -416,7 +438,7 @@ function PanelFrame({
                   type="button"
                   onClick={() => activateSurface(scope, surface.id)}
                   onMouseDown={(e) => e.preventDefault()}
-                  className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 outline-none"
+                  className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 outline-none"
                 >
                   <Icon className="size-3.5 shrink-0" />
                   <span className="min-w-0 max-w-36 truncate">{title}</span>
@@ -453,7 +475,7 @@ function PanelFrame({
         </ScrollArea>
         {tabScrollState.hasOverflow ? (
           <div
-            className="flex shrink-0 items-center gap-0.5"
+            className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
             role="group"
             aria-label="Scroll panel tabs"
           >
@@ -536,33 +558,82 @@ function PanelFrame({
           </TooltipTrigger>
           <TooltipPopup side="bottom">Hide panel</TooltipPopup>
         </Tooltip>
+        {/* T3 RightPanelTabs: the fixed strip reserves the top-right
+            corner for native window controls when the panel owns the
+            desktop titlebar. The `w-24` in-flow spacer only applies
+            without layout controls — this bar always carries the add /
+            hide controls, matching T3's `layoutControls` branch. */}
+        {ownsDesktopTitleBar ? (
+          <span
+            aria-hidden
+            className="pointer-events-none fixed top-(--workspace-controls-top) right-(--workspace-controls-right) h-(--workspace-topbar-height) w-28 [-webkit-app-region:no-drag]"
+          />
+        ) : null}
       </div>
 
       {/* Surface host — every open surface stays mounted (hidden when
-          inactive) so scroll/selection state survives tab switches. */}
+          inactive) so scroll/selection state survives tab switches.
+          No active surface falls back to T3's "Open a surface" launcher
+          (RightPanelTabs RightPanelEmptyState). */}
       <div className="flex min-h-0 flex-1 flex-col">
-        {surfaces.length === 0 ? null : activeIndex < 0 ? null : (
-          <>
-            {surfaces.map((surface, index) => (
-              <div
-                key={surface.id}
-                className={cn(
-                  "min-h-0 flex-1 flex-col",
-                  index === activeIndex ? "flex" : "hidden",
-                )}
-              >
-                <SurfaceContent
-                  surface={surface}
-                  machine={machine}
-                  snapshotPanes={snapshotPanes}
-                  workspace={workspace}
-                />
-              </div>
-            ))}
-          </>
+        {surfaces.length === 0 || activeIndex < 0 ? (
+          <PanelEmptyState actions={addActions} />
+        ) : (
+          surfaces.map((surface, index) => (
+            <div
+              key={surface.id}
+              className={cn(
+                "min-h-0 flex-1 flex-col",
+                index === activeIndex ? "flex" : "hidden",
+              )}
+            >
+              <SurfaceContent
+                surface={surface}
+                machine={machine}
+                snapshotPanes={snapshotPanes}
+                workspace={workspace}
+              />
+            </div>
+          ))
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * T3 `RightPanelEmptyState` (RightPanelTabs.tsx @ 9cc4018c): centered
+ * "Open a surface" launcher listing the same actions as the "+" menu.
+ * T3 adds single-key shortcuts and arrow-key highlight; herdr-t3 has no
+ * surface-shortcut layer yet, so rows are plain buttons (deferred).
+ */
+function PanelEmptyState({ actions }: { actions: AddAction[] }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 pb-(--workspace-topbar-height)">
+      <div className="w-full max-w-xs py-6">
+        <h3 className="mb-3 text-center text-sm font-medium text-foreground">
+          Open a surface
+        </h3>
+        <div className="flex flex-col gap-0.5">
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              // oxlint-disable-next-line herdr-t3/no-raw-control -- T3 RightPanelEmptyState launcher row (icon + label), same pattern as the tab strip
+              <button
+                key={action.label}
+                type="button"
+                disabled={action.disabled}
+                onClick={action.run}
+                className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) px-2.5 text-left text-sm text-foreground transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Icon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{action.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -591,6 +662,9 @@ export function RightPanel() {
   const scope = workspace ? `${machine}\n${workspace.workspace_id}` : "";
   const state = useRightPanelState(scope);
   const narrow = useMediaQuery(NARROW_QUERY);
+  // T3 `ownsDesktopTitleBar`: only the inline (wide) panel on Electron
+  // doubles as the frameless titlebar drag region; the sheet never does.
+  const ownsDesktopTitleBar = isElectron && !narrow;
   const [observeRow, rowWidth] = useRowWidth();
   const [width, setWidth] = useState(readStoredWidth);
   const [maxWidth, setMaxWidth] = useState(() => panelMaxWidth(null));
@@ -650,7 +724,10 @@ export function RightPanel() {
     setLocalStorageNumber(WIDTH_STORAGE_KEY, next);
   };
 
-  if (!workspace || state.surfaces.length === 0) return null;
+  // T3 keeps the panel mounted while `open` even with zero surfaces —
+  // closing the last tab reveals the "Open a surface" launcher instead
+  // of unmounting the panel.
+  if (!workspace || !state.isOpen) return null;
 
   const focusedPane =
     snapshot?.panes.find((p) => p.pane_id === view.layout?.focused_pane_id) ??
@@ -755,6 +832,7 @@ export function RightPanel() {
       workspace={workspace}
       snapshotPanes={snapshotPanes}
       addActions={allActions}
+      ownsDesktopTitleBar={ownsDesktopTitleBar}
       onHide={() => {
         setPanelOpen(scope, false);
         setTimeout(() => focusPaneTerminal(), 0);
@@ -798,7 +876,9 @@ export function RightPanel() {
       data-right-panel=""
     >
       {/* T3 RightPanelResizeHandle: a thin drag strip on the panel's
-          left edge with keyboard support via role=separator. */}
+          left edge with keyboard support via role=separator; coarse
+          pointers get a wider grab area (`any-pointer-coarse` upstream,
+          `pointer-coarse` here). */}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -807,7 +887,7 @@ export function RightPanel() {
         aria-valuemin={MIN_WIDTH}
         aria-valuemax={maxWidth}
         tabIndex={0}
-        className="group absolute inset-y-0 -left-0.5 z-10 w-1 cursor-col-resize touch-none select-none"
+        className="group absolute inset-y-0 left-0 z-40 w-1 cursor-col-resize touch-none select-none pointer-coarse:-left-2 pointer-coarse:w-4"
         onPointerDown={onHandlePointerDown}
         onPointerMove={onHandlePointerMove}
         onPointerUp={onHandlePointerUp}
@@ -816,7 +896,7 @@ export function RightPanel() {
       >
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60"
+          className="pointer-events-none absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60 pointer-coarse:left-2"
         />
       </div>
       {frame}
