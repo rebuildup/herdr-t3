@@ -449,24 +449,31 @@ function FilterBar({
         aria-label="Provider filter"
         className="w-36"
       />
-      {/* Visible range labels: two identical datetime fields read as a
-          duplicate pair without them (issue #417). */}
-      <span className="text-xs text-muted-foreground">From</span>
-      <Input
-        size="sm"
-        type="datetime-local"
-        value={filters.from}
-        onChange={(e) => onChange({ ...filters, from: e.target.value })}
-        aria-label="From"
-      />
-      <span className="text-xs text-muted-foreground">To</span>
-      <Input
-        size="sm"
-        type="datetime-local"
-        value={filters.to}
-        onChange={(e) => onChange({ ...filters, to: e.target.value })}
-        aria-label="To"
-      />
+      {/* Visible range labels grouped with their field so flex-wrap
+          never strands "from"/"to" on a different line than the date
+          input (issue #480). */}
+      <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+        From
+        <Input
+          size="sm"
+          type="datetime-local"
+          value={filters.from}
+          onChange={(e) => onChange({ ...filters, from: e.target.value })}
+          aria-label="From"
+          title="From (inclusive)"
+        />
+      </span>
+      <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+        To
+        <Input
+          size="sm"
+          type="datetime-local"
+          value={filters.to}
+          onChange={(e) => onChange({ ...filters, to: e.target.value })}
+          aria-label="To"
+          title="To (inclusive)"
+        />
+      </span>
     </div>
   );
 }
@@ -666,6 +673,10 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
       {error !== null ? <SectionError label="Usage" error={error} /> : null}
       {report !== null ? (
         <div className="flex flex-col gap-3">
+          {/* No measured events: the plugin reports structural zeros,
+              not a measurement — rendering TotalsRow/cache badges would
+              read as "measured zero" (issue #480). Show the honest
+              no-data line plus notes/coverage only. */}
           {report.totals.events === 0 ? (
             <p className="text-sm text-muted-foreground">
               No measured usage in this window — indexed sessions contributed
@@ -673,49 +684,53 @@ function UsageSection({ machine, filters }: { machine: string; filters: UsageFil
               usage.
             </p>
           ) : null}
-          <TotalsRow report={report} />
           <ReportNotes report={report} />
-          {report.cache_tokens.providers.length > 0 ? (
-            <SurfaceSection
-              title="Cache tokens"
-              description="Provider-reported cache accounting."
-              className="gap-2"
-            >
-              <SurfaceGroup>
-                {report.cache_tokens.providers.map((entry) => (
-                  <CacheTokenRow key={entry.provider} entry={entry} />
-                ))}
-              </SurfaceGroup>
-            </SurfaceSection>
+          {report.totals.events > 0 ? (
+            <>
+              <TotalsRow report={report} />
+              {report.cache_tokens.providers.length > 0 ? (
+                <SurfaceSection
+                  title="Cache tokens"
+                  description="Provider-reported cache accounting."
+                  className="gap-2"
+                >
+                  <SurfaceGroup>
+                    {report.cache_tokens.providers.map((entry) => (
+                      <CacheTokenRow key={entry.provider} entry={entry} />
+                    ))}
+                  </SurfaceGroup>
+                </SurfaceSection>
+              ) : null}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Breakdown
+                  </span>
+                  <Select
+                    value={dimension}
+                    onValueChange={(value) =>
+                      setDimension(value as UsageBreakdownDimension)
+                    }
+                  >
+                    <SelectTrigger aria-label="Breakdown dimension" className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {USAGE_BREAKDOWN_DIMENSIONS.map((dim) => (
+                        <SelectItem key={dim} value={dim}>
+                          {DIMENSION_LABELS[dim]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <BreakdownTable
+                  entries={report.breakdowns[dimension]}
+                  dimension={dimension}
+                />
+              </div>
+            </>
           ) : null}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                Breakdown
-              </span>
-              <Select
-                value={dimension}
-                onValueChange={(value) =>
-                  setDimension(value as UsageBreakdownDimension)
-                }
-              >
-                <SelectTrigger aria-label="Breakdown dimension" className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {USAGE_BREAKDOWN_DIMENSIONS.map((dim) => (
-                    <SelectItem key={dim} value={dim}>
-                      {DIMENSION_LABELS[dim]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <BreakdownTable
-              entries={report.breakdowns[dimension]}
-              dimension={dimension}
-            />
-          </div>
           <p className="text-xs text-muted-foreground">
             Coverage: {formatTokens(report.coverage.sessions_total)} indexed
             session{report.coverage.sessions_total === 1 ? "" : "s"} (

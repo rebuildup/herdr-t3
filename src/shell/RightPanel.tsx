@@ -242,6 +242,8 @@ function PanelFrame({
   addActions,
   ownsDesktopTitleBar,
   onHide,
+  isVisible,
+  narrow = false,
 }: {
   scope: string;
   state: RightPanelScopeState;
@@ -253,6 +255,15 @@ function PanelFrame({
       frameless titlebar drag region (RightPanelTabs.tsx @ 9cc4018c). */
   ownsDesktopTitleBar: boolean;
   onHide: () => void;
+  /** False while the narrow-layout Sheet is closed but kept mounted —
+   * the tab strip must re-measure and re-reveal the active tab when the
+   * sheet opens, or it can show a stale scroll position with the active
+   * surface scrolled out of view (issue #480). */
+  isVisible: boolean;
+  /** Sheet layout: a slim title row keeps the active surface
+   * identifiable while the tab strip scrolls horizontally (issue
+   * #480). */
+  narrow?: boolean;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -265,7 +276,7 @@ function PanelFrame({
     canScrollRight: false,
   });
 
-  const updateTabScrollState = (viewport: HTMLElement) => {
+  const updateTabScrollState = useCallback((viewport: HTMLElement) => {
     const hasOverflow =
       viewport.scrollWidth - viewport.clientWidth > TAB_SCROLL_EDGE_TOLERANCE;
     const canScrollLeft =
@@ -281,7 +292,7 @@ function PanelFrame({
         ? current
         : { hasOverflow, canScrollLeft, canScrollRight },
     );
-  };
+  }, []);
 
   const scrollTabs = (direction: -1 | 1) => {
     const viewport = tabScrollViewport(tabListRef.current);
@@ -342,6 +353,21 @@ function PanelFrame({
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [state.activeSurfaceId, tabScrollState.hasOverflow]);
 
+  // The narrow Sheet keeps this frame mounted while closed, so the
+  // measurements above ran against a hidden (zero-size) strip. When the
+  // sheet opens, re-measure and scroll the active tab back into view —
+  // otherwise the strip can lead with an unrelated tab while the body
+  // shows the active surface (issue #480).
+  useEffect(() => {
+    if (!isVisible) return;
+    const viewport = tabScrollViewport(tabListRef.current);
+    if (!viewport) return;
+    updateTabScrollState(viewport);
+    viewport
+      .querySelector<HTMLElement>("[data-active-tab='true']")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [isVisible, state.activeSurfaceId, state.surfaces.length, updateTabScrollState]);
+
   const dropInsertFor = (targetIndex: number, e: DragEvent): number => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     return e.clientX < rect.left + rect.width / 2 ? targetIndex : targetIndex + 1;
@@ -352,8 +378,27 @@ function PanelFrame({
     setDropIndex(null);
   };
 
+  const activeSurface =
+    surfaces.find((s) => s.id === state.activeSurfaceId) ?? null;
+  const activePane =
+    activeSurface?.kind === "git"
+      ? (snapshotPanes.find((p) => p.pane_id === activeSurface.paneId) ?? null)
+      : null;
+  const ActiveIcon = activeSurface ? SURFACE_ICONS[activeSurface.kind] : null;
+  const activeTitle = activeSurface ? surfaceTitle(activeSurface, activePane) : "";
+
   return (
     <>
+      {narrow && activeSurface !== null ? (
+        <div className="flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-1.5 border-b border-border/60 px-2">
+          {ActiveIcon !== null ? (
+            <ActiveIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {activeTitle}
+          </span>
+        </div>
+      ) : null}
       {/* Tab bar — T3's RightPanelTabs header strip at topbar height.
           Inline-on-Electron owns the desktop titlebar: drag-region +
           native-controls inset, interactive children stay no-drag. */}
@@ -831,6 +876,8 @@ export function RightPanel() {
       snapshotPanes={snapshotPanes}
       addActions={allActions}
       ownsDesktopTitleBar={ownsDesktopTitleBar}
+      isVisible={narrow ? state.isOpen : true}
+      narrow={narrow}
       onHide={() => {
         setPanelOpen(scope, false);
         setTimeout(() => focusPaneTerminal(), 0);

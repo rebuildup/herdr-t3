@@ -360,7 +360,11 @@ function CreateForm({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid gap-2 sm:grid-cols-2">
+      {/* Container queries, not viewport `sm:`: the surface lives in a
+          docked panel/sheet whose width is unrelated to the window, so
+          viewport breakpoints collapsed these fields into unreadable
+          slivers at narrow panel widths (issue #480). */}
+      <div className="grid gap-2 @md:grid-cols-2">
         <div className="flex flex-col gap-1">
           <Label>Target</Label>
           <Select
@@ -394,7 +398,7 @@ function CreateForm({
             captures the work tree of the pane&apos;s repo
           </div>
         )}
-        <div className="flex flex-col gap-1 sm:col-span-2">
+        <div className="flex flex-col gap-1 @md:col-span-2">
           <Label>Label (optional)</Label>
           <Input
             size="sm"
@@ -403,7 +407,7 @@ function CreateForm({
             placeholder="e.g. before refactor"
           />
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground @md:col-span-2">
           <Switch
             size="sm"
             checked={auto}
@@ -499,7 +503,7 @@ function SaveGroupForm({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 @md:grid-cols-2">
         <div className="flex flex-col gap-1">
           <Label>Repo set</Label>
           <Select
@@ -543,7 +547,7 @@ function SaveGroupForm({
             cwds are reported as skipped
           </div>
         )}
-        <div className="flex flex-col gap-1 sm:col-span-2">
+        <div className="flex flex-col gap-1 @md:col-span-2">
           <Label>Label (optional — applied to every captured entry)</Label>
           <Input
             size="sm"
@@ -1481,7 +1485,7 @@ function DiffPane({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-2 @sm:flex-row @sm:items-end">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <Label>A</Label>
           <Select value={sideA} onValueChange={(v) => setSideA(v ?? "HEAD")}>
@@ -2099,7 +2103,10 @@ export function CheckpointsSurface({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <DialogPanel scrollAreaClassName="min-h-0 flex-1">
+      {/* @container: the panel/sheet width drives the two-column split
+          below via container queries, not the window width (issue
+          #480). */}
+      <DialogPanel className="@container" scrollAreaClassName="min-h-0 flex-1">
         <p className="text-xs text-muted-foreground">
           Worktree checkpoints from the rebuildup.checkpoints plugin —
           synthetic commits under hidden git refs. Capture never touches
@@ -2119,7 +2126,11 @@ export function CheckpointsSurface({
         ) : cap === undefined ? (
           <SurfaceLoadingRows label="Checking plugin capabilities" rows={4} />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          // Two columns only once the panel is wide enough for the
+          // detail/diff column to stay readable; below @2xl the
+          // sections stack so the Diff selectors never collapse to
+          // slivers (issue #480).
+          <div className="grid gap-4 @2xl:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-4">
               <SurfaceDetailsSection title="New checkpoint">
                 <CreateForm
@@ -2229,7 +2240,7 @@ export function CheckpointsSurface({
               </SurfaceDetailsSection>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-4 max-sm:border-t max-sm:border-border/60 max-sm:pt-4">
+            <div className="flex min-w-0 flex-col gap-4 border-t border-border/60 pt-4 @2xl:border-l @2xl:border-t-0 @2xl:pl-4 @2xl:pt-0">
               <SurfaceDetailsSection
                 title={selectedEntry !== null ? checkpointTitle(selectedEntry) : "Checkpoint"}
               >

@@ -174,7 +174,9 @@ function ToolRow({ tool }: { tool: McpTool }) {
         <Badge size="sm" variant={accessVariant(tool.access)}>
           {tool.access ?? "?"}
         </Badge>
-        {tool.readOnly ? (
+        {/* Skip the extra badge when the access badge already reads
+            "read-only" — the pair rendered as a duplicate (issue #480). */}
+        {tool.readOnly && tool.access !== "read-only" ? (
           <Badge size="sm" variant="outline">
             read-only
           </Badge>
@@ -204,7 +206,10 @@ function ToolsSection({ capability }: { capability: McpCapability }) {
       {capability.tools.length === 0 ? (
         <p className="text-2xs text-muted-foreground">no tools advertised</p>
       ) : (
-        <div className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+        // No inner max-h scroll: a nested scrollbar inside the surface
+        // scroll read as a dual-scrollbar defect (issue #480); the
+        // surface-level scroll owns overflow.
+        <div className="flex flex-col gap-1">
           {capability.tools.map((tool) => (
             <ToolRow key={tool.name} tool={tool} />
           ))}
