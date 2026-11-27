@@ -75,6 +75,39 @@ fn run_op(
             }))
         }
         "goto_eval" => goto_eval(input),
+        // Pane-canvas model ops (issue #324): ports of paneOrder.ts,
+        // reorder.ts and paneCanvas.ts.
+        "canvas_view_model" => canvas_view_model(input),
+        "next_pane" => {
+            let panes = parse_panes(input.get("panes"))?;
+            let layout = parse_layout_opt(input.get("layout"))?;
+            let focused = input.get("focused_pane_id").and_then(Value::as_str);
+            Ok(json!({
+                "next_pane_id": next_pane_in_reading_order(
+                    &panes,
+                    layout.as_ref(),
+                    focused,
+                )
+            }))
+        }
+        "move_insert_index" => {
+            let from = input
+                .get("from")
+                .and_then(Value::as_u64)
+                .ok_or("move_insert_index: missing from")? as usize;
+            let target = input
+                .get("target")
+                .and_then(Value::as_u64)
+                .ok_or("move_insert_index: missing target")? as usize;
+            let side = match input.get("side").and_then(Value::as_str) {
+                Some("before") => DropSide::Before,
+                Some("after") => DropSide::After,
+                other => return Err(format!("move_insert_index: bad side {other:?}")),
+            };
+            Ok(json!({
+                "insert_index": move_insert_index(from, target, side)
+            }))
+        }
         // Product ViewModel ops (issue #316): same functions the wasm
         // surface exports — native timing/differential coverage shares
         // the product path.

@@ -1,0 +1,686 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "projection.canvas",
+  "capability": "workspace-canvas",
+  "contract": "workspace-pane-ops@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "canvas_view_model",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "t1",
+          "focused_pane_id": "a",
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "app",
+              "focused": true,
+              "active_tab_id": "t1",
+              "tab_count": 1,
+              "pane_count": 2
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "label": "tab",
+              "focused": true,
+              "pane_count": 2
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "a",
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "terminal_id": "ta",
+              "terminal_title_stripped": "A"
+            },
+            {
+              "pane_id": "b",
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "terminal_id": "tb",
+              "terminal_title_stripped": "B"
+            }
+          ],
+          "layouts": [
+            {
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 100
+              },
+              "focused_pane_id": "a",
+              "panes": [
+                {
+                  "pane_id": "a",
+                  "focused": false,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 50,
+                    "height": 100
+                  }
+                },
+                {
+                  "pane_id": "b",
+                  "focused": false,
+                  "rect": {
+                    "x": 50,
+                    "y": 0,
+                    "width": 50,
+                    "height": 100
+                  }
+                }
+              ],
+              "splits": [],
+              "zoomed": false
+            }
+          ],
+          "agents": []
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "zoomed": false,
+          "can_drag_panes": true,
+          "panes": [
+            {
+              "pane_id": "a",
+              "terminal_id": "ta",
+              "title": "A",
+              "focused": true,
+              "frame": {
+                "x": 0,
+                "y": 0,
+                "width": 0.5,
+                "height": 1
+              },
+              "emphasis": "focused"
+            },
+            {
+              "pane_id": "b",
+              "terminal_id": "tb",
+              "title": "B",
+              "focused": false,
+              "frame": {
+                "x": 0.5,
+                "y": 0,
+                "width": 0.5,
+                "height": 1
+              },
+              "emphasis": "unfocused"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "canvas_view_model",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "focused_workspace_id": "w1",
+          "focused_tab_id": "t1",
+          "focused_pane_id": "b",
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "label": "app",
+              "focused": true,
+              "active_tab_id": "t1"
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "label": "tab",
+              "focused": true
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "a",
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "terminal_id": "ta"
+            },
+            {
+              "pane_id": "b",
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "terminal_id": "tb"
+            }
+          ],
+          "layouts": [
+            {
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 100
+              },
+              "focused_pane_id": "b",
+              "panes": [
+                {
+                  "pane_id": "a",
+                  "focused": false,
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 50,
+                    "height": 100
+                  }
+                },
+                {
+                  "pane_id": "b",
+                  "focused": false,
+                  "rect": {
+                    "x": 50,
+                    "y": 0,
+                    "width": 50,
+                    "height": 100
+                  }
+                }
+              ],
+              "splits": [],
+              "zoomed": true
+            }
+          ],
+          "agents": []
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "zoomed": true,
+          "can_drag_panes": false,
+          "panes": [
+            {
+              "pane_id": "b",
+              "terminal_id": "tb",
+              "title": "b",
+              "focused": true,
+              "frame": {
+                "x": 0,
+                "y": 0,
+                "width": 1,
+                "height": 1
+              },
+              "emphasis": "none"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "canvas_view_model",
+      "input": {
+        "snapshot": {
+          "version": "22",
+          "protocol": 22,
+          "workspaces": [
+            {
+              "workspace_id": "w1",
+              "focused": true,
+              "active_tab_id": "t1"
+            }
+          ],
+          "tabs": [
+            {
+              "tab_id": "t1",
+              "workspace_id": "w1"
+            }
+          ],
+          "panes": [
+            {
+              "pane_id": "a",
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "focused": true
+            }
+          ],
+          "layouts": [],
+          "agents": []
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "zoomed": false,
+          "can_drag_panes": false,
+          "panes": [
+            {
+              "pane_id": "a",
+              "terminal_id": null,
+              "title": "a",
+              "focused": true,
+              "frame": null,
+              "emphasis": "none"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "next_pane",
+      "input": {
+        "panes": [
+          {
+            "pane_id": "a",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "b",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "c",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "d",
+            "tab_id": "t",
+            "workspace_id": "w"
+          }
+        ],
+        "layout": {
+          "area": {
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 100
+          },
+          "focused_pane_id": "a",
+          "panes": [
+            {
+              "pane_id": "a",
+              "focused": true,
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "b",
+              "focused": false,
+              "rect": {
+                "x": 50,
+                "y": 0,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "c",
+              "focused": false,
+              "rect": {
+                "x": 0,
+                "y": 50,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "d",
+              "focused": false,
+              "rect": {
+                "x": 50,
+                "y": 50,
+                "width": 50,
+                "height": 50
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "t",
+          "workspace_id": "w",
+          "zoomed": false
+        },
+        "focused_pane_id": "a"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "next_pane_id": "b"
+        }
+      }
+    },
+    {
+      "op": "next_pane",
+      "input": {
+        "panes": [
+          {
+            "pane_id": "a",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "b",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "c",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "d",
+            "tab_id": "t",
+            "workspace_id": "w"
+          }
+        ],
+        "layout": {
+          "area": {
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 100
+          },
+          "focused_pane_id": "a",
+          "panes": [
+            {
+              "pane_id": "a",
+              "focused": true,
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "b",
+              "focused": false,
+              "rect": {
+                "x": 50,
+                "y": 0,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "c",
+              "focused": false,
+              "rect": {
+                "x": 0,
+                "y": 50,
+                "width": 50,
+                "height": 50
+              }
+            },
+            {
+              "pane_id": "d",
+              "focused": false,
+              "rect": {
+                "x": 50,
+                "y": 50,
+                "width": 50,
+                "height": 50
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "t",
+          "workspace_id": "w",
+          "zoomed": false
+        },
+        "focused_pane_id": "d"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "next_pane_id": "a"
+        }
+      }
+    },
+    {
+      "op": "next_pane",
+      "input": {
+        "panes": [
+          {
+            "pane_id": "a",
+            "tab_id": "t",
+            "workspace_id": "w"
+          },
+          {
+            "pane_id": "b",
+            "tab_id": "t",
+            "workspace_id": "w"
+          }
+        ],
+        "layout": null,
+        "focused_pane_id": "a"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "next_pane_id": null
+        }
+      }
+    },
+    {
+      "op": "next_pane",
+      "input": {
+        "panes": [
+          {
+            "pane_id": "a",
+            "tab_id": "t",
+            "workspace_id": "w"
+          }
+        ],
+        "layout": {
+          "area": {
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10
+          },
+          "focused_pane_id": "a",
+          "panes": [
+            {
+              "pane_id": "a",
+              "focused": true,
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 10,
+                "height": 10
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "t",
+          "workspace_id": "w",
+          "zoomed": false
+        },
+        "focused_pane_id": "a"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "next_pane_id": null
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 0,
+        "target": 3,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 3
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 0,
+        "target": 3,
+        "side": "after"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 4
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 0,
+        "target": 4,
+        "side": "after"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 5
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 2,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": null
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 2,
+        "side": "after"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": null
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 3,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": null
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 1,
+        "side": "after"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": null
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 1,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 1
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 2,
+        "target": 0,
+        "side": "after"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 1
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 4,
+        "target": 0,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 0
+        }
+      }
+    },
+    {
+      "op": "move_insert_index",
+      "input": {
+        "from": 0,
+        "target": 4,
+        "side": "before"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "insert_index": 4
+        }
+      }
+    }
+  ]
+}

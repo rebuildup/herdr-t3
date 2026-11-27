@@ -208,6 +208,198 @@ pub fn derive_workspace<'a>(
     }
 }
 
+/* --------------------- pane canvas (issue #324) ------------------------- */
+//
+// Ports of src/lib/paneOrder.ts, src/lib/reorder.ts and the pane-frame
+// derivation WorkspaceCanvas applies on top of derive_workspace
+// (src/lib/paneCanvas.ts). paneFocus.ts is DOM-specific and has no
+// product-model port — GPUI focus is native.
+
+/// `DropSide` — which half of a drag target was hit (reorder.ts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropSide {
+    Before,
+    After,
+}
+
+/// `moveInsertIndex` in src/lib/reorder.ts: herdr `insert_index` is a
+/// *pre-removal* insertion point; adjacent drops are no-ops (`None`).
+pub fn move_insert_index(from: usize, target: usize, side: DropSide) -> Option<usize> {
+    let to = target + usize::from(side == DropSide::After);
+    if to == from || to == from + 1 {
+        None
+    } else {
+        Some(to)
+    }
+}
+
+/// `nextPaneInReadingOrder` in src/lib/paneOrder.ts: panes sorted by
+/// layout rect (top-to-bottom rows, left-to-right within a row), focus
+/// advances circularly. JS `Array.sort` is stable and a `NaN`
+/// comparator result sorts as +0 — `partial_cmp` fallback to `Equal`
+/// reproduces both. A focused id matching nothing resolves to index -1,
+/// i.e. the first pane in reading order.
+pub fn next_pane_in_reading_order(
+    panes: &[PaneInfo],
+    layout: Option<&PaneLayoutSnapshot>,
+    focused_pane_id: Option<&str>,
+) -> Option<String> {
+    let layout = layout?;
+    if panes.len() < 2 {
+        return None;
+    }
+    let rect_of = |pane_id: Option<&str>| {
+        layout
+            .panes
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .find(|p| p.pane_id.as_deref() == pane_id)
+            .and_then(|p| p.rect.as_ref())
+    };
+    let mut ordered: Vec<&PaneInfo> = panes.iter().collect();
+    ordered.sort_by(|a, b| {
+        let (ra, rb) = (rect_of(a.pane_id.as_deref()), rect_of(b.pane_id.as_deref()));
+        let (Some(ra), Some(rb)) = (ra, rb) else {
+            return std::cmp::Ordering::Equal;
+        };
+        // JS `dy || dx`: NaN and ±0 are falsy, so a missing/zero dy falls
+        // through to dx; a NaN result sorts as +0 (Equal).
+        let dy = rect_num(ra.y.as_ref()) - rect_num(rb.y.as_ref());
+        let d = if dy != 0.0 && !dy.is_nan() {
+            dy
+        } else {
+            rect_num(ra.x.as_ref()) - rect_num(rb.x.as_ref())
+        };
+        d.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let index = ordered
+        .iter()
+        .position(|p| p.pane_id.as_deref() == focused_pane_id)
+        .map(|i| i as isize)
+        .unwrap_or(-1);
+    let next = ordered
+        .get(((index + 1).rem_euclid(ordered.len() as isize)) as usize)?;
+    next.pane_id.clone()
+}
+
+/// Normalized pane frame: fractions of the layout area, each in 0..1
+/// (`PaneFrameGeometry` in paneCanvas.ts).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaneFrameGeometry {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Split-boundary hairline emphasis (`PaneFrameEmphasis`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneFrameEmphasis {
+    None,
+    Focused,
+    Unfocused,
+}
+
+impl PaneFrameEmphasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Focused => "focused",
+            Self::Unfocused => "unfocused",
+        }
+    }
+}
+
+/// One visible canvas pane (`CanvasPaneView`).
+pub struct CanvasPaneView<'a> {
+    pub pane: &'a PaneInfo,
+    pub title: String,
+    pub focused: bool,
+    /// `None` when herdr reported no rect for the pane.
+    pub frame: Option<PaneFrameGeometry>,
+    pub emphasis: PaneFrameEmphasis,
+}
+
+/// `PaneCanvasView` — the whole canvas pane-frame model.
+pub struct PaneCanvasView<'a> {
+    pub zoomed: bool,
+    pub can_drag_panes: bool,
+    pub panes: Vec<CanvasPaneView<'a>>,
+}
+
+fn rect_num(n: Option<&Number>) -> f64 {
+    n.and_then(Number::as_f64).unwrap_or(f64::NAN)
+}
+
+/// `paneCanvasView` in src/lib/paneCanvas.ts, applied to a
+/// `derive_workspace` result: zoomed layouts show only the focused pane
+/// full-bleed; other panes keep herdr's reported rect normalized to
+/// area fractions (`Math.max(area, 1)` denominator included).
+pub fn pane_canvas_view<'a>(view: &WorkspaceView<'a>) -> PaneCanvasView<'a> {
+    let zoomed = view.layout.and_then(|l| l.zoomed) == Some(true);
+    let focused_pane = view.focused_pane;
+    let visible: Vec<&PaneInfo> = if zoomed {
+        focused_pane.into_iter().collect()
+    } else {
+        view.tab_panes.clone()
+    };
+    let area = view.layout.and_then(|l| l.area.as_ref());
+    let aw = area.map(|a| rect_num(a.width.as_ref())).unwrap_or(1.0).max(1.0);
+    let ah = area.map(|a| rect_num(a.height.as_ref())).unwrap_or(1.0).max(1.0);
+    let panes: Vec<CanvasPaneView<'a>> = visible
+        .iter()
+        .map(|&pane| {
+            let focused = match view.layout {
+                Some(layout) => {
+                    opt_str(&pane.pane_id) == layout.focused_pane_id.as_deref()
+                }
+                None => pane.focused == Some(true),
+            };
+            let frame = if zoomed {
+                Some(PaneFrameGeometry {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                })
+            } else {
+                view.layout
+                    .and_then(|l| l.panes.as_deref())
+                    .unwrap_or(&[])
+                    .iter()
+                    .find(|p| p.pane_id == pane.pane_id)
+                    .and_then(|p| p.rect.as_ref())
+                    .map(|r| PaneFrameGeometry {
+                        x: rect_num(r.x.as_ref()) / aw,
+                        y: rect_num(r.y.as_ref()) / ah,
+                        width: rect_num(r.width.as_ref()) / aw,
+                        height: rect_num(r.height.as_ref()) / ah,
+                    })
+            };
+            let emphasis = if zoomed || visible.len() <= 1 {
+                PaneFrameEmphasis::None
+            } else if focused {
+                PaneFrameEmphasis::Focused
+            } else {
+                PaneFrameEmphasis::Unfocused
+            };
+            CanvasPaneView {
+                pane,
+                title: pane_title(pane),
+                focused,
+                frame,
+                emphasis,
+            }
+        })
+        .collect();
+    PaneCanvasView {
+        zoomed,
+        can_drag_panes: !zoomed && panes.len() > 1,
+        panes,
+    }
+}
+
 /* ------------------------------- agents.ts ------------------------------ */
 
 /// `AgentSection` — order of AGENT_SECTIONS is contractual (issue #211).
@@ -732,6 +924,34 @@ pub fn parse_machines(value: Option<&Value>) -> Result<Vec<MachineInfo>, String>
             })
             .collect(),
         Some(_) => Err("machines: expected an array".to_string()),
+    }
+}
+
+/// Parse `panes`: absent/null -> empty (TS callers pass `?? []` or a
+/// typed array); a non-array non-null value fails like the TS adapter.
+pub fn parse_panes(value: Option<&Value>) -> Result<Vec<PaneInfo>, String> {
+    match value {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| {
+                serde_json::from_value::<PaneInfo>(v.clone())
+                    .map_err(|e| format!("pane: {e}"))
+            })
+            .collect(),
+        Some(_) => Err("panes: expected an array".to_string()),
+    }
+}
+
+/// Parse `layout`: `PaneLayoutSnapshot | null | undefined` — only a
+/// plain object parses; anything else maps to None like the TS
+/// optional-parameter default.
+pub fn parse_layout_opt(value: Option<&Value>) -> Result<Option<PaneLayoutSnapshot>, String> {
+    match value {
+        Some(v) if v.is_object() => serde_json::from_value::<PaneLayoutSnapshot>(v.clone())
+            .map(Some)
+            .map_err(|e| format!("layout: {e}")),
+        _ => Ok(None),
     }
 }
 
@@ -1548,5 +1768,40 @@ pub fn workspace_view_model(input: &Map<String, Value>) -> Result<Value, String>
             .and_then(|id| raw_find(arr("panes"), "pane_id", Some(id)))
             .cloned()
             .unwrap_or(Value::Null),
+    }))
+}
+
+fn frame_json(frame: Option<PaneFrameGeometry>) -> Value {
+    match frame {
+        Some(f) => json!({
+            "x": f.x,
+            "y": f.y,
+            "width": f.width,
+            "height": f.height,
+        }),
+        None => Value::Null,
+    }
+}
+
+/// `canvas_view_model` — derive_workspace + pane_canvas_view in one
+/// call (issue #324). Emits derived fields only; the consumer
+/// rehydrates full pane objects from the snapshot it already holds via
+/// `pane_id`, matching the agent_view_model id-summary pattern.
+pub fn canvas_view_model(input: &Map<String, Value>) -> Result<Value, String> {
+    let snapshot = parse_snapshot_opt(input.get("snapshot"))?;
+    let workspace_id = input.get("workspace_id").and_then(Value::as_str);
+    let view = derive_workspace(snapshot.as_ref(), workspace_id);
+    let canvas = pane_canvas_view(&view);
+    Ok(json!({
+        "zoomed": canvas.zoomed,
+        "can_drag_panes": canvas.can_drag_panes,
+        "panes": canvas.panes.iter().map(|cp| json!({
+            "pane_id": cp.pane.pane_id,
+            "terminal_id": cp.pane.terminal_id,
+            "title": cp.title,
+            "focused": cp.focused,
+            "frame": frame_json(cp.frame),
+            "emphasis": cp.emphasis.as_str(),
+        })).collect::<Vec<_>>(),
     }))
 }
