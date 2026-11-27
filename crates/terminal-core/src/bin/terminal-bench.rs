@@ -147,6 +147,7 @@ fn main() {
             widths: Widths::Core,
             images: None,
             scrollback_lines: Some(10000),
+            scrollback_bytes: None,
             events: None,
         },
     )

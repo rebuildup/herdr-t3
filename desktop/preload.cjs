@@ -77,4 +77,15 @@ contextBridge.exposeInMainWorld("herdrT3", {
     return () =>
       ipcRenderer.removeListener("herdr-t3:window-fullscreen-state", handler);
   },
+  /**
+   * Memory-watchdog pushes ({level,totalMb,baselineMb}) so the renderer can
+   * shed caches before the main process hits its reload threshold (#499).
+   */
+  onMemoryPressure(listener) {
+    const handler = (_event, push) => {
+      if (push && typeof push === "object" && typeof push.level === "string") listener(push);
+    };
+    ipcRenderer.on("herdr-t3:memory-pressure", handler);
+    return () => ipcRenderer.removeListener("herdr-t3:memory-pressure", handler);
+  },
 });

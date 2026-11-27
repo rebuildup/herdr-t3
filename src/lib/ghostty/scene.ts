@@ -587,6 +587,11 @@ export class GhosttyScene {
     }
   }
 
+  /** drop the grapheme-advance cache under memory pressure; it rebuilds lazily (issue #499) */
+  shedAdvanceCache(): void {
+    this.advanceCache.clear();
+  }
+
   dispose(): void {
     this.disposed = true;
     this.rows.clear();

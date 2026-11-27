@@ -354,6 +354,11 @@ export class GhosttySurface {
     this.core.setMouseCapture(enabled);
   }
 
+  /** memory-pressure hook: drop rebuildable caches without touching the engine (issue #499) */
+  shedCaches(): void {
+    this.renderer.shedCaches();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

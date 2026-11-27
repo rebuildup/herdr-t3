@@ -468,6 +468,10 @@ pub struct EngineOptions {
     pub images: Option<u64>,
     /// lines of history above the screen
     pub scrollback_lines: Option<u32>,
+    /// byte cap on scrollback history; applied together with the line cap —
+    /// whichever binds first ends history (issue #499). None leaves the
+    /// module default.
+    pub scrollback_bytes: Option<u64>,
     /// when present, the engine wires the terminal's callbacks and follows
     /// win32-input-mode; without it none of that happens
     pub events: Option<Box<dyn EngineEvents>>,
@@ -729,7 +733,7 @@ impl GhosttyEngine {
             undo.push(Box::new(move || unsafe { ffi::ghostty_render_state_image_iterator_free(im) }));
             inner.images = im;
 
-            inner.set_up_handles(options.widths, options.images, options.scrollback_lines, has_events)?;
+            inner.set_up_handles(options.widths, options.images, options.scrollback_lines, options.scrollback_bytes, has_events)?;
             Ok(())
         })();
         if let Err(e) = created {
@@ -750,7 +754,7 @@ impl GhosttyEngine {
 }
 
 impl EngineInner {
-    fn set_up_handles(&mut self, widths: Widths, images: Option<u64>, scrollback_lines: Option<u32>, has_events: bool) -> Result<(), String> {
+    fn set_up_handles(&mut self, widths: Widths, images: Option<u64>, scrollback_lines: Option<u32>, scrollback_bytes: Option<u64>, has_events: bool) -> Result<(), String> {
         let option = |name: &str| self.r.enum_("GhosttyTerminalOption", name);
         self.scratch.w64(0, images.unwrap_or(0));
         self.check(
@@ -762,8 +766,12 @@ impl EngineInner {
         }
         if let Some(lines) = scrollback_lines {
             self.set_line_limit(lines)?;
+        }
+        if let Some(bytes) = scrollback_bytes {
+            // usize on the native target: write a full u64
+            self.scratch.w64(0, bytes);
             self.check(
-                unsafe { ffi::ghostty_terminal_set(self.terminal, option("SCROLLBACK_MAX_BYTES") as u32, std::ptr::null()) },
+                unsafe { ffi::ghostty_terminal_set(self.terminal, option("SCROLLBACK_MAX_BYTES") as u32, self.scratch.at(0) as *const c_void) },
                 "scrollback bytes",
             )?;
         }
