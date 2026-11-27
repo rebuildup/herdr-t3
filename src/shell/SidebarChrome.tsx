@@ -73,6 +73,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
             {/* outline (white fill + border in light) keeps the pill visible
                 on the zinc-50 sidebar where secondary blends into the canvas
                 (issue #128). */}
+            {/* oxlint-disable-next-line herdr-t3/no-raw-badge -- persistent environment identifier is classification, not status metadata (AC-003) */}
             <Badge data-environment-identification="pill" size="sm" variant="outline">
               {machineInfo?.label}
             </Badge>
