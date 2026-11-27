@@ -10,9 +10,10 @@
  *             correlation. This is the post-hoc localizer for events
  *             like the 28.5 GB incident.
  *
- *   compare   two perf report JSONs (perf-memory-bench.ts output, or any
- *             JSON with a `summary` map of the same shape)
- *             → per-scenario deltas + regression flags, for
+ *   compare   two perf report JSONs (perf-memory-bench.ts `summary`
+ *             reports or perf-frame-bench.ts per-window reports; issue
+ *             #526 added the frame-report shape)
+ *             → per-scenario/window deltas + regression flags, for
  *             commit/release/implementation comparisons.
  *
  * Usage:
@@ -161,18 +162,92 @@ function diagnose(): number {
 }
 
 interface ReportEnvelope {
+  format?: string;
   summary?: Record<string, ScenarioSummary>;
   config?: Record<string, unknown>;
-  host?: { totalMemMb?: number; cpus?: number; loadavg?: number[] };
+  workload?: Record<string, unknown>;
+  host?: Record<string, unknown>;
+  condition?: Record<string, unknown>;
   sha?: string;
+  git_sha?: string;
+  [k: string]: unknown;
 }
+
+/** Workload keys compared for comparability across both report shapes
+ *  (perf-memory-bench `config`, perf-frame-bench `workload`). Volatile
+ *  keys like storm_attempts are deliberately excluded. */
+const WORKLOAD_KEYS = [
+  "stormMb", "stormSeconds", "scenario",
+  "measure_seconds", "warmup_seconds", "idle_seconds", "switch_cycles",
+  "scroll", "preload_scrollback_lines", "input_probe", "storm",
+];
+
+function normWorkload(env: ReportEnvelope): Record<string, unknown> {
+  return (env.config ?? env.workload ?? {}) as Record<string, unknown>;
+}
+function normSha(env: ReportEnvelope): string | undefined {
+  return env.sha ?? env.git_sha;
+}
+function normHost(env: ReportEnvelope): { totalMemMb?: number; cpus?: number; cpuModel?: string } {
+  const h = env.host ?? {};
+  const mem = h["totalMemMb"] ??
+    (typeof h["mem_total_bytes"] === "number" ? (h["mem_total_bytes"] as number) / 1048576 : undefined);
+  return {
+    totalMemMb: mem as number | undefined,
+    cpus: (h["cpus"] ?? h["cpu_count"]) as number | undefined,
+    cpuModel: h["cpu_model"] as string | undefined,
+  };
+}
+function normLoadavg0(env: ReportEnvelope): number | undefined {
+  const h = env.host?.["loadavg"];
+  if (Array.isArray(h) && typeof h[0] === "number") return h[0];
+  const c = env.condition?.["loadavg_1m"];
+  return typeof c === "number" ? c : undefined;
+}
+
+/** perf-frame-bench reports carry per-window objects (idle/storm/switch)
+ *  instead of a `summary` map. */
+function isFrameWindow(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null &&
+    ("frames" in v || "task_utilization_pct" in v || "input_paint" in v);
+}
+function isFrameReport(env: ReportEnvelope): boolean {
+  return env.format === "herdr-t3/perf-frame" ||
+    ["idle", "storm", "switch"].some((k) => isFrameWindow(env[k]));
+}
+const FRAME_WINDOWS = ["idle", "storm", "switch"] as const;
+
+interface MetricDef {
+  label: string;
+  lowerBetter: boolean;
+  get: (w: unknown) => number | undefined;
+}
+const MEMORY_METRICS: MetricDef[] = [
+  { label: "jsHeapPeak", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.jsHeapPeakMb as number | undefined },
+  { label: "chromePeak", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.chromePeakMb as number | undefined },
+  { label: "chromeEnd", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.chromeEndMb as number | undefined },
+  { label: "chromeTailSlope", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.chromeTailSlopeMbPerMin as number | undefined },
+  { label: "bridgeEnd", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.bridgeEndMb as number | undefined },
+  { label: "herdrEnd", lowerBetter: true, get: (w) => (w as ScenarioSummary | undefined)?.herdrEndMb as number | undefined },
+];
+const FRAME_METRICS: MetricDef[] = [
+  { label: "frameP50ms", lowerBetter: true, get: (w) => ((w as { frames?: { p50?: number } })?.frames?.p50) },
+  { label: "frameP95ms", lowerBetter: true, get: (w) => ((w as { frames?: { p95?: number } })?.frames?.p95) },
+  { label: "frameP99ms", lowerBetter: true, get: (w) => ((w as { frames?: { p99?: number } })?.frames?.p99) },
+  { label: "longtaskCount", lowerBetter: true, get: (w) => (w as { longtask_count?: number })?.longtask_count },
+  { label: "longtaskTotalMs", lowerBetter: true, get: (w) => (w as { longtask_total_ms?: number })?.longtask_total_ms },
+  { label: "canvasApiMs", lowerBetter: true, get: (w) => (w as { canvas_api_ms?: number })?.canvas_api_ms },
+  { label: "taskUtilPct", lowerBetter: true, get: (w) => (w as { task_utilization_pct?: number })?.task_utilization_pct },
+  { label: "inputPaintP50ms", lowerBetter: true, get: (w) => ((w as { input_paint?: { p50?: number } })?.input_paint?.p50) },
+  { label: "inputPaintP95ms", lowerBetter: true, get: (w) => ((w as { input_paint?: { p95?: number } })?.input_paint?.p95) },
+  { label: "inputPaintP99ms", lowerBetter: true, get: (w) => ((w as { input_paint?: { p99?: number } })?.input_paint?.p99) },
+  { label: "cpuUtilPct", lowerBetter: true, get: (w) => (w as { cpu_utilization_pct?: number })?.cpu_utilization_pct },
+];
 
 function compare(baselinePath: string, candidatePath: string): number {
   const load = (p: string): ReportEnvelope => JSON.parse(readFileSync(p, "utf8")) as ReportEnvelope;
   const baseEnv = load(baselinePath);
   const candEnv = load(candidatePath);
-  const base = baseEnv.summary ?? {};
-  const cand = candEnv.summary ?? {};
 
   // Environment consistency (issue #416): deltas are only meaningful when
   // both runs used the same workload shape and host class. Reports with
@@ -180,14 +255,13 @@ function compare(baselinePath: string, candidatePath: string): number {
   // are artifacts, not regressions — observed with mem-baseline
   // (128 MiB/15 s, load ~10) vs mem-postfix (256 MiB/20 s, load ~16)
   // where every "regression" dissolved under the heavier run.
-  const bc = baseEnv.config ?? {};
-  const cc = candEnv.config ?? {};
-  const workloadKeys = ["stormMb", "stormSeconds", "scenario"];
-  const workloadDiffs = workloadKeys
-    .filter((k) => bc[k] !== undefined && cc[k] !== undefined && bc[k] !== cc[k])
-    .map((k) => `${k}: ${bc[k]} vs ${cc[k]}`);
-  const bh = baseEnv.host ?? {};
-  const ch = candEnv.host ?? {};
+  const bw = normWorkload(baseEnv);
+  const cw = normWorkload(candEnv);
+  const workloadDiffs = WORKLOAD_KEYS
+    .filter((k) => bw[k] !== undefined && cw[k] !== undefined && bw[k] !== cw[k])
+    .map((k) => `${k}: ${bw[k]} vs ${cw[k]}`);
+  const bh = normHost(baseEnv);
+  const ch = normHost(candEnv);
   const hostDiffs: string[] = [];
   if (bh.totalMemMb !== undefined && ch.totalMemMb !== undefined && bh.totalMemMb !== ch.totalMemMb) {
     hostDiffs.push(`totalMemMb ${bh.totalMemMb} vs ${ch.totalMemMb}`);
@@ -195,10 +269,12 @@ function compare(baselinePath: string, candidatePath: string): number {
   if (bh.cpus !== undefined && ch.cpus !== undefined && bh.cpus !== ch.cpus) {
     hostDiffs.push(`cpus ${bh.cpus} vs ${ch.cpus}`);
   }
-  const loadDelta =
-    bh.loadavg?.[0] !== undefined && ch.loadavg?.[0] !== undefined
-      ? Math.abs(ch.loadavg[0] - bh.loadavg[0])
-      : 0;
+  if (bh.cpuModel !== undefined && ch.cpuModel !== undefined && bh.cpuModel !== ch.cpuModel) {
+    hostDiffs.push(`cpuModel ${bh.cpuModel} vs ${ch.cpuModel}`);
+  }
+  const bLoad = normLoadavg0(baseEnv);
+  const cLoad = normLoadavg0(candEnv);
+  const loadDelta = bLoad !== undefined && cLoad !== undefined ? Math.abs(cLoad - bLoad) : 0;
   // A large loadavg gap means the two runs saw different host contention;
   // deltas can no longer be attributed to the code under test.
   const hostLoadSuspect = loadDelta > 4;
@@ -213,30 +289,35 @@ function compare(baselinePath: string, candidatePath: string): number {
       ? "same workload shape and host class"
       : "deltas are NOT comparable — differences reflect the changed conditions, not the code",
   };
-  const scenarios = [...new Set([...Object.keys(base), ...Object.keys(cand)])].sort();
-  const METRICS: { key: keyof ScenarioSummary; label: string; lowerBetter: boolean }[] = [
-    { key: "jsHeapPeakMb", label: "jsHeapPeak", lowerBetter: true },
-    { key: "chromePeakMb", label: "chromePeak", lowerBetter: true },
-    { key: "chromeEndMb", label: "chromeEnd", lowerBetter: true },
-    { key: "chromeTailSlopeMbPerMin", label: "chromeTailSlope", lowerBetter: true },
-    { key: "bridgeEndMb", label: "bridgeEnd", lowerBetter: true },
-    { key: "herdrEndMb", label: "herdrEnd", lowerBetter: true },
-  ];
+
+  const frameMode = isFrameReport(baseEnv) || isFrameReport(candEnv);
+  const scenarios: string[] = [];
+  const getWindow = (env: ReportEnvelope, sc: string): unknown =>
+    frameMode ? env[sc] : env.summary?.[sc];
+  const metrics = frameMode ? FRAME_METRICS : MEMORY_METRICS;
+  if (frameMode) {
+    for (const w of FRAME_WINDOWS) {
+      if (isFrameWindow(baseEnv[w]) || isFrameWindow(candEnv[w])) scenarios.push(w);
+    }
+  } else {
+    const base = baseEnv.summary ?? {};
+    const cand = candEnv.summary ?? {};
+    scenarios.push(...[...new Set([...Object.keys(base), ...Object.keys(cand)])].sort());
+  }
+
   const rows: Record<string, unknown>[] = [];
   let regressions = 0;
   let unmeasured = 0;
   const missingScenarios: string[] = [];
   for (const sc of scenarios) {
-    const inBase = base[sc] !== undefined;
-    const inCand = cand[sc] !== undefined;
-    if (!inBase || !inCand) missingScenarios.push(sc);
-    const b = base[sc] ?? {};
-    const c = cand[sc] ?? {};
+    const b = getWindow(baseEnv, sc);
+    const c = getWindow(candEnv, sc);
+    if (b === undefined || c === undefined) missingScenarios.push(sc);
     const deltas: Record<string, { base?: number; cand?: number; deltaPct?: number; flag?: string }> = {};
-    for (const m of METRICS) {
-      const bv = b[m.key] as number | undefined;
-      const cv = c[m.key] as number | undefined;
-      if (bv === undefined || cv === undefined) continue;
+    for (const m of metrics) {
+      const bv = m.get(b);
+      const cv = m.get(c);
+      if (typeof bv !== "number" || typeof cv !== "number") continue;
       // A zero baseline means "not measured" (e.g. herdr pid uncaptured),
       // not "zero usage" — flag it instead of reporting a fake +100%.
       // Both-zero is a real zero and compares normally.
@@ -275,8 +356,9 @@ function compare(baselinePath: string, candidatePath: string): number {
     generatedAt: new Date().toISOString(),
     baseline: baselinePath,
     candidate: candidatePath,
-    baselineSha: baseEnv.sha,
-    candidateSha: candEnv.sha,
+    baselineSha: normSha(baseEnv),
+    candidateSha: normSha(candEnv),
+    reportKind: frameMode ? "perf-frame" : "perf-memory",
     comparability,
     missingScenarios,
     unmeasuredMetrics: unmeasured,
