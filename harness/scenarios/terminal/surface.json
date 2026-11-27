@@ -634,6 +634,10 @@
               "text": "l5\nl6\nl7"
             },
             {
+              "type": "selection_commit",
+              "text": "l5\nl6\nl7"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -719,6 +723,10 @@
             },
             {
               "type": "selection_change",
+              "text": "l5"
+            },
+            {
+              "type": "selection_commit",
               "text": "l5"
             },
             {

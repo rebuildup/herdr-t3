@@ -27,6 +27,7 @@ import {
   onTerminalThemeChange,
 } from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
+import { createSelectionCopy } from "../lib/selectionCopy";
 import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { sanitizePasteText } from "../lib/ghostty/pasteText.ts";
@@ -139,6 +140,17 @@ export function PaneTerminal({
       // program's queries are all stream bytes for the pane's pty
       if (bytes.length > 0) terminalInput(machine, paneId, bytes);
     };
+    // Copy on select (issue #440): the surface reports selection *commits*
+    // only; the setting is read live per commit so toggles apply to this
+    // open pane without a rebuild, and writes are serialized so a delayed
+    // write cannot clobber a newer copy.
+    const copySelection = createSelectionCopy({
+      enabled: () => getTerminalSettings().copyOnSelect,
+      writeText: (text) => {
+        const clipboard = navigator.clipboard;
+        return clipboard ? clipboard.writeText(text) : Promise.resolve();
+      },
+    });
 
     void GhosttySession.create({
       cols: sizeRef.current.cols,
@@ -178,6 +190,7 @@ export function PaneTerminal({
             ? { lineHeight: terminalSettings.lineHeight }
             : {}),
           onInput: send,
+          onSelectionCommit: copySelection,
           onPasteText: (text) => {
             // pane.send_text wraps \x1b[200~…\x1b[201~ iff the pane enabled
             // bracketed paste — the attach stream carries no mode state, so
@@ -561,7 +574,12 @@ export function PaneTerminal({
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      <div ref={hostRef} className="absolute inset-0" data-ui-terminal={`${machine}\n${paneId}`} />
+      <div
+        ref={hostRef}
+        className="absolute inset-0"
+        data-ui-terminal={`${machine}\n${paneId}`}
+        data-pane-id={paneId}
+      />
       {searchOpen && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md">
           <Input

@@ -87,6 +87,16 @@ export type SurfaceEffect =
   | { type: "scroll_request"; direction: "up" | "down"; lines: number }
   /** `options.onSelectionChange` */
   | { type: "selection_change"; text: string | null }
+  /**
+   * The user *committed* a non-empty local selection — pointer-up after a
+   * select drag (incl. reverse drags and edge auto-scroll) or a
+   * word/line-widening click (issue #440). Emitted exactly once per commit,
+   * right after the matching `selection_change`, and never for drags in
+   * progress, scrolls, search-result selections, clears or invalidations.
+   * Carries the exact selected text; clipboard side effects are the host's
+   * decision (the surface stays DOM-free).
+   */
+  | { type: "selection_commit"; text: string }
   /** `options.onScroll` — rows above the bottom */
   | { type: "scroll"; rows: number }
   /** `options.onResize` — the cell grid changed; host tells the pty */
@@ -1345,6 +1355,7 @@ export class SurfaceCore {
         effects.push({ type: "render_set_selection", range: widened });
         const text = this.trySession(effects, () => this.session.textOf(widened));
         effects.push({ type: "selection_change", text: text || null });
+        if (text) effects.push({ type: "selection_commit", text });
         this.schedule(effects);
         return ok(effects, undefined);
       }
@@ -1360,6 +1371,7 @@ export class SurfaceCore {
       } else {
         const text = this.trySession(effects, () => this.session.textOf(this.selection!));
         effects.push({ type: "selection_change", text: text || null });
+        if (text) effects.push({ type: "selection_commit", text });
       }
     }
     this.schedule(effects);

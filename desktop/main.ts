@@ -20,6 +20,7 @@ import { fetchSnapshot } from "../server/bridge-core.ts";
 import { MachineManager } from "../server/machine-manager.ts";
 import { GhosttyThemeWatcher, ghosttyImageDataUrl } from "../server/ghostty.ts";
 import { herdrSocketPath, socketAddress, HerdrError } from "../server/herdr.ts";
+import { metricsSnapshot } from "../server/metrics.ts";
 import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnostics.ts";
 import pkg from "../package.json";
 
@@ -314,6 +315,8 @@ app.whenReady().then(() => {
       return { ok: false, error: { code: err.code, message: err.message } };
     }
   });
+
+  ipcMain.handle("herdr-t3:metrics", () => metricsSnapshot());
 
   ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
 

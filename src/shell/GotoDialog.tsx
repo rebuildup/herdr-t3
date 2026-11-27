@@ -38,7 +38,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { machineStale } from "./view";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { focusPaneTerminal } from "~/lib/focusHandoff";
 import { useWorkspaceBranchIndex } from "./worktrees";
 
 function rowIcon(row: GotoRow) {

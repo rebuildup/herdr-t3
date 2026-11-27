@@ -76,7 +76,7 @@ import { TextGenSurface } from "~/components/TextGenSurface";
 import { SecretsSurface } from "~/components/SecretsSurface";
 import { MachinesSurface } from "~/components/MachinesSurface";
 import { McpSurface } from "~/components/McpSurface";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { focusPaneTerminal } from "~/lib/focusHandoff";
 import { useRouteWorkspace } from "./view";
 import {
   activateSurface,

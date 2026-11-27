@@ -227,6 +227,10 @@
               "text": "l4\nl5\nl6\nl7"
             },
             {
+              "type": "selection_commit",
+              "text": "l4\nl5\nl6\nl7"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -338,6 +342,10 @@
           "effects": [
             {
               "type": "selection_change",
+              "text": "l4\nl5\nl6\nl7"
+            },
+            {
+              "type": "selection_commit",
               "text": "l4\nl5\nl6\nl7"
             },
             {

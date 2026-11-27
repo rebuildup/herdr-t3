@@ -8,7 +8,7 @@ import {
   DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
-import { focusPaneTerminal } from "../lib/paneFocus";
+import { focusPaneTerminal } from "../lib/focusHandoff";
 import { usePaneDiagnostics } from "../lib/paneDiagnostics";
 import { agentStatusLabel, isKnownAgentStatus } from "./AgentStatusBadge";
 import type { PaneInfo, PaneProcessInfoProcess } from "../../shared/protocol";

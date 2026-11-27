@@ -71,6 +71,14 @@ export interface GhosttySurfaceOptions {
    */
   onPasteText?(text: string): void;
   onSelectionChange?(text: string | null): void;
+  /**
+   * The user committed a non-empty local selection (issue #440): pointer-up
+   * after a select drag or word/line-widening click, exactly once per
+   * commit, with the exact selected text. Distinct from `onSelectionChange`,
+   * which also fires for clears/invalidations — hosts use this for
+   * copy-on-select and other commit-time actions.
+   */
+  onSelectionCommit?(text: string): void;
   /** the local scroll position changed (rows above the bottom); 0 is the newest rows */
   onScroll?(rowsAboveBottom: number): void;
   /**
@@ -404,6 +412,9 @@ export class GhosttySurface {
           break;
         case "selection_change":
           this.options.onSelectionChange?.(effect.text);
+          break;
+        case "selection_commit":
+          this.options.onSelectionCommit?.(effect.text);
           break;
         case "scroll":
           this.options.onScroll?.(effect.rows);

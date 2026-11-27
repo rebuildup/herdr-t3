@@ -62,7 +62,7 @@ import { isMacPlatform } from "~/lib/shortcuts";
 import { setAppearanceMode, type AppearanceMode } from "~/lib/theme";
 import { useSidebar } from "~/components/ui/sidebar";
 import { GotoDialog } from "./GotoDialog";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { focusPaneTerminal } from "~/lib/focusHandoff";
 import { openSurface, type RightPanelSurface } from "./rightPanelStore";
 import { workspaceTitle } from "~/lib/workspace";
 import { navigate, settingsHash } from "./router";
