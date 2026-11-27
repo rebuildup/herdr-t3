@@ -8,7 +8,7 @@
  *
  * Usage:
  *   bun scripts/perf-memory-bench.ts [--session ht3mem] [--out perf-reports/mem-<sha>.json]
- *     [--storm-mb 256] [--storm-seconds 30] [--scenario all|storm|kitty|switch|idle]
+ *     [--storm-mb 256] [--storm-seconds 30] [--scenario all|idle|storm|kitty|switch|storm2|switch2]
  *     [--check] [--max-jsheap-mb 256] [--max-chrome-mb 2048] [--max-bridge-mb 512] [--max-herdr-mb 512]
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -457,6 +457,9 @@ async function main(): Promise<number> {
     if (SCENARIO === "all" || SCENARIO === "kitty") await runScenario("kitty", () => kitty(20));
     if (SCENARIO === "all" || SCENARIO === "switch") await runScenario("switch", () => switchWs(10));
     if (SCENARIO === "all" || SCENARIO === "storm2") await runScenario("storm2", () => storm(STORM_MB, STORM_SECONDS));
+    // Second workspace-switch pass: catches slow cumulative growth that a
+    // single switch cycle and the per-scenario ceilings cannot see.
+    if (SCENARIO === "all" || SCENARIO === "switch2") await runScenario("switch2", () => switchWs(10));
 
     stopSampling();
     await takeSample();
@@ -537,6 +540,14 @@ async function main(): Promise<number> {
         if (name === "storm2" && storm?.chromePeakMb !== undefined &&
             s.chromePeakMb > storm.chromePeakMb * 1.5 + 300) {
           breaches.push(`storm2 peak ${s.chromePeakMb}MB vs storm ${storm.chromePeakMb}MB — cumulative growth`);
+        }
+        // Second churn pass must not sit meaningfully above the first:
+        // each workspace switch mounts/unmounts pane surfaces, so a leak
+        // in that lifecycle shows up as end-to-end growth here.
+        const firstSwitch = summary["switch"] as { chromeEndMb?: number } | undefined;
+        if (name === "switch2" && firstSwitch?.chromeEndMb !== undefined &&
+            (s.chromeEndMb ?? 0) > firstSwitch.chromeEndMb + 400) {
+          breaches.push(`switch2 end ${s.chromeEndMb}MB vs switch ${firstSwitch.chromeEndMb}MB — cumulative growth`);
         }
         if (breaches.length) {
           ok = false;
