@@ -275,12 +275,16 @@ function compare(baselinePath: string, candidatePath: string): number {
   const bLoad = normLoadavg0(baseEnv);
   const cLoad = normLoadavg0(candEnv);
   const loadDelta = bLoad !== undefined && cLoad !== undefined ? Math.abs(cLoad - bLoad) : 0;
-  const comparable = workloadDiffs.length === 0 && hostDiffs.length === 0;
+  // A large loadavg gap means the two runs saw different host contention;
+  // deltas can no longer be attributed to the code under test.
+  const hostLoadSuspect = loadDelta > 4;
+  const comparable = workloadDiffs.length === 0 && hostDiffs.length === 0 && !hostLoadSuspect;
   const comparability = {
     comparable,
     workloadDiffs,
     hostDiffs,
     loadavg1Delta: Math.round(loadDelta * 100) / 100,
+    hostLoadSuspect,
     note: comparable
       ? "same workload shape and host class"
       : "deltas are NOT comparable — differences reflect the changed conditions, not the code",
@@ -303,9 +307,12 @@ function compare(baselinePath: string, candidatePath: string): number {
 
   const rows: Record<string, unknown>[] = [];
   let regressions = 0;
+  let unmeasured = 0;
+  const missingScenarios: string[] = [];
   for (const sc of scenarios) {
     const b = getWindow(baseEnv, sc);
     const c = getWindow(candEnv, sc);
+    if (b === undefined || c === undefined) missingScenarios.push(sc);
     const deltas: Record<string, { base?: number; cand?: number; deltaPct?: number; flag?: string }> = {};
     for (const m of metrics) {
       const bv = m.get(b);
@@ -313,8 +320,19 @@ function compare(baselinePath: string, candidatePath: string): number {
       if (typeof bv !== "number" || typeof cv !== "number") continue;
       // A zero baseline means "not measured" (e.g. herdr pid uncaptured),
       // not "zero usage" — flag it instead of reporting a fake +100%.
+      // Both-zero is a real zero and compares normally.
+      if (bv === 0 && cv === 0) {
+        deltas[m.label] = { base: bv, cand: cv, deltaPct: 0 };
+        continue;
+      }
       if (bv === 0) {
         deltas[m.label] = { base: bv, cand: cv, flag: "baseline-unmeasured" };
+        unmeasured++;
+        continue;
+      }
+      if (cv === 0) {
+        deltas[m.label] = { base: bv, cand: cv, flag: "candidate-unmeasured" };
+        unmeasured++;
         continue;
       }
       const deltaPct = ((cv - bv) / bv) * 100;
@@ -325,6 +343,15 @@ function compare(baselinePath: string, candidatePath: string): number {
     }
     rows.push({ scenario: sc, deltas });
   }
+  // Verdict precedence: inconclusive beats fail beats pass. A comparison that
+  // cannot attribute deltas to the code (condition mismatch, unmeasured or
+  // missing metrics) must never certify a performance PASS.
+  const inconclusiveReasons: string[] = [];
+  if (!comparable) inconclusiveReasons.push("conditions differ");
+  if (missingScenarios.length) inconclusiveReasons.push(`scenarios missing on one side: ${missingScenarios.join(",")}`);
+  if (unmeasured) inconclusiveReasons.push(`${unmeasured} metric(s) unmeasured`);
+  const verdict =
+    inconclusiveReasons.length > 0 ? "inconclusive" : regressions > 0 ? "fail" : "pass";
   const report = {
     generatedAt: new Date().toISOString(),
     baseline: baselinePath,
@@ -333,18 +360,22 @@ function compare(baselinePath: string, candidatePath: string): number {
     candidateSha: normSha(candEnv),
     reportKind: frameMode ? "perf-frame" : "perf-memory",
     comparability,
+    missingScenarios,
+    unmeasuredMetrics: unmeasured,
+    verdict,
+    inconclusiveReasons,
     regressionPct: REGRESSION_PCT,
     regressions,
     scenarios: rows,
   };
   if (JSON_OUT) {
     console.log(JSON.stringify(report, null, 2));
-    return regressions > 0 ? 1 : 0;
+    return verdict === "pass" ? 0 : verdict === "fail" ? 1 : 3;
   }
   if (!comparability.comparable) {
     console.log(`WARNING: ${comparability.note}`);
     for (const d of [...comparability.workloadDiffs, ...comparability.hostDiffs]) console.log(`  ${d}`);
-    if (comparability.loadavg1Delta > 4) console.log(`  loadavg[0] delta ${comparability.loadavg1Delta} (>4 — host load differed)`);
+    if (comparability.hostLoadSuspect) console.log(`  loadavg[0] delta ${comparability.loadavg1Delta} (>4 — host load differed)`);
     console.log("");
   }
   for (const r of rows) {
@@ -352,7 +383,12 @@ function compare(baselinePath: string, candidatePath: string): number {
       .map(([k, v]) => `${k} ${v.deltaPct !== undefined ? (v.deltaPct >= 0 ? "+" : "") + v.deltaPct + "%" : "n/a"}${v.flag ? ` ⚠${v.flag}` : ""}`);
     console.log(`${(r as { scenario: string }).scenario}: ${parts.join(", ") || "n/a"}`);
   }
-  console.log(regressions ? `\n${regressions} regression(s) beyond ±${REGRESSION_PCT}%` : "\nno regressions beyond threshold");
+  if (regressions) console.log(`\n${regressions} regression(s) beyond ±${REGRESSION_PCT}%`);
+  else console.log("\nno regressions beyond threshold");
+  if (verdict === "inconclusive") {
+    console.log(`INCONCLUSIVE — cannot certify PASS: ${inconclusiveReasons.join("; ")}`);
+    return 3;
+  }
   return regressions > 0 ? 1 : 0;
 }
 
@@ -362,7 +398,8 @@ function main(): number {
     return compare(args[1], args[2]);
   }
   console.error("usage: perf-observe.ts diagnose [--user-data <dir>] [--json]\n" +
-    "       perf-observe.ts compare <baseline.json> <candidate.json> [--json] [--regression-pct 20]");
+    "       perf-observe.ts compare <baseline.json> <candidate.json> [--json] [--regression-pct 20]\n" +
+    "  exit codes: 0=pass, 1=regression, 3=inconclusive (conditions/measurements cannot certify a pass), 2=usage");
   return 2;
 }
 

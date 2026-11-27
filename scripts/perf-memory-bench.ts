@@ -473,18 +473,22 @@ async function main(): Promise<number> {
     }
     const summary: Record<string, unknown> = {};
     /** Chrome-tree MB/min slope over the last 3 min of a scenario's samples —
-     *  convergence check: a healthy scenario flattens or decays here. */
-    const tailSlope = (arr: Sample[]): number => {
+     *  convergence check: a healthy scenario flattens or decays here.
+     *  Returns the measured span too: on scenarios shorter than ~2 min the
+     *  slope is noise-dominated and the gate must not treat it as signal. */
+    const tailSlope = (arr: Sample[]): { slope: number; spanSec: number } => {
       const last = arr[arr.length - 1]!;
       const windowed = arr.filter((s) => s.t >= last.t - 180_000);
-      if (windowed.length < 2) return 0;
+      if (windowed.length < 2) return { slope: 0, spanSec: 0 };
       const first = windowed[0]!;
-      const minutes = (last.t - first.t) / 60_000;
-      return minutes > 0 ? (last.chromeTreeMb - first.chromeTreeMb) / minutes : 0;
+      const spanSec = (last.t - first.t) / 1000;
+      const minutes = spanSec / 60;
+      return { slope: minutes > 0 ? (last.chromeTreeMb - first.chromeTreeMb) / minutes : 0, spanSec };
     };
     for (const [name, arr] of byScenario) {
       const first = arr[0]!, last = arr[arr.length - 1]!;
       const peak = arr.reduce((a, s) => (s.chromeTreeMb > a.chromeTreeMb ? s : a), first);
+      const tail = tailSlope(arr);
       summary[name] = {
         samples: arr.length,
         jsHeapStartMb: +first.jsHeapUsedMb.toFixed(1),
@@ -494,7 +498,8 @@ async function main(): Promise<number> {
         chromeEndMb: +last.chromeTreeMb.toFixed(1),
         chromePeakMb: +peak.chromeTreeMb.toFixed(1),
         chromePeakTop: peak.chromeTop,
-        chromeTailSlopeMbPerMin: +tailSlope(arr).toFixed(1),
+        chromeTailSlopeMbPerMin: +tail.slope.toFixed(1),
+        tailWindowSec: Math.round(tail.spanSec),
         bridgeEndMb: +last.bridgeMb.toFixed(1),
         herdrEndMb: +last.herdrMb.toFixed(1),
       };
@@ -521,8 +526,10 @@ async function main(): Promise<number> {
       for (const [name, s] of Object.entries(summary) as [string, {
         jsHeapPeakMb: number; chromePeakMb: number; bridgeEndMb: number; herdrEndMb: number;
         chromeTailSlopeMbPerMin?: number; chromeStartMb?: number; chromeEndMb?: number;
+        tailWindowSec?: number;
       }][]) {
         const breaches: string[] = [];
+        const notes: string[] = [];
         if (s.jsHeapPeakMb > MEM_BUDGETS.jsHeapPeakMb) breaches.push(`jsHeap ${s.jsHeapPeakMb}MB > ${MEM_BUDGETS.jsHeapPeakMb}MB`);
         if (s.chromePeakMb > MEM_BUDGETS.chromePeakMb) breaches.push(`chrome ${s.chromePeakMb}MB > ${MEM_BUDGETS.chromePeakMb}MB`);
         if (s.bridgeEndMb > MEM_BUDGETS.bridgeEndMb) breaches.push(`bridge ${s.bridgeEndMb}MB > ${MEM_BUDGETS.bridgeEndMb}MB`);
@@ -530,8 +537,12 @@ async function main(): Promise<number> {
         // Convergence: after the workload stops, Chrome-tree RSS must flatten
         // or decay. A sustained tail growth means a leak accumulates even
         // under the absolute ceilings (issue #499 acceptance: steady state).
-        if ((name === "idle" || name === "switch") && (s.chromeTailSlopeMbPerMin ?? 0) > 64) {
+        if ((name === "idle" || name === "switch") && (s.tailWindowSec ?? 0) >= 120 &&
+            (s.chromeTailSlopeMbPerMin ?? 0) > 64) {
           breaches.push(`tail slope ${s.chromeTailSlopeMbPerMin}MB/min > 64MB/min (not converged)`);
+        }
+        if ((name === "idle" || name === "switch") && (s.tailWindowSec ?? 0) < 120) {
+          notes.push(`convergence window ${s.tailWindowSec ?? 0}s < 120s — slope not gated`);
         }
         // Reuse: storm2 re-runs the same storm after kitty/switch churn —
         // its peak must not exceed the first storm's by more than slack,
@@ -553,7 +564,7 @@ async function main(): Promise<number> {
           ok = false;
           console.error(`FAIL  ${name}: ${breaches.join("; ")}`);
         } else {
-          console.log(`PASS  ${name}: within memory budgets`);
+          console.log(`PASS  ${name}: within memory budgets${notes.length ? ` (${notes.join("; ")})` : ""}`);
         }
       }
       return ok ? 0 : 1;

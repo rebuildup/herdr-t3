@@ -125,3 +125,21 @@ Skills reconciled from `rebuildup/aude-skills` live in `.agents/skills/`
 freshness metadata. Do not hand-edit upstream-managed Skill bodies; record
 project-specific refinements in this file, ADRs, or `docs/`. Update via
 `bunx skills update -p -y`.
+
+Design-domain skills come from `rebuildup/design-skills` (pinned in
+`docs/upstream.md`); do not install the pack wholesale. Adopted capabilities:
+
+- `design-discipline` — upstream design foundation before creating or
+  substantially restructuring a 2D visual artifact or UI (meaning
+  reconstruction, media selection, spatial composition).
+- `design-intent` — fixing visual direction / brief when it is genuinely
+  unresolved or must stay consistent across the project.
+- `composition-review` — auditing a finished screen/page as a whole against
+  general composition principles (hierarchy, grouping, whitespace, balance).
+- `visual-review` — screenshot-driven review of rendered UI (regression,
+  coherence, first encounter). Currently a **trial** adoption pending the
+  upstream `watch` status; use it for UI-change visual verification and feed
+  results back before treating it as the default reviewer.
+
+`functional-aesthetics-review` and `motion-system` remain upstream `watch`
+candidates and are intentionally not installed.
