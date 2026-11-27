@@ -15,6 +15,8 @@
 use std::collections::{HashMap, HashSet};
 
 pub mod memory_budget;
+pub mod memory_host;
+pub mod os_mem;
 use terminal_core::{
     CursorStyle, GhosttyImage, GhosttyRun, GhosttySession, RunColor, ScreenRange,
     STYLE_BOLD, STYLE_FAINT, STYLE_INVERSE, STYLE_INVISIBLE, STYLE_ITALIC, STYLE_STRIKE,
@@ -240,6 +242,12 @@ impl<M: TextMetrics> GhosttyScene<M> {
             font_strings: HashMap::new(),
             advance_cache: HashMap::new(),
         }
+    }
+
+    /// The session's byte estimate for the aggregate memory budget
+    /// (issue #528) — the payload [`memory_host::scene_probe`] wraps.
+    pub fn memory_estimate_bytes(&self) -> u64 {
+        self.session.memory_estimate_bytes()
     }
 
     pub fn session(&mut self) -> &mut GhosttySession {
