@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "source": {
+    "path": "docs/brand/originals/hoxay-sea-turtle-symbol-concept-1.svg",
+    "sha256": "0d353914793981f089e09f0bad2ba994e496a7193848e5b67cbc3fc3f7c67fea"
+  },
+  "recipe": {
+    "canvas": 1024,
+    "surface": "#101014",
+    "ink": "#ffffff",
+    "symbolScale": 0.625,
+    "cornerRadius": 220,
+    "illumination": "radial centered 10%->0% white",
+    "note": "recolor+placement+scale only; master geometry untouched"
+  },
+  "outputs": {
+    "build/icon.png": "48860a8381ca25caec2db4253fac89d7bc21346f9d94ae9ecbc03d883ae17a2c",
+    "build/icon.ico": "c92f58063de2755b68d5be7eaf6304b6a2762e8ae85d0847ca1e81179834fd49",
+    "build/icon.icns": "d56fc7e565ca086f93ee2498944710da7bdb1ced3625d23083fd121e235340fb"
+  }
+}
