@@ -215,7 +215,8 @@ fn wait_for(cond: impl Fn() -> bool, timeout: Duration) -> bool {
 fn session_delivers_initial_snapshot_subscribes_and_debounces_events() {
     let fake = FakeHerdr::start();
     fake.push_snapshot(snap(&["p1"]));
-    fake.push_snapshot(snap(&["p1"])); // refetch after event
+    fake.push_snapshot(snap(&["p1"])); // refetch after event 1: identical -> deduped
+    fake.push_snapshot(snap(&["p1", "p2"])); // refetch after event 2: changed -> delivered
     let connector = fake.connector_arc();
 
     let collected = Arc::new(Collected::default());
@@ -258,6 +259,13 @@ fn session_delivers_initial_snapshot_subscribes_and_debounces_events() {
         || fake.snapshot_calls() > before,
         Duration::from_secs(2)
     ));
+    // Issue #423 dedup: the refetch ran but returned content identical to
+    // the delivered snapshot, so on_snapshot must not fire again.
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(collected.snapshots.lock().unwrap().len(), 1);
+
+    // A second event whose refetch returns changed content is delivered.
+    fake.push_event("workspace.updated", json!({ "workspace_id": "w1" }));
     assert!(wait_for(
         || collected.snapshots.lock().unwrap().len() >= 2,
         Duration::from_secs(2)

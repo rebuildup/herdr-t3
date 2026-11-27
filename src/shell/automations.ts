@@ -524,11 +524,13 @@ async function callAutomations(
   machine: string,
   command: string,
   args: string[] = [],
+  coalesce = false,
 ): Promise<Record<string, unknown>> {
   return pluginCall(machine, {
     plugin: AUTOMATIONS_PLUGIN_ID,
     command,
     args,
+    ...(coalesce ? { coalesce: true } : {}),
   });
 }
 
@@ -581,7 +583,7 @@ export async function fetchAutomationsList(
   machine: string,
   options: { enabled?: boolean | undefined; limit?: number | undefined } = {},
 ): Promise<AutomationsTask[]> {
-  const doc = await callAutomations(machine, "list", automationsListArgs(options));
+  const doc = await callAutomations(machine, "list", automationsListArgs(options), true);
   const tasks = automationsListFromDoc(doc);
   if (tasks === null) throw badOutput("list");
   return tasks;
@@ -592,7 +594,7 @@ export async function fetchAutomationsTask(
   machine: string,
   taskId: string,
 ): Promise<AutomationsTask> {
-  const doc = await callAutomations(machine, "get", automationsGetArgs(taskId));
+  const doc = await callAutomations(machine, "get", automationsGetArgs(taskId), true);
   const task = automationsGetFromDoc(doc);
   if (task === null) throw badOutput("get");
   return task;
@@ -612,7 +614,7 @@ export async function fetchAutomationsRuns(
     storedOnly?: boolean | undefined;
   } = {},
 ): Promise<AutomationsRun[]> {
-  const doc = await callAutomations(machine, "runs", automationsRunsArgs(options));
+  const doc = await callAutomations(machine, "runs", automationsRunsArgs(options), true);
   const runs = automationsRunsFromDoc(doc);
   if (runs === null) throw badOutput("runs");
   return runs;
@@ -890,6 +892,7 @@ export async function refreshAutomations(machine: string): Promise<void> {
       const capability = await pluginCall(machine, {
         plugin: AUTOMATIONS_PLUGIN_ID,
         command: "capability",
+        coalesce: true,
       });
       const cap = capabilityOk(capability);
       if (!cap) {
@@ -907,7 +910,7 @@ export async function refreshAutomations(machine: string): Promise<void> {
         });
         return;
       }
-      const doc = await callAutomations(machine, "list");
+      const doc = await callAutomations(machine, "list", [], true);
       const tasks = automationsListFromDoc(doc);
       if (tasks === null) throw badOutput("list");
       setState(machine, {

@@ -340,6 +340,12 @@ export type ClientFrame =
       args?: string[];
       stdin?: string;
       timeout_ms?: number;
+      /**
+       * Opt-in single-flight coalescing (issue #424): the caller asserts
+       * this command is a read whose concurrent identical invocations may
+       * share one execution. Mutations must never set it.
+       */
+      coalesce?: boolean;
     };
 
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
@@ -426,6 +432,28 @@ export const RPC_METHODS = [
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
+
+/**
+ * RPC methods that cannot mutate session state (issue #423). A successful
+ * call to one of these never schedules a snapshot refetch; every other
+ * method keeps the post-RPC refresh as a belt-and-suspenders for mutations
+ * herdr does not emit events for. `session.snapshot` is the fetch itself —
+ * refreshing after it would amplify read traffic into more fetches.
+ * Unknown/future methods default to refreshing (conservative).
+ */
+export const READ_ONLY_RPC_METHODS = [
+  "session.snapshot",
+  "agent.get",
+  "agent.read",
+  "agent.explain",
+  "pane.process_info",
+  "pane.link.resolve",
+  "worktree.list",
+] as const;
+
+export function isReadOnlyRpcMethod(method: string): boolean {
+  return (READ_ONLY_RPC_METHODS as readonly string[]).includes(method);
+}
 
 /* ------------------------------------------------------------------ */
 /* Plugin contract boundary types (ADR-0011)                            */
@@ -587,7 +615,8 @@ export function isClientFrame(value: unknown): value is ClientFrame {
           (typeof frame["timeout_ms"] === "number" &&
             Number.isInteger(frame["timeout_ms"]) &&
             frame["timeout_ms"] >= 500 &&
-            frame["timeout_ms"] <= 600_000))
+            frame["timeout_ms"] <= 600_000)) &&
+        (frame["coalesce"] === undefined || typeof frame["coalesce"] === "boolean")
       );
     default:
       return false;

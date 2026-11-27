@@ -257,6 +257,10 @@ fn run_actor(
     on_error: Option<Arc<dyn Fn(HerdrError) + Send + Sync>>,
 ) {
     let mut fetch_deadline: Option<Instant> = None;
+    // Dedup key parity with `deliverSnapshot` in bridge-core.ts (issue
+    // #423): the initial snapshot was already delivered by `start`, so an
+    // identical refetch must not re-fire `on_snapshot`.
+    let mut last_delivered = Some(snapshot.clone());
 
     while alive.load(Ordering::SeqCst) {
         let wait = fetch_deadline
@@ -275,7 +279,10 @@ fn run_actor(
             match fetch_snapshot(connector.as_ref()) {
                 Ok(snap) => {
                     snapshot = snap.clone();
-                    on_snapshot(snap.clone());
+                    if last_delivered.as_ref() != Some(&snap) {
+                        last_delivered = Some(snap.clone());
+                        on_snapshot(snap.clone());
+                    }
                     let _ = sup_tx.send(SupMsg::Snapshot(snap));
                 }
                 Err(e) => {
@@ -298,9 +305,13 @@ fn run_actor(
             }
             Some(ActorMsg::ResubscribedSnapshot(snap)) => {
                 // Fresh snapshot fetched by the supervisor on reopen:
-                // deliver it and reconcile (it may carry a new pane set).
+                // deliver it (deduped) and reconcile (it may carry a new
+                // pane set).
                 snapshot = snap.clone();
-                on_snapshot(snap.clone());
+                if last_delivered.as_ref() != Some(&snap) {
+                    last_delivered = Some(snap.clone());
+                    on_snapshot(snap.clone());
+                }
                 let _ = sup_tx.send(SupMsg::Snapshot(snap));
             }
             None => {
