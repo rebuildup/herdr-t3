@@ -1975,6 +1975,10 @@ export function GitSurface({
                 </Button>
               ))}
             </section>
+            {/* Sections re-report the same repo/plugin failure the status
+                line already shows — skip them while status is broken so the
+                error does not render twice (issue #480 z5). */}
+            {!sectionsDisabled ? (
             <section>
               {section === "changes" ? (
                 <ChangesSection
@@ -2018,6 +2022,7 @@ export function GitSurface({
                 />
               ) : null}
             </section>
+            ) : null}
           </>
         ) : (
           <SectionMessage>
