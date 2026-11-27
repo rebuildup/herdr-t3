@@ -120,7 +120,9 @@ Rules:
 Mirror `SettingsSidebarNav` + `settingsLayout.tsx`: left section nav,
 right grouped settings pages. herdr-t3 sections:
 
-- **General** — app behavior, launch options
+- **General** — app behavior, launch options, in-app notification
+  position (issue #428; four corners + edge centers, persisted under
+  `herdr-t3:settings:notifications`, default top-right)
 - **Appearance** — theme mode (system/dark/light), Ghostty theme sync,
   UI density where applicable
 - **Connections** — machines: add/edit/remove SSH endpoints, status,

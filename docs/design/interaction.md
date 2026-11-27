@@ -36,6 +36,12 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
 - 状態バッジ (agent_status) の変化: 色・icon の即時切替を基本とし、
   blocked 到達時のみ attention を示す控えめな pulse を許可
   (reduced-motion では静止)。
+- 通知 toast (#428): `ui/toast.tsx` (T3 port) の stack/peek・swipe・
+  退出 motion をそのまま使う。自動 dismiss は「表示時間」だけを数え、
+  window 非表示・非 focus・hover 中は停止する。位置は設定で
+  top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
+  から選択 (既定 top-right)、top 系は `--workspace-topbar-height`
+  (titlebar/WCO 予約領域) の下に逃げる。
 
 ## 3. ドラッグ & ドロップ (#111)
 
