@@ -118,6 +118,43 @@ describe("resolveGhosttyPalette", () => {
     ).toBeNull();
   });
 
+  test("cursor-text parses colours and cell-* keywords (issue #382)", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig(
+        "background = #1e1e2e\ncursor-color = #f5e0dc\ncursor-text = #111111\n",
+      ),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p?.cursorColor).toBe("#f5e0dc");
+    expect(p?.cursorText).toBe("#111111");
+
+    const kw = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig("cursor-text = cell-foreground\n"),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(kw?.cursorText).toBe("cell-foreground");
+    const kw2 = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig("cursor-color = cell-background\ncursor-text = CELL-BACKGROUND\n"),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(kw2?.cursorColor).toBe("cell-background");
+    expect(kw2?.cursorText).toBe("cell-background");
+  });
+
+  test("a cursor-text-only config still resolves (not treated as empty)", () => {
+    const p = resolveGhosttyPalette({
+      configEntries: parseGhosttyConfig("cursor-text = #123456\n"),
+      readTheme: () => undefined,
+      preferDark: true,
+    });
+    expect(p).not.toBeNull();
+    expect(p?.cursorText).toBe("#123456");
+    expect(p?.background).toBeUndefined();
+  });
+
   test("unknown theme still applies explicit overrides", () => {
     const p = resolveGhosttyPalette({
       configEntries: parseGhosttyConfig("theme = DoesNotExist\nbackground = #101010\n"),

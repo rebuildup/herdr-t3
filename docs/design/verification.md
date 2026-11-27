@@ -92,6 +92,7 @@ real TUI can prove.
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
 | 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
 | 16 | Canvas session 状態 (#421, info-architecture.md §10): cold start の Loading 表示中に "No workspaces" が出ないこと、最後の workspace/pane を閉じた後の真の空状態 + New workspace 回復、machine 切断時の Reconnect、fetch 失敗時の Retry、disabled machine の Open Connections | ☐ | ☐ | 隔離 session で `workspace.close`/`pane.close` を実行して確認 |
+| 17 | ブロックカーソル描画 (#382, terminal-render.md §Cursor): 通常文字・ANSI 色・inverse・全角・結合文字・空セル・選択範囲上で cursor セルが不透明 fill + cursor-text 色の文字再描画になること (半透明 wash でない)。`cursor-color`/`cursor-text` (色・`cell-foreground`/`cell-background` キーワード) が Ghostty config から反映されること。bar/underline カーソル形状・点滅・非フォーカス時の退行がないこと | ☐ | ☐ | 実機の視覚評価は #413 RC に集約。contract/harness は `terminal.scene-cursor` scenario が固定 |
 
 ### Human acceptance procedures
 
