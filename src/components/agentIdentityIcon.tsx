@@ -153,10 +153,11 @@ function StatusRing({ status }: { status: AgentStatus }) {
 }
 
 /**
- * Centered overlay disc — large enough to hide the brand mark so the
- * state reads at a glance instead of competing with the glyph for
- * attention. Rendered as a normal flow child of the centered slot, so
- * it sits above both the mark and the ring.
+ * Centered overlay disc — an independent layer above the mark and the
+ * ring, not a flex sibling: as a flow child it would sit beside the
+ * brand mark and squeeze the 20px slot. Large enough to hide the mark
+ * so the state reads at a glance instead of competing with the glyph
+ * for attention.
  */
 function StatusOverlay({
   tone,
@@ -169,7 +170,7 @@ function StatusOverlay({
     <span
       aria-hidden
       className={cn(
-        "pointer-events-none flex size-3.5 items-center justify-center rounded-full text-2xs font-bold leading-none",
+        "pointer-events-none absolute left-1/2 top-1/2 flex size-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-2xs font-bold leading-none",
         tone === "destructive" && "bg-destructive text-white",
         tone === "success" && "bg-success text-white",
         tone === "muted" && "bg-muted-foreground text-background",
