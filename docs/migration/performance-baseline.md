@@ -122,16 +122,23 @@ GPUI path):
   pending-queue/attach-queue byte ceilings in the host layer.
 - **Aggregate budget**: the host sums per-session WASM/native heap
   high-water marks against a machine-scaled budget (renderer:
-  `src/lib/memoryBudget.ts`; native: TBD — must land before GPUI ships
-  panes). Over budget → lossless cache shedding only; WASM/native heap
-  cannot shrink without session disposal, so shedding is rate-limited
-  and attributed (top sessions named) rather than thrashing.
+  `src/lib/memoryBudget.ts`; native: `crates/terminal-render/src/memory_budget.rs`
+  for the budget/watchdog math, `memory_host.rs` for the host-side
+  wiring — issue #553). Over budget → lossless cache shedding only;
+  WASM/native heap cannot shrink without session disposal, so shedding
+  is rate-limited and attributed (top sessions named) rather than
+  thrashing.
 - **Watchdog**: main process derives warn/critical/breach from physical
   RAM, a 2 h measured baseline, a 15 min RSS slope, and OS free-memory
   pressure (`osFreePct`); only breach reloads. `herdr-t3:memory-pressure`
-  pushes drive renderer shedding. The native port must reproduce the
-  same level semantics — a fixed absolute threshold is a defect, not a
-  design.
+  pushes drive renderer shedding. The native port reproduces the same
+  level semantics in `memory_budget::MemoryWatchdog` — a fixed absolute
+  threshold is a defect, not a design — fed by `memory_host::MemoryHost`
+  with process RSS and platform-aware OS-available memory
+  (`os_mem.rs`: `vm_stat` on macOS, `MemAvailable` on Linux). Breach is
+  a signal to the host (`MemoryHostEvent::SurfaceReloadDue`, 10 min
+  cooldown); session disposal stays a host decision that preserves
+  drafts/attach state — the crate never kills sessions.
 - **Measurement**: `perf-memory-bench.ts --check` gates absolute budgets
   plus convergence (tail slope, storm2/switch2 reuse). The same
   scenarios must run against the GPUI host before parity is claimed.
