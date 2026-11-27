@@ -45,6 +45,7 @@ const REPO_ROOT = join(import.meta.dir, "..");
 // ---------- args ----------
 const VALUE_FLAGS = new Set([
   "--session", "--socket", "--seconds", "--out", "--bridge-port",
+  "--plugin-refresh-ms",
 ]);
 const args = new Map<string, string>();
 const positional: string[] = [];
@@ -59,6 +60,10 @@ const flag = (name: string, dflt: string) => args.get(name) ?? dflt;
 const SESSION = flag("--session", "ht3load");
 const BRIDGE_PORT = Number(flag("--bridge-port", "4751"));
 const LEG_SECONDS = Number(flag("--seconds", "12"));
+// Store refresh cadence model: pre-#422 stores refreshed on every
+// snapshot push debounced ~800 ms; post-#422 gates snapshot-triggered
+// refreshes at 15 s per machine. Override to model either behavior.
+const PLUGIN_REFRESH_MS = Number(flag("--plugin-refresh-ms", "800"));
 const OUT =
   positional[1] ??
   flag("--out", join(REPO_ROOT, "perf-reports", `bridge-load-${gitSha().slice(0, 8)}.json`));
@@ -199,6 +204,7 @@ class BridgeClient {
   latencies: number[] = [];
   errors = 0;
   framesReceived = 0;
+  frameCounts: Record<string, number> = {};
 
   async connect(url: string): Promise<void> {
     this.ws = new WebSocket(url);
@@ -209,6 +215,8 @@ class BridgeClient {
     this.ws.onmessage = (ev) => {
       const frame = JSON.parse(String(ev.data)) as { type?: string; id?: string; ok?: boolean; error?: { message?: string } };
       this.framesReceived += 1;
+      const t = frame.type ?? "unknown";
+      this.frameCounts[t] = (this.frameCounts[t] ?? 0) + 1;
       if (frame.type === "rpc_result" && frame.id && this.pending.has(frame.id)) {
         const p = this.pending.get(frame.id)!;
         this.pending.delete(frame.id);
@@ -256,10 +264,17 @@ const KNOWN_READ_CALLS: Record<string, { plugin: string; command: string }> = {
   usage: { plugin: "rebuildup.usage", command: "quota" },
 };
 
-async function metrics(port: number): Promise<MetricsSnapshot> {
-  const res = await fetch(`http://127.0.0.1:${port}/api/metrics`);
-  return (await res.json()) as MetricsSnapshot;
+async function metrics(port: number): Promise<MetricsSnapshot | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/metrics`);
+    if (!res.ok) return null;
+    return (await res.json()) as MetricsSnapshot;
+  } catch {
+    return null;
+  }
 }
+
+const EMPTY_SNAP: MetricsSnapshot = { ok: true, uptimeMs: 0, timestamp: "", counters: {}, timers: {}, gauges: {} };
 
 function herdrCli(session: string, cliArgs: string[]): string {
   return execFileSync("herdr", ["--session", session, ...cliArgs], { encoding: "utf8" });
@@ -293,6 +308,14 @@ async function waitHttp(url: string, tries = 80): Promise<void> {
   throw new Error(`timed out waiting for ${url}`);
 }
 
+interface LegRecord {
+  delta: LegDelta | null;
+  issued: Record<string, number>;
+  verdict: LegVerdict;
+  client_frames: Record<string, number>;
+  plugin_exec_pids_observed: number;
+}
+
 interface LoadReport {
   format: "herdr-t3/bridge-load";
   version: 1;
@@ -301,8 +324,10 @@ interface LoadReport {
   host: ReturnType<typeof hostInfo>;
   condition: { loadavg_1m: number; loadavg_5m: number; loadavg_15m: number };
   leg_seconds: number;
+  plugin_refresh_ms: number;
+  server_metrics: boolean;
   plugins_discovered: string[];
-  legs: Record<string, { delta: LegDelta; issued: Record<string, number>; verdict: LegVerdict }>;
+  legs: Record<string, LegRecord>;
   client: { rpc_latencies_ms: { p50: number; p95: number; max: number }; errors: number; frames_received: number };
 }
 
@@ -323,19 +348,72 @@ function pct(sorted: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))]!;
 }
 
+// Plugin CLI execs are `bun run src/cli.ts ...` children of the bridge;
+// sampled via pgrep every 100 ms. Short execs can be missed — the count
+// is a lower bound, calibrated against plugin.exec timers post-#446.
+const spawnSeen = new Set<number>();
+let spawnSampler: ReturnType<typeof setInterval> | null = null;
+
+function startSpawnSampler(socketPath: string): void {
+  spawnSampler = setInterval(() => {
+    try {
+      const out = execFileSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" });
+      for (const line of out.split("\n")) {
+        // plugin_call execs only, scoped to THIS bench's herdr socket —
+        // ambient plugin CLIs (other sessions/repos) must not count.
+        // Capability probes carry the same socket but are a separate,
+        // TTL-cached exec kind and would inflate the fan-out signal.
+        if (line.includes("src/cli.ts") && line.includes(socketPath) && !line.includes(" capability ")) {
+          const pid = Number(line.trim().split(/\s+/)[0]);
+          if (pid > 0) spawnSeen.add(pid);
+        }
+      }
+    } catch {
+      /* ps failed */
+    }
+  }, 100);
+}
+
+function stopSpawnSampler(): void {
+  if (spawnSampler) clearInterval(spawnSampler);
+  spawnSampler = null;
+}
+
 async function runLeg(
   name: string,
   seconds: number,
   port: number,
+  client: BridgeClient,
   drive: () => Promise<Record<string, number>>,
-): Promise<{ delta: LegDelta; issued: Record<string, number>; verdict: LegVerdict }> {
+): Promise<LegRecord> {
   const before = await metrics(port);
+  const framesBefore = { ...client.frameCounts };
+  const pidsBefore = spawnSeen.size;
   const issued = await drive();
   const after = await metrics(port);
-  const delta = diffMetrics(before, after);
-  delta.seconds = seconds;
-  const verdict = evaluateLeg(name, delta, issued);
-  return { delta, issued, verdict };
+  const delta = before && after ? diffMetrics(before, after) : null;
+  if (delta) delta.seconds = seconds;
+  const verdict = evaluateLeg(name, delta ?? { seconds, counters: {}, timers: {} }, issued);
+  const pidsObserved = spawnSeen.size - pidsBefore;
+  const issuedCalls = issued["plugin_call"] ?? 0;
+  if (issuedCalls > 0 && pidsObserved > issuedCalls) {
+    // Informational only: ps sampling is a lower bound (~500 ms/call on a
+    // loaded host) — server-side plugin.exec timers are the authority
+    // when /api/metrics is available.
+    verdict.notes.push(`plugin exec pids observed ${pidsObserved} vs ${issuedCalls} issued calls (lower bound)`);
+  }
+  const client_frames: Record<string, number> = {};
+  for (const [k, v] of Object.entries(client.frameCounts)) {
+    const d = v - (framesBefore[k] ?? 0);
+    if (d > 0) client_frames[k] = d;
+  }
+  return {
+    delta,
+    issued,
+    verdict,
+    client_frames,
+    plugin_exec_pids_observed: pidsObserved,
+  };
 }
 
 async function main(): Promise<number> {
@@ -359,15 +437,33 @@ async function main(): Promise<number> {
       const la = a.legs[leg];
       const lb = b.legs[leg];
       if (!la || !lb) continue;
-      const execA = Object.entries(la.delta.timers).filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call")).reduce((n, [, t]) => n + t.count, 0) / la.delta.seconds;
-      const execB = Object.entries(lb.delta.timers).filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call")).reduce((n, [, t]) => n + t.count, 0) / lb.delta.seconds;
-      const pushA = (counter(la.delta, "bridge.snapshot.push") + counter(la.delta, "bridge.snapshot.push.unchanged")) / la.delta.seconds;
-      const pushB = (counter(lb.delta, "bridge.snapshot.push") + counter(lb.delta, "bridge.snapshot.push.unchanged")) / lb.delta.seconds;
-      const rpcAvg = (d: LegDelta) => {
-        const t = Object.entries(d.timers).find(([k]) => k === "herdr.rpc" || k.startsWith("herdr.rpc{"));
-        return t?.[1].avgMs ?? 0;
+      // Pre-#446 reports have no server metrics — fall back to the
+      // client-observable signals (snapshot frames received, frames issued).
+      const execRate = (l: LegRecord) =>
+        l.delta
+          ? Object.entries(l.delta.timers)
+              .filter(([k]) => k.startsWith("plugin.exec{") && k.includes("what=plugin_call"))
+              .reduce((n, [, t]) => n + t.count, 0) / l.delta.seconds
+          : null;
+      const pushRate = (l: LegRecord) =>
+        l.delta
+          ? (counter(l.delta, "bridge.snapshot.push") + counter(l.delta, "bridge.snapshot.push.unchanged")) / l.delta.seconds
+          : null;
+      const rpcAvg = (l: LegRecord) => {
+        if (!l.delta) return null;
+        const t = Object.entries(l.delta.timers).find(([k]) => k === "herdr.rpc" || k.startsWith("herdr.rpc{"));
+        return t?.[1].avgMs ?? null;
       };
-      console.log(`[${leg}] plugin.exec/s ${execA.toFixed(2)} -> ${execB.toFixed(2)} | snapshot.push/s ${pushA.toFixed(2)} -> ${pushB.toFixed(2)} | herdr.rpc avg ${rpcAvg(la.delta).toFixed(1)}ms -> ${rpcAvg(lb.delta).toFixed(1)}ms`);
+      const snapFrames = (l: LegRecord) => l.client_frames["snapshot"] ?? 0;
+      const fmt = (n: number | null, d = 2) => (n === null ? "n/a" : n.toFixed(d));
+      console.log(
+        `[${leg}] plugin.exec/s ${fmt(execRate(la))} -> ${fmt(execRate(lb))}` +
+        ` | snapshot.push/s ${fmt(pushRate(la))} -> ${fmt(pushRate(lb))}` +
+        ` | snap_frames ${snapFrames(la)} -> ${snapFrames(lb)}` +
+        ` | rpc_result ${la.client_frames["rpc_result"] ?? 0} -> ${lb.client_frames["rpc_result"] ?? 0}` +
+        ` | plugin_call ${la.issued["plugin_call"] ?? 0} -> ${lb.issued["plugin_call"] ?? 0}` +
+        ` | herdr.rpc avg ${rpcAvg(la) === null ? "n/a" : `${rpcAvg(la)!.toFixed(1)}ms`} -> ${rpcAvg(lb) === null ? "n/a" : `${rpcAvg(lb)!.toFixed(1)}ms`}`,
+      );
     }
     return 0;
   }
@@ -453,22 +549,25 @@ async function main(): Promise<number> {
 
     const legSeconds = LEG_SECONDS;
     const legs: LoadReport["legs"] = {};
+    let serverMetrics = true;
+    startSpawnSampler(socket);
 
     // -- idle ----------------------------------------------------------------
     {
-      const r = await runLeg("idle", legSeconds, BRIDGE_PORT, async () => {
+      const r = await runLeg("idle", legSeconds, BRIDGE_PORT, client, async () => {
         const end = Date.now() + legSeconds * 1000;
         while (Date.now() < end) await sleep(500);
         return {};
       });
       legs.idle = r;
-      console.log(`idle: pushes=${counter(r.delta, "bridge.snapshot.push") + counter(r.delta, "bridge.snapshot.push.unchanged")} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
+      if (!r.delta) serverMetrics = false;
+      console.log(`idle: pushes=${r.delta ? counter(r.delta, "bridge.snapshot.push") + counter(r.delta, "bridge.snapshot.push.unchanged") : "n/a"} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
     }
 
     // -- rpc-read --------------------------------------------------------------
     {
       const counts: Record<string, number> = { rpc: 0, rpc_read: 0 };
-      const r = await runLeg("rpc-read", legSeconds, BRIDGE_PORT, async () => {
+      const r = await runLeg("rpc-read", legSeconds, BRIDGE_PORT, client, async () => {
         const end = Date.now() + legSeconds * 1000;
         // 4 concurrent readers on a 400 ms cadence — the shape that used to
         // amplify into snapshot refetches before #423.
@@ -484,7 +583,8 @@ async function main(): Promise<number> {
         return counts;
       });
       legs["rpc-read"] = r;
-      console.log(`rpc-read: rpc=${counts.rpc} schedule(cause=rpc)=${counter(r.delta, "bridge.snapshot.schedule", "cause=rpc")} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
+      if (!r.delta) serverMetrics = false;
+      console.log(`rpc-read: rpc=${counts.rpc} schedule(cause=rpc)=${r.delta ? counter(r.delta, "bridge.snapshot.schedule", "cause=rpc") : "n/a"} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
     }
 
     // -- plugin-read ------------------------------------------------------------
@@ -498,13 +598,15 @@ async function main(): Promise<number> {
       const counts: Record<string, number> = { plugin_call: 0 };
       if (reads.length === 0) {
         legs["plugin-read"] = {
-          delta: { seconds: legSeconds, counters: {}, timers: {} },
+          delta: null,
           issued: counts,
           verdict: { leg: "plugin-read", ok: true, failures: [], notes: ["skipped: none of the known surface plugins installed"] },
+          client_frames: {},
+          plugin_exec_pids_observed: 0,
         };
         console.log("plugin-read: skipped (no known plugins installed)");
       } else {
-        const r = await runLeg("plugin-read", legSeconds, BRIDGE_PORT, async () => {
+        const r = await runLeg("plugin-read", legSeconds, BRIDGE_PORT, client, async () => {
           const end = Date.now() + legSeconds * 1000;
           // mirror the stores: every ~800 ms each surface refreshes → one
           // plugin_call per surface per tick, all concurrent.
@@ -513,12 +615,13 @@ async function main(): Promise<number> {
             await Promise.all(
               reads.map((c) => client.pluginCall(c.plugin, c.command).catch(() => {})),
             );
-            await sleep(800);
+            await sleep(PLUGIN_REFRESH_MS);
           }
           return counts;
         });
         legs["plugin-read"] = r;
-        console.log(`plugin-read: calls=${counts.plugin_call} execs=${timerCount(r.delta, "plugin.exec", "what=plugin_call")} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
+        if (!r.delta) serverMetrics = false;
+        console.log(`plugin-read: calls=${counts.plugin_call} execs=${r.delta ? timerCount(r.delta, "plugin.exec", "what=plugin_call") : "n/a"} pids=${r.plugin_exec_pids_observed} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
       }
     }
 
@@ -532,7 +635,7 @@ async function main(): Promise<number> {
       const installed = new Set((list?.result?.plugins ?? []).map((p) => p.plugin_id));
       const reads = Object.values(KNOWN_READ_CALLS).filter((c) => installed.has(c.plugin));
       let wsIds = [fixtureWs];
-      const r = await runLeg("activity", legSeconds, BRIDGE_PORT, async () => {
+      const r = await runLeg("activity", legSeconds, BRIDGE_PORT, client, async () => {
         const end = Date.now() + legSeconds * 1000;
         // external churn: create → focus → close workspaces on ~700 ms ticks
         const churn = (async () => {
@@ -563,17 +666,19 @@ async function main(): Promise<number> {
               counts.plugin_call += reads.length;
               await Promise.all(reads.map((c) => client.pluginCall(c.plugin, c.command).catch(() => {})));
             }
-            await sleep(800);
+            await sleep(PLUGIN_REFRESH_MS);
           }
         })();
         await Promise.all([churn, poll]);
         return counts;
       });
       legs.activity = r;
-      console.log(`activity: pushes=${counter(r.delta, "bridge.snapshot.push")} unchanged=${counter(r.delta, "bridge.snapshot.push.unchanged")} schedule=${counter(r.delta, "bridge.snapshot.schedule")} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
+      if (!r.delta) serverMetrics = false;
+      console.log(`activity: pushes=${r.delta ? counter(r.delta, "bridge.snapshot.push") : "n/a"} unchanged=${r.delta ? counter(r.delta, "bridge.snapshot.push.unchanged") : "n/a"} schedule=${r.delta ? counter(r.delta, "bridge.snapshot.schedule") : "n/a"} pids=${r.plugin_exec_pids_observed} verdict=${r.verdict.ok ? "ok" : r.verdict.failures.join("; ")}`);
     }
 
     client.close();
+    stopSpawnSampler();
 
     const lat = [...client.latencies].sort((a, b) => a - b);
     const report: LoadReport = {
@@ -584,6 +689,8 @@ async function main(): Promise<number> {
       host: hostInfo(),
       condition: { loadavg_1m: loadavg()[0], loadavg_5m: loadavg()[1], loadavg_15m: loadavg()[2] },
       leg_seconds: legSeconds,
+      plugin_refresh_ms: PLUGIN_REFRESH_MS,
+      server_metrics: serverMetrics,
       plugins_discovered: [],
       legs,
       client: {
