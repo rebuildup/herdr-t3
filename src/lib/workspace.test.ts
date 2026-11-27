@@ -89,6 +89,25 @@ describe("deriveWorkspace", () => {
     expect(view.focusedPane?.pane_id).toBe("p-b");
   });
 
+  test("tabPanes covers only the active tab — hidden tabs never mount a terminal (issue #569)", () => {
+    const snap = snapshot({
+      workspaces: [ws("ws-a", true, "tab-a1")],
+      focused_workspace_id: "ws-a",
+      tabs: [tab("tab-a1", "ws-a"), tab("tab-a2", "ws-a")],
+      panes: [
+        pane("p-a1", "tab-a1", "ws-a"),
+        pane("p-a2", "tab-a1", "ws-a"),
+        pane("p-hidden", "tab-a2", "ws-a"),
+      ],
+    });
+    const view = deriveWorkspace(snap, "ws-a");
+    expect(view.activeTab?.tab_id).toBe("tab-a1");
+    // Only active-tab panes reach PaneTerminal -> subscribe_terminal; the
+    // hidden tab's pane must not appear in the mount set.
+    expect(view.tabPanes.map((p) => p.pane_id).sort()).toEqual(["p-a1", "p-a2"]);
+    expect(view.tabPanes.some((p) => p.pane_id === "p-hidden")).toBe(false);
+  });
+
   test("falls back to the herdr-focused workspace when the id is absent", () => {
     const snap = snapshot({
       workspaces: [ws("ws-a"), ws("ws-b", true, "tab-b")],

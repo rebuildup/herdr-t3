@@ -381,7 +381,7 @@ function makePolicySession(snapshots: SessionSnapshot[]) {
     );
   };
   const snapshotPushes = () => frames.filter((f) => f.type === "snapshot");
-  return { session, frames, apiConns, snapshotFetches, subscribeRequests, subscriptionConns, pushEvent, snapshotPushes };
+  return { session, frames, apiConns, clientConns, snapshotFetches, subscribeRequests, subscriptionConns, pushEvent, snapshotPushes };
 }
 
 describe("snapshot push policy (issue #423)", () => {
@@ -489,6 +489,108 @@ describe("subscription lifecycle (issue #527)", () => {
     }
     await sleep(400);
     expect(subscribeRequests()).toBe(3);
+    session.close();
+  });
+
+  test("pane.scroll_changed subscriptions track only attached panes across attach/detach (issue #569)", async () => {
+    const multi: SessionSnapshot = {
+      ...SNAPSHOT,
+      panes: [pane("p1", "term-1"), pane("p2", "term-2"), pane("p3", "term-3"), pane("p4", "term-4")],
+    };
+    const { session, apiConns, subscribeRequests, clientConns } =
+      makePolicySession([multi]);
+    await session.start();
+    expect(subscribeRequests()).toBe(1);
+
+    // Scroll-subscription contents of every events.subscribe request the
+    // bridge has opened, in order. Hidden panes (no subscribe_terminal)
+    // must never appear: the subscription set is the delivery contract for
+    // viewport traffic, so it doubles as the visibility scope.
+    const scrollCoverage = () =>
+      apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .flatMap(
+          (r) =>
+            (r.params?.["subscriptions"] as
+              | { type?: string; pane_id?: string }[]
+              | undefined) ?? [],
+        )
+        .filter((s) => s.type === "pane.scroll_changed")
+        .map((s) => s.pane_id);
+    /** pane_ids covered by the most recently opened subscription. */
+    const liveScrollCoverage = () => {
+      const subs = apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .at(-1)
+        ?.params?.["subscriptions"] as
+        | { type?: string; pane_id?: string }[]
+        | undefined;
+      return (subs ?? [])
+        .filter((s) => s.type === "pane.scroll_changed")
+        .map((s) => s.pane_id)
+        .sort();
+    };
+
+    // Before any attach, the subscription carries no scroll filters at
+    // all — panes in other workspaces/tabs get nothing.
+    expect(liveScrollCoverage()).toEqual([]);
+    expect(scrollCoverage()).toEqual([]);
+
+    // A workspace switch mounts only the active tab's panes; the client
+    // subscribes exactly those. Each attach adds its pane to the scroll set.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual(["p1", "p2"]);
+    expect(clientConns).toHaveLength(2);
+
+    // Switching away detaches p1: the reopened subscription must drop its
+    // scroll filter while p2 stays covered.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p1" });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual(["p2"]);
+
+    // Detaching the last visible pane leaves zero scroll subscriptions —
+    // hidden panes get no viewport delivery at all.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p2" });
+    await sleep(400);
+    expect(liveScrollCoverage()).toEqual([]);
+    expect(subscribeRequests()).toBe(4);
+    session.close();
+  });
+
+  test("frames for a never-subscribed pane open no attach and no scroll subscription (issue #569)", async () => {
+    const { session, apiConns, frames, clientConns } =
+      makePolicySession([SNAPSHOT]);
+    await session.start();
+    const scrollCount = () =>
+      apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .flatMap(
+          (r) =>
+            (r.params?.["subscriptions"] as
+              | { type?: string; pane_id?: string }[]
+              | undefined) ?? [],
+        )
+        .filter((s) => s.type === "pane.scroll_changed" && s.pane_id === "p-hidden")
+        .length;
+    expect(scrollCount()).toBe(0);
+
+    // A hidden pane (different workspace/tab, or simply not mounted) must
+    // not acquire an attach slot from stray lifecycle/input frames.
+    session.handleFrame({ type: "unsubscribe_terminal", paneId: "p-hidden" });
+    session.handleFrame({ type: "terminal_input", paneId: "p-hidden", data: b64("X") });
+    session.handleFrame({ type: "terminal_resize", paneId: "p-hidden", cols: 80, rows: 24 });
+    session.handleFrame({ type: "terminal_scroll", paneId: "p-hidden", direction: "up" });
+    session.handleFrame({ type: "terminal_mouse", paneId: "p-hidden", action: "press", column: 1, row: 1 });
+    await sleep(300);
+
+    expect(clientConns).toHaveLength(0);
+    expect(scrollCount()).toBe(0);
+    expect(frames.some((f) => f.type === "terminal_closed" && f.paneId === "p-hidden")).toBe(false);
     session.close();
   });
 
