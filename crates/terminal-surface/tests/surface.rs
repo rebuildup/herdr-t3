@@ -207,6 +207,68 @@ fn reverse_drag_keeps_the_gesture_anchor() {
     assert_eq!(text, "l4\nl5\nl6\nl7");
 }
 
+#[test]
+fn selection_commit_follows_the_commit_paths_only() {
+    // issue #440: `selection_commit` is the user-commit signal — emitted
+    // once per pointer-up with a non-empty selection, right after
+    // `selection_change`, and never for moves, ticks, cancels or clears.
+    let mut c = core(false, false, false);
+    c.write(b"l0\r\nl1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7\r\nl8\r\nl9");
+    measure(&mut c);
+    c.pointer_down(&pointer(0, 25.0, 105.0, 2000.0), rect());
+    let moved = c.pointer_move(&pointer(0, 10.0, 45.0, 2050.0), rect());
+    assert!(!moved
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionCommit { .. })));
+    assert!(!c
+        .tick()
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionCommit { .. })));
+    let up = c.pointer_up(&pointer(0, 10.0, 45.0, 2100.0), rect());
+    let commits: Vec<&str> = up
+        .effects
+        .iter()
+        .filter_map(|e| match e {
+            SurfaceEffect::SelectionCommit { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commits.len(), 1);
+    let notified = up
+        .effects
+        .iter()
+        .find_map(|e| match e {
+            SurfaceEffect::SelectionChange { text } => text.clone(),
+            _ => None,
+        })
+        .expect("selection_change");
+    assert_eq!(commits[0], notified.as_str());
+
+    // a plain click commits nothing
+    c.pointer_down(&pointer(0, 4.0, 45.0, 3000.0), rect());
+    let click = c.pointer_up(&pointer(0, 4.0, 45.0, 3050.0), rect());
+    assert!(!click
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionCommit { .. })));
+    // clearSelection notifies but never commits
+    c.pointer_down(&pointer(0, 25.0, 105.0, 3100.0), rect());
+    c.pointer_move(&pointer(0, 10.0, 65.0, 3150.0), rect());
+    c.pointer_up(&pointer(0, 10.0, 65.0, 3200.0), rect());
+    assert!(c.selection_range().is_some());
+    let cleared = c.clear_selection();
+    assert!(cleared.effects.iter().any(|e| matches!(
+        e,
+        SurfaceEffect::SelectionChange { text: None }
+    )));
+    assert!(!cleared
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionCommit { .. })));
+}
+
 fn host_scroll(offset: i64, max: i64, rows: i64) -> HostScrollInfo {
     HostScrollInfo {
         offset_from_bottom: offset,

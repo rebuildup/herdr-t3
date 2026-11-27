@@ -55,6 +55,10 @@ pub enum SurfaceEffect {
     ScrollRequest { direction: &'static str, lines: u32 },
     /// `onSelectionChange`
     SelectionChange { text: Option<String> },
+    /// `onSelectionCommit` — the user committed a non-empty local
+    /// selection (issue #440); distinct from `SelectionChange`, which also
+    /// fires for clears/invalidations
+    SelectionCommit { text: String },
     /// `onScroll` — rows above the bottom
     Scroll { rows: i64 },
     /// `onResize` — the cell grid changed
@@ -1712,8 +1716,15 @@ impl SurfaceCore {
                         .try_session(&mut effects, |s| s.text_of(w))
                         .unwrap_or_default();
                     effects.push(SurfaceEffect::SelectionChange {
-                        text: if text.is_empty() { None } else { Some(text) },
+                        text: if text.is_empty() {
+                            None
+                        } else {
+                            Some(text.clone())
+                        },
                     });
+                    if !text.is_empty() {
+                        effects.push(SurfaceEffect::SelectionCommit { text });
+                    }
                     self.schedule(&mut effects);
                     return void_result(effects);
                 }
@@ -1730,8 +1741,15 @@ impl SurfaceCore {
                     .try_session(&mut effects, |s| s.text_of(sel))
                     .unwrap_or_default();
                 effects.push(SurfaceEffect::SelectionChange {
-                    text: if text.is_empty() { None } else { Some(text) },
+                    text: if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.clone())
+                    },
                 });
+                if !text.is_empty() {
+                    effects.push(SurfaceEffect::SelectionCommit { text });
+                }
             }
         }
         self.schedule(&mut effects);

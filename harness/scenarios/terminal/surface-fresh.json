@@ -209,6 +209,10 @@
               "text": "abc"
             },
             {
+              "type": "selection_commit",
+              "text": "abc"
+            },
+            {
               "type": "schedule"
             }
           ],

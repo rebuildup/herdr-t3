@@ -141,6 +141,21 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   モードでのみ有効 (現行維持)。
 - テキスト選択のコピーは `copy` event 経路 (Cmd/Ctrl+C) で DOM selection
   ではなく engine の `textOf(selection)` を使う (現行維持)。
+- Copy on select (issue #440): Settings > Terminal の
+  `copyOnSelect` (既定 OFF) が ON のとき、ユーザーがローカル選択を
+  **確定**した時点 (ドラッグの pointer-up、ダブル/トリプルクリックの
+  word/line 拡大。逆方向ドラッグ・端オートスクロール含む) で、確定した
+  選択本文を OS clipboard へ一度だけ書き込む。core は確定ごとに
+  `selection_commit{text}` effect を `selection_change` の直後へ 1 回
+  だけ発行し、ドラッグ途中・tick・wheel/scroll・出力・検索結果選択・
+  `pointerCancel`・空選択・`clearSelection` では発行しない
+  (`selection_change` は clear/invalidate でも飛ぶ通知であり、確定
+  信号とは区別する)。clipboard 書き込みは host 層
+  (`PaneTerminal` → `src/lib/selectionCopy.ts`) が設定を commit ごとに
+  読んで行い、書き込みは commit 順に直列化する — 遅い write が新しい
+  コピーを上書きしない。失敗は握り潰し、本文をログ・外部送信しない。
+  明示 copy・OSC 52 (`onClipboardWrite`)・#429 の構造化コピー経路とは
+  独立に共存する。
 - ドラッグ選択のアンカーは pointer-down 時点のセルに固定し、移動端点と
   独立して保持する。表示・コピー時のみ `ordered()` で正規化する
   (issue #427 — 正規化済み start を次のアンカーに再利用すると逆方向

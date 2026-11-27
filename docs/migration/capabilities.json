@@ -3273,7 +3273,7 @@
   },
   {
    "id": "settings.terminal",
-   "title": "Terminal settings (font, size, line height, scrollback)",
+   "title": "Terminal settings (font, size, line height, scrollback, copy-on-select)",
    "area": "settings",
    "owner": "app",
    "boundary": "B7",
@@ -3287,7 +3287,8 @@
    "operations": [
     "read/write herdr-t3:settings:terminal",
     "clamped numeric ranges",
-    "live apply to panes"
+    "live apply to panes",
+    "copy-on-select clipboard write on selection commit (issue #440)"
    ],
    "errors": [
     "out-of-range → clamped",
@@ -3295,13 +3296,19 @@
    ],
    "side_effects": [
     "localStorage write",
-    "pane re-measure/resize"
+    "pane re-measure/resize",
+    "OS clipboard write on selection commit"
    ],
    "scenarios": [
-    "src/lib/settings.test.ts"
+    "src/lib/settings.test.ts",
+    "src/lib/selectionCopy.test.ts",
+    "src/lib/ghostty/surfaceCore.test.ts"
    ],
    "evidence": [
     "src/lib/settings.ts",
+    "src/lib/selectionCopy.ts",
+    "src/lib/ghostty/surfaceCore.ts",
+    "src/components/PaneTerminal.tsx",
     "src/shell/SettingsModal.tsx"
    ],
    "stage": "current-verified",

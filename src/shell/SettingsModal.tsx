@@ -111,6 +111,7 @@ const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms
   { anchor: "setting-font-size", label: "Font size", section: "terminal", terms: "px size terminal" },
   { anchor: "setting-line-height", label: "Line height", section: "terminal", terms: "spacing rows height" },
   { anchor: "setting-scrollback", label: "Scrollback lines", section: "terminal", terms: "history buffer scroll" },
+  { anchor: "setting-copy-on-select", label: "Copy on select", section: "terminal", terms: "selection clipboard copy automatic" },
   { anchor: "setting-bridge", label: "Bridge", section: "diagnostics", terms: "rpc connection websocket status" },
   { anchor: "setting-herdr", label: "Herdr", section: "diagnostics", terms: "version protocol socket reachable" },
   { anchor: "setting-ghostty-engine", label: "Ghostty engine", section: "diagnostics", terms: "wasm libghostty status" },
@@ -512,6 +513,19 @@ function SectionPage({ section }: { section: SectionId }) {
                 }}
               />
             </SettingsRow>
+            <SettingsRow
+              anchor="setting-copy-on-select"
+              label="Copy on select"
+              description="Copy a finished text selection to the clipboard automatically. Applies to open panes immediately."
+            >
+              <Switch
+                aria-label="Copy on select"
+                checked={terminal.copyOnSelect}
+                onCheckedChange={(checked) =>
+                  setTerminalSettings({ copyOnSelect: checked === true })
+                }
+              />
+            </SettingsRow>
           </SettingsSection>
         </div>
       );
@@ -694,6 +708,7 @@ export function SettingsModal() {
         t.fontSize !== TERMINAL_DEFAULTS.fontSize ||
         t.lineHeight !== TERMINAL_DEFAULTS.lineHeight ||
         t.scrollbackLines !== TERMINAL_DEFAULTS.scrollbackLines ||
+        t.copyOnSelect !== TERMINAL_DEFAULTS.copyOnSelect ||
         g.confirmCloseWorkspace !== GENERAL_DEFAULTS.confirmCloseWorkspace ||
         getAppearanceMode() !== "system"
       );
