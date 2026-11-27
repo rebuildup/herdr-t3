@@ -1,0 +1,985 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.scene-cursor",
+  "capability": "terminal.scene",
+  "contract": "terminal-render@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "scene_new",
+      "input": {
+        "cols": 16,
+        "rows": 6,
+        "cellW": 10,
+        "cellH": 20,
+        "dpr": 1,
+        "scrollback": 50,
+        "options": {
+          "fontFamily": "monospace",
+          "fontSize": 10,
+          "foreground": "#111111",
+          "background": "#eeeeee",
+          "cursor": "#ff0000",
+          "selection": "rgba(10,20,30,0.4)",
+          "search": "rgba(1,2,3,0.2)"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "handle": "sc1"
+        }
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "metrics": {
+          "cols": 16,
+          "rows": 6,
+          "cellW": 10,
+          "cellH": 20,
+          "dpr": 1
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[31mR\u001b[0m\u001b[44mB\u001b[0m wide日本 end\r\n\u001b[7mIN\u001b[0m  \u001b[8mHID\u001b[0m   tail\r\n\r\n\u001b[1;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 0,
+            "y": 12.75,
+            "text": "R",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 0,
+            "y": 12.75,
+            "text": "R",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;2H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 10,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 10,
+            "y": 12.75,
+            "text": "B",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;8H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 70,
+              "y": 0,
+              "w": 20,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 70,
+            "y": 12.75,
+            "text": "日",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;9H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 70,
+              "y": 0,
+              "w": 20,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 70,
+            "y": 12.75,
+            "text": "日",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[2;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 20,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 0,
+            "y": 32.75,
+            "text": "I",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[2;5H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 40,
+              "y": 20,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[3;4H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 30,
+              "y": 40,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "colors": {
+          "cursorText": "cell-foreground"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 0,
+            "y": 12.75,
+            "text": "R",
+            "font": "10px monospace",
+            "color": "#cc6666",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[2;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 20,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 0,
+            "y": 32.75,
+            "text": "I",
+            "font": "10px monospace",
+            "color": "#eeeeee",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "colors": {
+          "cursorText": "cell-background"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;2H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 10,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 10,
+            "y": 12.75,
+            "text": "B",
+            "font": "10px monospace",
+            "color": "#81a2be",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": {
+          "start": {
+            "x": 0,
+            "y": 0
+          },
+          "end": {
+            "x": 3,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[1;2H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 40,
+              "h": 20
+            },
+            "color": "rgba(10,20,30,0.4)",
+            "alpha": 1
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 10,
+              "y": 0,
+              "w": 10,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          },
+          {
+            "op": "fill_text",
+            "x": 10,
+            "y": 12.75,
+            "text": "B",
+            "font": "10px monospace",
+            "color": "#81a2be",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "selection": null,
+        "cursorVisible": false
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_set",
+      "input": {
+        "handle": "sc1",
+        "cursorVisible": true
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[5 q\u001b[1;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 2,
+              "h": 20
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_write",
+      "input": {
+        "handle": "sc1",
+        "data": "\u001b[4 q\u001b[1;1H"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "op": "scene_collect",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "op": "scene_render_overlay",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": [
+          {
+            "op": "clear",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 160,
+              "h": 120
+            }
+          },
+          {
+            "op": "fill_rect",
+            "rect": {
+              "x": 0,
+              "y": 16.4,
+              "w": 10,
+              "h": 2.4
+            },
+            "color": "#ff0000",
+            "alpha": 1
+          }
+        ]
+      }
+    },
+    {
+      "op": "scene_dispose",
+      "input": {
+        "handle": "sc1"
+      },
+      "expect": {
+        "ok": true,
+        "value": null
+      }
+    }
+  ]
+}

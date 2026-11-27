@@ -335,7 +335,9 @@ export function resolveGhosttyPalette(opts: {
     palette.foreground === undefined &&
     palette.palette.every((c) => c === undefined) &&
     palette.cursorColor === undefined &&
+    palette.cursorText === undefined &&
     palette.selectionBackground === undefined &&
+    palette.selectionForeground === undefined &&
     palette.backgroundImage === undefined &&
     palette.backgroundOpacity === undefined
   ) {
