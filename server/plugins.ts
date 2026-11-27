@@ -129,6 +129,29 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<Pl
 }
 
 /**
+ * Builds the child environment for a plugin exec: a copy of `base`
+ * (the bridge process env by default) with `envRemove` keys deleted
+ * and `envSet` applied last — envSet wins over envRemove because the
+ * scrub deletes ambient targeting vars and the bridge then re-pins the
+ * ones it resolved itself. Returns undefined when neither is requested
+ * so spawn inherits the parent env untouched. Exported so the scrub
+ * contract is unit-testable on the returned object without spawning a
+ * subprocess (issues #385/#402).
+ */
+export function pluginChildEnv(
+  options: Pick<PluginExecOptions, "envRemove" | "envSet">,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv | undefined {
+  const envRemove = options.envRemove ?? [];
+  const envSet = options.envSet ?? {};
+  if (envRemove.length === 0 && Object.keys(envSet).length === 0) return undefined;
+  const env = { ...base };
+  for (const key of envRemove) delete env[key];
+  for (const [key, value] of Object.entries(envSet)) env[key] = value;
+  return env;
+}
+
+/**
  * Local host: argv runs directly; PATH resolution is the OS default.
  * `socketPath` is the herdr API socket the bridge itself uses
  * (`herdrSocketPath()` — `HERDR_SOCKET` env or the default socket); it
@@ -144,16 +167,7 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
       if (argv.length === 0) {
         return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: "empty argv" });
       }
-      const envRemove = options.envRemove ?? [];
-      const envSet = options.envSet ?? {};
-      let env: NodeJS.ProcessEnv | undefined;
-      if (envRemove.length > 0 || Object.keys(envSet).length > 0) {
-        env = { ...process.env };
-        for (const key of envRemove) delete env[key];
-        // envSet wins over envRemove: the scrub deletes ambient targeting
-        // vars, then the bridge re-pins the ones it resolved itself.
-        for (const [key, value] of Object.entries(envSet)) env[key] = value;
-      }
+      const env = pluginChildEnv(options);
       const spawnOptions: SpawnOptions = {
         cwd: options.cwd,
         // stdin is a pipe (not "ignore") so contract payloads can be

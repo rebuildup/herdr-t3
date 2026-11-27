@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { localPluginHost, PluginService, PLUGIN_ENV_SCRUB, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
+import { localPluginHost, pluginChildEnv, PluginService, PLUGIN_ENV_SCRUB, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
 import { HerdrError } from "./herdr.ts";
 
 /** Scripted host: each exec pops the next outcome for its argv match. */
@@ -63,6 +63,29 @@ function serviceFor(host: PluginHost): PluginService {
   return new PluginService(async () => host);
 }
 
+/**
+ * Real-subprocess execs can exceed their inner timeout purely from
+ * external CPU contention: under a cold parallel `cargo build` the
+ * `bun -e` child can be starved past `timeoutMs` before it execs
+ * (issues #385/#402 — observed as `code: null, timedOut: true` after
+ * ~15s while the same spawn takes ~30ms unloaded). The env contract
+ * itself is covered deterministically by the `pluginChildEnv` tests
+ * below; this retry only absorbs spawn/startup latency — it never
+ * retries assertion failures or non-timeout errors.
+ */
+async function execWithTimeoutRetry(
+  host: PluginHost,
+  argv: string[],
+  options: PluginExecOptions,
+  attempts = 3,
+): Promise<PluginExecOutcome> {
+  let outcome = await host.exec(argv, options);
+  for (let attempt = 1; attempt < attempts && outcome.timedOut; attempt++) {
+    outcome = await host.exec(argv, options);
+  }
+  return outcome;
+}
+
 describe("PluginService.listPlugins (ADR-0011)", () => {
   test("parses herdr plugin list --json envelope and drops malformed entries", async () => {
     const host = inboxHost();
@@ -83,6 +106,40 @@ describe("PluginService.listPlugins (ADR-0011)", () => {
       { match: () => true, outcome: { code: null, stdout: "", stderr: "ssh died", timedOut: false, error: "ssh died" } },
     ]);
     await expect(serviceFor(host).listPlugins("m")).rejects.toMatchObject({ code: "plugin_exec_failed" });
+  });
+});
+
+describe("pluginChildEnv (issues #385/#402)", () => {
+  test("removes every PLUGIN_ENV_SCRUB key and keeps unrelated vars", () => {
+    const base: NodeJS.ProcessEnv = { HERDR_T3_KEEP_ME: "1", PATH: "/usr/bin" };
+    for (const key of PLUGIN_ENV_SCRUB) base[key] = "ambient-value";
+    const env = pluginChildEnv({ envRemove: PLUGIN_ENV_SCRUB }, base);
+    expect(env).toBeDefined();
+    for (const key of PLUGIN_ENV_SCRUB) {
+      expect(env?.[key]).toBeUndefined();
+    }
+    expect(env?.["HERDR_T3_KEEP_ME"]).toBe("1");
+    expect(env?.["PATH"]).toBe("/usr/bin");
+    // The caller's base object is never mutated.
+    expect(base["GIT_DIR"]).toBe("ambient-value");
+  });
+
+  test("envSet is applied after envRemove and wins over it", () => {
+    const env = pluginChildEnv(
+      {
+        envRemove: ["HERDR_SOCKET_PATH", "GIT_DIR"],
+        envSet: { HERDR_SOCKET_PATH: "/tmp/herdr.sock" },
+      },
+      { HERDR_SOCKET_PATH: "ambient", GIT_DIR: "ambient", KEEP: "1" },
+    );
+    expect(env?.["HERDR_SOCKET_PATH"]).toBe("/tmp/herdr.sock");
+    expect(env?.["GIT_DIR"]).toBeUndefined();
+    expect(env?.["KEEP"]).toBe("1");
+  });
+
+  test("returns undefined when there is nothing to remove or set", () => {
+    expect(pluginChildEnv({}, { A: "1" })).toBeUndefined();
+    expect(pluginChildEnv({ envRemove: [], envSet: {} })).toBeUndefined();
   });
 });
 
@@ -331,7 +388,8 @@ describe("PluginService.call", () => {
     }
     process.env["HERDR_T3_KEEP_ME"] = "1";
     try {
-      const outcome = await localPluginHost().exec(
+      const outcome = await execWithTimeoutRetry(
+        localPluginHost(),
         [
           process.execPath,
           "-e",
@@ -360,10 +418,11 @@ describe("PluginService.call", () => {
       }
       delete process.env["HERDR_T3_KEEP_ME"];
     }
-    // Spawns a real `bun -e` child whose own budget is 15s — the default
-    // 5s test timeout fires first on a loaded machine before the child
-    // can even start (issue #417 CI flake).
-  }, 20_000);
+    // Spawns a real `bun -e` child whose own budget is 15s per attempt.
+    // execWithTimeoutRetry absorbs pure spawn/startup starvation under
+    // external CPU load (issues #385/#402); worst case is 3 attempts,
+    // so the test timeout must cover ~45s of child budget.
+  }, 60_000);
 
   test("plugin error.kind is preserved as the failure code (git-v1 repo states)", async () => {
     const gitHost = fakeHost([
@@ -818,7 +877,8 @@ describe("plugin host session/socket targeting (issue #289)", () => {
   });
 
   test("envSet re-pins HERDR_SOCKET_PATH after the scrub in the local spawn", async () => {
-    const outcome = await localPluginHost().exec(
+    const outcome = await execWithTimeoutRetry(
+      localPluginHost(),
       [process.execPath, "-e", "console.log(process.env.HERDR_SOCKET_PATH ?? 'unset')"],
       {
         timeoutMs: 15_000,
@@ -829,11 +889,12 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     expect(outcome.code).toBe(0);
     expect(outcome.stdout.trim()).toBe(SOCKET);
     // Real subprocess spawn; see the scrubbed-vars test above — the
-    // inner 15s budget needs headroom over the default 5s test timeout.
-  }, 20_000);
+    // inner 15s budget needs headroom over spawn starvation under load.
+  }, 60_000);
 
   test("localPluginHost writes stdin payload and closes it (issue #458)", async () => {
-    const outcome = await localPluginHost().exec(
+    const outcome = await execWithTimeoutRetry(
+      localPluginHost(),
       [
         process.execPath,
         "-e",
@@ -844,12 +905,13 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     expect(outcome.code).toBe(0);
     expect(JSON.parse(outcome.stdout)).toEqual({ got: '{"task":"commit_message"}' });
     // No stdin → immediate EOF (a stdin-reading CLI must not hang).
-    const empty = await localPluginHost().exec(
+    const empty = await execWithTimeoutRetry(
+      localPluginHost(),
       [process.execPath, "-e", "process.stdin.resume();process.stdin.on('end',()=>console.log('eof'))"],
       { timeoutMs: 15_000 },
     );
     expect(empty.code).toBe(0);
     expect(empty.stdout.trim()).toBe("eof");
     // Real subprocess spawns; same headroom as the tests above.
-  }, 20_000);
+  }, 120_000);
 });
