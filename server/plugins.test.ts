@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { localPluginHost, pluginChildEnv, PluginService, PLUGIN_ENV_SCRUB, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
 import { HerdrError } from "./herdr.ts";
+import { pluginHerdrSkew, type PluginListEntry } from "../shared/protocol.ts";
 
 /** Scripted host: each exec pops the next outcome for its argv match. */
 function fakeHost(handlers: Array<{ match: (argv: string[]) => boolean; outcome: PluginExecOutcome }>): PluginHost & { calls: string[][]; options: PluginExecOptions[] } {
@@ -1150,4 +1152,72 @@ describe("PluginService exec concurrency bound (issue #538)", () => {
     await expect(p2).resolves.toMatchObject({ ok: true });
     expect(g.cliCalls).toEqual(["a", "a"]);
   });
+});
+
+/**
+ * Upstream conformance fixture (issue #555, ADR-0011): the REAL
+ * `herdr plugin list --json` envelopes captured from a live herdr
+ * v0.9.5 host during RC verification (docs/design/evidence/rc-v060/).
+ * Feeding the actual upstream bytes through the discovery parser pins
+ * the boundary against silent contract drift — a schema change on the
+ * herdr side fails here before it reaches a client. The captures cover
+ * 5, 6 and 14 installed plugins respectively, all reporting
+ * `min_herdr_version`/`platforms` (the fields added for issue #539).
+ */
+const REAL_PLUGIN_LIST_CAPTURES = [
+  "../docs/design/evidence/rc-v060/section-z-plugin-list-win.txt",
+  "../docs/design/evidence/rc-v060/section-z2-plugin-list-win.json",
+  "../docs/design/evidence/rc-v060/section-z4-plugin-list-win.json",
+];
+
+describe("plugin_list conformance: real herdr 0.9.5 captures (issue #555)", () => {
+  for (const rel of REAL_PLUGIN_LIST_CAPTURES) {
+    test(`parses ${rel} verbatim`, async () => {
+      const raw = readFileSync(new URL(rel, import.meta.url), "utf8");
+      const envelope = JSON.parse(raw) as {
+        id?: string;
+        result?: { type?: string; plugins?: PluginListEntry[] };
+      };
+      // Guard the fixture itself: these files must stay real envelopes.
+      expect(envelope.result?.type).toBe("plugin_list");
+      const captured = envelope.result?.plugins ?? [];
+      expect(captured.length).toBeGreaterThan(0);
+
+      const host = fakeHost([
+        {
+          match: (a) => a[0] === "herdr" && a.includes("plugin"),
+          outcome: { code: 0, stdout: raw, stderr: "", timedOut: false },
+        },
+      ]);
+      const { plugins } = await serviceFor(host).listPlugins("m");
+
+      expect(plugins).toHaveLength(captured.length);
+      const byId = new Map(plugins.map((p) => [p.plugin_id, p]));
+      for (const rawEntry of captured) {
+        const pluginId = rawEntry["plugin_id"];
+        expect(typeof pluginId).toBe("string");
+        const entry = byId.get(pluginId as string) as PluginListEntry | undefined;
+        expect(entry, `missing parsed entry for ${String(pluginId)}`).toBeDefined();
+        // Every field the bridge forwards must survive the real envelope.
+        expect(entry?.plugin_id).toBe(rawEntry["plugin_id"]);
+        expect(entry?.name).toBe(rawEntry["name"]);
+        expect(entry?.version).toBe(rawEntry["version"]);
+        expect(entry?.enabled).toBe(rawEntry["enabled"]);
+        expect(entry?.plugin_root).toBe(rawEntry["plugin_root"]);
+        expect(entry?.description).toBe(rawEntry["description"]);
+        expect(entry?.min_herdr_version).toBe(rawEntry["min_herdr_version"]);
+        expect(entry?.platforms).toEqual(rawEntry["platforms"]);
+      }
+
+      // The skew classifier consumes the same forwarded field: every
+      // captured plugin declares min_herdr_version 0.9.0, so a 0.8.x
+      // host is definitively too old while 0.9.5 is compatible.
+      for (const entry of plugins) {
+        expect(pluginHerdrSkew(entry, "0.8.0")).toBe(
+          `requires herdr >= ${entry.min_herdr_version} (host reports 0.8.0)`,
+        );
+        expect(pluginHerdrSkew(entry, "0.9.5")).toBeNull();
+      }
+    });
+  }
 });

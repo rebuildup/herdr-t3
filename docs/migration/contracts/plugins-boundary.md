@@ -78,6 +78,67 @@ CLI implementations.
   overlay is a legacy migration source only, removed per ADR-0011 — it
   must not become a second source of truth.
 
+## Pinned upstream contract + drift procedure (issue #555)
+
+Audited 2026-11-27 against live upstream sources:
+
+- **herdr side** — latest tag `v0.9.5` (the RC pin). `master` was
+  diffed file-by-file: `src/api/schema/plugins.rs`
+  (`InstalledPluginInfo`), `src/api/schema/response.rs`
+  (`ResponseResult::PluginList` → `result.type:"plugin_list"` +
+  `result.plugins[]`), `src/cli.rs` `print_response`, and the
+  `herdr plugin list --json` flag (reworked by herdrdev/herdr#5212's
+  CLI-projection refactor) are **unchanged** in every field this
+  boundary consumes. No drift.
+- **Plugin side** (`rebuildup/herdr-plugins`, rebranded
+  `hoxay-plugins`; contract ids unchanged) — `main` @ `359593d8`.
+  Every `herdr-plugins.<name>/v1` contract id is still v1; the
+  capability document still carries `contract`/`commands`/
+  `mutation_commands` (new fields like `tui`, `actions`, `events`,
+  `startup`, `state_file`, `socket` are additive and ignored or
+  tolerated); the error envelope is still
+  `{contract, ok:false, error:{code,message,kind?,…extras}}` on
+  stderr with exit 1/2. All 14 plugin CLIs accept `--socket`/
+  `--session` as global pre-dispatch flags — the machines plugin's
+  rejection of them was fixed upstream (herdr-plugins#264). No
+  drift requiring a herdr-t3 change.
+- **Conformance fixture** — `server/plugins.test.ts` feeds the real
+  captured `plugin_list` envelopes
+  (`docs/design/evidence/rc-v060/section-z*-plugin-list-*.json|txt`,
+  herdr v0.9.5, 5/6/14-plugin installs) through the discovery parser
+  and asserts every forwarded field including `min_herdr_version`/
+  `platforms`, plus the `pluginHerdrSkew` classification. This is the
+  regression tripwire for silent upstream drift.
+
+**Upgrade procedure.** When a new herdr release or plugin contract
+revision ships:
+
+1. Diff `src/api/schema/plugins.rs`, `src/api/schema/response.rs`
+   (`PluginList`), `src/cli.rs` (`print_response`, `--json` handling)
+   and `src/cli/plugin.rs` between the old and new tag in
+   `herdrdev/herdr`; diff `docs/contracts/*.md` and each plugin's
+   `src/cli.ts` capability/error emitters in `rebuildup/herdr-plugins`.
+2. Re-run the conformance fixture; extend the capture set with a fresh
+   `herdr plugin list --json` envelope from the new version if the
+   schema legitimately changed.
+3. A herdr-t3 change is required only for **breaking** drift:
+   renamed/removed `result.plugins[]` fields the bridge forwards
+   (`plugin_id`, `name`, `version`, `enabled`, `plugin_root`,
+   `description`, `min_herdr_version`, `platforms`), a changed
+   envelope (`result.type`, top-level `id`/`result`), a changed
+   capability contract (`contract` id prefix `herdr-plugins.<name>/vN`,
+   `commands`, `mutation_commands` semantics), a changed error envelope
+   (`ok:false` + `error.{code,message,kind}` on stderr, exit 1/2), or
+   plugin CLIs dropping the global `--socket`/`--session` flags.
+   Additive fields/commands (e.g. the `tui/v1` surface, new inbox
+   commands) need no bridge change — capability gating already hides
+   unadvertised surfaces.
+4. Pending upstream work that *will* require a herdr-t3 change when it
+   lands: rebuildup/herdr-plugins#263 (per-command side-effect /
+   idempotency / coalescibility / freshness / invalidation
+   declarations) replaces the coarse `mutation_commands` read bit used
+   for exec coalescing (see "Data-plane coalescing" above).
+
 ## Data-plane coalescing (issue #424, program #416)
 
 Concurrent identical `plugin_call`s may share one in-flight plugin CLI
@@ -149,7 +210,8 @@ without freshness declarations.
 `server/plugins.test.ts` (envelope parsing, error-kind preservation,
 error-field passthrough/caps, capability gating, env scrub on every
 exec kind + real local spawn, `--socket`/`HERDR_SOCKET_PATH` targeting
-on every exec kind, issue #289),
+on every exec kind, issue #289, real-capture `plugin_list`
+conformance, issue #555),
 `server/machines.test.ts` (`remoteArgvCommand` scrub/envSet tokens for
 POSIX `unset`/`export` and PowerShell `$env:X=$null`/assignment,
 `sshPluginHost` session targeting),
