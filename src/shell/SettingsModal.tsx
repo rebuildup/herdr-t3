@@ -127,7 +127,7 @@ const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms
   { anchor: "setting-ghostty-engine", label: "Ghostty engine", section: "diagnostics", terms: "wasm libghostty status" },
   { anchor: "setting-app-version", label: "App version", section: "diagnostics", terms: "build version commit" },
   { anchor: "setting-motion-gate", label: "Motion visibility gate", section: "diagnostics", terms: "animation spinner working motion visibility reduced report" },
-  { anchor: "setting-about-app", label: "herdr-t3", section: "about", terms: "version about" },
+  { anchor: "setting-about-app", label: "hoxay", section: "about", terms: "version about" },
   { anchor: "setting-license", label: "License", section: "about", terms: "mit license notices" },
 ];
 
@@ -358,7 +358,7 @@ function SectionPage({ section }: { section: SectionId }) {
                 loginItem === null
                   ? "Available in the desktop app."
                   : loginItem.supported
-                    ? "Start herdr-t3 when you sign in."
+                    ? "Start hoxay when you sign in."
                     : "Not supported on this platform."
               }
             >
@@ -481,7 +481,7 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
-              SSH endpoints and the local session herdr-t3 can attach to.
+              SSH endpoints and the local session hoxay can attach to.
             </p>
             {machines.map((m) => (
               <MachineRow key={m.id} machine={m} onDialog={setMachineDialog} />
@@ -687,7 +687,7 @@ function SectionPage({ section }: { section: SectionId }) {
       return (
         <div className="flex flex-col gap-8">
           <SettingsSection title="About">
-            <SettingsRow anchor="setting-about-app" label="herdr-t3" description="A personal GUI client for herdr.">
+            <SettingsRow anchor="setting-about-app" label="hoxay" description="A personal GUI client for herdr.">
               <span className="font-mono text-xs text-muted-foreground">
                 {health ? `${health.version} (${health.commit.slice(0, 8)})` : "…"}
               </span>
@@ -707,7 +707,7 @@ function SectionPage({ section }: { section: SectionId }) {
             <SettingsRow
               anchor="setting-license"
               label="License"
-              description="herdr-t3 is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
+              description="hoxay is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
             >
               <span className="text-sm text-muted-foreground">MIT</span>
             </SettingsRow>

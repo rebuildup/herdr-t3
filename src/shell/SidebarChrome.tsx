@@ -127,7 +127,7 @@ function SidebarBrand() {
     // oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 brand mark; custom geometry, not a Button variant
     <button
       type="button"
-      aria-label="herdr-t3 home"
+      aria-label="hoxay home"
       onClick={() => navigate("#/")}
       className={cn(
         "relative z-10 ml-(--workspace-titlebar-content-left) flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
@@ -136,12 +136,7 @@ function SidebarBrand() {
     >
       <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
         <span className="font-semibold text-foreground">
-          herdr
-        </span>
-        <span
-          className="font-medium text-muted-foreground"
-        >
-          -t3
+          hoxay
         </span>
       </span>
     </button>
