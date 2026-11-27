@@ -577,6 +577,18 @@ describe("shared/ghostty engine", () => {
     }
   });
 
+  it("hasImage reports stored Kitty images without copying pixels", () => {
+    const { engine } = screenEngine(20, 4, { images: 1024n * 1024n });
+    try {
+      expect(engine.hasImage(7)).toBe(false);
+      engine.write(bytesOf("\x1b_Ga=T,f=24,s=1,v=1,i=7;AAAA\x1b\\"));
+      expect(engine.hasImage(7)).toBe(true);
+      expect(engine.hasImage(8)).toBe(false);
+    } finally {
+      engine.dispose();
+    }
+  });
+
   it("engine 9001", () => {
     const { engine } = screenEngine(20, 4);
     try {

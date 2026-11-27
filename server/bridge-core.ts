@@ -109,11 +109,23 @@ export async function fetchSnapshot(endpoint?: BridgeEndpoint): Promise<SessionS
   return result.snapshot;
 }
 
+/**
+ * Bounds on ops queued while a terminal attach resolves (issue #499). The
+ * queue normally drains in milliseconds; if the attach hangs (socket stall,
+ * handshake never answered) every keystroke/mouse/scroll frame would
+ * otherwise pile up closures — and for input, the decoded Buffer — for the
+ * life of the slot. Past the cap the attach is failed safe instead.
+ */
+const SLOT_QUEUE_MAX_OPS = 512;
+const SLOT_QUEUE_MAX_BYTES = 8 * 1024 * 1024;
+
 interface TerminalSlot {
   refs: number;
   link: TerminalLink | null;
   /** Operations queued until the attach resolves. */
   queue: (() => void)[];
+  /** Payload bytes currently held by `queue` (input buffers dominate). */
+  queueBytes: number;
   gone: boolean;
 }
 
@@ -218,7 +230,7 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
     existing.refs += 1;
     return existing;
   }
-  const slot: TerminalSlot = { refs: 1, link: null, queue: [], gone: false };
+  const slot: TerminalSlot = { refs: 1, link: null, queue: [], queueBytes: 0, gone: false };
   state.terminals.set(paneId, slot);
   syncScrollSubscriptions(state);
 
@@ -285,6 +297,7 @@ function attachTerminal(
     }
     slot.link = link;
     for (const op of slot.queue.splice(0)) op();
+    slot.queueBytes = 0;
   }).catch((error: unknown) => {
     dropTerminal(state, paneId, slot, error instanceof Error ? error.message : String(error));
   });
@@ -299,6 +312,27 @@ function releaseTerminal(state: SessionState, paneId: string): void {
   slot.gone = true;
   slot.link?.close();
   syncScrollSubscriptions(state);
+}
+
+/**
+ * Queue one op until the attach resolves, bounded by count and payload
+ * bytes; overflow fails the attach so a stalled link cannot grow memory
+ * without limit (issue #499).
+ */
+function enqueueSlotOp(
+  state: SessionState,
+  slot: TerminalSlot,
+  paneId: string,
+  bytes: number,
+  op: () => void,
+): void {
+  if (slot.gone) return;
+  if (slot.queue.length >= SLOT_QUEUE_MAX_OPS || slot.queueBytes + bytes > SLOT_QUEUE_MAX_BYTES) {
+    dropTerminal(state, paneId, slot, "attach_overrun");
+    return;
+  }
+  slot.queue.push(op);
+  slot.queueBytes += bytes;
 }
 
 function handleClientFrame(state: SessionState, frame: ClientFrame): void {
@@ -333,7 +367,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       const bytes = Buffer.from(frame.data, "base64");
       const write = () => slot.link?.write(bytes);
       if (slot.link) write();
-      else slot.queue.push(write);
+      else enqueueSlotOp(state, slot, frame.paneId, bytes.length, write);
       return;
     }
     case "terminal_resize": {
@@ -341,7 +375,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       if (!slot || slot.gone) return;
       const resize = () => slot.link?.resize(frame.cols, frame.rows);
       if (slot.link) resize();
-      else slot.queue.push(resize);
+      else enqueueSlotOp(state, slot, frame.paneId, 0, resize);
       return;
     }
     case "terminal_mouse": {
@@ -356,7 +390,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
           modifiers: frame.modifiers ?? 0,
         });
       if (slot.link) mouse();
-      else slot.queue.push(mouse);
+      else enqueueSlotOp(state, slot, frame.paneId, 0, mouse);
       return;
     }
     case "terminal_scroll": {
@@ -365,7 +399,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       const scroll = () =>
         slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
       if (slot.link) scroll();
-      else slot.queue.push(scroll);
+      else enqueueSlotOp(state, slot, frame.paneId, 0, scroll);
       return;
     }
     // Machine-management frames are routed by the machine manager before

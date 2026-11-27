@@ -271,3 +271,12 @@ fn core_widths_enable_grapheme_clustering() {
     let text = screen_text(&mut s);
     assert!(text.contains("e"));
 }
+
+#[test]
+fn has_image_reports_store_membership_without_pixels() {
+    let mut s = session(10, 3);
+    assert!(!s.has_image(7).unwrap());
+    s.write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;AAAA\x1b\\").unwrap();
+    assert!(s.has_image(7).unwrap());
+    assert!(!s.has_image(8).unwrap());
+}
