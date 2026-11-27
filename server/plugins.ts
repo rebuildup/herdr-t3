@@ -687,7 +687,7 @@ export class PluginService {
     const plugins: PluginListEntry[] = [];
     for (const entry of pluginsRaw) {
       if (!isRecord(entry)) continue;
-      const { plugin_id, name, version, enabled, plugin_root, description } = entry;
+      const { plugin_id, name, version, enabled, plugin_root, description, min_herdr_version, platforms } = entry;
       if (typeof plugin_id !== "string" || typeof plugin_root !== "string") continue;
       const item: PluginListEntry = {
         plugin_id,
@@ -697,6 +697,18 @@ export class PluginService {
         plugin_root,
       };
       if (typeof description === "string") item.description = description;
+      // herdr >= 0.9.x reports these (issue #539); absent on older hosts —
+      // forward only well-formed values, never fabricate.
+      if (typeof min_herdr_version === "string" && min_herdr_version.length > 0) {
+        item.min_herdr_version = min_herdr_version;
+      }
+      if (
+        Array.isArray(platforms) &&
+        platforms.every((p): p is string => typeof p === "string") &&
+        platforms.length > 0
+      ) {
+        item.platforms = [...platforms];
+      }
       plugins.push(item);
     }
     const result: PluginListResult = { plugins };
@@ -724,7 +736,7 @@ export class PluginService {
     if (!entry.enabled) {
       throw new HerdrError("plugin_disabled", `plugin ${request.plugin} is disabled`);
     }
-    const capability = await this.capability(machine, entry.plugin_root);
+    const capability = await this.capability(machine, entry.plugin_root, entry.version);
     const commands = capability.doc?.["commands"];
     const contract = capability.doc?.["contract"];
     if (typeof contract !== "string" || contract.length === 0) {
@@ -733,7 +745,14 @@ export class PluginService {
         `plugin ${request.plugin} capability has no contract field`,
       );
     }
-    if (!Array.isArray(commands) || !commands.includes(request.command)) {
+    // `capability` is the meta-command the probe itself just answered —
+    // upstream contracts do not have to list it in `commands` (issue #539),
+    // so the membership gate must not reject it. Every other command still
+    // requires an explicit `commands` entry.
+    const commandAllowed =
+      request.command === "capability" ||
+      (Array.isArray(commands) && commands.includes(request.command));
+    if (!commandAllowed) {
       throw new HerdrError(
         "plugin_unsupported_command",
         `plugin ${request.plugin} does not provide command "${request.command}"`,
@@ -781,9 +800,19 @@ export class PluginService {
     return parsed.doc as PluginCallResult;
   }
 
-  /** `capability` document for one plugin_root, cached per host+root. */
-  private async capability(machine: string, pluginRoot: string): Promise<CapabilityCacheEntry> {
-    const key = `${machine}\u0000${pluginRoot}`;
+  /**
+   * `capability` document for one plugin_root, cached per host+root+version
+   * (issue #539). Keying by the discovered plugin `version` means an
+   * upstream plugin update — which changes `plugin_list`'s version — can
+   * never be served a stale capability document inside the TTL window;
+   * superseded same-root entries are dropped on write.
+   */
+  private async capability(
+    machine: string,
+    pluginRoot: string,
+    pluginVersion: string,
+  ): Promise<CapabilityCacheEntry> {
+    const key = `${machine}\u0000${pluginRoot}\u0000${pluginVersion}`;
     const cached = this.capabilities.get(key);
     if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) {
       metricInc("plugin.capability.hit");
@@ -815,6 +844,12 @@ export class PluginService {
       at: Date.now(),
       doc: isRecord(parsed.doc) ? parsed.doc : {},
     };
+    // Drop superseded entries for the same host+root (older plugin
+    // versions) so version churn cannot grow the cache unboundedly.
+    const rootPrefix = `${machine}\u0000${pluginRoot}\u0000`;
+    for (const stale of [...this.capabilities.keys()]) {
+      if (stale !== key && stale.startsWith(rootPrefix)) this.capabilities.delete(stale);
+    }
     this.capabilities.set(key, entry);
     return entry;
   }

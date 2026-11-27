@@ -35,7 +35,8 @@
 import { useSyncExternalStore } from "react";
 import { pluginCall, pluginList } from "../lib/api";
 import { onMachineStatus, onMachines, onSnapshot } from "../lib/api";
-import type { PluginCallResult } from "../../shared/protocol";
+import { pluginHerdrSkew, type PluginCallResult } from "../../shared/protocol";
+import { getBridgeState } from "./bridge";
 
 export const MACHINES_PLUGIN_ID = "rebuildup.machines";
 export const MACHINES_CONTRACT_PREFIX = "herdr-plugins.machines/";
@@ -573,6 +574,18 @@ export async function refreshMachines(machine: string): Promise<void> {
       if (!entry.enabled) {
         setState(machine, {
           status: { kind: "unavailable", reason: "disabled", detail: entry.plugin_id },
+          capability: null,
+          list: null,
+          listError: null,
+        });
+        return;
+      }
+      // ADR-0011 §10: a plugin whose min_herdr_version exceeds the host's
+      // reported herdr version is `incompatible`, same as a contract miss.
+      const skew = pluginHerdrSkew(entry, getBridgeState().machines[machine]?.version);
+      if (skew !== null) {
+        setState(machine, {
+          status: { kind: "unavailable", reason: "incompatible", detail: skew },
           capability: null,
           list: null,
           listError: null,

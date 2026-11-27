@@ -36,6 +36,8 @@ const PLUGIN_LIST = {
         version: "0.1.0",
         enabled: true,
         plugin_root: "/plugins/inbox",
+        min_herdr_version: "0.9.0",
+        platforms: ["macos", "windows"],
       },
       { plugin_id: "other.off", enabled: false, plugin_root: "/plugins/off" },
       { plugin_id: "broken.no_root" },
@@ -95,8 +97,13 @@ describe("PluginService.listPlugins (ADR-0011)", () => {
       plugin_id: "rebuildup.inbox",
       enabled: true,
       plugin_root: "/plugins/inbox",
+      min_herdr_version: "0.9.0",
+      platforms: ["macos", "windows"],
     });
     expect(result.plugins[1]?.enabled).toBe(false);
+    // Entries without the fields (older herdr/plugin) simply omit them.
+    expect(result.plugins[1]?.min_herdr_version).toBeUndefined();
+    expect(result.plugins[1]?.platforms).toBeUndefined();
     // discovery ran `herdr plugin list --json` as argv
     expect(host.calls[0]).toEqual(["herdr", "plugin", "list", "--json"]);
   });
@@ -748,6 +755,81 @@ describe("PluginService.call", () => {
     await expect(
       serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "list" }),
     ).rejects.toMatchObject({ code: "plugin_incompatible" });
+  });
+
+  test("plugin_call command 'capability' bypasses the commands-membership gate (issue #539)", async () => {
+    // The capability probe itself already proved the CLI answers
+    // `capability`; upstream contracts are not required to self-list it.
+    const host = fakeHost([
+      { match: (a) => a[0] === "herdr" && a.includes("plugin"), outcome: ok(PLUGIN_LIST) },
+      {
+        match: (a) => a[3] === "capability",
+        outcome: ok({ contract: "herdr-plugins.inbox/v1", commands: ["list"] }),
+      },
+    ]);
+    const doc = await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "capability",
+    });
+    expect(doc["contract"]).toBe("herdr-plugins.inbox/v1");
+    // Other unlisted commands still fail closed.
+    await expect(
+      serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "settle" }),
+    ).rejects.toMatchObject({ code: "plugin_unsupported_command" });
+  });
+
+  test("capability cache is keyed by plugin version: an update re-probes inside the TTL window (issue #539)", async () => {
+    let pluginVersion = "0.1.0";
+    let capabilityVersion = "0.1.0";
+    const calls: string[][] = [];
+    const host: PluginHost = {
+      async exec(argv: string[]): Promise<PluginExecOutcome> {
+        calls.push([...argv]);
+        if (argv[0] === "herdr" && argv.includes("plugin")) {
+          return ok({
+            id: "x",
+            result: {
+              plugins: [
+                {
+                  plugin_id: "rebuildup.inbox",
+                  version: pluginVersion,
+                  enabled: true,
+                  plugin_root: "/plugins/inbox",
+                },
+              ],
+            },
+          });
+        }
+        if (argv[3] === "capability") {
+          return ok({
+            contract: "herdr-plugins.inbox/v1",
+            version: capabilityVersion,
+            commands: ["list", "capability"],
+          });
+        }
+        return ok({ ok: true });
+      },
+    };
+    const svc = serviceFor(host);
+    const realNow = Date.now;
+    try {
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(1);
+      // The plugin updated upstream: the discovery TTL (30s) has expired
+      // but the capability TTL (60s) has not — a root-only cache key
+      // would serve the stale v0.1.0 document here.
+      pluginVersion = "0.2.0";
+      capabilityVersion = "0.2.0";
+      const t0 = realNow();
+      Date.now = () => t0 + 31_000;
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(2);
+      // The fresh document is now cached under the new version.
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(2);
+    } finally {
+      Date.now = realNow;
+    }
   });
 });
 
