@@ -292,6 +292,12 @@ impl GhosttySession {
         self.call(|this| this.engine.placed_images())
     }
 
+    /// whether the Kitty graphics store still holds `id` — cheap check, no
+    /// pixel copy (port of `hasImage`, issue #499)
+    pub fn has_image(&mut self, id: u32) -> Result<bool, String> {
+        self.call(|this| this.engine.has_image(id))
+    }
+
     /// a stored Kitty image's pixels as RGBA; null when unknown
     pub fn image_pixels(&mut self, id: u32) -> Result<Option<GhosttyPixels>, String> {
         self.call(|this| this.engine.image_pixels(id))

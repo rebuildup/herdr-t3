@@ -93,7 +93,8 @@ RC freeze collects both-OS evidence on reference hardware.
 | terminal decode/frame microbench (streaming ANSI, base64 hop) | ✅ `perf-terminal-bench.ts` via `perf-baseline.ts` |
 | scene build + paint-op emission (SurfaceCore.tick → GhosttyScene collect/render, scroll storm) | ✅ `perf-scene-bench.ts` via `perf-baseline.ts` `scene` section (#354) |
 | Canvas2D rasterization (`GhosttyRenderer.paint`: fillText/drawImage onto canvas) | ✅ measured — `perf-frame-bench.ts` (CDP, real app); loaded-host legs only so far, see Frame-bench section |
-| startup time, idle CPU/RSS, peak memory | deferred — needs packaged-app harness at RC |
+| memory growth / leaks (JS heap, Chrome tree, bridge, herdr) under idle/storm/kitty/switch workloads | ✅ `perf-memory-bench.ts` (CDP, real app, isolated herdr session; issue #499). `--check` enforces absolute per-scenario budgets (default jsHeap 256 MB / Chrome tree 2048 MB / bridge 512 MB / herdr 512 MB) — ceilings, not regression deltas, since the failure mode is unbounded growth. Evidence: `perf-reports/mem-*.json` |
+| startup time, idle CPU/RSS | deferred — needs packaged-app harness at RC |
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
 | input-to-paint p50/p95/p99, scroll/resize/streaming | partially — scene path timed in Bun; `perf-frame-bench.ts` gives frame-interval/longtask/task-utilization under storm, but input→photon latency still needs renderer-side instrumentation |
 | local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |

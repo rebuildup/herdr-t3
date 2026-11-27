@@ -254,10 +254,16 @@ export class GhosttyRenderer {
         }
       }
     } else {
-      const pixels = this.session.imagePixels(op.image.id);
-      if (pixels) {
-        let entry = this.imageCache.get(op.image.id);
-        if (!entry || entry.generation !== op.image.generation) {
+      // Check the cache before touching the engine: imagePixels copies the
+      // whole image out of WASM, which per frame per placed row was the
+      // allocation storm behind issue #499.
+      let entry = this.imageCache.get(op.image.id);
+      if (entry !== undefined && entry.generation !== op.image.generation) {
+        entry = undefined; // stale generation — set() below replaces it
+      }
+      if (entry === undefined) {
+        const pixels = this.session.imagePixels(op.image.id);
+        if (pixels) {
           const canvas = document.createElement("canvas");
           canvas.width = pixels.width;
           canvas.height = pixels.height;
@@ -265,7 +271,9 @@ export class GhosttyRenderer {
           entry = { generation: op.image.generation, canvas };
           this.imageCache.set(op.image.id, entry);
         }
-        const src = op.src ?? { x: 0, y: 0, w: pixels.width, h: pixels.height };
+      }
+      if (entry) {
+        const src = op.src ?? { x: 0, y: 0, w: entry.canvas.width, h: entry.canvas.height };
         ctx.drawImage(entry.canvas, src.x, src.y, src.w, src.h, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
       }
     }

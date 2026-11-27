@@ -524,7 +524,10 @@ impl<M: TextMetrics> GhosttyScene<M> {
             if y + h <= top || y >= band_bottom {
                 continue;
             }
-            if self.session.image_pixels(image.id)?.is_none() {
+            // Cheap existence check only — image_pixels copies the whole
+            // image out of the module, which per row per frame was the
+            // allocation storm behind issue #499.
+            if !self.session.has_image(image.id)? {
                 continue;
             }
             let s = image.source;
@@ -607,11 +610,21 @@ impl<M: TextMetrics> GhosttyScene<M> {
         font
     }
 
-    /// advance width of one grapheme under `font`, measured once and cached
+    /// advance width of one grapheme under `font`, measured once and cached.
+    /// Bounded (issue #499): the key space is every distinct grapheme × font
+    /// a session draws; eviction costs only a re-measure. HashMap order is
+    /// arbitrary, so eviction is effectively random — cheaper than an LRU
+    /// list and equally safe for a pure measurement cache.
     fn glyph_advance(&mut self, text: &str, font: &str) -> f64 {
+        const ADVANCE_CACHE_MAX: usize = 4096;
         let key = format!("{font}\n{text}");
         if let Some(w) = self.advance_cache.get(&key) {
             return *w;
+        }
+        if self.advance_cache.len() >= ADVANCE_CACHE_MAX {
+            if let Some(oldest) = self.advance_cache.keys().next().cloned() {
+                self.advance_cache.remove(&oldest);
+            }
         }
         let w = self.metrics_provider.measure(text, font);
         self.advance_cache.insert(key, w);
