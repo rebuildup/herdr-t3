@@ -1,5 +1,5 @@
 /*
- * Checkpoints dialog (issue #260, ADR-0016): consumes
+ * Checkpoints surface (issue #260, ADR-0016): consumes
  * `herdr-plugins.checkpoints/v1` through `plugin_call` only — the
  * plugin owns capture, hidden refs (`refs/herdr-plugins/checkpoints/…`)
  * and the state index; this surface lists, shows, diffs, creates and
@@ -37,12 +37,24 @@
  *   dry-run preview (`would_delete`/`orphans`/`unreachable`/policy
  *   shown). Partial group outcomes keep every per-repo
  *   `ok:false` entry visible — never collapsed into a generic error.
+ *
+ * Issue #409: re-composed on the #407 conformance baseline — T3
+ * `ThreadDetailsSection` section treatment via `SurfaceSection`,
+ * `SurfaceEmpty`/`SurfaceLoading`/`SurfaceNote` for every
+ * empty/loading/error state, `text-sm`/`text-xs`/`text-2xs` hierarchy
+ * (primary/secondary/metadata), no bespoke card chrome around forms.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshIcon } from "./ui/refresh-icon";
 
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "./ui/empty";
 import {
   Dialog,
   DialogContent,
@@ -52,7 +64,7 @@ import {
   DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
-import { Input, Textarea } from "./ui/input";
+import { Input, Label, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
 import {
   Select,
@@ -62,6 +74,14 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  MutationFeedback,
+  SurfaceEmpty,
+  SurfaceGroupHeader,
+  SurfaceLoading,
+  SurfaceNote,
+  SurfaceSection,
+} from "./surfaceParts";
 import type { PaneInfo } from "../../shared/protocol";
 import {
   checkpointsCapability,
@@ -241,9 +261,7 @@ function AutoCapturesNote({
   }
   if (segments.length === 0) return null;
   return (
-    <div className="text-2xs text-muted-foreground">
-      auto-capture: {segments.join("; ")}
-    </div>
+    <SurfaceNote>auto-capture: {segments.join("; ")}</SurfaceNote>
   );
 }
 
@@ -265,20 +283,6 @@ function describeAutoCaptures(report: AutoCapturesReport | null): string {
     parts.push("session unreachable — captures stay pending");
   }
   return parts.length > 0 ? ` — auto-capture: ${parts.join("; ")}` : "";
-}
-
-function SectionMessage({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs text-muted-foreground">{children}</div>;
-}
-
-function MutationFeedback({ error, notice }: { error: string | null; notice: string | null }) {
-  if (error !== null) {
-    return <div className="text-2xs text-destructive">{error}</div>;
-  }
-  if (notice !== null) {
-    return <div className="text-2xs text-muted-foreground">{notice}</div>;
-  }
-  return null;
 }
 
 function formatTime(iso: string | null): string {
@@ -355,11 +359,10 @@ function CreateForm({
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <div className="text-xs font-medium">New checkpoint</div>
+    <div className="flex flex-col gap-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-          Target
+        <div className="flex flex-col gap-1">
+          <Label>Target</Label>
           <Select
             value={effectiveMode}
             onValueChange={(value) => setMode(value === "repo" ? "repo" : "pane")}
@@ -374,10 +377,10 @@ function CreateForm({
               <SelectItem value="repo">Repository path</SelectItem>
             </SelectContent>
           </Select>
-        </label>
+        </div>
         {effectiveMode === "repo" ? (
-          <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-            Repo path
+          <div className="flex flex-col gap-1">
+            <Label>Repo path</Label>
             <Input
               size="sm"
               font="mono"
@@ -385,22 +388,22 @@ function CreateForm({
               onChange={(e) => setRepoPath(e.target.value)}
               placeholder="path/inside/repo"
             />
-          </label>
+          </div>
         ) : (
-          <div className="flex items-end text-2xs text-muted-foreground">
+          <div className="flex items-end text-xs text-muted-foreground">
             captures the work tree of the pane&apos;s repo
           </div>
         )}
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
-          Label (optional)
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <Label>Label (optional)</Label>
           <Input
             size="sm"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. before refactor"
           />
-        </label>
-        <div className="flex items-center gap-2 text-2xs text-muted-foreground sm:col-span-2">
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-2">
           <Switch
             size="sm"
             checked={auto}
@@ -495,11 +498,10 @@ function SaveGroupForm({
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <div className="text-xs font-medium">Save checkpoint group</div>
+    <div className="flex flex-col gap-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-          Repo set
+        <div className="flex flex-col gap-1">
+          <Label>Repo set</Label>
           <Select
             value={effectiveMode}
             onValueChange={(value) =>
@@ -519,10 +521,10 @@ function SaveGroupForm({
               <SelectItem value="repos">Repository list</SelectItem>
             </SelectContent>
           </Select>
-        </label>
+        </div>
         {effectiveMode === "repos" ? (
-          <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-            Repo paths (one per line)
+          <div className="flex flex-col gap-1">
+            <Label>Repo paths (one per line)</Label>
             <Textarea
               value={reposText}
               onChange={(e) => setReposText(e.target.value)}
@@ -530,26 +532,26 @@ function SaveGroupForm({
               className="min-h-14"
               aria-label="Save group repository paths"
             />
-          </label>
+          </div>
         ) : effectiveMode === "pane" ? (
-          <div className="flex items-end text-2xs text-muted-foreground">
+          <div className="flex items-end text-xs text-muted-foreground">
             captures the work tree of the pane&apos;s repo only
           </div>
         ) : (
-          <div className="flex items-end text-2xs text-muted-foreground">
+          <div className="flex items-end text-xs text-muted-foreground">
             captures every repo resolved from live pane cwds; non-repo
             cwds are reported as skipped
           </div>
         )}
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
-          Label (optional — applied to every captured entry)
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <Label>Label (optional — applied to every captured entry)</Label>
           <Input
             size="sm"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. release prep"
           />
-        </label>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -573,7 +575,7 @@ function SaveGroupForm({
 /** Per-repo result list for a `save` payload — partial stays visible. */
 function SaveGroupReport({ result }: { result: CheckpointSaveResult }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+    <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">
           {result.ok
@@ -593,7 +595,7 @@ function SaveGroupReport({ result }: { result: CheckpointSaveResult }) {
           </span>
           {item.ok ? (
             <>
-              <span className="font-mono text-muted-foreground">{item.checkpoint.id}</span>
+              <span className="font-mono text-2xs text-muted-foreground">{item.checkpoint.id}</span>
               {item.checkpoint.kind !== "manual" ? (
                 <KindBadge kind={item.checkpoint.kind} />
               ) : null}
@@ -614,7 +616,7 @@ function SaveGroupReport({ result }: { result: CheckpointSaveResult }) {
         </div>
       ) : null}
       {result.error !== null ? (
-        <div className="text-warning">
+        <div className="text-warning-foreground">
           {pluginErrorLabel(result.error.kind)} — {result.error.message}
         </div>
       ) : null}
@@ -645,7 +647,7 @@ function CheckpointList({
             key={entry.id}
             type="button"
             onClick={() => onSelect(selected ? null : entry.id)}
-            className={`flex items-center gap-2 rounded-md px-1.5 py-1.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
+            className={`flex items-center gap-2 rounded-sm px-1.5 py-1.5 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring ${
               selected ? "bg-accent" : ""
             }`}
           >
@@ -675,9 +677,9 @@ function CheckpointList({
         );
       })}
       {result !== null && result.truncated ? (
-        <div className="px-1.5 pt-1 text-2xs text-muted-foreground">
+        <SurfaceNote className="px-1.5 pt-1">
           showing {result.count} of {result.total} — raise the limit or narrow the repo filter
-        </div>
+        </SurfaceNote>
       ) : null}
     </div>
   );
@@ -696,7 +698,7 @@ const ISOLATION_LABELS: Record<string, string> = {
 function PlanPreview({ plan }: { plan: CheckpointPlanResult }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-2 text-2xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">files to change:</span>
         <span className="font-mono">{plan.files_to_change}</span>
         <span className="text-muted-foreground">untracked to delete:</span>
@@ -713,7 +715,7 @@ function PlanPreview({ plan }: { plan: CheckpointPlanResult }) {
         ) : null}
       </div>
       {plan.untracked_to_delete > 0 ? (
-        <div className="text-2xs text-warning">
+        <div className="text-xs text-warning-foreground">
           {plan.untracked_to_delete} untracked file
           {plan.untracked_to_delete === 1 ? "" : "s"} will be{" "}
           <span className="font-medium">permanently deleted</span> by restore
@@ -721,9 +723,7 @@ function PlanPreview({ plan }: { plan: CheckpointPlanResult }) {
         </div>
       ) : null}
       {plan.warnings.map((warning) => (
-        <div key={warning} className="text-2xs text-muted-foreground">
-          {warning}
-        </div>
+        <SurfaceNote key={warning}>{warning}</SurfaceNote>
       ))}
     </div>
   );
@@ -823,9 +823,11 @@ function RestoreDialog({
 
         <DialogPanel>
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-              Target worktree (optional — defaults to the checkpoint&apos;s repo
-              root; another worktree of the same repository only)
+            <div className="flex flex-col gap-1">
+              <Label>
+                Target worktree (optional — defaults to the checkpoint&apos;s
+                repo root; another worktree of the same repository only)
+              </Label>
               <Input
                 size="sm"
                 font="mono"
@@ -833,7 +835,7 @@ function RestoreDialog({
                 onChange={(e) => setRepoOverride(e.target.value)}
                 placeholder={entry.repo_root}
               />
-            </label>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 size="xs"
@@ -845,11 +847,9 @@ function RestoreDialog({
               </Button>
             </div>
             {planLoading && plan === null ? (
-              <SectionMessage>computing restore preview…</SectionMessage>
+              <SurfaceLoading label="Computing restore preview" rows={3} />
             ) : planError !== null ? (
-              <div className="text-2xs text-destructive">
-                preview unavailable: {planError}
-              </div>
+              <SurfaceNote tone="error">preview unavailable: {planError}</SurfaceNote>
             ) : plan !== null ? (
               <>
                 <PlanPreview plan={plan} />
@@ -859,25 +859,25 @@ function RestoreDialog({
 
             {failure !== null ? (
               <div className="flex flex-col gap-1.5 rounded-md border border-destructive/40 p-2">
-                <div className="text-2xs text-destructive">
+                <SurfaceNote tone="error">
                   {failure.kind === "plugin"
                     ? `${pluginErrorLabel(failure.code)}${failure.detail ? ` — ${failure.detail}` : ""}`
                     : checkpointsErrorText(failure)}
-                </div>
+                </SurfaceNote>
                 {sharingPanes.length > 0 ? (
-                  <div className="text-2xs text-muted-foreground">
+                  <SurfaceNote>
                     sharing panes:{" "}
                     <span className="font-mono">{sharingPanes.join(", ")}</span>
-                  </div>
+                  </SurfaceNote>
                 ) : null}
                 {preRestoreId !== null ? (
                   <div className="flex flex-col gap-1.5">
-                    <div className="text-2xs text-muted-foreground">
+                    <SurfaceNote>
                       A pre-restore checkpoint{" "}
                       <span className="font-mono">{preRestoreId}</span> was
                       captured before the failure — restore it to recover the
                       previous state.
-                    </div>
+                    </SurfaceNote>
                     <div>
                       <Button
                         size="xs"
@@ -894,10 +894,10 @@ function RestoreDialog({
                 ) : null}
                 {canForce ? (
                   <div className="flex flex-col gap-1.5">
-                    <div className="text-2xs text-warning">
+                    <SurfaceNote tone="warning">
                       Forcing bypasses the shared-worktree isolation check —
                       other panes may be editing this worktree right now.
-                    </div>
+                    </SurfaceNote>
                     <div>
                       <Button
                         size="xs"
@@ -914,7 +914,7 @@ function RestoreDialog({
             ) : null}
 
             {result !== null ? (
-              <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+              <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
                 <div>
                   restored commit{" "}
                   <span className="font-mono">{result.restored_commit ?? "—"}</span>
@@ -944,9 +944,7 @@ function RestoreDialog({
                   </div>
                 ) : null}
                 {result.warnings.map((warning) => (
-                  <div key={warning} className="text-muted-foreground">
-                    {warning}
-                  </div>
+                  <SurfaceNote key={warning}>{warning}</SurfaceNote>
                 ))}
                 <AutoCapturesNote report={result.auto_captures} />
               </div>
@@ -1068,9 +1066,7 @@ function RestoreGroupDialog({
           <div className="flex flex-col gap-3">
             {memberRepos.length > 0 ? (
               <div className="flex flex-col gap-1">
-                <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Member repos
-                </div>
+                <SurfaceGroupHeader title="Member repos" />
                 {memberRepos.map((root) => (
                   <div key={root} className="truncate font-mono text-2xs">
                     {root}
@@ -1080,17 +1076,17 @@ function RestoreGroupDialog({
             ) : null}
 
             {failure !== null ? (
-              <div className="text-2xs text-destructive">
+              <SurfaceNote tone="error">
                 {failure.kind === "plugin"
                   ? `${pluginErrorLabel(failure.code)}${failure.detail ? ` — ${failure.detail}` : ""}`
                   : checkpointsErrorText(failure)}
-              </div>
+              </SurfaceNote>
             ) : null}
 
             {result !== null ? (
               <div className="flex flex-col gap-1.5">
                 <div
-                  className={`text-2xs font-medium ${result.ok ? "text-muted-foreground" : "text-warning"}`}
+                  className={`text-xs font-medium ${result.ok ? "text-muted-foreground" : "text-warning-foreground"}`}
                 >
                   {result.ok
                     ? `restored ${result.succeeded}/${result.total} repos`
@@ -1099,13 +1095,13 @@ function RestoreGroupDialog({
                 {result.results.map((item) => (
                   <div
                     key={item.id}
-                    className="flex flex-col gap-0.5 rounded-md border border-border p-2 text-2xs"
+                    className="flex flex-col gap-0.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs"
                   >
                     <div className="flex items-center gap-2">
                       <span className="min-w-0 flex-1 truncate font-mono">
                         {repoLabel(item.repo_root)}
                       </span>
-                      <span className="font-mono text-muted-foreground">
+                      <span className="font-mono text-2xs text-muted-foreground">
                         {item.id}
                       </span>
                       {item.ok ? (
@@ -1137,44 +1133,44 @@ function RestoreGroupDialog({
                       </div>
                     ) : (
                       <div className="flex flex-col gap-0.5">
-                        <div className="text-destructive">
+                        <SurfaceNote tone="error">
                           {pluginErrorLabel(item.error.kind)} — {item.error.message}
-                        </div>
+                        </SurfaceNote>
                         {groupRestoreErrorFields(item.error.fields, "panes")
                           .length > 0 ? (
-                          <div className="text-muted-foreground">
+                          <SurfaceNote>
                             sharing panes:{" "}
                             <span className="font-mono">
                               {groupRestoreErrorFields(item.error.fields, "panes").join(
                                 ", ",
                               )}
                             </span>
-                          </div>
+                          </SurfaceNote>
                         ) : null}
                         {typeof item.error.fields["pre_restore_checkpoint_id"] ===
                         "string" ? (
-                          <div className="text-muted-foreground">
+                          <SurfaceNote>
                             pre-restore checkpoint{" "}
                             <span className="font-mono">
                               {String(item.error.fields["pre_restore_checkpoint_id"])}
                             </span>{" "}
                             captured before the failure
-                          </div>
+                          </SurfaceNote>
                         ) : item.pre_restore !== null ? (
-                          <div className="text-muted-foreground">
+                          <SurfaceNote>
                             pre-restore checkpoint{" "}
                             <span className="font-mono">{item.pre_restore.id}</span>{" "}
                             captured before the failure
-                          </div>
+                          </SurfaceNote>
                         ) : null}
                       </div>
                     )}
                   </div>
                 ))}
                 {result.error !== null ? (
-                  <div className="text-2xs text-warning">
+                  <SurfaceNote tone="warning">
                     {pluginErrorLabel(result.error.kind)} — {result.error.message}
-                  </div>
+                  </SurfaceNote>
                 ) : null}
                 <AutoCapturesNote report={result.auto_captures} />
               </div>
@@ -1182,12 +1178,12 @@ function RestoreGroupDialog({
 
             {canForce ? (
               <div className="flex flex-col gap-1.5">
-                <div className="text-2xs text-warning">
+                <SurfaceNote tone="warning">
                   Forcing bypasses the shared-worktree isolation check for
                   every member — other panes may be editing these worktrees.
                   Retrying re-runs the whole group, including repos that
                   already restored.
-                </div>
+                </SurfaceNote>
                 <div>
                   <Button
                     size="xs"
@@ -1269,7 +1265,7 @@ function CheckpointDetail({
   const refMissing = show !== null && show.ref !== null && !show.ref.exists;
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-2xs">
           {entry.id}
@@ -1304,7 +1300,7 @@ function CheckpointDetail({
           <span className="text-2xs text-muted-foreground">{UNSUPPORTED_TEXT} (delete)</span>
         ) : null}
       </div>
-      <dl className="flex flex-col gap-0.5 text-2xs">
+      <dl className="flex flex-col gap-1 text-xs">
         <div className="flex gap-2">
           <dt className="w-16 shrink-0 text-muted-foreground">repo</dt>
           <dd className="min-w-0 flex-1 truncate font-mono">
@@ -1375,55 +1371,53 @@ function CheckpointDetail({
       <AutoCapturesNote report={show?.auto_captures} />
 
       {refMissing ? (
-        <div className="text-2xs text-warning">
+        <SurfaceNote tone="warning">
           The hidden ref no longer exists — the state entry is still shown
           honestly; the checkpoint payload may be gone.
-        </div>
+        </SurfaceNote>
       ) : null}
 
       {loading ? (
-        <SectionMessage>loading checkpoint…</SectionMessage>
+        <SurfaceLoading label="Loading checkpoint" rows={3} />
       ) : error !== null ? (
-        <SectionMessage>checkpoint unavailable: {error}</SectionMessage>
+        <SurfaceNote tone="error">checkpoint unavailable: {error}</SurfaceNote>
       ) : show !== null ? (
         <>
           {show.summary !== null ? (
             <>
-              <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-                Stat{show.summary.truncated ? " (truncated)" : ""}
-              </div>
+              <SurfaceGroupHeader
+                title="Stat"
+                actions={show.summary.truncated ? <span className="text-2xs">(truncated)</span> : null}
+              />
               <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
                 {show.summary.output}
               </pre>
             </>
           ) : show.summary_error !== null ? (
-            <div className="text-2xs text-destructive">
-              stat unavailable: {show.summary_error}
-            </div>
+            <SurfaceNote tone="error">stat unavailable: {show.summary_error}</SurfaceNote>
           ) : null}
           {entry.files_summary !== null ? (
             <>
-              <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-                Changed files{entry.files_summary_truncated ? " (truncated)" : ""}
-              </div>
+              <SurfaceGroupHeader
+                title="Changed files"
+                actions={entry.files_summary_truncated ? <span className="text-2xs">(truncated)</span> : null}
+              />
               <pre className="max-h-32 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
                 {entry.files_summary}
               </pre>
             </>
           ) : null}
           {entry.submodules.length > 0 ? (
-            <div className="text-2xs text-muted-foreground">
+            <SurfaceNote>
               submodule gitlinks recorded (worktree contents not captured):{" "}
               {entry.submodules.join(", ")}
-            </div>
+            </SurfaceNote>
           ) : null}
         </>
       ) : null}
 
       {canPlan === false ? (
-        <div className="text-2xs text-muted-foreground">
-          {UNSUPPORTED_TEXT} (plan)
-        </div>
+        <SurfaceNote>{UNSUPPORTED_TEXT} (plan)</SurfaceNote>
       ) : null}
 
       {restoreOpen ? (
@@ -1487,10 +1481,9 @@ function DiffPane({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-xs font-medium">Diff</div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
-          A
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <Label>A</Label>
           <Select value={sideA} onValueChange={(v) => setSideA(v ?? "HEAD")}>
             <SelectTrigger aria-label="Diff side A">
               <SelectValue />
@@ -1503,10 +1496,10 @@ function DiffPane({
               ))}
             </SelectContent>
           </Select>
-        </label>
+        </div>
         <span className="pb-1.5 text-xs text-muted-foreground">→</span>
-        <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
-          B
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <Label>B</Label>
           <Select value={sideB} onValueChange={(v) => setSideB(v ?? "HEAD")}>
             <SelectTrigger aria-label="Diff side B">
               <SelectValue />
@@ -1519,7 +1512,7 @@ function DiffPane({
               ))}
             </SelectContent>
           </Select>
-        </label>
+        </div>
         <Button
           size="xs"
           variant="secondary"
@@ -1531,16 +1524,16 @@ function DiffPane({
         </Button>
       </div>
       {sideA === sideB ? (
-        <SectionMessage>pick two different sides</SectionMessage>
+        <SurfaceNote>pick two different sides</SurfaceNote>
       ) : null}
-      {error !== null ? <SectionMessage>diff unavailable: {error}</SectionMessage> : null}
+      {error !== null ? <SurfaceNote tone="error">diff unavailable: {error}</SurfaceNote> : null}
       {result !== null ? (
         <>
           {result.truncated ? (
-            <div className="text-2xs text-muted-foreground">
+            <SurfaceNote>
               patch truncated at {result.bytes} bytes — narrow the selection or raise
               --max-bytes via the CLI for the full diff
-            </div>
+            </SurfaceNote>
           ) : null}
           <pre className="max-h-56 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
             {result.patch === "" ? "(empty diff)" : result.patch}
@@ -1576,15 +1569,13 @@ function UnreachableRepos({
   if (repos.length === 0) return null;
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-        Unreachable (state untouched)
-      </div>
+      <SurfaceGroupHeader title="Unreachable (state untouched)" />
       {repos.map((repo) => (
-        <div key={repo.repo_root} className="text-2xs text-muted-foreground">
+        <SurfaceNote key={repo.repo_root}>
           <span className="font-mono">{repo.repo_root}</span> —{" "}
           {pluginErrorLabel(repo.kind !== "" ? repo.kind : "git_error")}:{" "}
           {repo.message}
-        </div>
+        </SurfaceNote>
       ))}
     </div>
   );
@@ -1592,7 +1583,7 @@ function UnreachableRepos({
 
 function GcReportView({ result }: { result: CheckpointGcResult }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+    <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
           {result.dry_run ? "dry-run preview" : "executed"}
@@ -1659,7 +1650,7 @@ function GcReportView({ result }: { result: CheckpointGcResult }) {
 
 function PruneReportView({ result }: { result: CheckpointPruneResult }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border p-2 text-2xs">
+    <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
           {result.dry_run ? "dry-run preview" : "executed"}
@@ -1775,16 +1766,15 @@ function GcSection({ machine }: { machine: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <div className="text-xs font-medium">Retention GC</div>
-      <div className="text-2xs text-muted-foreground">
+    <div className="flex flex-col gap-2">
+      <SurfaceNote>
         Evicts entries beyond max-count (newest first) and older than
         max-age-days; recent pre-restore entries stay protected. Empty
         fields use plugin defaults (50 / 30d / 7d).
-      </div>
+      </SurfaceNote>
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
-          Repo scope (optional — empty = every repo known to state)
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <Label>Repo scope (optional — empty = every repo known to state)</Label>
           <Input
             size="sm"
             font="mono"
@@ -1792,9 +1782,9 @@ function GcSection({ machine }: { machine: string }) {
             onChange={(e) => setRepo(e.target.value)}
             placeholder="path/inside/repo"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-          Max count
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label>Max count</Label>
           <Input
             size="sm"
             inputMode="numeric"
@@ -1802,9 +1792,9 @@ function GcSection({ machine }: { machine: string }) {
             onChange={(e) => setMaxCount(e.target.value)}
             placeholder="50"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-          Max age (days)
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label>Max age (days)</Label>
           <Input
             size="sm"
             inputMode="numeric"
@@ -1812,9 +1802,9 @@ function GcSection({ machine }: { machine: string }) {
             onChange={(e) => setMaxAgeDays(e.target.value)}
             placeholder="30"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
-          Pre-restore protect (days)
+        </div>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <Label>Pre-restore protect (days)</Label>
           <Input
             size="sm"
             inputMode="numeric"
@@ -1822,12 +1812,12 @@ function GcSection({ machine }: { machine: string }) {
             onChange={(e) => setProtectDays(e.target.value)}
             placeholder="7"
           />
-        </label>
+        </div>
       </div>
       {!paramsValid ? (
-        <div className="text-2xs text-destructive">
+        <SurfaceNote tone="error">
           policy values must be positive integers
-        </div>
+        </SurfaceNote>
       ) : null}
       <div className="flex items-center gap-2">
         <Button
@@ -1899,14 +1889,13 @@ function PruneSection({ machine }: { machine: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <div className="text-xs font-medium">Orphan ref prune</div>
-      <div className="text-2xs text-muted-foreground">
+    <div className="flex flex-col gap-2">
+      <SurfaceNote>
         Deletes hidden checkpoint refs that no state entry references.
         Empty repo scope scans every repo known to state.
-      </div>
-      <label className="flex flex-col gap-1 text-2xs text-muted-foreground">
-        Repo scope (optional)
+      </SurfaceNote>
+      <div className="flex flex-col gap-1">
+        <Label>Repo scope (optional)</Label>
         <Input
           size="sm"
           font="mono"
@@ -1914,7 +1903,7 @@ function PruneSection({ machine }: { machine: string }) {
           onChange={(e) => setRepo(e.target.value)}
           placeholder="path/inside/repo"
         />
-      </label>
+      </div>
       <div className="flex items-center gap-2">
         <Button
           size="xs"
@@ -1970,12 +1959,18 @@ function MaintenanceDialog({
         </DialogHeader>
         <DialogPanel>
           <div className="flex flex-col gap-3">
-            {canGc ? <GcSection machine={machine} /> : null}
-            {canPrune ? <PruneSection machine={machine} /> : null}
+            {canGc ? (
+              <SurfaceSection title="Retention GC">
+                <GcSection machine={machine} />
+              </SurfaceSection>
+            ) : null}
+            {canPrune ? (
+              <SurfaceSection title="Orphan ref prune">
+                <PruneSection machine={machine} />
+              </SurfaceSection>
+            ) : null}
             {!canGc && !canPrune ? (
-              <SectionMessage>
-                {UNSUPPORTED_TEXT} (gc/prune)
-              </SectionMessage>
+              <SurfaceNote>{UNSUPPORTED_TEXT} (gc/prune)</SurfaceNote>
             ) : null}
           </div>
         </DialogPanel>
@@ -2105,35 +2100,62 @@ export function CheckpointsSurface({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <p className="text-2xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Worktree checkpoints from the rebuildup.checkpoints plugin —
           synthetic commits under hidden git refs. Capture never touches
           your index or staging area; restore previews changes first and
           always keeps a pre-restore checkpoint.
         </p>
         {cap === null ? (
-            <SectionMessage>
-              checkpoints plugin unavailable on this host — install or enable
-              rebuildup.checkpoints and reopen
-            </SectionMessage>
-          ) : cap === undefined ? (
-            <SectionMessage>checking plugin capabilities…</SectionMessage>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex min-w-0 flex-col gap-2">
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>Checkpoints plugin unavailable</EmptyTitle>
+              <EmptyDescription>
+                Install or enable rebuildup.checkpoints on this host and
+                reopen.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : cap === undefined ? (
+          <SurfaceLoading label="Checking plugin capabilities" rows={4} />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex min-w-0 flex-col gap-4">
+              <SurfaceSection title="New checkpoint">
                 <CreateForm
                   machine={machine}
                   pane={pane ?? null}
                   canCreate={canCreate === true}
                   onCreated={refreshAll}
                 />
+              </SurfaceSection>
+              <SurfaceSection title="Save group">
                 <SaveGroupForm
                   machine={machine}
                   pane={pane ?? null}
                   canSave={canSave === true}
                   onSaved={refreshAll}
                 />
-
+              </SurfaceSection>
+              <SurfaceSection
+                title="Checkpoints"
+                count={listResult?.count}
+                actions={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Refresh checkpoints"
+                    onClick={() => {
+                      setRepoFilter(repoDraft);
+                      setGroupFilter(groupDraft);
+                      setRefreshKey((k) => k + 1);
+                    }}
+                    disabled={listLoading}
+                  >
+                    <RefreshIcon refreshing={listLoading} />
+                  </Button>
+                }
+              >
                 {/* flex-wrap: the repo filter is w-full, so without wrap
                     the group/limit/refresh controls clipped mid-label in
                     a narrow dock ("Filter by r", "1." — issue #417
@@ -2186,31 +2208,17 @@ export function CheckpointsSurface({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => {
-                      setRepoFilter(repoDraft);
-                      setGroupFilter(groupDraft);
-                      setRefreshKey((k) => k + 1);
-                    }}
-                    disabled={listLoading}
-                  >
-                    <RefreshIcon refreshing={listLoading} />
-                    Refresh
-                  </Button>
                 </div>
 
-                <div className="text-xs font-medium">Checkpoints</div>
                 {/* The list command itself drains pending auto-captures;
                     surface its report until the next fetch replaces it. */}
                 <AutoCapturesNote report={listResult?.auto_captures} />
                 {listLoading && listResult === null ? (
-                  <SectionMessage>loading checkpoints…</SectionMessage>
+                  <SurfaceLoading label="Loading checkpoints" rows={5} />
                 ) : listError !== null ? (
-                  <SectionMessage>checkpoints unavailable: {listError}</SectionMessage>
+                  <SurfaceNote tone="error">checkpoints unavailable: {listError}</SurfaceNote>
                 ) : listResult !== null && listResult.checkpoints.length === 0 ? (
-                  <SectionMessage>no checkpoints recorded</SectionMessage>
+                  <SurfaceEmpty title="No checkpoints recorded" className="py-6" />
                 ) : (
                   <CheckpointList
                     result={listResult}
@@ -2218,9 +2226,13 @@ export function CheckpointsSurface({
                     onSelect={setSelectedId}
                   />
                 )}
-              </div>
+              </SurfaceSection>
+            </div>
 
-              <div className="flex min-w-0 flex-col gap-3 border-l border-border pl-4 max-sm:border-l-0 max-sm:border-t max-sm:pl-0 max-sm:pt-4">
+            <div className="flex min-w-0 flex-col gap-4 max-sm:border-t max-sm:border-border/60 max-sm:pt-4">
+              <SurfaceSection
+                title={selectedEntry !== null ? checkpointTitle(selectedEntry) : "Checkpoint"}
+              >
                 {selectedEntry !== null ? (
                   <CheckpointDetail
                     machine={machine}
@@ -2247,18 +2259,21 @@ export function CheckpointsSurface({
                     }}
                   />
                 ) : (
-                  <SectionMessage>select a checkpoint to inspect it</SectionMessage>
+                  <SurfaceEmpty title="Select a checkpoint to inspect it" className="py-4" />
                 )}
+              </SurfaceSection>
+              <SurfaceSection title="Diff">
                 <DiffPane
                   machine={machine}
                   entries={listResult?.checkpoints ?? []}
                   defaultA={selectedEntry?.id ?? null}
                 />
-              </div>
+              </SurfaceSection>
             </div>
-          )}
+          </div>
+        )}
 
-          <MutationFeedback error={deleteError} notice={deleteNotice} />
+        <MutationFeedback error={deleteError} notice={deleteNotice} />
       </DialogPanel>
 
       {(canGc === true || canPrune === true) && cap !== null ? (
