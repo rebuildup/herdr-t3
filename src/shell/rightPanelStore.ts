@@ -212,12 +212,12 @@ export function closeAllSurfaces(scope: string) {
   updateScope(scope, () => EMPTY_PANEL_STATE);
 }
 
-/** Hide the panel without discarding its surfaces (reopen restores tabs). */
+/** Hide the panel without discarding its surfaces (reopen restores tabs).
+ *  An open panel with zero surfaces stays openable/closable so the T3
+ *  "Open a surface" empty state remains reachable (issue #411). */
 export function setPanelOpen(scope: string, open: boolean) {
   updateScope(scope, (current) =>
-    current.isOpen === open || current.surfaces.length === 0
-      ? current
-      : { ...current, isOpen: open },
+    current.isOpen === open ? current : { ...current, isOpen: open },
   );
 }
 

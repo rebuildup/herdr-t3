@@ -44,6 +44,13 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  SurfaceEmpty,
+  SurfaceLoadingRows,
+  SurfaceNote,
+  SurfacePanelHeader,
+} from "./surfacePanel";
+import { pushNotice } from "../shell/notices";
 import { cn } from "~/lib/utils";
 import {
   automationsCapability,
@@ -129,7 +136,7 @@ function destinationSummary(task: AutomationsTask): string {
 
 function RunRow({ run }: { run: AutomationsRun }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-2xs">
+    <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs">
       <Badge size="sm" variant={runStatusVariant(run.status)}>
         {run.status}
       </Badge>
@@ -164,35 +171,50 @@ function RunRow({ run }: { run: AutomationsRun }) {
 }
 
 function TaskRuns({ machine, task }: { machine: string; task: AutomationsTask }) {
-  const [runs, setRuns] = useState<AutomationsRun[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Results are keyed by the request identity so a machine/task switch
+  // reads as "loading" without a synchronous state reset in the effect
+  // (react/set-state-in-effect, conformance-audit §4.5).
+  const requestKey = `${machine}${task.task_id}`;
+  const [result, setResult] = useState<{
+    key: string;
+    runs?: AutomationsRun[];
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
-    setRuns(null);
-    setError(null);
-    setLoading(true);
+    let cancelled = false;
     fetchAutomationsRuns(machine, { taskId: task.task_id, limit: 20 })
-      .then(setRuns)
-      .catch((e: unknown) => {
-        setRuns(null);
-        setError(classifyAutomationsError(e).detail);
+      .then((runs) => {
+        if (!cancelled) setResult({ key: requestKey, runs });
       })
-      .finally(() => setLoading(false));
-  }, [machine, task.task_id]);
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setResult({ key: requestKey, error: classifyAutomationsError(e).detail });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [machine, task.task_id, requestKey]);
 
-  if (loading) {
-    return <p className="px-2 py-1 text-2xs text-muted-foreground">loading runs…</p>;
+  const current = result?.key === requestKey ? result : null;
+  if (current === null) {
+    return <SurfaceLoadingRows label="Loading runs…" rows={3} className="px-2 py-1" />;
   }
-  if (error !== null) {
-    return <p className="px-2 py-1 text-2xs text-destructive">runs unavailable: {error}</p>;
+  if (current.error !== undefined) {
+    return (
+      <SurfaceNote tone="error" className="px-2 py-1">
+        runs unavailable: {current.error}
+      </SurfaceNote>
+    );
   }
-  if (runs !== null && runs.length === 0) {
-    return <p className="px-2 py-1 text-2xs text-muted-foreground">no runs recorded</p>;
+  const runs = current.runs ?? [];
+  if (runs.length === 0) {
+    return <SurfaceNote className="px-2 py-1">no runs recorded</SurfaceNote>;
   }
   return (
     <div className="flex flex-col gap-0.5 pb-1">
-      {(runs ?? []).map((run, index) => (
+      {runs.map((run, index) => (
         <RunRow key={run.run_id ?? `derived-${run.task_id}-${run.scheduled_for ?? index}`} run={run} />
       ))}
     </div>
@@ -241,22 +263,24 @@ function TaskActions({
   const canDelete = automationsSupportsMutation(cap, "delete");
   const [pending, setPending] = useState<PendingMutation | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const runMutation = useCallback(
     async (action: () => Promise<unknown>, done: string) => {
       setBusy(true);
-      setError(null);
-      setNotice(null);
       try {
         await action();
-        setNotice(done);
+        // Mutation outcomes surface as toasts (T3 toastManager pattern,
+        // issue #428) instead of inline banners.
+        pushNotice({ kind: "info", title: done });
         // The plugin resolves derived fields at read time; a refresh can
         // never show stale next_run_at/driver/missed state.
         await refreshAutomations(machine);
       } catch (e: unknown) {
-        setError(mutationErrorText(e));
+        pushNotice({
+          kind: "error",
+          title: "Mutation failed",
+          body: mutationErrorText(e),
+        });
       } finally {
         setBusy(false);
         setPending(null);
@@ -346,14 +370,8 @@ function TaskActions({
             Delete
           </Button>
         ) : null}
-        {busy ? <span className="text-2xs text-muted-foreground">working…</span> : null}
-        {notice !== null ? (
-          <span className="text-2xs text-muted-foreground">{notice}</span>
-        ) : null}
+        {busy ? <span className="text-xs text-muted-foreground">working…</span> : null}
       </div>
-      {error !== null ? (
-        <p className="text-2xs text-destructive">mutation failed: {error}</p>
-      ) : null}
 
       <Dialog
         open={pending !== null}
@@ -422,7 +440,7 @@ function TaskRow({
         <CalendarClockIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate font-medium">{task.name}</span>
+            <span className="truncate text-sm font-medium">{task.name}</span>
             <span className="truncate text-2xs text-muted-foreground">{schedule}</span>
           </span>
           <span className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground/70">
@@ -469,19 +487,25 @@ function TaskRow({
 
 export function AutomationsSurface({ machine }: { machine: string }) {
   const state = useAutomationsState(machine);
-  const [cap, setCap] = useState<AutomationsCapability | null | undefined>(undefined);
+  // Capability probe results are keyed by machine so a switch reads as
+  // "probing" (undefined) without a synchronous reset in the effect.
+  const [capResult, setCapResult] = useState<{
+    machine: string;
+    cap: AutomationsCapability | null;
+  } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [reconcileBusy, setReconcileBusy] = useState(false);
-  const [reconcileError, setReconcileError] = useState<string | null>(null);
-  const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
 
+  const cap =
+    capResult !== null && capResult.machine === machine
+      ? capResult.cap
+      : undefined;
   const canReconcile = automationsSupportsMutation(cap, "reconcile");
 
   useEffect(() => {
     let cancelled = false;
-    setCap(undefined);
     automationsCapability(machine).then((next) => {
-      if (!cancelled) setCap(next);
+      if (!cancelled) setCapResult({ machine, cap: next });
     });
     return () => {
       cancelled = true;
@@ -495,20 +519,24 @@ export function AutomationsSurface({ machine }: { machine: string }) {
 
   const reconcile = useCallback(() => {
     setReconcileBusy(true);
-    setReconcileError(null);
-    setReconcileNotice(null);
     void reconcileAutomations(machine)
       .then(async (materialized) => {
         // Plugin-reported count only — never an invented number.
-        setReconcileNotice(
-          materialized === 0
-            ? "reconcile: no missed runs to materialize"
-            : `reconcile: ${materialized} missed run${materialized === 1 ? "" : "s"} materialized`,
-        );
+        pushNotice({
+          kind: "info",
+          title:
+            materialized === 0
+              ? "Reconcile: no missed runs to materialize"
+              : `Reconcile: ${materialized} missed run${materialized === 1 ? "" : "s"} materialized`,
+        });
         await refreshAutomations(machine);
       })
       .catch((e: unknown) => {
-        setReconcileError(mutationErrorText(e));
+        pushNotice({
+          kind: "error",
+          title: "Reconcile failed",
+          body: mutationErrorText(e),
+        });
       })
       .finally(() => setReconcileBusy(false));
   }, [machine]);
@@ -522,63 +550,51 @@ export function AutomationsSurface({ machine }: { machine: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
-            Scheduled and event-triggered agent tasks from the
-            rebuildup.automations plugin. Lifecycle actions go through
-            plugin_call; drivers (OS scheduler/watch) run on the host.
-          </p>
-          <div className="flex shrink-0 items-center gap-1">
-            {canReconcile === true ? (
+        <SurfacePanelHeader
+          title="Automations"
+          description="Scheduled and event-triggered agent tasks from the rebuildup.automations plugin. Lifecycle actions go through plugin_call; drivers (OS scheduler/watch) run on the host."
+          actions={
+            <>
+              {canReconcile === true ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={reconcile}
+                  disabled={reconcileBusy}
+                  title="Materialize derived missed occurrences into run records"
+                  aria-label="Reconcile missed runs"
+                >
+                  <HistoryIcon className={reconcileBusy ? "animate-pulse" : undefined} />
+                  Reconcile
+                </Button>
+              ) : null}
               <Button
                 size="xs"
                 variant="ghost"
-                onClick={reconcile}
-                disabled={reconcileBusy}
-                title="Materialize derived missed occurrences into run records"
-                aria-label="Reconcile missed runs"
+                onClick={refresh}
+                disabled={refreshing}
+                aria-label="Refresh automations"
               >
-                <HistoryIcon className={reconcileBusy ? "animate-pulse" : undefined} />
-                Reconcile
+                <RefreshIcon refreshing={refreshing} />
+                Refresh
               </Button>
-            ) : null}
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={refresh}
-              disabled={refreshing}
-              aria-label="Refresh automations"
-            >
-              <RefreshIcon refreshing={refreshing} />
-              Refresh
-            </Button>
-          </div>
-        </div>
-        {reconcileError !== null ? (
-          <p className="text-2xs text-destructive">reconcile failed: {reconcileError}</p>
-        ) : null}
-        {reconcileNotice !== null ? (
-          <p className="text-2xs text-muted-foreground">{reconcileNotice}</p>
-        ) : null}
+            </>
+          }
+        />
 
-        {state.status.kind === "loading" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            loading automations…
-          </p>
-        ) : state.status.kind === "unavailable" ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
+        {state.status.kind === "loading" && state.tasks.length === 0 ? (
+          <SurfaceLoadingRows label="Loading automations…" />
+        ) : null}
+        {state.status.kind === "unavailable" ? (
+          <SurfaceNote>
             {UNAVAILABLE_LABELS[state.status.reason]}
             {state.status.detail ? ` — ${state.status.detail}` : ""}
-            {state.tasks.length > 0
-              ? " (showing last known tasks)"
-              : ""}
-          </p>
+            {state.tasks.length > 0 ? " (showing last known tasks)" : ""}
+          </SurfaceNote>
         ) : null}
 
         {state.status.kind === "ready" && state.tasks.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            no scheduled tasks
-          </p>
+          <SurfaceEmpty title="No scheduled tasks" />
         ) : null}
 
         {state.tasks.length > 0 ? (

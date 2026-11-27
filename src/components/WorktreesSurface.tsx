@@ -15,9 +15,11 @@
  * remove confirm stays a real modal dialog.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { GitBranchIcon, PlusIcon } from "lucide-react";
+import { GitBranchIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +31,11 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
+import {
+  SurfaceEmpty,
+  SurfaceLoadingRows,
+  SurfacePanelHeader,
+} from "./surfacePanel";
 import { rpc } from "../lib/api";
 import type {
   RpcMethod,
@@ -59,11 +66,19 @@ export function WorktreesSurface({
   const bridge = useBridgeState();
   const snapshot = bridge.snapshots[machine] as SessionSnapshot | undefined;
 
-  const [result, setResult] = useState<WorktreeListResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [listState, setListState] = useState<{
+    key: string;
+    result: WorktreeListResult | null;
+    error: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<WorktreeListEntry | null>(null);
+  // Keyed by the list request so switching repos closes the confirm
+  // dialog by derivation instead of a synchronous reset in the effect.
+  const [confirmRemove, setConfirmRemove] = useState<{
+    entry: WorktreeListEntry;
+    key: string;
+  } | null>(null);
   const [forceRemove, setForceRemove] = useState(false);
   const [branch, setBranch] = useState("");
   const [base, setBase] = useState("");
@@ -79,28 +94,36 @@ export function WorktreesSurface({
     return cwd ? { cwd } : null;
   }, [workspace, snapshot]);
 
+  // List results are keyed by the resolved repo target so switching
+  // workspaces reads as "loading" without a synchronous reset in the
+  // effect (react/set-state-in-effect, conformance-audit §4.5).
+  const requestKey =
+    listParams !== null ? `${machine}${JSON.stringify(listParams)}` : null;
+
   const load = useCallback(() => {
-    if (!listParams) {
-      setResult(null);
-      setError(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+    if (requestKey === null || listParams === null) return;
     void rpc<WorktreeListResult>("worktree.list", listParams, machine)
-      .then(setResult)
-      .catch((e: unknown) => {
-        setResult(null);
-        setError(errorMessage(e));
-      })
-      .finally(() => setLoading(false));
-  }, [listParams, machine]);
+      .then((next) =>
+        setListState({ key: requestKey, result: next, error: null }),
+      )
+      .catch((e: unknown) =>
+        setListState({ key: requestKey, result: null, error: errorMessage(e) }),
+      );
+  }, [requestKey, listParams, machine]);
 
   useEffect(() => {
-    setResult(null);
-    setConfirmRemove(null);
     load();
   }, [load]);
+
+  const current =
+    listState !== null && listState.key === requestKey ? listState : null;
+  const result = current?.result ?? null;
+  const listError = current?.error ?? null;
+  const loading = requestKey !== null && current === null;
+  const confirmEntry =
+    confirmRemove !== null && confirmRemove.key === requestKey
+      ? confirmRemove.entry
+      : null;
 
   // The repo source for mutations: prefer the workspace herdr resolved
   // the list from, else the workspace this dialog was opened for (it is
@@ -166,32 +189,42 @@ export function WorktreesSurface({
     busy !== null ||
     !sourceWorkspaceId ||
     listParams === null ||
-    (result === null && error !== null);
+    (result === null && (listError !== null || error !== null));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <p className="text-2xs text-muted-foreground">
-          Git worktrees herdr knows for {repoName ?? "this repository"} — Open
-          creates or focuses a workspace; remove deletes the checkout.
-        </p>
-        <div className="flex flex-col gap-1">
-          {loading ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              Loading worktrees…
-            </p>
-          ) : null}
-          {!loading && !listParams ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              This workspace is not inside a git repository herdr can resolve.
-            </p>
-          ) : null}
-          {!loading && listParams && result && result.worktrees.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              No worktrees found.
-            </p>
-          ) : null}
-          {result?.worktrees.map((entry) => {
+        <SurfacePanelHeader
+          title="Worktrees"
+          description={`Git worktrees herdr knows for ${repoName ?? "this repository"} — Open creates or focuses a workspace; remove deletes the checkout.`}
+        />
+        {loading ? <SurfaceLoadingRows label="Loading worktrees…" /> : null}
+        {!loading && !listParams ? (
+          <SurfaceEmpty
+            title="Not a git repository"
+            description="This workspace is not inside a git repository herdr can resolve."
+          />
+        ) : null}
+        {!loading && listParams && result !== null && result.worktrees.length === 0 ? (
+          <SurfaceEmpty title="No worktrees found" />
+        ) : null}
+        {listError !== null ? (
+          <Alert variant="error">
+            <TriangleAlertIcon />
+            <AlertTitle>Could not list worktrees</AlertTitle>
+            <AlertDescription>{listError}</AlertDescription>
+          </Alert>
+        ) : null}
+        {error !== null ? (
+          <Alert variant="error">
+            <TriangleAlertIcon />
+            <AlertTitle>Worktree action failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {result !== null && result.worktrees.length > 0 ? (
+          <div className="flex flex-col gap-1">
+          {result.worktrees.map((entry) => {
             const removable =
               Boolean(entry.open_workspace_id) && entry.is_linked_worktree;
             return (
@@ -209,16 +242,16 @@ export function WorktreesSurface({
                       </span>
                     ) : null}
                     {entry.open_workspace_id ? (
-                      <span className="text-2xs text-success">open</span>
+                      <Badge size="sm" variant="success">open</Badge>
                     ) : null}
                     {entry.is_bare ? (
-                      <span className="text-2xs text-muted-foreground">bare</span>
+                      <Badge size="sm" variant="outline">bare</Badge>
                     ) : null}
                     {entry.is_detached ? (
-                      <span className="text-2xs text-muted-foreground">detached</span>
+                      <Badge size="sm" variant="outline">detached</Badge>
                     ) : null}
                     {entry.is_prunable ? (
-                      <span className="text-2xs text-warning">prunable</span>
+                      <Badge size="sm" variant="warning">prunable</Badge>
                     ) : null}
                   </div>
                   <div className="truncate text-2xs text-muted-foreground/70">
@@ -240,7 +273,7 @@ export function WorktreesSurface({
                     size="xs"
                     variant="ghost"
                     disabled={busy !== null}
-                    onClick={() => setConfirmRemove(entry)}
+                    onClick={() => setConfirmRemove({ entry, key: requestKey ?? "" })}
                   >
                     Remove
                   </Button>
@@ -249,13 +282,10 @@ export function WorktreesSurface({
             );
           })}
           </div>
-
-          {error ? (
-            <p className="text-xs text-error-foreground">{error}</p>
-          ) : null}
+        ) : null}
 
           <div className="flex items-end gap-2 border-t border-border pt-3">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
             Branch
             <Input
               value={branch}
@@ -263,7 +293,7 @@ export function WorktreesSurface({
               placeholder="auto"
             />
           </label>
-          <label className="flex w-28 flex-col gap-1 text-2xs text-muted-foreground">
+          <label className="flex w-28 flex-col gap-1 text-xs text-muted-foreground">
             Base
             <Input
               value={base}
@@ -271,7 +301,7 @@ export function WorktreesSurface({
               placeholder="HEAD"
             />
           </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-2xs text-muted-foreground">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
             Label
             <Input
               value={label}
@@ -292,7 +322,7 @@ export function WorktreesSurface({
       {/* Remove confirm: destructive and workspace-scoped — herdr deletes
           the checkout and closes its workspace, so spell that out. */}
       <Dialog
-        open={confirmRemove !== null}
+        open={confirmEntry !== null}
         onOpenChange={(open) => {
           if (!open) {
             setConfirmRemove(null);
@@ -305,7 +335,7 @@ export function WorktreesSurface({
             <DialogTitle>Remove worktree?</DialogTitle>
             <DialogDescription>
               herdr will delete the checkout at{" "}
-              <span className="font-mono">{confirmRemove?.path}</span> and close
+              <span className="font-mono">{confirmEntry?.path}</span> and close
               its workspace. Uncommitted changes are lost unless forced off.
             </DialogDescription>
           </DialogHeader>
@@ -332,8 +362,8 @@ export function WorktreesSurface({
             <Button
               size="sm"
               variant="destructive"
-              disabled={busy !== null || !confirmRemove}
-              onClick={() => confirmRemove && removeEntry(confirmRemove)}
+              disabled={busy !== null || !confirmEntry}
+              onClick={() => confirmEntry && removeEntry(confirmEntry)}
             >
               Remove
             </Button>
