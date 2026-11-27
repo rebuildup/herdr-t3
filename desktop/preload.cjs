@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld("herdrT3", {
   snapshot() {
     return ipcRenderer.invoke("herdr-t3:snapshot");
   },
+  /** Bridge performance counters (issue #425). */
+  metrics() {
+    return ipcRenderer.invoke("herdr-t3:metrics");
+  },
   /** Resolved Ghostty palette, or null when Ghostty sync is unavailable. */
   ghosttyTheme() {
     return ipcRenderer.invoke("herdr-t3:ghostty");

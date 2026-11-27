@@ -12,6 +12,16 @@ ADR-0010; wire shapes: protocol-frames.
 - `session.snapshot` / `events.subscribe` → `snapshot`/`event` stream.
   Only `events.subscribe` stays open; every other herdr RPC is
   one-connection-per-call.
+- Snapshot push policy (issue #423, both TS and Rust implementations):
+  - A successful client RPC schedules a snapshot refetch only for
+    methods outside `READ_ONLY_RPC_METHODS` (`shared/protocol.ts`);
+    read-only calls (`session.snapshot`, `agent.get/read/explain`,
+    `pane.process_info`, `pane.link.resolve`, `worktree.list`) never
+    trigger one. Unknown methods default to refreshing.
+  - At most one `session.snapshot` fetch is in flight per session;
+    triggers during a fetch queue a single trailing refetch.
+  - A fetched snapshot identical to the last one delivered to the
+    client is not re-pushed (dedup on content, not on fetch).
 - `subscribe_terminal` → attach stream (`terminal_data` frames) is the
   truth for that pane's screen; input flows back through
   `terminal_input`/`terminal_mouse`/`terminal_scroll`.

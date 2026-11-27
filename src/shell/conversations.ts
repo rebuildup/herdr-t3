@@ -870,12 +870,14 @@ async function callConversations(
   command: string,
   args: string[] = [],
   timeoutMs?: number,
+  coalesce = false,
 ): Promise<Record<string, unknown>> {
   return pluginCall(machine, {
     plugin: CONVERSATIONS_PLUGIN_ID,
     command,
     args,
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+    ...(coalesce ? { coalesce: true } : {}),
   });
 }
 
@@ -890,7 +892,7 @@ export async function fetchConversationsSessions(
   machine: string,
   options: { offline?: boolean | undefined } = {},
 ): Promise<ConversationsSession[]> {
-  const doc = await callConversations(machine, "sessions", conversationsSessionsArgs(options));
+  const doc = await callConversations(machine, "sessions", conversationsSessionsArgs(options), undefined, true);
   const sessions = conversationsSessionsFromDoc(doc);
   if (sessions === null) throw badOutput("sessions");
   return sessions;
@@ -911,6 +913,8 @@ export async function fetchConversationsHistory(
     machine,
     "history",
     conversationsHistoryArgs(options),
+    undefined,
+    true,
   );
   const page = conversationsHistoryFromDoc(doc);
   if (page === null) throw badOutput("history");
@@ -935,6 +939,8 @@ export async function fetchConversationsSearch(
     machine,
     "search",
     conversationsSearchArgs(query, options),
+    undefined,
+    true,
   );
   const page = conversationsSearchFromDoc(doc);
   if (page === null) throw badOutput("search");
@@ -1166,6 +1172,7 @@ export async function refreshConversations(machine: string): Promise<void> {
       const capability = await pluginCall(machine, {
         plugin: CONVERSATIONS_PLUGIN_ID,
         command: "capability",
+        coalesce: true,
       });
       const cap = capabilityOk(capability);
       if (!cap) {
@@ -1183,7 +1190,7 @@ export async function refreshConversations(machine: string): Promise<void> {
         });
         return;
       }
-      const doc = await callConversations(machine, "sessions", conversationsSessionsArgs());
+      const doc = await callConversations(machine, "sessions", conversationsSessionsArgs(), undefined, true);
       const sessions = conversationsSessionsFromDoc(doc);
       if (sessions === null) throw badOutput("sessions");
       setState(machine, {

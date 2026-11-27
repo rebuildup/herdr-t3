@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
+import type { RpcMethod, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { createBridgeSession, type BridgeEndpoint } from "./bridge-core.ts";
 import type { ByteStream, Connector, SocketHandlers } from "./socket.ts";
 
@@ -268,5 +268,131 @@ describe("terminal attach queue (slot.queue)", () => {
     link.handlers.data(welcomeFrame());
     await sleep(30);
     expect(link.stream.contains("GHOST")).toBe(false);
+  });
+});
+
+/* --------------------- snapshot push policy (issue #423) ------------------ */
+
+interface PolicyApiConn extends ApiConn {
+  requests: { id?: string; method?: string; params?: Record<string, unknown> }[];
+}
+
+/** True for bridge-internal session.snapshot fetches, not client RPCs. */
+function isSnapshotFetch(r: { method?: string; params?: Record<string, unknown> }): boolean {
+  return r.method === "session.snapshot" && r.params?.["client"] !== true;
+}
+
+/** api connector that counts requests and serves a queued snapshot list. */
+function policyApiConnector(conns: PolicyApiConn[], snapshots: SessionSnapshot[]) {
+  return (handlers: SocketHandlers) => {
+    const conn: PolicyApiConn = { handlers, stream: new FakeStream(), requests: [] };
+    conns.push(conn);
+    const rawWrite = conn.stream.write.bind(conn.stream);
+    conn.stream.write = (data) => {
+      rawWrite(data);
+      const line = typeof data === "string" ? data : decoder.decode(data);
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) return;
+      let request: { id?: string; method?: string; params?: Record<string, unknown> };
+      try {
+        request = JSON.parse(trimmed);
+      } catch {
+        return;
+      }
+      const id = request.id ?? "";
+      let result: unknown = {};
+      if (request.method === "session.snapshot") {
+        // Count prior internal snapshot fetches before recording this one.
+        const calls = conns.reduce((n, c) => n + c.requests.filter(isSnapshotFetch).length, 0);
+        conn.requests.push(request);
+        result = { snapshot: snapshots[Math.min(calls, snapshots.length - 1)] };
+      } else {
+        conn.requests.push(request);
+        if (request.method === "events.subscribe") {
+          result = { type: "subscription_started" };
+        }
+      }
+      handlers.data(encoder.encode(`${JSON.stringify({ id, result })}\n`));
+    };
+    return Promise.resolve(conn.stream);
+  };
+}
+
+const SNAPSHOT_CHANGED: SessionSnapshot = { ...SNAPSHOT, version: "test-2" };
+
+function makePolicySession(snapshots: SessionSnapshot[]) {
+  const apiConns: PolicyApiConn[] = [];
+  const clientConns: ClientConn[] = [];
+  const frames: ServerFrame[] = [];
+  const endpoint: BridgeEndpoint = {
+    api: policyApiConnector(apiConns, snapshots),
+    client: clientConnector(clientConns),
+    label: "fake",
+  };
+  const session = createBridgeSession((frame) => frames.push(frame), endpoint, "m");
+  const snapshotFetches = () =>
+    apiConns.reduce((n, c) => n + c.requests.filter(isSnapshotFetch).length, 0);
+  const pushEvent = () => {
+    const sub = apiConns.find((c) => c.requests.some((r) => r.method === "events.subscribe"));
+    sub?.handlers.data(
+      encoder.encode(`${JSON.stringify({ event: "pane.updated", data: {} })}\n`),
+    );
+  };
+  const snapshotPushes = () => frames.filter((f) => f.type === "snapshot");
+  return { session, frames, snapshotFetches, pushEvent, snapshotPushes };
+}
+
+describe("snapshot push policy (issue #423)", () => {
+  test("read-only RPCs never schedule a snapshot refetch", async () => {
+    const { session, frames, snapshotFetches } = makePolicySession([SNAPSHOT]);
+    await session.start();
+    expect(snapshotFetches()).toBe(1);
+
+    const methods = ["worktree.list", "session.snapshot", "agent.get", "pane.process_info"] as const;
+    for (const [i, method] of methods.entries()) {
+      session.handleFrame({ type: "rpc", id: `r${i}`, method: method as RpcMethod, params: { client: true } });
+    }
+    await waitFor(
+      () => frames.filter((f) => f.type === "rpc_result").length === 4,
+      "rpc_results",
+    );
+    await sleep(300);
+    expect(snapshotFetches()).toBe(1);
+    session.close();
+  });
+
+  test("mutating RPC refetches but an identical snapshot is not re-pushed", async () => {
+    const { session, frames, snapshotFetches, snapshotPushes } = makePolicySession([SNAPSHOT]);
+    await session.start();
+    session.handleFrame({ type: "rpc", id: "m1", method: "workspace.rename", params: {} });
+    await waitFor(
+      () => frames.some((f) => f.type === "rpc_result" && f.id === "m1"),
+      "rpc_result",
+    );
+    await sleep(300);
+    expect(snapshotFetches()).toBe(2);
+    // The refetch ran, but its content matched `ready`: no snapshot frame.
+    expect(snapshotPushes()).toHaveLength(0);
+    session.close();
+  });
+
+  test("event refetch dedups identical snapshots and pushes changed ones", async () => {
+    const { session, snapshotFetches, pushEvent, snapshotPushes } = makePolicySession([
+      SNAPSHOT,
+      SNAPSHOT,
+      SNAPSHOT_CHANGED,
+    ]);
+    await session.start();
+
+    pushEvent();
+    await sleep(300);
+    expect(snapshotFetches()).toBe(2);
+    expect(snapshotPushes()).toHaveLength(0);
+
+    pushEvent();
+    await sleep(300);
+    expect(snapshotFetches()).toBe(3);
+    expect(snapshotPushes()).toHaveLength(1);
+    session.close();
   });
 });
