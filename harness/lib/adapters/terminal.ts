@@ -14,6 +14,7 @@ import {
   GhosttyScene,
   type SceneMetrics,
   type SceneTextMetrics,
+  type SelectionFx,
 } from "../../../src/lib/ghostty/scene.ts";
 import {
   bypassesKeyEncoder,
@@ -80,6 +81,21 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+/** scene_set `selectionFx` — mirrors the Rust adapter's parser (issue #441) */
+function parseSelectionFx(input: unknown): SelectionFx {
+  if (!isRecord(input)) throw new Error("selectionFx must be an object");
+  const progress = typeof input["progress"] === "number" ? (input["progress"] as number) : 0;
+  const kind = input["kind"];
+  if (kind === "clear") {
+    if (!("range" in input)) throw new Error("selectionFx clear requires range");
+    return { kind: "clear", progress, range: parseRange(input["range"]) };
+  }
+  if (kind === "enter" || kind === "commit" || kind === "copy") {
+    return { kind, progress };
+  }
+  throw new Error(`unknown selectionFx kind ${String(kind)}`);
+}
+
 function parseSceneMetrics(input: Record<string, unknown>): SceneMetrics {
   return {
     cols: num(input, "cols"),
@@ -95,6 +111,7 @@ const SCENE_OPS = new Set([
   "scene_write",
   "scene_collect",
   "scene_render",
+  "scene_render_overlay",
   "scene_set",
   "scene_dispose",
 ]);
@@ -390,6 +407,8 @@ export function createTerminalAdapter(): Adapter {
             return ok(sceneState(input).scene.collect());
           case "scene_render":
             return ok(sceneState(input).scene.render());
+          case "scene_render_overlay":
+            return ok(sceneState(input).scene.renderOverlay());
           case "scene_set": {
             const s = sceneState(input);
             const scene = s.scene;
@@ -414,6 +433,11 @@ export function createTerminalAdapter(): Adapter {
             }
             if ("selection" in input) {
               scene.setSelection(input["selection"] === null ? null : parseRange(input["selection"]));
+            }
+            if ("selectionFx" in input) {
+              scene.setSelectionFx(
+                input["selectionFx"] === null ? null : parseSelectionFx(input["selectionFx"]),
+              );
             }
             const highlights = input["highlights"];
             if (Array.isArray(highlights)) {

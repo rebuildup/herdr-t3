@@ -158,6 +158,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -231,6 +235,10 @@
               "text": "l4\nl5\nl6\nl7"
             },
             {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -276,6 +284,20 @@
               "range": null
             },
             {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 4
+                },
+                "end": {
+                  "x": 1,
+                  "y": 7
+                }
+              }
+            },
+            {
               "type": "pointer_capture"
             }
           ],
@@ -315,6 +337,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -347,6 +373,10 @@
             {
               "type": "selection_commit",
               "text": "l4\nl5\nl6\nl7"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"

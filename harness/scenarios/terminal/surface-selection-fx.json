@@ -1,0 +1,564 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.surface-selection-fx",
+  "capability": "terminal.surface",
+  "contract": "terminal-surface@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "surface_new",
+      "input": {
+        "cols": 20,
+        "rows": 6,
+        "cell_w": 10,
+        "cell_h": 20,
+        "scrollback_lines": 50,
+        "colors": {
+          "foreground": "#eeeeee",
+          "background": "#101010",
+          "cursor": "#ffcc00",
+          "ansi": []
+        },
+        "font_family": "monospace",
+        "font_size": 10,
+        "has_on_mouse": false,
+        "has_on_wheel": false
+      },
+      "note": "issue #441: 20x6 pane, 50 lines scrollback, no app mouse mode -> plain drag selects",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_measure",
+      "input": {
+        "host_width": 200,
+        "host_height": 120,
+        "advance": 10,
+        "probe_line_height": 20,
+        "dpr": 1
+      },
+      "note": "20x6 grid",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_metrics",
+              "metrics": {
+                "cols": 20,
+                "rows": 6,
+                "cellW": 10,
+                "cellH": 20,
+                "dpr": 1
+              }
+            },
+            {
+              "type": "resize",
+              "cols": 20,
+              "rows": 6
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_write",
+      "input": {
+        "text": "l0\r\nl1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7\r\nl8\r\nl9"
+      },
+      "note": "ten lines; viewportTop=4 so client rows map to absolute rows 4..9",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 10,
+        "client_y": 105,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2000
+      },
+      "note": "anchor at absolute row 9 (client y=105 -> row 5 + viewportTop 4)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 10,
+        "client_y": 45,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2050
+      },
+      "note": "first non-empty range (rows 6..9) -> render_selection_fx enter",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 1,
+                  "y": 6
+                },
+                "end": {
+                  "x": 1,
+                  "y": 9
+                }
+              }
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 30,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2100
+      },
+      "note": "range keeps tracking the pointer but enter does not re-fire",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 3,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 9
+                }
+              }
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 30,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2150
+      },
+      "note": "release commits the selection -> render_selection_fx commit after selection_commit",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "selection_change",
+              "text": "\nl6\nl7\nl8\nl9"
+            },
+            {
+              "type": "selection_commit",
+              "text": "\nl6\nl7\nl8\nl9"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_clear_selection",
+      "input": {},
+      "note": "programmatic clear -> render_selection_fx clear carrying the just-cleared range",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "selection_change",
+              "text": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 3,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 9
+                }
+              }
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 10,
+        "client_y": 65,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 3000
+      },
+      "note": "re-select: anchor at absolute row 7",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 30,
+        "client_y": 105,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 3050
+      },
+      "note": "drag to absolute row 9 -> enter again on the fresh gesture",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 1,
+                  "y": 7
+                },
+                "end": {
+                  "x": 3,
+                  "y": 9
+                }
+              }
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 30,
+        "client_y": 105,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 3100
+      },
+      "note": "commit again so a selection is painted for the next step",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "selection_change",
+              "text": "7\nl8\nl9"
+            },
+            {
+              "type": "selection_commit",
+              "text": "7\nl8\nl9"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 85,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 3200
+      },
+      "note": "new gesture replaces the painted selection -> clear fx for the old range",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 1,
+                  "y": 7
+                },
+                "end": {
+                  "x": 3,
+                  "y": 9
+                }
+              }
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 85,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 3250
+      },
+      "note": "quick second click widens to the word under it -> commit fx on the widened range",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 8
+                },
+                "end": {
+                  "x": 1,
+                  "y": 8
+                }
+              }
+            },
+            {
+              "type": "selection_change",
+              "text": "l8"
+            },
+            {
+              "type": "selection_commit",
+              "text": "l8"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_host_scroll",
+      "input": {
+        "offset_from_bottom": 0,
+        "max_offset_from_bottom": 0,
+        "viewport_rows": 6
+      },
+      "note": "baseline host-scroll report",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_host_scroll",
+      "input": {
+        "offset_from_bottom": 0,
+        "max_offset_from_bottom": 0,
+        "viewport_rows": 7
+      },
+      "note": "viewport-row change (reflow) -> stored coordinates untrustworthy -> render_selection_fx cancel",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "selection_change",
+              "text": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "cancel"
+            },
+            {
+              "type": "render_set_viewport_shift",
+              "shift": 0
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_dispose",
+      "input": {},
+      "note": "final dispose",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    }
+  ]
+}

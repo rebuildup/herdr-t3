@@ -111,4 +111,64 @@ describe("selection copy gate", () => {
     await tick();
     expect(writes).toEqual(["lost", "kept"]);
   });
+
+  test("onCopied fires once per successful write, in commit order — never on failure or when off (issue #441)", async () => {
+    const copied: string[] = [];
+    let on = true;
+    let fail = false;
+    const copy = createSelectionCopy({
+      enabled: () => on,
+      writeText: () =>
+        fail ? Promise.reject(new Error("denied")) : Promise.resolve(),
+      onCopied: (text) => copied.push(text),
+    });
+
+    copy("first");
+    copy("second");
+    await tick();
+    expect(copied).toEqual(["first", "second"]);
+
+    // a rejected write earns no success signal
+    fail = true;
+    copy("lost");
+    await tick();
+    expect(copied).toEqual(["first", "second"]);
+
+    // the setting being off never reaches the write at all
+    on = false;
+    copy("skipped");
+    await tick();
+    expect(copied).toEqual(["first", "second"]);
+
+    // empty text is filtered before the write — no signal either
+    on = true;
+    copy("");
+    await tick();
+    expect(copied).toEqual(["first", "second"]);
+  });
+
+  test("onCopied follows the serialized write order, not the commit call order", async () => {
+    const copied: string[] = [];
+    const pending = new Map<string, ReturnType<typeof deferred<void>>>();
+    const copy = createSelectionCopy({
+      enabled: () => true,
+      writeText: (text) => {
+        const d = deferred<void>();
+        pending.set(text, d);
+        return d.promise;
+      },
+      onCopied: (text) => copied.push(text),
+    });
+
+    copy("first");
+    copy("second");
+    await tick();
+    pending.get("first")!.resolve();
+    await tick();
+    // "second" is still queued behind the in-flight write — no signal yet
+    expect(copied).toEqual(["first"]);
+    pending.get("second")!.resolve();
+    await tick();
+    expect(copied).toEqual(["first", "second"]);
+  });
 });

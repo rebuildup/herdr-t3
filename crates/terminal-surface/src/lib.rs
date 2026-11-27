@@ -73,6 +73,14 @@ pub enum SurfaceEffect {
     BlinkDisarm,
     /// renderer: selection highlight range
     RenderSetSelection { range: Option<RangeJson> },
+    /// renderer: play a transient selection-overlay response (issue #441)
+    /// — `enter`/`commit`/`clear`/`cancel`, mirroring the TS
+    /// `render_selection_fx` effect; `range` is present for `clear`
+    RenderSelectionFx {
+        kind: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        range: Option<RangeJson>,
+    },
     /// renderer: search-match highlight ranges
     RenderSetHighlights { ranges: Vec<RangeJson> },
     /// renderer/scene: rows the host viewport sits above the engine's
@@ -287,6 +295,10 @@ const DOUBLE_CLICK_MS: f64 = 500.0;
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn range_empty(r: ScreenRange) -> bool {
+    r.start.x == r.end.x && r.start.y == r.end.y
 }
 
 fn ordered(a: ScreenPoint, b: ScreenPoint) -> ScreenRange {
@@ -719,6 +731,12 @@ impl SurfaceCore {
         self.selection
     }
 
+    /// the selection range worth a transient response — a collapsed point
+    /// never painted, so it earns no fx (issue #441; TS `paintedSelection`)
+    fn painted_selection(&self) -> Option<ScreenRange> {
+        self.selection.filter(|r| !range_empty(*r))
+    }
+
     pub fn get_selection_text(&mut self) -> CoreResult {
         let mut effects = Vec::new();
         let Some(sel) = self.selection else {
@@ -735,9 +753,18 @@ impl SurfaceCore {
         if self.selection.is_none() {
             return void_result(effects);
         }
+        let cleared = self.painted_selection();
         self.selection = None;
         effects.push(SurfaceEffect::RenderSetSelection { range: None });
         effects.push(SurfaceEffect::SelectionChange { text: None });
+        // the fade-out is only offered when the cleared range's history
+        // coordinates still identify the same content (issue #441)
+        if let Some(range) = cleared {
+            effects.push(SurfaceEffect::RenderSelectionFx {
+                kind: "clear",
+                range: Some(range_json(range)),
+            });
+        }
         self.schedule(&mut effects);
         void_result(effects)
     }
@@ -859,6 +886,13 @@ impl SurfaceCore {
             self.highlight_ranges.clear();
             effects.push(SurfaceEffect::RenderSetHighlights { ranges: Vec::new() });
         }
+        // stored coordinates are untrustworthy now: any playing selection
+        // response must stop rather than paint whatever rows moved into
+        // its place (issue #441)
+        effects.push(SurfaceEffect::RenderSelectionFx {
+            kind: "cancel",
+            range: None,
+        });
     }
 
     /// client point → cell under it, in visible-viewport coordinates
@@ -1126,12 +1160,21 @@ impl SurfaceCore {
         }
         if let Some(end) = self.drag_end_cell(drag, effects) {
             let range = ordered(drag.anchor, end);
+            let was_painted = self.painted_selection().is_some();
             let same = self.selection == Some(range);
             self.selection = Some(range);
             if !same {
-                let empty = range.start.x == range.end.x && range.start.y == range.end.y;
+                let empty = range_empty(range);
                 effects.push(SurfaceEffect::RenderSetSelection {
                     range: if empty { None } else { Some(range_json(range)) },
+                });
+            }
+            // a reverse drag that shrank to nothing and grows again
+            // re-fires the enter response (issue #441)
+            if !was_painted && !range_empty(range) {
+                effects.push(SurfaceEffect::RenderSelectionFx {
+                    kind: "enter",
+                    range: None,
                 });
             }
         }
@@ -1571,11 +1614,21 @@ impl SurfaceCore {
                     d.edge = None;
                 }
             }
+            // a new gesture replaces any painted selection: offer the old
+            // range a fade-out — its history coordinates still name the
+            // same content (issue #441)
+            let replaced = self.painted_selection();
             self.selection = Some(ScreenRange {
                 start: cell,
                 end: cell,
             });
             effects.push(SurfaceEffect::RenderSetSelection { range: None });
+            if let Some(range) = replaced {
+                effects.push(SurfaceEffect::RenderSelectionFx {
+                    kind: "clear",
+                    range: Some(range_json(range)),
+                });
+            }
         }
         let mods = mods_of(input.shift_key, input.alt_key, input.ctrl_key);
         if to_mouse {
@@ -1650,11 +1703,20 @@ impl SurfaceCore {
         // tracks whatever content scrolls under it (issues #427/#433/#436)
         if let Some(end) = self.drag_end_cell(drag, &mut effects) {
             let range = ordered(drag.anchor, end);
-            let empty = range.start.x == range.end.x && range.start.y == range.end.y;
+            let was_painted = self.painted_selection().is_some();
+            let empty = range_empty(range);
             self.selection = Some(range);
             effects.push(SurfaceEffect::RenderSetSelection {
                 range: if empty { None } else { Some(range_json(range)) },
             });
+            // the drag's first non-empty range — and any re-grow after a
+            // reverse drag emptied it — gets the enter response (issue #441)
+            if !was_painted && !empty {
+                effects.push(SurfaceEffect::RenderSelectionFx {
+                    kind: "enter",
+                    range: None,
+                });
+            }
         }
         self.schedule(&mut effects);
         void_result(effects)
@@ -1724,6 +1786,10 @@ impl SurfaceCore {
                     });
                     if !text.is_empty() {
                         effects.push(SurfaceEffect::SelectionCommit { text });
+                        effects.push(SurfaceEffect::RenderSelectionFx {
+                            kind: "commit",
+                            range: None,
+                        });
                     }
                     self.schedule(&mut effects);
                     return void_result(effects);
@@ -1749,6 +1815,10 @@ impl SurfaceCore {
                 });
                 if !text.is_empty() {
                     effects.push(SurfaceEffect::SelectionCommit { text });
+                    effects.push(SurfaceEffect::RenderSelectionFx {
+                        kind: "commit",
+                        range: None,
+                    });
                 }
             }
         }

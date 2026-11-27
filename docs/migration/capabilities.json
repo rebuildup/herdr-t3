@@ -2081,6 +2081,7 @@
     "emit ordered PaintOp list per frame (text + overlay layers)",
     "batched fillText with per-cell fallback on advance mismatch",
     "selection/search washes and cursor styles on the overlay",
+    "transient selection-overlay response (enter/commit/copy/clear) driven by a host-supplied progress clock, overlay-only repaint",
     "background colour/image compositing geometry",
     "injected text metrics (canvas-backed in production, fake in tests)"
    ],
@@ -2092,7 +2093,8 @@
    "scenarios": [
     "src/lib/ghostty/scene.ts",
     "crates/terminal-render/tests/scene.rs",
-    "harness/scenarios/terminal/scene-render.json"
+    "harness/scenarios/terminal/scene-render.json",
+    "harness/scenarios/terminal/scene-selection-fx.json"
    ],
    "evidence": [
     "src/lib/ghostty/scene.ts",
@@ -2101,6 +2103,7 @@
     "crates/terminal-render/src/bin/terminal-render-adapter.rs",
     "crates/terminal-render/tests/scene.rs",
     "harness/scenarios/terminal/scene-render.json",
+    "harness/scenarios/terminal/scene-selection-fx.json",
     "docs/migration/contracts/terminal-render.md"
    ],
    "stage": "rust-implemented",
@@ -2194,6 +2197,7 @@
    "operations": [
     "scroll offset/jump-carry with scrollback clamps",
     "selection drag, click-widening (word/line), search highlight/step",
+    "transient selection-overlay fx signals (enter/commit/clear/cancel) — geometry never delayed",
     "hover/drag motion coalescing flushed before release",
     "mouse/wheel report routing per app tracking mode and host callbacks",
     "key/paste routing through input policy with readOnly gating",
@@ -2208,9 +2212,11 @@
    "side_effects": [],
    "scenarios": [
     "src/lib/ghostty/surfaceCore.ts",
+    "src/lib/ghostty/surfaceCore.test.ts",
     "crates/terminal-surface/tests/surface.rs",
     "harness/scenarios/terminal/surface.json",
-    "harness/scenarios/terminal/surface-fresh.json"
+    "harness/scenarios/terminal/surface-fresh.json",
+    "harness/scenarios/terminal/surface-selection-fx.json"
    ],
    "evidence": [
     "src/lib/ghostty/surfaceCore.ts",
@@ -2220,6 +2226,7 @@
     "crates/terminal-surface/tests/surface.rs",
     "harness/scenarios/terminal/surface.json",
     "harness/scenarios/terminal/surface-fresh.json",
+    "harness/scenarios/terminal/surface-selection-fx.json",
     "docs/migration/contracts/terminal-surface.md"
    ],
    "stage": "rust-implemented",

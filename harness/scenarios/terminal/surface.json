@@ -565,6 +565,20 @@
               "range": null
             },
             {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 3
+                },
+                "end": {
+                  "x": 1,
+                  "y": 3
+                }
+              }
+            },
+            {
               "type": "pointer_capture"
             }
           ],
@@ -604,6 +618,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -636,6 +654,10 @@
             {
               "type": "selection_commit",
               "text": "l5\nl6\nl7"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"
@@ -681,6 +703,20 @@
             {
               "type": "render_set_selection",
               "range": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 7
+                }
+              }
             },
             {
               "type": "pointer_capture"
@@ -730,6 +766,10 @@
               "text": "l5"
             },
             {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -764,6 +804,20 @@
             {
               "type": "selection_change",
               "text": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 5
+                }
+              }
             },
             {
               "type": "schedule"

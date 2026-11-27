@@ -67,6 +67,7 @@ in order; the Rust port emits the identical list.
 `resize{cols,rows}` ·
 `dead{message}` · `schedule` · `blink_arm{delay_ms}` ·
 `blink_disarm` · `render_set_selection{range}` ·
+`render_selection_fx{kind,range?}` ·
 `render_set_highlights{ranges}` · `render_set_cursor_visible{visible}` ·
 `render_invalidate` · `render_set_metrics{metrics}` ·
 `render_set_font{fontFamily?,fontSize?}` ·
@@ -106,6 +107,16 @@ callback effects carry the decision content.
   search-result selections, `pointerCancel`, empty clicks or
   `clearSelection`. The effect carries the exact `textOf` text; any
   clipboard side effect (copy-on-select) is the host's decision.
+- Selection fx (issue #441): `render_selection_fx{kind,range?}` asks the
+  host to play a transient overlay response — `enter` when a select
+  drag's painted range first becomes non-empty (and again when a reverse
+  drag re-grows it), `commit` alongside each `selection_commit`, `clear`
+  with the just-cleared range for the fade-out (also when a new gesture
+  replaces a painted selection), `cancel` when stored coordinates lose
+  their identity (`hostScrollChanged` reflow/prune). Selection geometry
+  is never delayed: `render_set_selection` still tracks the pointer
+  immediately; the fx only drives paint-side emphasis on the host's
+  clock.
 - IME: `compositionupdate` text is a pure DOM mirror (no effect); the
   anchor/composition-view geometry is effect-driven.
 

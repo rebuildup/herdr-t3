@@ -158,6 +158,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -190,6 +194,10 @@
             {
               "type": "selection_commit",
               "text": "25\nl26\nl2"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"
@@ -296,6 +304,10 @@
               "text": null
             },
             {
+              "type": "render_selection_fx",
+              "kind": "cancel"
+            },
+            {
               "type": "render_set_viewport_shift",
               "shift": 8
             },
@@ -331,6 +343,10 @@
         "ok": true,
         "value": {
           "effects": [
+            {
+              "type": "render_selection_fx",
+              "kind": "cancel"
+            },
             {
               "type": "render_set_viewport_shift",
               "shift": 4
@@ -408,6 +424,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -440,6 +460,10 @@
             {
               "type": "selection_commit",
               "text": "21\nl22\nl2"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"
@@ -485,6 +509,20 @@
             {
               "type": "render_set_selection",
               "range": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 1,
+                  "y": 21
+                },
+                "end": {
+                  "x": 1,
+                  "y": 23
+                }
+              }
             },
             {
               "type": "pointer_capture"
@@ -648,6 +686,10 @@
               }
             },
             {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
               "type": "schedule"
             }
           ],
@@ -703,6 +745,10 @@
             {
               "type": "selection_commit",
               "text": "23\nl24\nl2"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
             },
             {
               "type": "schedule"

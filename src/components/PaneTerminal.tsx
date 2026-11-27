@@ -151,6 +151,9 @@ export function PaneTerminal({
         const clipboard = navigator.clipboard;
         return clipboard ? clipboard.writeText(text) : Promise.resolve();
       },
+      // issue #441: only a resolved write earns the copy-success tick on
+      // the selection overlay — failures stay silent
+      onCopied: () => surface?.notifySelectionCopied(),
     });
 
     void GhosttySession.create({

@@ -100,6 +100,7 @@ const SCENE_OPS = new Set([
   "scene_collect",
   "scene_render",
   "scene_set",
+  "scene_render_overlay",
   "scene_dispose",
 ]);
 
