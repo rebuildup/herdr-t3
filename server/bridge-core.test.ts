@@ -341,6 +341,18 @@ function policyApiConnector(conns: PolicyApiConn[], snapshots: SessionSnapshot[]
   };
 }
 
+function pane(pane_id: string, terminal_id: string): SessionSnapshot["panes"][number] {
+  return {
+    agent_status: "idle",
+    focused: false,
+    pane_id,
+    revision: 1,
+    tab_id: "t1",
+    terminal_id,
+    workspace_id: "w1",
+  };
+}
+
 const SNAPSHOT_CHANGED: SessionSnapshot = { ...SNAPSHOT, version: "test-2" };
 
 function makePolicySession(snapshots: SessionSnapshot[]) {
@@ -355,14 +367,21 @@ function makePolicySession(snapshots: SessionSnapshot[]) {
   const session = createBridgeSession((frame) => frames.push(frame), endpoint, "m");
   const snapshotFetches = () =>
     apiConns.reduce((n, c) => n + c.requests.filter(isSnapshotFetch).length, 0);
-  const pushEvent = () => {
-    const sub = apiConns.find((c) => c.requests.some((r) => r.method === "events.subscribe"));
+  const subscribeRequests = () =>
+    apiConns.reduce((n, c) => n + c.requests.filter((r) => r.method === "events.subscribe").length, 0);
+  /** api connections that carry an events.subscribe request (one per open). */
+  const subscriptionConns = () =>
+    apiConns.filter((c) => c.requests.some((r) => r.method === "events.subscribe"));
+  const pushEvent = (event = "pane.updated") => {
+    // The live subscription is the most recently opened one; earlier conns
+    // are closed and ignore data anyway.
+    const sub = subscriptionConns().at(-1);
     sub?.handlers.data(
-      encoder.encode(`${JSON.stringify({ event: "pane.updated", data: {} })}\n`),
+      encoder.encode(`${JSON.stringify({ event, data: {} })}\n`),
     );
   };
   const snapshotPushes = () => frames.filter((f) => f.type === "snapshot");
-  return { session, frames, snapshotFetches, pushEvent, snapshotPushes };
+  return { session, frames, apiConns, snapshotFetches, subscribeRequests, subscriptionConns, pushEvent, snapshotPushes };
 }
 
 describe("snapshot push policy (issue #423)", () => {
@@ -416,6 +435,84 @@ describe("snapshot push policy (issue #423)", () => {
     await sleep(300);
     expect(snapshotFetches()).toBe(3);
     expect(snapshotPushes()).toHaveLength(1);
+    session.close();
+  });
+});
+
+/* ------------------- subscription lifecycle (issue #527) ------------------ */
+
+describe("subscription lifecycle (issue #527)", () => {
+  test("a dropped subscription is recovered once: one refetch, one reopen, no leak", async () => {
+    const { session, snapshotFetches, subscribeRequests, subscriptionConns } =
+      makePolicySession([SNAPSHOT]);
+    await session.start();
+    expect(subscriptionConns()).toHaveLength(1);
+
+    // The events.subscribe socket dies: recovery must fetch the snapshot
+    // once and reopen the subscription once — the old code also fired the
+    // 2 s retry unconditionally, installing a second live subscription on
+    // top of the recovered one (leaked socket + duplicated events).
+    subscriptionConns()[0]!.handlers.close?.();
+    await waitFor(() => subscribeRequests() === 2, "subscription reopen");
+    await sleep(300);
+    expect(snapshotFetches()).toBe(2);
+    expect(subscriptionConns()).toHaveLength(2);
+
+    // Past the retry window: the restored subscription must not be
+    // replaced again — exactly one recovery total.
+    await sleep(2200);
+    expect(subscribeRequests()).toBe(2);
+    expect(snapshotFetches()).toBe(2);
+    session.close();
+  });
+
+  test("a burst of terminal attaches coalesces scroll-subscription reopens", async () => {
+    const multi: SessionSnapshot = {
+      ...SNAPSHOT,
+      panes: [pane("p1", "term-1"), pane("p2", "term-2"), pane("p3", "term-3"), pane("p4", "term-4")],
+    };
+    const { session, subscribeRequests } = makePolicySession([multi]);
+    await session.start();
+    expect(subscribeRequests()).toBe(1);
+
+    // A workspace switch attaches every visible pane in one burst; each
+    // attach used to synchronously close+reopen the whole subscription.
+    for (const id of ["p1", "p2", "p3", "p4"]) {
+      session.handleFrame({ type: "subscribe_terminal", paneId: id, cols: 80, rows: 24 });
+    }
+    await sleep(400);
+    expect(subscribeRequests()).toBe(2);
+
+    // Same for the detach burst on switch-away.
+    for (const id of ["p1", "p2", "p3", "p4"]) {
+      session.handleFrame({ type: "unsubscribe_terminal", paneId: id });
+    }
+    await sleep(400);
+    expect(subscribeRequests()).toBe(3);
+    session.close();
+  });
+
+  test("pane.scroll_changed events are forwarded but never refetch the snapshot", async () => {
+    const { session, frames, snapshotFetches, pushEvent, snapshotPushes } =
+      makePolicySession([SNAPSHOT]);
+    await session.start();
+    expect(snapshotFetches()).toBe(1);
+
+    // Scroll bursts used to schedule a full session.snapshot fetch — and,
+    // because pane.scroll is part of the snapshot, a full snapshot push —
+    // per debounce window (issues #416/#527). The event itself is the
+    // delivery channel clients consume.
+    pushEvent("pane.scroll_changed");
+    pushEvent("pane.scroll_changed");
+    await sleep(300);
+    expect(snapshotFetches()).toBe(1);
+    expect(snapshotPushes()).toHaveLength(0);
+    expect(frames.some((f) => f.type === "event")).toBe(true);
+
+    // Structure/status events still refetch as before.
+    pushEvent("pane.updated");
+    await sleep(300);
+    expect(snapshotFetches()).toBe(2);
     session.close();
   });
 });

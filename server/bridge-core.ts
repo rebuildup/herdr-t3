@@ -83,22 +83,43 @@ function scrollSubscriptions(state: SessionState): Record<string, unknown>[] {
 }
 
 /**
+ * Coalescing window for scroll-subscription set changes (issue #527).
+ * Attaches/detaches arrive as a burst during workspace switches (one
+ * subscribe_terminal frame per visible pane); reopening once per frame
+ * would tear down and recreate the whole events.subscribe connection —
+ * every structure/status/scroll filter included — for each pane. Changes
+ * are coalesced into a single trailing reopen instead. `pane.scroll_changed`
+ * is advisory viewport traffic: the authoritative scroll state also
+ * arrives via snapshot pushes and the `pane.scroll` RPC, so a sub-second
+ * gap in the subscription cannot lose user data.
+ */
+const SCROLL_SYNC_DEBOUNCE_MS = 120;
+
+function scrollSetsEqual(state: SessionState): boolean {
+  if (state.terminals.size !== state.scrollSubscribed.size) return false;
+  for (const id of state.terminals.keys()) {
+    if (!state.scrollSubscribed.has(id)) return false;
+  }
+  return true;
+}
+
+/**
  * Reopen the event subscription when the attached-pane set changed since
  * the last open — herdr ignores a second subscribe on a live connection,
  * so the full set (structure + status + scroll) goes out together.
  */
 function syncScrollSubscriptions(state: SessionState): void {
   if (!state.snapshot || !state.subscription) return;
-  const want = new Set(state.terminals.keys());
-  if (
-    want.size === state.scrollSubscribed.size &&
-    [...want].every((id) => state.scrollSubscribed.has(id))
-  ) {
-    return;
-  }
-  state.scrollSubscribed = want;
-  state.subscription.close();
-  state.subscription = openSubscription(state, state.snapshot);
+  if (scrollSetsEqual(state)) return;
+  if (state.scrollSyncTimer !== null) return;
+  state.scrollSyncTimer = setTimeout(() => {
+    state.scrollSyncTimer = null;
+    // Re-check at fire time: the set may have reverted, or a reconcile
+    // reopen may already carry the desired subscriptions.
+    if (!state.snapshot || !state.subscription || scrollSetsEqual(state)) return;
+    state.subscription.close();
+    state.subscription = openSubscription(state, state.snapshot);
+  }, SCROLL_SYNC_DEBOUNCE_MS);
 }
 
 export async function fetchSnapshot(endpoint?: BridgeEndpoint): Promise<SessionSnapshot> {
@@ -140,6 +161,8 @@ interface SessionState {
   scrollSubscribed: Set<string>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
+  /** Pending coalesced scroll-subscription reopen (issue #527). */
+  scrollSyncTimer: ReturnType<typeof setTimeout> | null;
   /** True while a pushSnapshot fetch is in flight; a queued refetch runs after it. */
   fetchingSnapshot: boolean;
   /** Set when scheduleSnapshot fires while a fetch is in flight. */
@@ -206,7 +229,10 @@ function reconcileSubscriptions(state: SessionState, snapshot: SessionSnapshot):
   const ids = new Set(snapshot.panes.map((pane) => pane.pane_id));
   const same =
     state.subscribedPaneIds.size === ids.size && [...ids].every((id) => state.subscribedPaneIds.has(id));
-  if (same) return;
+  // A missing subscription must reopen even when the pane set is empty or
+  // unchanged — e.g. drop recovery on an empty session, where `same` would
+  // otherwise leave the session without any event stream (issue #527).
+  if (same && state.subscription) return;
   // A second subscribe on a live connection is ignored: reopen with the full set.
   state.subscription?.close();
   state.subscription = openSubscription(state, snapshot);
@@ -216,7 +242,10 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
   state.subscribedPaneIds = new Set(snapshot.panes.map((pane) => pane.pane_id));
   metricInc("bridge.subscription.open");
   state.scrollSubscribed = new Set(state.terminals.keys());
-  return subscribeEvents(
+  // `sub` is assigned synchronously by subscribeEvents; handlers only run
+  // later, so the identity check below is always settled by then.
+  let sub: Subscription;
+  sub = subscribeEvents(
     [
       ...STRUCTURE_SUBSCRIPTIONS,
       ...statusSubscriptions(snapshot),
@@ -225,10 +254,29 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
     {
       onEvent: (frame: EventFrame) => {
         state.send({ type: "event", event: frame, machine: state.machine });
-        scheduleSnapshot(state, "event");
+        // pane.scroll_changed is high-frequency viewport traffic and cannot
+        // alter session structure: clients consume it from the forwarded
+        // event frame itself (PaneTerminal re-projects selection). Refetching
+        // session.snapshot for it turned every scroll burst into a full
+        // snapshot fetch — and, because pane.scroll is part of the snapshot,
+        // a full snapshot push to every client (issues #416/#527).
+        if (frame.event === "pane.scroll_changed") {
+          metricInc("bridge.snapshot.schedule.skip", { reason: "scroll_event" });
+        } else {
+          scheduleSnapshot(state, "event");
+        }
       },
-      onError: () => scheduleSnapshot(state, "subscription_error"),
+      onError: () => {
+        // A replaced subscription's late socket error must not schedule
+        // work for the live one (issue #527).
+        if (state.subscription !== sub) return;
+        scheduleSnapshot(state, "subscription_error");
+      },
       onClose: () => {
+        // Same guard: only the live subscription may trigger recovery.
+        // Without it a stale drop nulls state.subscription while a healthy
+        // replacement streams on, and the reopen timer leaks connections.
+        if (state.subscription !== sub) return;
         state.subscription = null;
         state.subscribedPaneIds = new Set();
         metricInc("bridge.subscription.close");
@@ -236,11 +284,18 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
         // Retry the subscription itself; the snapshot push above already ran once.
         state.pushTimer = setTimeout(() => {
           state.pushTimer = null;
+          // The debounced snapshot push restores the subscription via
+          // reconcileSubscriptions whenever its fetch succeeds. Only when
+          // it did not (herdr unreachable) is a second fetch+reopen needed —
+          // reopening unconditionally here used to install a second live
+          // subscription on top of the recovered one, leaking its socket
+          // and doubling every forwarded event (issue #527).
+          if (state.subscription) return;
           metricInc("bridge.subscription.reopen");
           void fetchSnapshot(state.endpoint)
             .then((snapshot) => {
               deliverSnapshot(state, snapshot);
-              state.subscription = openSubscription(state, snapshot);
+              reconcileSubscriptions(state, snapshot);
             })
             .catch(() => {});
         }, 2000);
@@ -248,6 +303,7 @@ function openSubscription(state: SessionState, snapshot: SessionSnapshot): Subsc
     },
     state.endpoint.api,
   );
+  return sub;
 }
 
 function scheduleSnapshot(state: SessionState, cause: string): void {
@@ -487,6 +543,7 @@ export function createBridgeSession(
     scrollSubscribed: new Set(),
     snapshotTimer: null,
     pushTimer: null,
+    scrollSyncTimer: null,
     fetchingSnapshot: false,
     snapshotQueued: false,
     snapshot: null,
@@ -514,6 +571,7 @@ export function createBridgeSession(
       state.subscription?.close();
       if (state.snapshotTimer) clearTimeout(state.snapshotTimer);
       if (state.pushTimer) clearTimeout(state.pushTimer);
+      if (state.scrollSyncTimer) clearTimeout(state.scrollSyncTimer);
       for (const [paneId, slot] of state.terminals) {
         slot.gone = true;
         slot.link?.close();

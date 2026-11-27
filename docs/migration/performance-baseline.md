@@ -290,6 +290,8 @@ No vite/Chrome needed; all spawned processes are reaped on exit.
 | `rpc-read` | 4 concurrent readers × `session.snapshot` every 400 ms | `bridge.snapshot.schedule{cause=rpc}` must be **0** (#423 read-only exemption); `herdr.rpc` count == frames issued |
 | `plugin-read` | the 4 surface stores' refresh pattern — one read `plugin_call` per installed surface plugin every 800 ms, all concurrent | `plugin.exec{what=plugin_call}` ≤ issued calls — single-flight merges, never amplifies (#424) |
 | `activity` | external herdr workspace churn (create/focus/close ~700 ms) + client read polling | snapshot push/dedup counts, `subscription.reopen` must be 0, RPC wait under real event flow |
+| `attach-churn` | workspace-switch attach pattern: `subscribe_terminal` for every pane in a ~4-pane batch, then unsubscribe, repeated | `bridge.subscription.open` must stay ~2 per attach/detach phase — per-pane reopens are the #416/#527 amplification |
+| `reconnect` | WS drop + reconnect cycles | each connect costs exactly 1 `session.snapshot` fetch + 1 `subscription.open`; more is session/subscription fan-out |
 
 **Report** (`perf-reports/bridge-load-<sha>.json`): per-leg metric
 *deltas* (not cumulative counters) for every `bridge.*`,
