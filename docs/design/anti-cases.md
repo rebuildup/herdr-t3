@@ -295,6 +295,35 @@ fixtures + shell migration); the `src/components/**` warn-level debt
 (~149 sites) and per-call-site classification remain #534 audit work
 before the rule can be promoted to `error` there.
 
+**Audit inventory (machine-generated, classification pending).** Raw
+`<Badge>` call sites per file on `release-0-7-0` after the shell
+migration — each row is #534 classification work
+(status→`StatusBadge`, classification→keep with reason, metadata→muted
+text):
+
+| File | `<Badge>` count |
+| --- | --- |
+| TextGenSurface.tsx | 16 |
+| UsageSurface.tsx | 14 |
+| HandoffsSurface.tsx | 14 |
+| ArtifactsSurface.tsx | 13 |
+| CheckpointsSurface.tsx | 12 |
+| SecretsSurface.tsx | 11 |
+| ConversationsSurface.tsx | 10 |
+| ControlsSurface.tsx | 10 |
+| McpSurface.tsx | 9 |
+| ProjectsSurface.tsx | 8 |
+| ProjectScriptsSurface.tsx | 5 |
+| AutomationsSurface.tsx | 5 |
+| WorktreesSurface.tsx | 4 |
+| MachinesSurface.tsx | 4 |
+| GitSurface.tsx | 4 |
+| PaneCopyDialog.tsx | 2 |
+| SidebarChrome.tsx | 1 (suppressed: environment classification) |
+
+Regenerate with `grep -c "<Badge" <file>`; `StatusBadge` usages are the
+target channel and are not counted here.
+
 **Unguaranteed.** Does not judge whether a retained status badge's
 variant choice is the *right* semantic mapping; that stays with review
 and the typed component's variant union.
