@@ -21,6 +21,19 @@ pub const IMAGE_STORAGE_BYTES: u64 = 64 * 1024 * 1024;
 /// whichever binds first ends history.
 pub const SCROLLBACK_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Per-cell byte estimate for [`GhosttySession::memory_estimate_bytes`].
+/// libghostty-vt's `Cell` is a packed u64 (8 bytes); 64 covers the cell
+/// plus amortised row bookkeeping, tag pages and grapheme-cluster side
+/// storage with generous headroom — an estimate, not a measurement.
+const ESTIMATED_CELL_BYTES: u64 = 64;
+/// Fixed per-session overhead charged by the estimate: engine handles,
+/// render/search/key/mouse encoder state, scratch and input buffers.
+const SESSION_FIXED_BYTES: u64 = 1024 * 1024;
+/// History allowance charged when no scrollback line cap is configured:
+/// the engine's own default byte cap bounds retained history far below
+/// this, so the estimate stays honest without pretending it is zero.
+const UNCONFIGURED_HISTORY_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Callbacks the session routes — the port of `GhosttySessionOptions`'s four
 /// optional hooks. Each returns `Result` like the TS callbacks can throw;
 /// the first error is deferred by the engine's callback-error mechanism.
@@ -138,6 +151,11 @@ pub struct GhosttySession {
     engine: GhosttyEngine,
     /// the error that ended this session (a failed call), or null while it lives
     failure: Option<String>,
+    /// last applied grid size — kept for `memory_estimate_bytes`
+    cols: u16,
+    rows: u16,
+    /// last applied scrollback line cap (None = engine default)
+    scrollback_lines: Option<u32>,
 }
 
 impl GhosttySession {
@@ -161,7 +179,13 @@ impl GhosttySession {
             events: Some(events),
         };
         let engine = GhosttyEngine::new(cols, rows, engine_options)?;
-        let mut session = GhosttySession { engine, failure: None };
+        let mut session = GhosttySession {
+            engine,
+            failure: None,
+            cols,
+            rows,
+            scrollback_lines,
+        };
         if cell_w.is_some() || cell_h.is_some() {
             session.resize(cols, rows, cell_w.unwrap_or(0.0), cell_h.unwrap_or(0.0))?;
         }
@@ -195,7 +219,14 @@ impl GhosttySession {
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16, cell_w: f64, cell_h: f64) -> Result<(), String> {
-        self.call(|this| this.engine.resize(cols, rows, cell_w, cell_h))
+        self.call(|this| {
+            let result = this.engine.resize(cols, rows, cell_w, cell_h);
+            if result.is_ok() {
+                this.cols = cols;
+                this.rows = rows;
+            }
+            result
+        })
     }
 
     pub fn reset(&mut self) -> Result<(), String> {
@@ -243,7 +274,45 @@ impl GhosttySession {
     }
 
     pub fn set_scrollback(&mut self, lines: u32) -> Result<(), String> {
-        self.call(|this| this.engine.set_scrollback(lines))
+        self.call(|this| {
+            let result = this.engine.set_scrollback(lines);
+            if result.is_ok() {
+                this.scrollback_lines = Some(lines);
+            }
+            result
+        })
+    }
+
+    /// A documented conservative byte estimate for the aggregate memory
+    /// budget (issue #528, contract `docs/migration/performance-baseline.md`
+    /// "Memory budget contract"). The TS probe reads the WASM linear
+    /// memory high-water mark; libghostty-vt exposes no heap statistics,
+    /// so this sums the *configured* caps instead of measuring live use:
+    ///
+    /// - [`SESSION_FIXED_BYTES`] of engine/render/codec overhead;
+    /// - screen + scrollback-line-cap cells at [`ESTIMATED_CELL_BYTES`]
+    ///   (or [`UNCONFIGURED_HISTORY_BYTES`] when no line cap is set — the
+    ///   engine's own byte default bounds history below that);
+    /// - [`IMAGE_STORAGE_BYTES`], the Kitty image store cap — the largest
+    ///   single buffer a pane can hold, charged at its bound because there
+    ///   is no cheap usage query.
+    ///
+    /// The result can over-report (a pane that never scrolls or draws
+    /// images still pays its caps) but tracks the configured limits, so
+    /// the aggregate budget never under-counts what the session is allowed
+    /// to grow into. The GPUI host registers this as the session's probe.
+    pub fn memory_estimate_bytes(&self) -> u64 {
+        let history_lines = self.scrollback_lines.unwrap_or(0) as u64;
+        let grid_cells = self.cols as u64 * (self.rows as u64 + history_lines);
+        let history_floor = if self.scrollback_lines.is_none() {
+            UNCONFIGURED_HISTORY_BYTES
+        } else {
+            0
+        };
+        SESSION_FIXED_BYTES
+            + grid_cells * ESTIMATED_CELL_BYTES
+            + history_floor
+            + IMAGE_STORAGE_BYTES
     }
 
     /// shows the screen `rows_above_bottom` rows up in the history (0: the
