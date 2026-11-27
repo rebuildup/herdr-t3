@@ -119,6 +119,20 @@
    ]
   },
   {
+   "id": "design-system",
+   "version": 1,
+   "title": "T3 design-system conformance",
+   "spec": "docs/migration/contracts/design-system.md",
+   "oracle": "conformance",
+   "summary": "Inherited tokens/primitives/composition rules, visual-diff tolerance, and the Rust/GPUI lint-equivalent guarantee (issue #412).",
+   "evidence": [
+    "docs/design/conformance-audit.md",
+    "docs/design/verification.md",
+    "src/components/surfaceLayout.tsx",
+    "src/components/ui/alert.tsx"
+   ]
+  },
+  {
    "id": "distribution",
    "version": 1,
    "title": "Distribution and OS integration",
@@ -2710,6 +2724,7 @@
    "boundary": "B6",
    "contracts": [
     "ui-shell@1",
+    "design-system@1",
     "agent-inbox@1"
    ],
    "os": [
@@ -2758,7 +2773,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -2802,7 +2818,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -2848,7 +2865,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -2889,7 +2907,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -2934,7 +2953,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -2980,7 +3000,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -3022,7 +3043,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -3526,7 +3548,8 @@
    "owner": "app",
    "boundary": "B6",
    "contracts": [
-    "ui-shell@1"
+    "ui-shell@1",
+    "design-system@1"
    ],
    "os": [
     "macos",
@@ -3616,6 +3639,7 @@
    "boundary": "B6",
    "contracts": [
     "ui-shell@1",
+    "design-system@1",
     "workspace-pane-ops@1"
    ],
    "os": [
