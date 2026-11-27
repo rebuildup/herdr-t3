@@ -28,7 +28,7 @@ import {
 } from "~/components/ui/command";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { cn } from "~/lib/utils";
-import { statusIcon } from "~/components/statusIcons";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import { buildGotoRows, filterGotoRows, type GotoRow } from "./goto";
 import {
   callRpc,
@@ -44,7 +44,15 @@ import { useWorkspaceBranchIndex } from "./worktrees";
 function rowIcon(row: GotoRow) {
   if (row.kind === "workspace") return <MonitorIcon className="size-4" />;
   if (row.kind === "tab") return <Columns2 className="size-4" />;
-  return statusIcon(row.status ?? "unknown");
+  // Pane rows carry the unified agent-work glyph (brand mark when the
+  // row knows the provider kind, generic mark otherwise).
+  return (
+    <AgentIdentityIcon
+      agent={row.agentKind}
+      status={row.status ?? "unknown"}
+      size="sm"
+    />
+  );
 }
 
 function jumpTo(row: GotoRow): void {

@@ -65,6 +65,31 @@ const RING_STROKE = {
   attention: 2,
 } as const;
 
+/**
+ * Two densities of the same grammar: `md` (20px) leads agent rows;
+ * `sm` (16px) fits dense chrome — tab pills, goto rows, detail rows.
+ * The ring is vector (viewBox scales); mark, markers and type sizes
+ * scale with the slot.
+ */
+export type AgentIconSize = "md" | "sm";
+
+const GLYPH = {
+  md: {
+    slot: "size-5",
+    mark: "size-3",
+    overlay: "size-3.5 text-2xs",
+    badge: "size-3 -bottom-1 -right-1 text-4xs",
+    check: "size-2",
+  },
+  sm: {
+    slot: "size-4",
+    mark: "size-2.5",
+    overlay: "size-3 text-3xs",
+    badge: "size-2.5 -bottom-0.5 -right-0.5 text-5xs",
+    check: "size-1.5",
+  },
+} as const;
+
 function statusRingSpec(status: AgentStatus): StatusRingSpec {
   switch (status) {
     case "working":
@@ -172,10 +197,12 @@ function StatusRing({ status }: { status: AgentStatus }) {
  */
 function StatusOverlay({
   tone,
+  size,
   className,
   children,
 }: {
   tone: "destructive" | "success" | "muted";
+  size: AgentIconSize;
   className?: string;
   children: ReactNode;
 }) {
@@ -185,7 +212,8 @@ function StatusOverlay({
       className={cn(
         // `inset-0 m-auto` centers without a transform so the pop/exit
         // keyframes own `transform` while they run.
-        "pointer-events-none absolute inset-0 m-auto flex size-3.5 items-center justify-center rounded-full text-2xs font-bold leading-none",
+        "pointer-events-none absolute inset-0 m-auto flex items-center justify-center rounded-full font-bold leading-none",
+        GLYPH[size].overlay,
         tone === "destructive" && "bg-destructive text-white",
         tone === "success" && "bg-success text-white",
         tone === "muted" && "bg-muted-foreground text-background",
@@ -206,10 +234,12 @@ function StatusOverlay({
  */
 function StatusBadge({
   tone,
+  size,
   className,
   children,
 }: {
   tone: "success" | "muted";
+  size: AgentIconSize;
   className?: string;
   children: ReactNode;
 }) {
@@ -217,7 +247,8 @@ function StatusBadge({
     <span
       aria-hidden
       className={cn(
-        "pointer-events-none absolute -bottom-1 -right-1 flex size-3 items-center justify-center rounded-full text-4xs font-bold leading-none",
+        "pointer-events-none absolute flex items-center justify-center rounded-full font-bold leading-none",
+        GLYPH[size].badge,
         tone === "success" && "bg-success text-white",
         tone === "muted" && "bg-muted-foreground/20 text-muted-foreground",
         className,
@@ -241,64 +272,71 @@ const MARKER_EXIT_MS = 180;
  */
 function StatusMarker({
   status,
+  size,
   exiting = false,
 }: {
   status: AgentStatus;
+  size: AgentIconSize;
   exiting?: boolean;
 }) {
+  const check = <Check className={GLYPH[size].check} strokeWidth={3.5} />;
   if (exiting) {
     // The outgoing marker only fades — its ongoing motion stops with it.
     return status === "blocked" ? (
-      <StatusOverlay tone="destructive" className={MARKER_EXIT}>
+      <StatusOverlay tone="destructive" size={size} className={MARKER_EXIT}>
         !
       </StatusOverlay>
     ) : status === "done" ? (
-      <StatusBadge tone="success" className={MARKER_EXIT}>
-        <Check className="size-2" strokeWidth={3.5} />
+      <StatusBadge tone="success" size={size} className={MARKER_EXIT}>
+        {check}
       </StatusBadge>
     ) : status === "idle" || status === "working" ? null : (
-      <StatusBadge tone="muted" className={MARKER_EXIT}>
+      <StatusBadge tone="muted" size={size} className={MARKER_EXIT}>
         ?
       </StatusBadge>
     );
   }
   if (status === "blocked") {
     return (
-      <StatusOverlay tone="destructive" className={MARKER_ENTER_BLOCKED}>
+      <StatusOverlay tone="destructive" size={size} className={MARKER_ENTER_BLOCKED}>
         !
       </StatusOverlay>
     );
   }
   if (status === "done") {
     return (
-      <StatusBadge tone="success" className={MARKER_ENTER_LIVE}>
-        <Check className="size-2" strokeWidth={3.5} />
+      <StatusBadge tone="success" size={size} className={MARKER_ENTER_LIVE}>
+        {check}
       </StatusBadge>
     );
   }
   if (status === "idle" || status === "working") return null;
   // `unknown` and any status herdr adds later.
   return (
-    <StatusBadge tone="muted" className={MARKER_ENTER_LIVE}>
+    <StatusBadge tone="muted" size={size} className={MARKER_ENTER_LIVE}>
       ?
     </StatusBadge>
   );
 }
 
 /**
- * Brand-led identity + status glyph for agent rows. `size-5` (20px) is the
- * shared dimension contract: the brand mark renders at `size-3` inside
- * the slot so the ring's inner edge (radius 8px) keeps readable air, and
- * Electron and GPUI must reproduce the same footprint (ui-shell.md
- * contract).
+ * Brand-led identity + status glyph for agent rows. `md` (`size-5`,
+ * 20px) is the shared dimension contract: the brand mark renders at
+ * `size-3` inside the slot so the ring's inner edge (radius 8px) keeps
+ * readable air, and Electron and GPUI must reproduce the same
+ * footprint (ui-shell.md contract). `sm` (`size-4`, 16px) is the same
+ * grammar at dense-chrome density — tab pills, goto rows, detail rows.
  */
 export function AgentIdentityIcon({
   agent,
   status,
+  size = "md",
   className,
 }: {
   agent: string | null | undefined;
   status: AgentStatus;
+  /** `md` (20px) for agent rows, `sm` (16px) for dense chrome. */
+  size?: AgentIconSize;
   className?: string;
 }) {
   // Status transitions animate: the incoming marker pops in while the
@@ -319,15 +357,16 @@ export function AgentIdentityIcon({
       className={cn(
         // `agent-identity` hooks the hover lift + ring swell in
         // index.css.
-        "agent-identity relative inline-flex size-5 shrink-0 items-center justify-center",
+        "agent-identity relative inline-flex shrink-0 items-center justify-center",
+        GLYPH[size].slot,
         className,
       )}
     >
-      <AgentProviderIcon agent={agent} className="size-3" />
+      <AgentProviderIcon agent={agent} className={GLYPH[size].mark} />
       <StatusRing status={status} />
-      <StatusMarker key={status} status={status} />
+      <StatusMarker key={status} status={status} size={size} />
       {exiting !== null && exiting !== status ? (
-        <StatusMarker key={`exit-${exiting}`} status={exiting} exiting />
+        <StatusMarker key={`exit-${exiting}`} status={exiting} size={size} exiting />
       ) : null}
     </span>
   );

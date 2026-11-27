@@ -64,7 +64,7 @@ import {
   MenuPopup,
   MenuSeparator,
 } from "~/components/ui/menu";
-import { statusIcon } from "~/components/statusIcons";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import { AgentProviderIcon } from "~/components/agentIcons";
 import { agentStatusLabel, isKnownAgentStatus } from "~/components/AgentStatusBadge";
 import { ShowMoreButton } from "~/components/ui/show-more-button";
@@ -139,7 +139,7 @@ function narrowSheetWidth(): number {
 function InfoRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
     <div className={cn("flex h-8 min-w-0 w-full items-center gap-2.5 px-2.5", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}>
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -161,7 +161,7 @@ function TaskInfoRow({
 }) {
   return (
     <div className={cn("flex min-h-8 w-full items-center gap-2.5 rounded-lg px-2.5 py-1", THREAD_DETAILS_PANEL_TEXT_CLASS)}>
-      <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+      <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
@@ -192,7 +192,7 @@ function LinkRow({
       onClick={onClick}
       className={cn("flex h-8 min-w-0 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors hover:bg-black/[0.035] dark:hover:bg-white/[0.08]", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -630,7 +630,15 @@ function CardBody({
               (issue #417). Agent records still render via agentStateLabel
               (unknown → "idle", matching the TUI). */}
           {agent || (pane.agent && isKnownAgentStatus(pane.agent_status)) ? (
-            <InfoRow icon={statusIcon(pane.agent_status)}>
+            <InfoRow
+              icon={
+                <AgentIdentityIcon
+                  agent={agent?.agent ?? pane.agent}
+                  status={pane.agent_status}
+                  size="sm"
+                />
+              }
+            >
               {stateLabel}
               {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
             </InfoRow>
@@ -752,7 +760,7 @@ function CardBody({
               key={script.id}
               className={cn("flex h-8 min-w-0 w-full items-center gap-2.5 rounded-lg px-2.5", THREAD_DETAILS_PANEL_TEXT_CLASS, "text-foreground/80")}
             >
-              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
                 <PlayIcon />
               </span>
               <span className="min-w-0 flex-1">
@@ -895,7 +903,13 @@ function CardBody({
               (a) => (
                 <LinkRow
                   key={a.pane_id}
-                  icon={statusIcon(a.agent_status)}
+                  icon={
+                    <AgentIdentityIcon
+                      agent={a.agent}
+                      status={a.agent_status}
+                      size="sm"
+                    />
+                  }
                   onClick={() =>
                     void callRpc(machine, "pane.focus", { pane_id: a.pane_id })
                   }

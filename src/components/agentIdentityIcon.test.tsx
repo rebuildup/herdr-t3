@@ -94,6 +94,15 @@ describe("AgentIdentityIcon", () => {
     }
   });
 
+  test("size=sm renders the dense 16px variant of the same grammar", () => {
+    const html = renderToStaticMarkup(
+      <AgentIdentityIcon agent="claude" status="done" size="sm" />,
+    );
+    expect(html).toContain("size-4");
+    expect(html).toContain("-bottom-0.5");
+    expect(html).not.toContain("size-5");
+  });
+
   test("brand resolution is unchanged: t3 spec, bundled svg, generic fallback", () => {
     // t3 artwork → inline svg paths, no <img>.
     const t3 = render("claude", "idle");

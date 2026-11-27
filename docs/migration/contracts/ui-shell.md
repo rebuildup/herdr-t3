@@ -35,7 +35,12 @@ behavior, not the DOM.
   blocked's "!" disc then runs a periodic attention shake while its
   ring breathes, done/unknown badges keep a soft pulse, and hovering
   the glyph or its row lifts the glyph and swells the ring stroke —
-  all collapsed to instant under reduced-motion. State name is never
+  all collapsed to instant under reduced-motion. Every agent
+  work-status indicator — sidebar agent rows, workspace rows, tab
+  pills, goto pane rows, hover/context card rows, status badges —
+  renders this one component; `sm` (16px) is the same grammar at
+  dense-chrome density, never a bare icon-glyph substitute. State
+  name is never
   printed on the row; it lives
   in the shelf, hover card and accessible name. GPUI must reproduce
   the same asset resolution, state→ring+overlay mapping and 20px footprint —

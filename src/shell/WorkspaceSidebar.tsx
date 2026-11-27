@@ -54,7 +54,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import { statusIcon } from "~/components/statusIcons";
 import { isAgentKindName } from "~/components/agentKind";
 import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import {
@@ -220,9 +219,9 @@ function WorkspaceRow({
       )}
     >
       <span className="flex w-full min-w-0 items-center gap-2.5">
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {statusIcon(workspace.agent_status)}
-        </span>
+        {/* Workspace-level agent_status uses the same unified glyph as
+            agent rows (generic mark — a workspace has no provider). */}
+        <AgentIdentityIcon agent={null} status={workspace.agent_status} size="sm" />
         <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
           {title}
         </span>

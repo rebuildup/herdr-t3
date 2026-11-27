@@ -16,7 +16,7 @@ import type { ReactNode } from "react";
 import type { PaneInfo } from "../../shared/protocol";
 import { isAgentKindName } from "~/components/agentKind";
 import { AgentProviderIcon } from "~/components/agentIcons";
-import { statusIcon } from "~/components/statusIcons";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import {
   agentAuxStateLabels,
   agentDisplayName,
@@ -28,7 +28,9 @@ import {
 function DetailRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="flex size-3 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3">
+      {/* `[&>svg]` sizes only direct-child glyphs: composite components
+          like AgentIdentityIcon own their inner svg sizing. */}
+      <span className="flex size-3 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-3">
         {icon}
       </span>
       <span className="min-w-0 truncate text-foreground/75">{children}</span>
@@ -81,7 +83,15 @@ export function AgentHoverCard({
         {title}
       </div>
       <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
-        <DetailRow icon={statusIcon(agent.agent_status)}>
+        <DetailRow
+          icon={
+            <AgentIdentityIcon
+              agent={agent.agent}
+              status={agent.agent_status}
+              size="sm"
+            />
+          }
+        >
           {stateLabel}
           {auxLabels.length > 0 ? ` · ${auxLabels.join(" · ")}` : null}
         </DetailRow>

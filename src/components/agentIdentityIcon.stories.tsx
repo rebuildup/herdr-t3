@@ -91,6 +91,32 @@ export const StatusTransitions: Story = {
   },
 };
 
+/** `md` (20px, agent rows) vs `sm` (16px, dense chrome) — same grammar. */
+export const Sizes: Story = {
+  args: { agent: "claude", status: "working" },
+  render: () => (
+    <div className="flex flex-col gap-6">
+      {(["md", "sm"] as const).map((size) => (
+        <div key={size} className="flex flex-col gap-2">
+          <span className="text-xs text-muted-foreground">
+            size=&quot;{size}&quot;
+          </span>
+          <div className="flex items-center gap-4">
+            {STATUSES.map((status) => (
+              <AgentIdentityIcon
+                key={status}
+                agent="claude"
+                status={status}
+                size={size}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  ),
+};
+
 /** Hover each glyph: the icon lifts, the ring stroke swells, quiet rings brighten. */
 export const HoverFeedback: Story = {
   args: { agent: "claude", status: "working" },

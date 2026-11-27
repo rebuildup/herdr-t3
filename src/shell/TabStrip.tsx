@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
 import { requestFocusHandoff } from "~/lib/focusHandoff";
-import { statusIcon } from "~/components/statusIcons";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import { Button } from "~/components/ui/button";
 import {
   ContextMenu,
@@ -204,7 +204,9 @@ export function TabStrip({
                   onDoubleClick={() => onRenameStart(t)}
                   className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none"
                 >
-                  {statusIcon(t.agent_status)}
+                  {/* TabInfo carries no provider kind — the generic mark
+                      + status ring is the unified agent-work indicator. */}
+                  <AgentIdentityIcon agent={null} status={t.agent_status} size="sm" />
                   <span className="min-w-0 max-w-40 truncate">{label}</span>
                 </button>
               )}

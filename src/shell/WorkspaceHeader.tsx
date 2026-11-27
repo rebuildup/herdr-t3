@@ -204,7 +204,7 @@ export function WorkspaceHeader() {
                 ) : null}
               </span>
               {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
-                <AgentStatusBadge status={focusedPane.agent_status} />
+                <AgentStatusBadge status={focusedPane.agent_status} agent={focusedPane.agent} />
               ) : null}
             </TooltipTrigger>
             {focusedPane ? (
