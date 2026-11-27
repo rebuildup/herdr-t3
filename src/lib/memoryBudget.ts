@@ -95,26 +95,69 @@ export function shedMemoryCaches(): number {
 }
 
 /**
+ * WASM linear memory only grows, so `memoryBytes()` probes are
+ * high-water marks: once sessions have grown, the summed total can stay
+ * over budget even after every recoverable cache is shed. Shedding is
+ * therefore rate-limited — running it on every 30 s tick while the
+ * high-water mark sits over budget would thrash the caches it just
+ * cleared. A new shed round runs when the interval elapsed AND the total
+ * grew meaningfully since the last round (early reaction to fast
+ * growth), or when the interval elapsed regardless (slow drift).
+ */
+const SHED_MIN_INTERVAL_MS = 60_000;
+const SHED_GROWTH_BYTES = 64 * MIB;
+let lastShedAt = 0;
+let lastShedTotalBytes = 0;
+let lastOverBudgetWarnAt = 0;
+
+/** Largest byte probes, for over-budget attribution in diagnostics. */
+function topProbes(limit = 3): { id: string; mib: number }[] {
+  return [...probes.entries()]
+    .map(([id, probe]) => {
+      try {
+        return { id, mib: probe() / MIB };
+      } catch {
+        return { id, mib: 0 };
+      }
+    })
+    .sort((a, b) => b.mib - a.mib)
+    .slice(0, limit);
+}
+
+/**
  * Evaluate the aggregate budget: if the summed probes exceed it, shed all
  * caches and re-measure. Returns the post-shed status. Called on register/
  * dispose, on a timer, and on main-process pressure pushes.
  */
-export function evaluateMemoryBudget(): MemoryBudgetStatus {
+export function evaluateMemoryBudget(now: number = Date.now()): MemoryBudgetStatus {
   let total = memoryBudgetTotalBytes();
   let overBudget = total > BUDGET_BYTES;
   if (overBudget) {
-    shedMemoryCaches();
-    total = memoryBudgetTotalBytes();
-    overBudget = total > BUDGET_BYTES;
-    if (overBudget) {
-      // Still over after shedding: the bound is the session count itself.
-      // Nothing safe to kill here — the main-process watchdog owns the
-      // hard cap and reload; this only makes the pressure visible.
+    const grew = total - lastShedTotalBytes >= SHED_GROWTH_BYTES;
+    const due = now - lastShedAt >= SHED_MIN_INTERVAL_MS;
+    if (due || grew) {
+      lastShedAt = now;
+      lastShedTotalBytes = total;
+      shedMemoryCaches();
+      total = memoryBudgetTotalBytes();
+      overBudget = total > BUDGET_BYTES;
+    }
+    if (overBudget && now - lastOverBudgetWarnAt >= SHED_MIN_INTERVAL_MS) {
+      lastOverBudgetWarnAt = now;
+      // Still over after shedding: the residual is WASM linear memory,
+      // which cannot shrink without disposing the session. The
+      // main-process watchdog owns the hard cap and reload; naming the
+      // largest sessions keeps the pressure attributable.
       console.warn(
-        `[memory-budget] WASM sessions hold ${(total / MIB).toFixed(0)}MiB ` +
-          `over the ${(BUDGET_BYTES / MIB).toFixed(0)}MiB budget after shedding caches`,
+        `[memory-budget] ${(total / MIB).toFixed(0)}MiB over the ` +
+          `${(BUDGET_BYTES / MIB).toFixed(0)}MiB budget; top sessions: ` +
+          topProbes()
+            .map((p) => `${p.id}=${p.mib.toFixed(0)}MiB`)
+            .join(", "),
       );
     }
+  } else {
+    lastShedTotalBytes = total;
   }
   lastTotalBytes = total;
   return { totalBytes: total, budgetBytes: BUDGET_BYTES, overBudget, sessions: probes.size };
