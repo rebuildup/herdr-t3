@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCwIcon } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input, Label, Textarea } from "./ui/input";
@@ -11,8 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { DialogPanel } from "./ui/dialog";
+import { RefreshIcon } from "./ui/refresh-icon";
+import {
+  MutationFeedback,
+  SurfaceEmpty,
+  SurfaceGroupHeader,
+  SurfaceLoading,
+  SurfaceNote,
+  SurfaceSection,
+} from "./surfaceParts";
 import {
   classifyForgeError,
   classifyGitError,
@@ -143,38 +152,38 @@ function useGitMutation(onChanged: () => void) {
   return { busy, error, notice, run };
 }
 
-function MutationFeedback({ error, notice }: { error: string | null; notice: string | null }) {
-  if (error !== null) {
-    return <div className="text-2xs text-destructive">{error}</div>;
-  }
-  if (notice !== null) {
-    return <div className="text-2xs text-muted-foreground">{notice}</div>;
-  }
+/** Capability probe state shared by every section: null = still probing. */
+function CapabilityGate({
+  cap,
+  supported,
+}: {
+  cap: GitCapability | null | undefined;
+  supported: boolean | null;
+}) {
+  if (cap === null) return <SurfaceNote>git plugin unavailable</SurfaceNote>;
+  if (supported === null) return <SurfaceNote>checking plugin capabilities…</SurfaceNote>;
+  if (supported === false) return <SurfaceNote>{UNSUPPORTED_TEXT}</SurfaceNote>;
   return null;
-}
-
-function SectionMessage({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs text-muted-foreground">{children}</div>;
 }
 
 function StatusBody({ state }: { state: GitStatusState }) {
   if (state.kind === "loading") {
-    return <SectionMessage>loading…</SectionMessage>;
+    return <SurfaceLoading label="Loading git status" rows={2} />;
   }
   if (state.kind === "unavailable") {
     return (
-      <SectionMessage>
+      <SurfaceNote>
         {UNAVAILABLE_LABELS[state.reason] ?? UNAVAILABLE_LABELS["error"]}
         {state.detail ? ` — ${state.detail}` : ""}
-      </SectionMessage>
+      </SurfaceNote>
     );
   }
   if (state.kind === "repo_error") {
     return (
-      <SectionMessage>
+      <SurfaceNote tone="error">
         {repoErrorLabel(state.code)}
         {state.detail ? ` — ${state.detail}` : ""}
-      </SectionMessage>
+      </SurfaceNote>
     );
   }
   const { status } = state;
@@ -338,23 +347,23 @@ function DiffBody({
   }, [load, refreshKey]);
 
   if (loading && result === null) {
-    return <SectionMessage>loading diff…</SectionMessage>;
+    return <SurfaceLoading label="Loading diff" rows={3} />;
   }
   if (error !== null) {
-    return <SectionMessage>diff unavailable: {error}</SectionMessage>;
+    return <SurfaceNote tone="error">diff unavailable: {error}</SurfaceNote>;
   }
   if (result === null) return null;
   if (result.text.trim() === "") {
-    return <SectionMessage>{emptyLabel}</SectionMessage>;
+    return <SurfaceEmpty title={emptyLabel} className="py-6" />;
   }
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {result.truncated ? (
-        <div className="text-2xs text-muted-foreground">
+        <SurfaceNote>
           diff truncated at {result.bytes} bytes — narrow the scope to see the rest
-        </div>
+        </SurfaceNote>
       ) : null}
-      <pre className="max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-2xs whitespace-pre-wrap break-all">
+      <pre className="max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
         {result.text}
       </pre>
     </div>
@@ -402,14 +411,18 @@ function ChangesSection({
 
   const groups = useMemo(() => (result ? groupEntries(result.files) : null), [result]);
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
-  if (loading && result === null) return <SectionMessage>loading files…</SectionMessage>;
-  if (error !== null) return <SectionMessage>files unavailable: {error}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return <CapabilityGate cap={cap} supported={supported} />;
+  }
+  if (loading && result === null) {
+    return <SurfaceLoading label="Loading changed files" rows={5} />;
+  }
+  if (error !== null) {
+    return <SurfaceNote tone="error">files unavailable: {error}</SurfaceNote>;
+  }
   if (result === null) return null;
   if (result.files.length === 0) {
-    return <SectionMessage>no changes</SectionMessage>;
+    return <SurfaceEmpty title="No changes" className="py-6" />;
   }
 
   const diffPaths = selected === null ? undefined : [selected.path];
@@ -425,8 +438,10 @@ function ChangesSection({
       return `unstaged ${r.paths.length} path${r.paths.length === 1 ? "" : "s"}`;
     });
 
+  const scopeValue = selected === null ? "all" : staged ? "staged" : "unstaged";
+
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-2">
         {canStage === true || canUnstage === true ? (
           <div className="flex flex-wrap items-center gap-1">
@@ -463,7 +478,7 @@ function ChangesSection({
           </div>
         ) : null}
         <MutationFeedback error={mutations.error} notice={mutations.notice} />
-        <div className="flex max-h-80 flex-col gap-2 overflow-auto pr-1">
+        <div className="flex max-h-80 flex-col gap-1 overflow-auto pr-1">
           {GROUP_ORDER.map((group) => {
             const entries = groups?.get(group) ?? [];
             if (entries.length === 0) return null;
@@ -473,31 +488,34 @@ function ChangesSection({
             const groupUnstage = group === "staged" && canUnstage === true;
             return (
               <div key={group} className="flex flex-col gap-0.5">
-                <div className="flex items-center justify-between gap-1 px-1">
-                  <span className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-                    {GROUP_LABELS[group]} · {entries.length}
-                  </span>
-                  {groupStage ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      disabled={mutations.busy}
-                      onClick={() => void stagePaths(groupPaths)}
-                    >
-                      Stage all
-                    </Button>
-                  ) : null}
-                  {groupUnstage ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      disabled={mutations.busy}
-                      onClick={() => void unstagePaths(groupPaths)}
-                    >
-                      Unstage all
-                    </Button>
-                  ) : null}
-                </div>
+                <SurfaceGroupHeader
+                  title={GROUP_LABELS[group]}
+                  count={entries.length}
+                  actions={
+                    <>
+                      {groupStage ? (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={mutations.busy}
+                          onClick={() => void stagePaths(groupPaths)}
+                        >
+                          Stage all
+                        </Button>
+                      ) : null}
+                      {groupUnstage ? (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={mutations.busy}
+                          onClick={() => void unstagePaths(groupPaths)}
+                        >
+                          Unstage all
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                />
                 {entries.map((entry) => {
                   const isSelected = selected?.path === entry.path;
                   const fileCanStage =
@@ -560,29 +578,21 @@ function ChangesSection({
             );
           })}
         </div>
-        <div className="flex items-center gap-1 text-2xs">
-          <Button
-            size="xs"
-            variant={selected === null ? "secondary" : "ghost"}
-            onClick={() => setSelected(null)}
-          >
-            All files
-          </Button>
-          <Button
-            size="xs"
-            variant={staged ? "ghost" : "secondary"}
-            onClick={() => setStaged(false)}
-          >
-            Unstaged
-          </Button>
-          <Button
-            size="xs"
-            variant={staged ? "secondary" : "ghost"}
-            onClick={() => setStaged(true)}
-          >
-            Staged
-          </Button>
-        </div>
+        <ToggleGroup
+          variant="segmented"
+          value={[scopeValue]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "all") setSelected(null);
+            else if (next === "staged") setStaged(true);
+            else if (next === "unstaged") setStaged(false);
+          }}
+          aria-label="Diff scope"
+        >
+          <Toggle value="all">All files</Toggle>
+          <Toggle value="unstaged">Unstaged</Toggle>
+          <Toggle value="staged">Staged</Toggle>
+        </ToggleGroup>
       </div>
       <div className="flex min-w-0 flex-col gap-1">
         <DiffBody
@@ -626,9 +636,9 @@ function CommitSection({
   const [allowEmpty, setAllowEmpty] = useState(false);
   const mutations = useGitMutation(onChanged);
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return <CapabilityGate cap={cap} supported={supported} />;
+  }
 
   // `-m` is required by the contract; `--allow-empty` only permits a
   // commit with no staged changes — it never substitutes for a message.
@@ -746,9 +756,9 @@ function HistorySection({
       .finally(() => setLoadingMore(false));
   }, [machine, paneId, limit, commits.length]);
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return <CapabilityGate cap={cap} supported={supported} />;
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -771,10 +781,10 @@ function HistorySection({
           </Button>
         ) : null}
       </div>
-      {loading && !loaded ? <SectionMessage>loading history…</SectionMessage> : null}
-      {error !== null ? <SectionMessage>history unavailable: {error}</SectionMessage> : null}
+      {loading && !loaded ? <SurfaceLoading label="Loading history" rows={5} /> : null}
+      {error !== null ? <SurfaceNote tone="error">history unavailable: {error}</SurfaceNote> : null}
       {loaded && !loading && commits.length === 0 && error === null ? (
-        <SectionMessage>no commits</SectionMessage>
+        <SurfaceEmpty title="No commits" className="py-6" />
       ) : null}
       <div className="flex max-h-80 flex-col gap-0.5 overflow-auto">
         {commits.map((commit) => (
@@ -848,9 +858,9 @@ function CompareSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshKey is the explicit invalidation signal; run identity would retrigger on every keystroke
   }, [refreshKey]);
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
-  if (supported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (supported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+  if (cap === null || supported === null || supported === false) {
+    return <CapabilityGate cap={cap} supported={supported} />;
+  }
 
   const range =
     result !== null
@@ -885,8 +895,8 @@ function CompareSection({
           {loading ? "Comparing…" : "Compare"}
         </Button>
       </div>
-      {loading && result === null ? <SectionMessage>comparing…</SectionMessage> : null}
-      {error !== null ? <SectionMessage>compare unavailable: {error}</SectionMessage> : null}
+      {loading && result === null ? <SurfaceLoading label="Comparing revisions" rows={3} /> : null}
+      {error !== null ? <SurfaceNote tone="error">compare unavailable: {error}</SurfaceNote> : null}
       {result !== null ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -903,7 +913,7 @@ function CompareSection({
             ) : null}
           </div>
           {result.stat !== null && result.stat.trim() !== "" ? (
-            <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-2xs whitespace-pre-wrap break-all">
+            <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
               {result.stat}
             </pre>
           ) : null}
@@ -924,18 +934,18 @@ function CompareSection({
           {result.patch !== null && result.patch.trim() !== "" ? (
             <div className="flex flex-col gap-1">
               {result.patch_truncated ? (
-                <div className="text-2xs text-muted-foreground">
+                <SurfaceNote>
                   patch truncated
                   {result.patch_bytes !== null ? ` at ${result.patch_bytes} bytes` : ""} — narrow the
                   range to see the rest
-                </div>
+                </SurfaceNote>
               ) : null}
-              <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-2xs whitespace-pre-wrap break-all">
+              <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-all">
                 {result.patch}
               </pre>
             </div>
           ) : result.files.length === 0 ? (
-            <SectionMessage>no differences</SectionMessage>
+            <SurfaceEmpty title="No differences" className="py-6" />
           ) : null}
         </div>
       ) : null}
@@ -966,74 +976,76 @@ function BranchBlock({
   const busy = createMut.busy || switchMut.busy;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-        Branch{currentBranch !== null ? ` · ${currentBranch}` : ""}
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Input
-          value={createName}
-          onChange={(e) => setCreateName(e.currentTarget.value)}
-          placeholder="new branch name"
-          size="compact"
-          font="mono"
-          className="w-44"
-          aria-label="New branch name"
-        />
-        <div className="flex items-center gap-1.5">
-          <Switch
-            size="sm"
-            checked={switchAfter}
-            onCheckedChange={(checked) => setSwitchAfter(checked === true)}
-            aria-label="Switch to new branch"
+    <SurfaceSection
+      title="Branch"
+      description={currentBranch !== null ? `current: ${currentBranch}` : undefined}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input
+            value={createName}
+            onChange={(e) => setCreateName(e.currentTarget.value)}
+            placeholder="new branch name"
+            size="compact"
+            font="mono"
+            className="w-44"
+            aria-label="New branch name"
           />
-          <Label className="cursor-pointer">switch after create</Label>
+          <div className="flex items-center gap-1.5">
+            <Switch
+              size="sm"
+              checked={switchAfter}
+              onCheckedChange={(checked) => setSwitchAfter(checked === true)}
+              aria-label="Switch to new branch"
+            />
+            <Label className="cursor-pointer">switch after create</Label>
+          </div>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={busy || createName.trim() === ""}
+            onClick={() =>
+              void createMut.run(async () => {
+                const r = await gitBranchCreate(machine, paneId, createName.trim(), {
+                  switchTo: switchAfter,
+                });
+                setCreateName("");
+                return `created ${r.name}${r.action === "create" && switchAfter ? " (switched)" : ""}`;
+              })
+            }
+          >
+            Create
+          </Button>
         </div>
-        <Button
-          size="xs"
-          variant="secondary"
-          disabled={busy || createName.trim() === ""}
-          onClick={() =>
-            void createMut.run(async () => {
-              const r = await gitBranchCreate(machine, paneId, createName.trim(), {
-                switchTo: switchAfter,
-              });
-              setCreateName("");
-              return `created ${r.name}${r.action === "create" && switchAfter ? " (switched)" : ""}`;
-            })
-          }
-        >
-          Create
-        </Button>
+        <MutationFeedback error={createMut.error} notice={createMut.notice} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input
+            value={switchName}
+            onChange={(e) => setSwitchName(e.currentTarget.value)}
+            placeholder="branch to switch to"
+            size="compact"
+            font="mono"
+            className="w-44"
+            aria-label="Branch to switch to"
+          />
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={busy || switchName.trim() === ""}
+            onClick={() =>
+              void switchMut.run(async () => {
+                const r = await gitBranchSwitch(machine, paneId, switchName.trim());
+                setSwitchName("");
+                return `switched to ${r.name}`;
+              })
+            }
+          >
+            Switch
+          </Button>
+        </div>
+        <MutationFeedback error={switchMut.error} notice={switchMut.notice} />
       </div>
-      <MutationFeedback error={createMut.error} notice={createMut.notice} />
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Input
-          value={switchName}
-          onChange={(e) => setSwitchName(e.currentTarget.value)}
-          placeholder="branch to switch to"
-          size="compact"
-          font="mono"
-          className="w-44"
-          aria-label="Branch to switch to"
-        />
-        <Button
-          size="xs"
-          variant="secondary"
-          disabled={busy || switchName.trim() === ""}
-          onClick={() =>
-            void switchMut.run(async () => {
-              const r = await gitBranchSwitch(machine, paneId, switchName.trim());
-              setSwitchName("");
-              return `switched to ${r.name}`;
-            })
-          }
-        >
-          Switch
-        </Button>
-      </div>
-      <MutationFeedback error={switchMut.error} notice={switchMut.notice} />
-    </div>
+    </SurfaceSection>
   );
 }
 
@@ -1051,37 +1063,39 @@ function UpstreamBlock({
   const [ref, setRef] = useState("");
   const mutations = useGitMutation(onChanged);
   return (
-    <div className="flex flex-col gap-2">
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-        Upstream{currentUpstream !== null ? ` · ${currentUpstream}` : ""}
+    <SurfaceSection
+      title="Upstream"
+      description={currentUpstream !== null ? `current: ${currentUpstream}` : undefined}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input
+            value={ref}
+            onChange={(e) => setRef(e.currentTarget.value)}
+            placeholder="e.g. origin/main"
+            size="compact"
+            font="mono"
+            className="w-56"
+            aria-label="Upstream ref"
+          />
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={mutations.busy || ref.trim() === ""}
+            onClick={() =>
+              void mutations.run(async () => {
+                const r = await gitUpstream(machine, paneId, ref.trim());
+                setRef("");
+                return `upstream set to ${r.upstream}`;
+              })
+            }
+          >
+            Set upstream
+          </Button>
+        </div>
+        <MutationFeedback error={mutations.error} notice={mutations.notice} />
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Input
-          value={ref}
-          onChange={(e) => setRef(e.currentTarget.value)}
-          placeholder="e.g. origin/main"
-          size="compact"
-          font="mono"
-          className="w-56"
-          aria-label="Upstream ref"
-        />
-        <Button
-          size="xs"
-          variant="secondary"
-          disabled={mutations.busy || ref.trim() === ""}
-          onClick={() =>
-            void mutations.run(async () => {
-              const r = await gitUpstream(machine, paneId, ref.trim());
-              setRef("");
-              return `upstream set to ${r.upstream}`;
-            })
-          }
-        >
-          Set upstream
-        </Button>
-      </div>
-      <MutationFeedback error={mutations.error} notice={mutations.notice} />
-    </div>
+    </SurfaceSection>
   );
 }
 
@@ -1144,154 +1158,155 @@ function RemoteSyncBlock({
   const pushMut = useGitMutation(afterRemoteOp);
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-1">
-        <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-          Remotes
-        </div>
-        {canList ? (
+    <SurfaceSection
+      title="Remotes"
+      actions={
+        canList ? (
           <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadRemotes}>
             {listLoading ? "loading…" : "Reload"}
           </Button>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {canList ? (
+          listLoading && remotes === null ? (
+            <SurfaceLoading label="Loading remotes" rows={2} />
+          ) : listError !== null ? (
+            <SurfaceNote tone="error">remotes unavailable: {listError}</SurfaceNote>
+          ) : remotes !== null ? (
+            remotes.remotes.length === 0 ? (
+              <SurfaceEmpty title="No remotes configured" className="py-4" />
+            ) : (
+              <div className="flex max-h-32 flex-col gap-0.5 overflow-auto">
+                {remotes.remotes.map((remote) => (
+                  <div
+                    key={remote.name}
+                    className="flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 text-xs"
+                  >
+                    <span className="shrink-0 font-mono font-medium">{remote.name}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+                      {remote.url}
+                    </span>
+                    {remote.push_url !== remote.url ? (
+                      <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
+                        push: {remote.push_url}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : null
+        ) : null}
+
+        {canFetch ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Input
+                value={fetchRemote}
+                onChange={(e) => setFetchRemote(e.currentTarget.value)}
+                placeholder="remote (default)"
+                size="compact"
+                font="mono"
+                className="w-40"
+                aria-label="Fetch remote"
+              />
+              <div className="flex items-center gap-1.5">
+                <Switch
+                  size="sm"
+                  checked={prune}
+                  onCheckedChange={(checked) => setPrune(checked === true)}
+                  aria-label="Prune deleted remote branches"
+                />
+                <Label className="cursor-pointer">prune</Label>
+              </div>
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={fetchMut.busy}
+                onClick={() =>
+                  void fetchMut.run(async () => {
+                    await gitFetch(machine, paneId, {
+                      remote: fetchRemote.trim() === "" ? undefined : fetchRemote.trim(),
+                      prune,
+                    });
+                    return "fetch completed";
+                  })
+                }
+              >
+                {fetchMut.busy ? "Fetching…" : "Fetch"}
+              </Button>
+            </div>
+            <MutationFeedback error={fetchMut.error} notice={fetchMut.notice} />
+          </div>
+        ) : null}
+
+        {canPush ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Input
+                value={pushRemote}
+                onChange={(e) => setPushRemote(e.currentTarget.value)}
+                placeholder="remote (default)"
+                size="compact"
+                font="mono"
+                className="w-32"
+                aria-label="Push remote"
+              />
+              <Input
+                value={refspec}
+                onChange={(e) => setRefspec(e.currentTarget.value)}
+                placeholder="refspec (optional)"
+                size="compact"
+                font="mono"
+                className="w-44"
+                aria-label="Push refspec"
+              />
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={pushMut.busy}
+                onClick={() =>
+                  void pushMut.run(async () => {
+                    await gitPush(machine, paneId, {
+                      remote: pushRemote.trim() === "" ? undefined : pushRemote.trim(),
+                      refspec: refspec.trim() === "" ? undefined : refspec.trim(),
+                      setUpstream,
+                      forceWithLease,
+                    });
+                    return "push completed";
+                  })
+                }
+              >
+                {pushMut.busy ? "Pushing…" : "Push"}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="flex items-center gap-1.5">
+                <Switch
+                  size="sm"
+                  checked={setUpstream}
+                  onCheckedChange={(checked) => setSetUpstream(checked === true)}
+                  aria-label="Set upstream on push"
+                />
+                <Label className="cursor-pointer">set upstream</Label>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Switch
+                  size="sm"
+                  checked={forceWithLease}
+                  onCheckedChange={(checked) => setForceWithLease(checked === true)}
+                  aria-label="Force push with lease"
+                />
+                <Label className="cursor-pointer">force with lease</Label>
+              </div>
+            </div>
+            <MutationFeedback error={pushMut.error} notice={pushMut.notice} />
+          </div>
         ) : null}
       </div>
-      {canList ? (
-        listLoading && remotes === null ? (
-          <SectionMessage>loading remotes…</SectionMessage>
-        ) : listError !== null ? (
-          <SectionMessage>remotes unavailable: {listError}</SectionMessage>
-        ) : remotes !== null ? (
-          remotes.remotes.length === 0 ? (
-            <SectionMessage>no remotes configured</SectionMessage>
-          ) : (
-            <div className="flex max-h-32 flex-col gap-0.5 overflow-auto">
-              {remotes.remotes.map((remote) => (
-                <div
-                  key={remote.name}
-                  className="flex items-baseline gap-2 rounded-sm px-1.5 py-0.5 text-xs"
-                >
-                  <span className="shrink-0 font-mono font-medium">{remote.name}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
-                    {remote.url}
-                  </span>
-                  {remote.push_url !== remote.url ? (
-                    <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
-                      push: {remote.push_url}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )
-        ) : null
-      ) : null}
-
-      {canFetch ? (
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              value={fetchRemote}
-              onChange={(e) => setFetchRemote(e.currentTarget.value)}
-              placeholder="remote (default)"
-              size="compact"
-              font="mono"
-              className="w-40"
-              aria-label="Fetch remote"
-            />
-            <div className="flex items-center gap-1.5">
-              <Switch
-                size="sm"
-                checked={prune}
-                onCheckedChange={(checked) => setPrune(checked === true)}
-                aria-label="Prune deleted remote branches"
-              />
-              <Label className="cursor-pointer">prune</Label>
-            </div>
-            <Button
-              size="xs"
-              variant="secondary"
-              disabled={fetchMut.busy}
-              onClick={() =>
-                void fetchMut.run(async () => {
-                  await gitFetch(machine, paneId, {
-                    remote: fetchRemote.trim() === "" ? undefined : fetchRemote.trim(),
-                    prune,
-                  });
-                  return "fetch completed";
-                })
-              }
-            >
-              {fetchMut.busy ? "Fetching…" : "Fetch"}
-            </Button>
-          </div>
-          <MutationFeedback error={fetchMut.error} notice={fetchMut.notice} />
-        </div>
-      ) : null}
-
-      {canPush ? (
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              value={pushRemote}
-              onChange={(e) => setPushRemote(e.currentTarget.value)}
-              placeholder="remote (default)"
-              size="compact"
-              font="mono"
-              className="w-32"
-              aria-label="Push remote"
-            />
-            <Input
-              value={refspec}
-              onChange={(e) => setRefspec(e.currentTarget.value)}
-              placeholder="refspec (optional)"
-              size="compact"
-              font="mono"
-              className="w-44"
-              aria-label="Push refspec"
-            />
-            <Button
-              size="xs"
-              variant="secondary"
-              disabled={pushMut.busy}
-              onClick={() =>
-                void pushMut.run(async () => {
-                  await gitPush(machine, paneId, {
-                    remote: pushRemote.trim() === "" ? undefined : pushRemote.trim(),
-                    refspec: refspec.trim() === "" ? undefined : refspec.trim(),
-                    setUpstream,
-                    forceWithLease,
-                  });
-                  return "push completed";
-                })
-              }
-            >
-              {pushMut.busy ? "Pushing…" : "Push"}
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <div className="flex items-center gap-1.5">
-              <Switch
-                size="sm"
-                checked={setUpstream}
-                onCheckedChange={(checked) => setSetUpstream(checked === true)}
-                aria-label="Set upstream on push"
-              />
-              <Label className="cursor-pointer">set upstream</Label>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Switch
-                size="sm"
-                checked={forceWithLease}
-                onCheckedChange={(checked) => setForceWithLease(checked === true)}
-                aria-label="Force push with lease"
-              />
-              <Label className="cursor-pointer">force with lease</Label>
-            </div>
-          </div>
-          <MutationFeedback error={pushMut.error} notice={pushMut.notice} />
-        </div>
-      ) : null}
-    </div>
+    </SurfaceSection>
   );
 }
 
@@ -1316,7 +1331,7 @@ function SyncSection({
   const currentBranch = state.kind === "ready" ? state.status.branch.name : null;
   const currentUpstream = state.kind === "ready" ? state.status.branch.upstream : null;
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
+  if (cap === null) return <SurfaceNote>git plugin unavailable</SurfaceNote>;
 
   const blocks: { key: string; supported: boolean | null; node: React.ReactNode }[] = [
     {
@@ -1368,9 +1383,9 @@ function SyncSection({
     <div className="flex max-w-2xl flex-col gap-4">
       {blocks.map((block) =>
         block.supported === null ? (
-          <SectionMessage key={block.key}>checking plugin capabilities…</SectionMessage>
+          <SurfaceNote key={block.key}>checking plugin capabilities…</SurfaceNote>
         ) : block.supported === false ? (
-          <SectionMessage key={block.key}>{UNSUPPORTED_TEXT}</SectionMessage>
+          <SurfaceNote key={block.key}>{UNSUPPORTED_TEXT}</SurfaceNote>
         ) : (
           <div key={block.key}>{block.node}</div>
         ),
@@ -1475,18 +1490,19 @@ function PrViewDetail({ view }: { view: GitPrView }) {
         </Tooltip>
       ) : null}
       {view.body.trim() !== "" ? (
-        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-2xs whitespace-pre-wrap break-words">
+        <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs whitespace-pre-wrap break-words">
           {view.body}
         </pre>
       ) : null}
       {view.bodyTruncated ? (
-        <div className="text-2xs text-muted-foreground">body truncated at 8000 chars</div>
+        <SurfaceNote>body truncated at 8000 chars</SurfaceNote>
       ) : null}
       {view.checks.length > 0 || view.checksTruncated ? (
         <div className="flex flex-col gap-0.5">
-          <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-            Checks{view.checksTruncated ? " (truncated)" : ""}
-          </div>
+          <SurfaceGroupHeader title="Checks" />
+          {view.checksTruncated ? (
+            <SurfaceNote>check list truncated</SurfaceNote>
+          ) : null}
           {view.checks.map((check, i) => (
             <div key={`${check.name ?? ""}-${i}`} className="flex items-baseline gap-1.5 px-1 text-2xs">
               <span className="min-w-0 flex-1 truncate">{check.name ?? "check"}</span>
@@ -1499,9 +1515,7 @@ function PrViewDetail({ view }: { view: GitPrView }) {
       ) : null}
       {view.reviews.length > 0 ? (
         <div className="flex flex-col gap-0.5">
-          <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-            Reviews (latest {view.reviews.length})
-          </div>
+          <SurfaceGroupHeader title="Reviews" count={view.reviews.length} />
           {view.reviews.map((review, i) => (
             <div key={`${review.author ?? ""}-${i}`} className="flex items-baseline gap-1.5 px-1 text-2xs">
               <span className="shrink-0">{review.author ?? "unknown"}</span>
@@ -1649,26 +1663,25 @@ function ForgeSection({
   const [base, setBase] = useState("");
   const [head, setHead] = useState("");
 
-  if (cap === null) return <SectionMessage>git plugin unavailable</SectionMessage>;
-  if (readSupported === null) return <SectionMessage>checking plugin capabilities…</SectionMessage>;
-  if (readSupported === false) return <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>;
+  if (cap === null || readSupported === null || readSupported === false) {
+    return <CapabilityGate cap={cap} supported={readSupported} />;
+  }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-1">
-            <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-              Current branch
-            </div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
+        <SurfaceSection
+          title="Current branch"
+          actions={
             <Button size="xs" variant="ghost" disabled={statusLoading} onClick={loadStatus}>
               {statusLoading ? "loading…" : "Refresh"}
             </Button>
-          </div>
+          }
+        >
           {!statusLoaded && statusLoading ? (
-            <SectionMessage>loading…</SectionMessage>
+            <SurfaceLoading label="Loading branch status" rows={2} />
           ) : statusError !== null ? (
-            <SectionMessage>status unavailable: {statusError}</SectionMessage>
+            <SurfaceNote tone="error">status unavailable: {statusError}</SurfaceNote>
           ) : status !== null ? (
             <div className="flex flex-col gap-1 text-xs">
               <div className="flex items-center gap-1.5">
@@ -1701,97 +1714,102 @@ function ForgeSection({
                   </Button>
                 </div>
               ) : (
-                <SectionMessage>no open PR for this branch</SectionMessage>
+                <SurfaceNote>no open PR for this branch</SurfaceNote>
               )}
             </div>
           ) : null}
-        </div>
+        </SurfaceSection>
 
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-1">
-            <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-              Pull requests
-            </div>
+        <SurfaceSection
+          title="Pull requests"
+          count={list?.prs.length}
+          actions={
             <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadList}>
               {listLoading ? "loading…" : "Reload"}
             </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Select
-              value={listState}
-              onValueChange={(v) => {
-                if (v !== null) setListState(v as PrListState);
-              }}
-            >
-              <SelectTrigger className="w-24" aria-label="PR state filter">
-                <SelectValue>{listState}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {PR_LIST_STATES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          }
+        >
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Select
+                value={listState}
+                onValueChange={(v) => {
+                  if (v !== null) setListState(v as PrListState);
+                }}
+              >
+                <SelectTrigger className="w-24" aria-label="PR state filter">
+                  <SelectValue>{listState}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PR_LIST_STATES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={headFilter}
+                onChange={(e) => setHeadQuery(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") loadList();
+                }}
+                placeholder="head branch (optional)"
+                size="compact"
+                font="mono"
+                className="w-40"
+                aria-label="Filter by head branch"
+              />
+            </div>
             <Input
-              value={headFilter}
-              onChange={(e) => setHeadQuery(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") loadList();
-              }}
-              placeholder="head branch (optional)"
+              value={repoInput}
+              onChange={(e) => setRepo(e.currentTarget.value)}
+              placeholder="repo override owner/name (optional)"
               size="compact"
               font="mono"
-              className="w-40"
-              aria-label="Filter by head branch"
+              aria-label="Forge repo override"
             />
+            {!listLoaded && listLoading ? (
+              <SurfaceLoading label="Loading pull requests" rows={4} />
+            ) : listError !== null ? (
+              <SurfaceNote tone="error">list unavailable: {listError}</SurfaceNote>
+            ) : list !== null ? (
+              list.prs.length === 0 ? (
+                <SurfaceEmpty title="No pull requests" className="py-4" />
+              ) : (
+                <div className="flex max-h-56 flex-col gap-0.5 overflow-auto">
+                  {list.prs.map((pr) => (
+                    <PrSummaryRow
+                      key={pr.number}
+                      pr={pr}
+                      selected={selected === pr.number}
+                      onSelect={() => {
+                        setSelected(pr.number);
+                        loadView(pr.number);
+                      }}
+                    />
+                  ))}
+                </div>
+              )
+            ) : null}
           </div>
-          <Input
-            value={repoInput}
-            onChange={(e) => setRepo(e.currentTarget.value)}
-            placeholder="repo override owner/name (optional)"
-            size="compact"
-            font="mono"
-            aria-label="Forge repo override"
-          />
-          {!listLoaded && listLoading ? (
-            <SectionMessage>loading…</SectionMessage>
-          ) : listError !== null ? (
-            <SectionMessage>list unavailable: {listError}</SectionMessage>
-          ) : list !== null ? (
-            list.prs.length === 0 ? (
-              <SectionMessage>no pull requests</SectionMessage>
-            ) : (
-              <div className="flex max-h-56 flex-col gap-0.5 overflow-auto">
-                {list.prs.map((pr) => (
-                  <PrSummaryRow
-                    key={pr.number}
-                    pr={pr}
-                    selected={selected === pr.number}
-                    onSelect={() => {
-                      setSelected(pr.number);
-                      loadView(pr.number);
-                    }}
-                  />
-                ))}
-              </div>
-            )
-          ) : null}
-        </div>
+        </SurfaceSection>
 
         {createSupported === true ? (
-          <div className="flex flex-col gap-2">
-            <Button
-              size="xs"
-              variant="ghost"
-              className="self-start"
-              onClick={() => setShowCreate((v) => !v)}
-            >
-              {showCreate ? "Hide new PR form" : "New pull request"}
-            </Button>
+          <SurfaceSection
+            title="New pull request"
+            actions={
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setShowCreate((v) => !v)}
+              >
+                {showCreate ? "Hide form" : "Show form"}
+              </Button>
+            }
+          >
             {showCreate ? (
-              <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+              <div className="flex flex-col gap-2">
                 <Input
                   value={title}
                   onChange={(e) => setTitle(e.currentTarget.value)}
@@ -1864,25 +1882,26 @@ function ForgeSection({
                 <MutationFeedback error={createMut.error} notice={createMut.notice} />
               </div>
             ) : null}
-          </div>
+          </SurfaceSection>
         ) : createSupported === null ? null : (
-          <SectionMessage>{UNSUPPORTED_TEXT}</SectionMessage>
+          <SurfaceNote>{UNSUPPORTED_TEXT} (pr create)</SurfaceNote>
         )}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-          {selected !== null ? `PR #${selected}` : "Pull request"}
-        </div>
+      <div className="flex min-w-0 flex-col gap-4 max-sm:border-t max-sm:border-border/60 max-sm:pt-4">
+        <SurfaceSection
+          title={selected !== null ? `PR #${selected}` : "Pull request"}
+        >
         {selected === null ? (
-          <SectionMessage>select a pull request to view it</SectionMessage>
+          <SurfaceEmpty title="Select a pull request to view it" className="py-4" />
         ) : viewLoading && view === null ? (
-          <SectionMessage>loading…</SectionMessage>
+          <SurfaceLoading label="Loading pull request" rows={4} />
         ) : viewError !== null ? (
-          <SectionMessage>view unavailable: {viewError}</SectionMessage>
+          <SurfaceNote tone="error">view unavailable: {viewError}</SurfaceNote>
         ) : view !== null && view.pr.number === selected ? (
           <PrViewDetail view={view.pr} />
         ) : null}
+        </SurfaceSection>
       </div>
     </div>
   );
@@ -1911,6 +1930,11 @@ const SECTIONS: { id: Section; label: string }[] = [
  * lazy-loads and gates on the host's advertised `capability.commands` /
  * `mutation_commands`; Stage-1 plugins simply hide the mutation
  * controls — nothing here pretends they exist.
+ *
+ * Issue #409: re-composed on the #407 conformance baseline — T3
+ * `ThreadDetailsSection`/`DiffPanel` section + empty/loading treatments,
+ * `ToggleGroup` segmented section switcher, `Surface*` primitives for
+ * every empty/loading/error state.
  */
 export function GitSurface({
   pane,
@@ -1945,37 +1969,52 @@ export function GitSurface({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <p className="text-2xs text-muted-foreground">
-          Git status and history for {pane?.pane_id ?? ""} via the host's git
+        <p className="text-xs text-muted-foreground">
+          Git status and history for {pane?.pane_id ?? "this pane"} via the host's git
           plugin.
         </p>
         {pane && paneId !== null ? (
           <>
-            <section className="flex items-start justify-between gap-2">
-              <StatusBody state={status} />
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Refresh git status"
-                onClick={() => setRefreshKey((k) => k + 1)}
-              >
-                <RefreshCwIcon className="size-3.5" />
-              </Button>
-            </section>
-            <section className="flex items-center gap-1">
-              {SECTIONS.map((s) => (
+            <SurfaceSection
+              title="Repository"
+              actions={
                 <Button
-                  key={s.id}
-                  size="xs"
-                  variant={section === s.id ? "secondary" : "ghost"}
-                  disabled={sectionsDisabled}
-                  onClick={() => setSection(s.id)}
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Refresh git status"
+                  onClick={() => setRefreshKey((k) => k + 1)}
                 >
-                  {s.label}
+                  <RefreshIcon refreshing={status.kind === "loading"} />
                 </Button>
+              }
+            >
+              <StatusBody state={status} />
+            </SurfaceSection>
+            <ToggleGroup
+              variant="segmented"
+              value={[section]}
+              onValueChange={(value) => {
+                const next = value[0];
+                if (
+                  next === "changes" ||
+                  next === "commit" ||
+                  next === "history" ||
+                  next === "compare" ||
+                  next === "sync" ||
+                  next === "pr"
+                ) {
+                  setSection(next);
+                }
+              }}
+              aria-label="Git surface sections"
+            >
+              {SECTIONS.map((s) => (
+                <Toggle key={s.id} value={s.id} disabled={sectionsDisabled}>
+                  {s.label}
+                </Toggle>
               ))}
-            </section>
-            <section>
+            </ToggleGroup>
+            <div>
               {section === "changes" ? (
                 <ChangesSection
                   machine={machine}
@@ -2017,13 +2056,13 @@ export function GitSurface({
                   onChanged={() => setRefreshKey((k) => k + 1)}
                 />
               ) : null}
-            </section>
+            </div>
           </>
         ) : (
-          <SectionMessage>
-            the pane this surface was opened for is closed — close the tab and
-            reopen Source Control from another pane
-          </SectionMessage>
+          <SurfaceEmpty
+            title="No pane selected"
+            description="The pane this surface was opened for is closed — close the tab and reopen Source Control from another pane."
+          />
         )}
       </DialogPanel>
     </div>

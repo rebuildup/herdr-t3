@@ -88,8 +88,8 @@ a proxy for monolithic local state vs T3's store/atom decomposition.
 
 | Surface | Lines | Local components | state+effects | text-2xs share | Known structural issues |
 | --- | --- | --- | --- | --- | --- |
-| `CheckpointsSurface.tsx` | 2331 | ~36 | 70 | 66/75 | bespoke section tree; no Empty/Skeleton primitives (now available); own loading/error copy |
-| `GitSurface.tsx` | 2024 | ~34 | 73 | 38/49 | largest state surface; index-key warnings; mutation feedback bespoke |
+| `CheckpointsSurface.tsx` | 2331 → 2339 | ~36 | 70 | 66/75 | **#409 done**: re-composed on `surfaceParts` (`SurfaceSection`/`SurfaceEmpty`/`SurfaceLoading`/`SurfaceNote`/`MutationFeedback`); forms lost bespoke card chrome; all honest-state rules kept |
+| `GitSurface.tsx` | 2024 → 2070 | ~34 | 73 | 38/49 | **#409 done**: same `surfaceParts` composition; diff-scope control is `ToggleGroup variant="segmented"`; PR/forge section uses `SurfaceSection`+`SurfaceEmpty`; index-key warnings remain (pre-existing data shape) |
 | `UsageSurface.tsx` | 1032 | — | 22 | 52/54 | heaviest type flattening; provider rows bespoke |
 | `ProjectScriptsSurface.tsx` | 903 | — | 31 | 19/26 | run/preview states bespoke; no empty state |
 | `ProjectsSurface.tsx` | 813 | — | 36 | 24/30 | set-state-in-effect warnings ×4 |
@@ -144,6 +144,23 @@ counterpart screen:
    with reasons.
 6. Feature parity preserved — no capability removal; internal
    diagnostics stay behind existing Details affordances.
+
+## 4a. #409 outcome notes
+
+- New shared module `src/components/surfaceParts.tsx` carries the
+  repeated section/empty/loading/note/mutation-feedback treatments so
+  #410's surfaces can reuse them; `ui/toggle.tsx` +
+  `ui/toggle-group.tsx` were ported from the pinned T3 upstream for
+  segmented controls.
+- Both surfaces now compose `Empty*`/`Skeleton` for every
+  empty/loading state and route errors through one `SurfaceNote`
+  treatment; primary copy moved to `text-xs`/`text-sm`, `text-2xs`
+  remains for ids/timestamps/group badges only.
+- Remaining `react(set-state-in-effect)` /
+  `exhaustive-effect-dependencies` warnings in these two files are
+  pre-existing data-flow patterns (capability probe → load, refresh
+  key); they are warnings, not errors, and are left for the #413
+  visual-evaluation pass rather than suppressed blindly.
 
 ## 5. Verification separation
 
