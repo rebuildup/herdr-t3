@@ -213,3 +213,31 @@ describe("isClientFrame machine frames", () => {
     expect(isClientFrame({ type: "machine_update", id: "e", machine: "m1", enabled: "yes" })).toBe(false);
   });
 });
+
+describe("enqueuePendingFrame (issue #576)", () => {
+  test("collapses repeats per pane — latest frame wins", async () => {
+    const { enqueuePendingFrame } = await import("./machine-manager.ts");
+    const queue: ClientFrame[] = [];
+    const sub = (paneId: string): ClientFrame => ({ type: "subscribe_terminal", paneId });
+    const unsub = (paneId: string): ClientFrame => ({ type: "unsubscribe_terminal", paneId });
+    enqueuePendingFrame(queue, sub("p1"));
+    enqueuePendingFrame(queue, unsub("p1"));
+    enqueuePendingFrame(queue, sub("p1"));
+    enqueuePendingFrame(queue, sub("p2"));
+    expect(queue.map((f) => `${f.type}:${(f as { paneId: string }).paneId}`)).toEqual([
+      "subscribe_terminal:p1",
+      "subscribe_terminal:p2",
+    ]);
+  });
+
+  test("caps the queue and drops the oldest frame", async () => {
+    const { enqueuePendingFrame } = await import("./machine-manager.ts");
+    const queue: ClientFrame[] = [];
+    for (let i = 0; i < 600; i++) {
+      enqueuePendingFrame(queue, { type: "subscribe_terminal", paneId: `p${i}` });
+    }
+    expect(queue.length).toBe(512);
+    expect((queue[0] as { paneId: string }).paneId).toBe("p88");
+    expect((queue[511] as { paneId: string }).paneId).toBe("p599");
+  });
+});
