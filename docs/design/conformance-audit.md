@@ -88,8 +88,8 @@ a proxy for monolithic local state vs T3's store/atom decomposition.
 
 | Surface | Lines | Local components | state+effects | text-2xs share | Known structural issues |
 | --- | --- | --- | --- | --- | --- |
-| `CheckpointsSurface.tsx` | 2331 → 2339 | ~36 | 70 | 66/75 | **#409 done**: re-composed on `surfaceParts` (`SurfaceSection`/`SurfaceEmpty`/`SurfaceLoading`/`SurfaceNote`/`MutationFeedback`); forms lost bespoke card chrome; all honest-state rules kept |
-| `GitSurface.tsx` | 2024 → 2070 | ~34 | 73 | 38/49 | **#409 done**: same `surfaceParts` composition; diff-scope control is `ToggleGroup variant="segmented"`; PR/forge section uses `SurfaceSection`+`SurfaceEmpty`; index-key warnings remain (pre-existing data shape) |
+| `CheckpointsSurface.tsx` | 2331 → 2339 | ~36 | 70 | 66/75 | **#409 done**: re-composed on the shared surface module (`SurfaceDetailsSection`/`SurfaceEmpty`/`SurfaceLoadingRows`/`SurfaceNote`/`MutationFeedback`); forms lost bespoke card chrome; all honest-state rules kept |
+| `GitSurface.tsx` | 2024 → 2070 | ~34 | 73 | 38/49 | **#409 done**: same shared-module composition; diff-scope control is `ToggleGroup variant="segmented"`; PR/forge section uses `SurfaceDetailsSection`+`SurfaceEmpty`; index-key warnings remain (pre-existing data shape) |
 | `UsageSurface.tsx` | ~1090 | — | ~14 | 4/47 | **rewritten (#410)**: SurfaceSection/Group/Row composition, T3 UsagePage table markup, Skeleton rows, Alert errors, quota window bars |
 | `ProjectScriptsSurface.tsx` | ~1010 | — | ~28 | 0 | **rewritten (#410)**: grouped project/script/run rows, row-level empty/error states, toast mutation feedback |
 | `ProjectsSurface.tsx` | ~880 | — | ~30 | 0 | **rewritten (#410)**: settings-family sections/groups/rows, toast mutation feedback |
@@ -100,9 +100,9 @@ a proxy for monolithic local state vs T3's store/atom decomposition.
 
 Post-#411 state (this branch): the four #411 surfaces are rewritten —
 `AutomationsSurface`, `ConversationsSurface`, `WorktreesSurface` compose
-`surfacePanel.tsx` (`SurfacePanelHeader`/`SurfaceNote`/
-`SurfaceLoadingRows`/`SurfaceEmpty`), `ui/alert.tsx` (ported verbatim,
-shared with #410) and `ui/skeleton.tsx`; mutation
+the shared `surfaceLayout.tsx` module (`SurfacePanelHeader`/
+`SurfaceNote`/`SurfaceLoadingRows`/`SurfaceEmpty`), `ui/alert.tsx`
+(ported verbatim, shared with #410) and `ui/skeleton.tsx`; mutation
 feedback moved to `pushNotice` toasts (T3 `toastManager` pattern);
 fetch state is keyed by request identity so workspace/machine switches
 no longer reset state synchronously inside effects (the
@@ -144,14 +144,18 @@ Cross-cutting findings:
   feedback). `toast` itself was ported for #428 (`ui/toast.tsx` +
   `toast.logic.ts`, minus thread scoping/i18n/anchored variant).
   Port on demand from the pinned upstream, verbatim.
-- **Surface composition** (#410): `src/components/surfaceLayout.tsx`
-  now carries the shared panel-density analog of T3's
-  `settingsLayout.tsx` — `SurfaceSection` (`text-sm font-medium`
-  title), `SurfaceGroup` (T3 `SettingsGroup` card container),
-  `SurfaceRow` (T3 `SettingsRow` `px-3 py-2.5 sm:px-4` density with
-  `text-sm`/`text-xs` ramp), `SurfaceLoadingRow`, and
-  `SurfaceSkeletonRows`. #409/#411 should reuse it rather than
-  re-inventing section headers per surface.
+- **Surface composition** (#410, consolidated post-#411):
+  `src/components/surfaceLayout.tsx` is the single shared
+  composition module — it carries both the panel-density analog of
+  T3's `settingsLayout.tsx` (`SurfaceSection`/`SurfacePanelHeader`/
+  `SurfaceGroup`/`SurfaceRow`/`SurfaceLoadingRow`/`SurfaceSkeletonRows`)
+  and the details/inline-density treatments (`SurfaceDetailsSection`/
+  `SurfaceGroupHeader`/`SurfaceNote`/`SurfaceEmpty`/
+  `SurfaceLoadingRows`/`MutationFeedback`). The #409 `surfaceParts.tsx`
+  and #411 `surfacePanel.tsx` helpers were merged into it; the two
+  `SurfaceSection` variants differed meaningfully (bordered muted
+  `text-2xs` heading vs `text-sm` titled section) and now live under
+  distinct names.
 - **Internal information**: surfaces print raw plugin codes/IDs in
   places T3 would route through Details/Copy affordances — verify per
   surface during rewrite (info-architecture.md §5).
@@ -179,9 +183,12 @@ counterpart screen:
 
 ## 4a. #409 outcome notes
 
-- New shared module `src/components/surfaceParts.tsx` carries the
-  repeated section/empty/loading/note/mutation-feedback treatments so
-  #410's surfaces can reuse them; `ui/toggle.tsx` +
+- The repeated section/empty/loading/note/mutation-feedback
+  treatments now live in the shared `surfaceLayout.tsx` module
+  (consolidated from the original `surfaceParts.tsx`; the bordered
+  `ThreadDetailsSection`-style block is exported as
+  `SurfaceDetailsSection` to keep it distinct from the #410
+  `SurfaceSection`); `ui/toggle.tsx` +
   `ui/toggle-group.tsx` were ported from the pinned T3 upstream for
   segmented controls.
 - Both surfaces now compose `Empty*`/`Skeleton` for every

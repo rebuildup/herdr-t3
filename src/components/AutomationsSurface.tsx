@@ -49,7 +49,7 @@ import {
   SurfaceLoadingRows,
   SurfaceNote,
   SurfacePanelHeader,
-} from "./surfacePanel";
+} from "./surfaceLayout";
 import { pushNotice } from "../shell/notices";
 import { cn } from "~/lib/utils";
 import {

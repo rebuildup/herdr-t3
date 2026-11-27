@@ -17,10 +17,13 @@ Canonical sources (the normative spec the GPUI side inherits):
 - `docs/design/verification.md` — component/token comparison procedure,
   state-by-state capture matrix, RC checklist
 - `src/index.css` — theme tokens; `src/components/ui/*` — ported
-  primitives; `src/components/surfaceLayout.tsx` — the shared
-  panel-density composition layer (`SurfaceSection`/`SurfaceGroup`/
-  `SurfaceRow`/`SurfaceLoadingRow`/`SurfaceSkeletonRows`, the analog of
-  T3's `settingsLayout.tsx` + `itemRows.ts`)
+  primitives; `src/components/surfaceLayout.tsx` — the single shared
+  panel-density composition layer (the analog of T3's
+  `settingsLayout.tsx` + `itemRows.ts`, plus the details/inline-density
+  treatments: `SurfaceSection`/`SurfacePanelHeader`/`SurfaceGroup`/
+  `SurfaceRow`/`SurfaceLoadingRow`/`SurfaceSkeletonRows` and
+  `SurfaceDetailsSection`/`SurfaceGroupHeader`/`SurfaceNote`/
+  `SurfaceEmpty`/`SurfaceLoadingRows`/`MutationFeedback`)
 
 ## Requirements (inherited, implementation-independent)
 

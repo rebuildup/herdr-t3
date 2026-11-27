@@ -39,8 +39,8 @@
  *   `ok:false` entry visible — never collapsed into a generic error.
  *
  * Issue #409: re-composed on the #407 conformance baseline — T3
- * `ThreadDetailsSection` section treatment via `SurfaceSection`,
- * `SurfaceEmpty`/`SurfaceLoading`/`SurfaceNote` for every
+ * `ThreadDetailsSection` section treatment via `SurfaceDetailsSection`,
+ * `SurfaceEmpty`/`SurfaceLoadingRows`/`SurfaceNote` for every
  * empty/loading/error state, `text-sm`/`text-xs`/`text-2xs` hierarchy
  * (primary/secondary/metadata), no bespoke card chrome around forms.
  */
@@ -76,12 +76,12 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   MutationFeedback,
+  SurfaceDetailsSection,
   SurfaceEmpty,
   SurfaceGroupHeader,
-  SurfaceLoading,
+  SurfaceLoadingRows,
   SurfaceNote,
-  SurfaceSection,
-} from "./surfaceParts";
+} from "./surfaceLayout";
 import type { PaneInfo } from "../../shared/protocol";
 import {
   checkpointsCapability,
@@ -847,7 +847,7 @@ function RestoreDialog({
               </Button>
             </div>
             {planLoading && plan === null ? (
-              <SurfaceLoading label="Computing restore preview" rows={3} />
+              <SurfaceLoadingRows label="Computing restore preview" rows={3} />
             ) : planError !== null ? (
               <SurfaceNote tone="error">preview unavailable: {planError}</SurfaceNote>
             ) : plan !== null ? (
@@ -1378,7 +1378,7 @@ function CheckpointDetail({
       ) : null}
 
       {loading ? (
-        <SurfaceLoading label="Loading checkpoint" rows={3} />
+        <SurfaceLoadingRows label="Loading checkpoint" rows={3} />
       ) : error !== null ? (
         <SurfaceNote tone="error">checkpoint unavailable: {error}</SurfaceNote>
       ) : show !== null ? (
@@ -1960,14 +1960,14 @@ function MaintenanceDialog({
         <DialogPanel>
           <div className="flex flex-col gap-3">
             {canGc ? (
-              <SurfaceSection title="Retention GC">
+              <SurfaceDetailsSection title="Retention GC">
                 <GcSection machine={machine} />
-              </SurfaceSection>
+              </SurfaceDetailsSection>
             ) : null}
             {canPrune ? (
-              <SurfaceSection title="Orphan ref prune">
+              <SurfaceDetailsSection title="Orphan ref prune">
                 <PruneSection machine={machine} />
-              </SurfaceSection>
+              </SurfaceDetailsSection>
             ) : null}
             {!canGc && !canPrune ? (
               <SurfaceNote>{UNSUPPORTED_TEXT} (gc/prune)</SurfaceNote>
@@ -2117,27 +2117,27 @@ export function CheckpointsSurface({
             </EmptyHeader>
           </Empty>
         ) : cap === undefined ? (
-          <SurfaceLoading label="Checking plugin capabilities" rows={4} />
+          <SurfaceLoadingRows label="Checking plugin capabilities" rows={4} />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-4">
-              <SurfaceSection title="New checkpoint">
+              <SurfaceDetailsSection title="New checkpoint">
                 <CreateForm
                   machine={machine}
                   pane={pane ?? null}
                   canCreate={canCreate === true}
                   onCreated={refreshAll}
                 />
-              </SurfaceSection>
-              <SurfaceSection title="Save group">
+              </SurfaceDetailsSection>
+              <SurfaceDetailsSection title="Save group">
                 <SaveGroupForm
                   machine={machine}
                   pane={pane ?? null}
                   canSave={canSave === true}
                   onSaved={refreshAll}
                 />
-              </SurfaceSection>
-              <SurfaceSection
+              </SurfaceDetailsSection>
+              <SurfaceDetailsSection
                 title="Checkpoints"
                 count={listResult?.count}
                 actions={
@@ -2214,7 +2214,7 @@ export function CheckpointsSurface({
                     surface its report until the next fetch replaces it. */}
                 <AutoCapturesNote report={listResult?.auto_captures} />
                 {listLoading && listResult === null ? (
-                  <SurfaceLoading label="Loading checkpoints" rows={5} />
+                  <SurfaceLoadingRows label="Loading checkpoints" rows={5} />
                 ) : listError !== null ? (
                   <SurfaceNote tone="error">checkpoints unavailable: {listError}</SurfaceNote>
                 ) : listResult !== null && listResult.checkpoints.length === 0 ? (
@@ -2226,11 +2226,11 @@ export function CheckpointsSurface({
                     onSelect={setSelectedId}
                   />
                 )}
-              </SurfaceSection>
+              </SurfaceDetailsSection>
             </div>
 
             <div className="flex min-w-0 flex-col gap-4 max-sm:border-t max-sm:border-border/60 max-sm:pt-4">
-              <SurfaceSection
+              <SurfaceDetailsSection
                 title={selectedEntry !== null ? checkpointTitle(selectedEntry) : "Checkpoint"}
               >
                 {selectedEntry !== null ? (
@@ -2261,14 +2261,14 @@ export function CheckpointsSurface({
                 ) : (
                   <SurfaceEmpty title="Select a checkpoint to inspect it" className="py-4" />
                 )}
-              </SurfaceSection>
-              <SurfaceSection title="Diff">
+              </SurfaceDetailsSection>
+              <SurfaceDetailsSection title="Diff">
                 <DiffPane
                   machine={machine}
                   entries={listResult?.checkpoints ?? []}
                   defaultA={selectedEntry?.id ?? null}
                 />
-              </SurfaceSection>
+              </SurfaceDetailsSection>
             </div>
           </div>
         )}

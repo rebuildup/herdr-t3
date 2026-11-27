@@ -35,7 +35,7 @@ import {
   SurfaceEmpty,
   SurfaceLoadingRows,
   SurfacePanelHeader,
-} from "./surfacePanel";
+} from "./surfaceLayout";
 import { rpc } from "../lib/api";
 import type {
   RpcMethod,
