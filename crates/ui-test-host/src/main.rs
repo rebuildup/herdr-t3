@@ -1210,7 +1210,11 @@ fn main() {
             break;
         }
     }
-    vcx.cx.quit();
+    // Quit through the outer TestAppContext, not vcx.cx: add_window_view
+    // leaks the VisualTestContext and registers an on_quit that drops
+    // it, so calling quit() on vcx.cx frees `self` mid-call and the
+    // subsequent app.borrow_mut() hits freed memory (SIGSEGV, #405).
+    cx.quit();
 }
 
 fn handle(
