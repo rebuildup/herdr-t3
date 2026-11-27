@@ -179,12 +179,17 @@ export function PaneTerminal({
             : {}),
           onInput: send,
           onPasteText: (text) => {
-            // pane.send_text wraps \x1b[200~…\x1b[201~ iff the pane enabled
-            // bracketed paste — the attach stream carries no mode state, so
-            // the local engine could never bracket (issue #434, herdr#6215).
+            // pane.send_input routes the body through herdr's
+            // encode_api_text, which wraps \x1b[200~…\x1b[201~ iff the pane
+            // enabled bracketed paste — the attach stream carries no mode
+            // state, so the local engine could never bracket (issue #434,
+            // herdr#6215). With keys:[] only the encoded text is sent;
+            // pane.send_text stays reserved for literal-text delivery
+            // (PaneMessageDialog, artifacts) where newlines must reach the
+            // pty unwrapped.
             void rpc(
-              "pane.send_text",
-              { pane_id: paneId, text: sanitizePasteText(text) },
+              "pane.send_input",
+              { pane_id: paneId, text: sanitizePasteText(text), keys: [] },
               machine,
             ).catch(() => {});
           },

@@ -27,6 +27,7 @@ fn rpc_method_allow_list_matches_ts() {
         "worktree.open",
         "worktree.remove",
         "session.snapshot",
+        "pane.send_input",
     ] {
         assert!(is_rpc_method(m), "{m} should be allowed");
     }
@@ -42,7 +43,7 @@ fn rpc_method_allow_list_matches_ts() {
     ] {
         assert!(!is_rpc_method(m), "{m} must stay refused");
     }
-    assert_eq!(protocol_codec::RPC_METHODS.len(), 38);
+    assert_eq!(protocol_codec::RPC_METHODS.len(), 39);
 }
 
 /* ------------------------- is_client_frame parity ---------------------- */

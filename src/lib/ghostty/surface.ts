@@ -65,7 +65,7 @@ export interface GhosttySurfaceOptions {
   }): void;
   /**
    * Paste text for hosts that deliver it through a mode-aware channel
-   * (herdr `pane.send_text` wraps bracketed paste iff the pane enabled
+   * (herdr `pane.send_input` wraps bracketed paste iff the pane enabled
    * mode 2004 — the attach stream carries no mode state, issue #434).
    * When set, paste routes here instead of engine-encoded bytes.
    */
