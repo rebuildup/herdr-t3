@@ -386,8 +386,64 @@ packaged-app startup/memory suite at RC freeze (see Coverage map).
 ## Fast gate vs RC gate
 
 - Fast gate (`bun test`, `./scripts/ci.sh`): only deterministic, cheap
-  checks — `perf-baseline.test.ts` and `perf-bridge-load.test.ts` fault
-  injection. No wall-clock benchmarks in CI per-commit.
+  checks — `perf-baseline.test.ts`, `perf-bridge-load.test.ts` and
+  `perf-frame-bench.test.ts` fault injection, plus
+  `scripts/perf-observe.test.ts` verdict/diagnose rejection tests and
+  `scripts/perf-contract-check.ts` (wired into `ci.sh`), which asserts
+  every bounded resource the benches rely on still exists and is
+  unit-covered: scrollback byte cap (`SCROLLBACK_MAX_BYTES` /
+  `scrollback_bytes`, TS + Rust), the `memoryBudget` shed path, bridge
+  `slot.queue` caps, `PaneTerminal` pending caps, the plugin exec
+  semaphore and `LruCache` bounds — plus the committed baselines under
+  `perf-reports/`. No wall-clock benchmarks in CI per-commit.
 - RC freeze: full `record` on reference macOS + Windows 11 hardware,
   `check` against committed baselines, packaged-app startup/memory
   suite, both-OS evidence committed under `docs/design/evidence/`.
+
+### RC-freeze evaluation leg (issue #552)
+
+The release-candidate performance verdict is a manual, on-demand leg —
+it is deliberately NOT wired into per-PR or release-path CI
+(`.github/workflows/release-path.yml` only validates branch shape; the
+benches need ~10-minute real-app runs on reference hardware, which CI
+does not provide). Run it on the RC freeze commit, on an otherwise-idle
+reference machine, macOS and Windows 11 separately:
+
+```sh
+# 1. Absolute-budget benches under --check (memory + frame).
+#    Same fixed conditions for every leg: default storm size/seconds,
+#    default budgets, no --cpu-throttle.
+bun scripts/perf-memory-bench.ts --check --out perf-reports/mem-<rc-sha>-rc.json
+bun scripts/perf-frame-bench.ts  --check --out perf-reports/frame-<rc-sha>-rc.json
+
+# 2. Compare each candidate against the committed baseline of the same
+#    report kind. Exit codes: 0=pass, 1=regression, 3=inconclusive,
+#    2=usage. --json emits the machine-readable verdict.
+bun scripts/perf-observe.ts compare perf-reports/mem-baseline-0e5d6a7.json   perf-reports/mem-<rc-sha>-rc.json
+bun scripts/perf-observe.ts compare perf-reports/frame-2febbbf.json          perf-reports/frame-<rc-sha>-rc.json
+
+# 3. Verdict rule: BOTH compares must print verdict "pass" (exit 0).
+#    "inconclusive" (exit 3) is NOT a pass — it means the runs differed
+#    in workload shape, host class, loadavg band, or had unmeasured/
+#    missing metrics, so no code-attributable delta exists. Fix the
+#    conditions (idle host, same --storm-* flags, same machine class)
+#    and re-run; never average inconclusive legs into a pass.
+```
+
+Notes:
+
+- The committed anchors are `perf-reports/mem-baseline-0e5d6a7.json`
+  (memory, `stormMb:128/15s`) and `perf-reports/frame-2febbbf.json`
+  (frame). `compare` refuses cross-workload/cross-host pairs, so the
+  RC legs must reuse the anchors' workload shape; if the anchor's
+  recorded `condition.loadavg` band cannot be matched on the freeze
+  machine, record a new same-condition anchor first and commit it.
+- `--check` on the benches is the absolute-ceiling gate (memory:
+  jsHeap/Chrome/bridge/herdr budgets + convergence; frame: provisional
+  input→paint p95 / CPU budgets). A `--check` breach exits 1 and fails
+  the leg regardless of the compare verdict.
+- Post-hoc diagnosis of a suspect run:
+  `bun scripts/perf-observe.ts diagnose --user-data "<userData dir>"`
+  analyzes `memory-history.jsonl` anomaly windows; it exits 1 on
+  missing/insufficient history — a diagnose failure is evidence of
+  missing forensics, not a pass.

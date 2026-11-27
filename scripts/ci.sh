@@ -49,4 +49,8 @@ printf 'Checking migration readiness...\n'
 bun scripts/check-migration-readiness.ts
 bun scripts/check-migration-readiness.ts --self-test
 
+printf 'Checking performance contract...\n'
+bun scripts/perf-contract-check.ts
+bun scripts/perf-contract-check.ts --self-test
+
 printf 'All repository checks passed.\n'
