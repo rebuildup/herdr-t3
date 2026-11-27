@@ -56,6 +56,17 @@ contextBridge.exposeInMainWorld("herdrT3", {
   ghosttyImage(filePath) {
     return ipcRenderer.invoke("herdr-t3:ghostty-image", filePath);
   },
+  /**
+   * Memory-watchdog pressure levels pushed by the main process (issue #499):
+   * "warn" | "critical". Listeners shed pure caches; payload carries no data.
+   */
+  onMemoryPressure(listener) {
+    const handler = (_event, level) => {
+      if (level === "warn" || level === "critical") listener(level);
+    };
+    ipcRenderer.on("herdr-t3:memory-pressure", handler);
+    return () => ipcRenderer.removeListener("herdr-t3:memory-pressure", handler);
+  },
   /** Launch-at-login state; { supported:false } outside macOS/Windows. */
   loginItem() {
     return ipcRenderer.invoke("herdr-t3:login-item");

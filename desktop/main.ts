@@ -270,6 +270,46 @@ function ensureManager(): void {
   manager.start();
 }
 
+/*
+ * Memory watchdog (issue #499): sample per-process working sets and push a
+ * pressure level to the renderer before the OS does. "warn" is logged only;
+ * "critical" also asks the renderer to shed its pure caches (Kitty image
+ * canvases, glyph measurements — all safe to drop). The bounded queues and
+ * caches in bridge-core/PaneTerminal/scene/renderer are the primary defence;
+ * this is the last-resort signal for whatever they cannot see (e.g. a
+ * renderer stuck in a pathological GC loop). HERDR_T3_MEM_WATCHDOG=off
+ * disables; thresholds are KB, env-tunable for tests.
+ */
+const MEM_WATCHDOG_ENABLED = process.env["HERDR_T3_MEM_WATCHDOG"] !== "off";
+const MEM_WARN_RENDERER_KB = Number(process.env["HERDR_T3_MEM_WARN_KB"] ?? 2 * 1024 * 1024);
+const MEM_SHED_RENDERER_KB = Number(process.env["HERDR_T3_MEM_SHED_KB"] ?? 4 * 1024 * 1024);
+
+function memoryWatchdogTick(): void {
+  if (!win || win.isDestroyed()) return;
+  let rendererKb = 0;
+  let totalKb = 0;
+  for (const metric of app.getAppMetrics()) {
+    const kb = metric.memory?.workingSetSize ?? 0;
+    totalKb += kb;
+    if (metric.type === "Tab") rendererKb += kb;
+  }
+  if (rendererKb >= MEM_SHED_RENDERER_KB) {
+    diag("error", "memory.critical", `renderer working set over shed budget`, {
+      rendererKb,
+      totalKb,
+      warnKb: MEM_WARN_RENDERER_KB,
+      shedKb: MEM_SHED_RENDERER_KB,
+    });
+    win.webContents.send("herdr-t3:memory-pressure", "critical");
+  } else if (rendererKb >= MEM_WARN_RENDERER_KB) {
+    diag("warn", "memory.warn", `renderer working set over warn budget`, {
+      rendererKb,
+      totalKb,
+      warnKb: MEM_WARN_RENDERER_KB,
+    });
+  }
+}
+
 app.whenReady().then(() => {
   diagAttachApp();
   diag("info", "app.ready", "Electron app ready");
@@ -377,6 +417,10 @@ app.whenReady().then(() => {
   );
 
   createWindow();
+  if (MEM_WATCHDOG_ENABLED) {
+    setInterval(memoryWatchdogTick, 30_000).unref();
+    memoryWatchdogTick();
+  }
   app.on("activate", () => {
     ensureManager();
     if (BrowserWindow.getAllWindows().length === 0) {

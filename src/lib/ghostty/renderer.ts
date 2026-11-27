@@ -17,6 +17,17 @@ import {
   type PaintOp,
   type SceneBackgroundImage,
 } from "./scene.ts";
+import { LruCache } from "../lru.ts";
+import { onMemoryPressure } from "../memoryPressure.ts";
+
+/**
+ * Total decoded Kitty-image canvas bytes one pane keeps (issue #499). The
+ * engine caps stored image bytes at 64 MiB per pane (session.ts
+ * IMAGE_STORAGE_BYTES); canvases are RGBA, so the same images cost ~4/3×.
+ * 96 MiB covers that plus headroom while staying far below the incident
+ * envelope — eviction is silent, the next draw_image re-decodes on demand.
+ */
+const IMAGE_CACHE_MAX_BYTES = 96 * 1024 * 1024;
 
 export interface GhosttyRendererOptions {
   fontFamily: string;
@@ -51,9 +62,17 @@ export class GhosttyRenderer {
   private readonly top: HTMLCanvasElement;
   private readonly bctx: CanvasRenderingContext2D;
   private readonly tctx: CanvasRenderingContext2D;
-  private readonly imageCache = new Map<number, { generation: number; canvas: HTMLCanvasElement }>();
+  /** decoded Kitty images by id — byte-budgeted LRU (issue #499) */
+  private readonly imageCache = new LruCache<
+    number,
+    { generation: number; canvas: HTMLCanvasElement }
+  >(Number.POSITIVE_INFINITY, IMAGE_CACHE_MAX_BYTES, (entry) => entry.canvas.width * entry.canvas.height * 4);
   private bgImage: GhosttyBackgroundImageSpec | null = null;
   private disposed = false;
+  /** watchdog shed hook (issue #499): drop decoded images under pressure */
+  private readonly offPressure = onMemoryPressure((level) => {
+    if (level === "critical") this.imageCache.clear();
+  });
 
   constructor(host: HTMLElement, session: GhosttySession, options: GhosttyRendererOptions) {
     this.session = session;
@@ -230,10 +249,17 @@ export class GhosttyRenderer {
         }
       }
     } else {
-      const pixels = this.session.imagePixels(op.image.id);
-      if (pixels) {
-        let entry = this.imageCache.get(op.image.id);
-        if (!entry || entry.generation !== op.image.generation) {
+      // Check the cache before touching the engine: imagePixels copies the
+      // whole image out of WASM, which per frame per placed row was the
+      // allocation storm behind issue #499.
+      let entry = this.imageCache.get(op.image.id);
+      if (entry !== undefined && entry.generation !== op.image.generation) {
+        this.imageCache.delete(op.image.id);
+        entry = undefined;
+      }
+      if (entry === undefined) {
+        const pixels = this.session.imagePixels(op.image.id);
+        if (pixels) {
           const canvas = document.createElement("canvas");
           canvas.width = pixels.width;
           canvas.height = pixels.height;
@@ -241,7 +267,9 @@ export class GhosttyRenderer {
           entry = { generation: op.image.generation, canvas };
           this.imageCache.set(op.image.id, entry);
         }
-        const src = op.src ?? { x: 0, y: 0, w: pixels.width, h: pixels.height };
+      }
+      if (entry) {
+        const src = op.src ?? { x: 0, y: 0, w: entry.canvas.width, h: entry.canvas.height };
         ctx.drawImage(entry.canvas, src.x, src.y, src.w, src.h, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
       }
     }
@@ -287,6 +315,7 @@ export class GhosttyRenderer {
 
   dispose(): void {
     this.disposed = true;
+    this.offPressure();
     this.scene.dispose();
     this.bottom.remove();
     this.top.remove();

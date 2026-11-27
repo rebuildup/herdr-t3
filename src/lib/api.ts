@@ -9,6 +9,7 @@ import type {
   SessionResponse,
   SessionSnapshot,
 } from "../../shared/protocol.ts";
+import { notifyMemoryPressure } from "./memoryPressure.ts";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -49,6 +50,8 @@ interface DesktopBridge {
   snapshot(): Promise<unknown>;
   loginItem?(): Promise<unknown>;
   setLoginItem?(openAtLogin: boolean): Promise<unknown>;
+  /** Main-process memory watchdog push channel (issue #499). */
+  onMemoryPressure?(listener: (level: string) => void): (() => void) | void;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -194,6 +197,7 @@ function connect(): void {
     // herdr reachability is reported separately through health/machines.
     notifyStatus("open");
     ipcOff = ipc.onFrame(handleFrame) ?? null;
+    ipc.onMemoryPressure?.((level) => notifyMemoryPressure(level));
     void ipc
       .health()
       .then((h) => {
