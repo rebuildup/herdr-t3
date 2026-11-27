@@ -11,7 +11,7 @@
  */
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { totalmem } from "node:os";
+import { freemem, totalmem } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
@@ -154,6 +154,14 @@ const MEMORY_HISTORY_MS = 2 * 60 * 60_000;
 const MEMORY_SLOPE_WINDOW_MS = 15 * 60_000;
 /** MB/min sustained growth that escalates one level. */
 const MEMORY_SLOPE_MB_PER_MIN = 96;
+/**
+ * OS-level memory pressure: when free RAM drops under this fraction of
+ * physical memory the OS is already compressing/swapping — shed caches
+ * early even if our own RSS has not crossed warn yet. OS pressure alone
+ * never triggers breach: a small herdr-t3 on a busy machine must not
+ * reload itself for pressure it did not cause.
+ */
+const OS_FREE_PRESSURE_PCT = 0.08;
 type MemoryLevel = "ok" | "warn" | "critical" | "breach";
 let lastMemory: {
   totalMb: number;
@@ -161,6 +169,7 @@ let lastMemory: {
   level: MemoryLevel;
   baselineMb: number;
   slopeMbPerMin: number;
+  osFreePct: number;
 } | null = null;
 let memoryHistory: { t: number; mb: number }[] = [];
 let lastMemoryLevel: MemoryLevel = "ok";
@@ -185,13 +194,19 @@ function memorySlopeMbPerMin(now: number): number {
 
 function evaluateMemoryLevel(totalMb: number, now: number): MemoryLevel {
   const baseline = memoryBaselineMb();
-  const warnMb = Math.max(MEMORY_WARN_MB, Math.round(baseline * 1.5));
+  // Clamp warn below critical: a high baseline must not push warn past
+  // the fixed critical threshold and make the levels non-monotonic.
+  const warnMb = Math.min(
+    Math.max(MEMORY_WARN_MB, Math.round(baseline * 1.5)),
+    MEMORY_CRIT_MB - 256,
+  );
   const slope = memorySlopeMbPerMin(now);
+  const osPressured = freemem() / totalmem() < OS_FREE_PRESSURE_PCT;
   let level: MemoryLevel = "ok";
   if (totalMb >= MEMORY_HARD_CAP_MB) level = "breach";
   else if (totalMb >= MEMORY_CRIT_MB || (slope >= MEMORY_SLOPE_MB_PER_MIN * 2 && totalMb >= warnMb * 1.2)) {
     level = "critical";
-  } else if (totalMb >= warnMb || (slope >= MEMORY_SLOPE_MB_PER_MIN && totalMb >= baseline * 1.3)) {
+  } else if (totalMb >= warnMb || (slope >= MEMORY_SLOPE_MB_PER_MIN && totalMb >= baseline * 1.3) || osPressured) {
     level = "warn";
   }
   return level;
@@ -223,6 +238,7 @@ function sampleProcessMemory(): void {
     level,
     baselineMb: memoryBaselineMb(),
     slopeMbPerMin: Math.round(memorySlopeMbPerMin(now) * 10) / 10,
+    osFreePct: Math.round((freemem() / totalmem()) * 1000) / 10,
   };
   reportStatus(lastStatus.ok, lastStatus.detail);
   if (level !== lastMemoryLevel) {
