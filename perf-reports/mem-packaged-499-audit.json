@@ -1,0 +1,1981 @@
+{
+  "issue": 499,
+  "kind": "packaged-app-real-device",
+  "at": "2026-11-27",
+  "app": "release/mac-arm64/herdr-t3.app (electron-builder, commit 4f48068-era build)",
+  "herdr": "isolated session ht3memdev, herdr 0.9.5",
+  "host": {
+    "platform": "darwin",
+    "note": "user machine under real concurrent load; osFreePct 0.6-2.1% throughout"
+  },
+  "workload": "overlapped bounded storm(294KB ANSI x2 panes ~120s)+kitty lifecycle(48 imgs place/move/delete ~60s)+workspace focus churn(10 cycles)+storm2(60s); phases self-terminated inside panes",
+  "summary": {
+    "samples": 81,
+    "durationMin": 15,
+    "idleBaselineMb": 297.5,
+    "peakMb": 470.9,
+    "peakAt": "20:36:57",
+    "settledEndMb": 252.2,
+    "last30AvgMb": 251.9,
+    "byTypeAtPeak": {
+      "browser": 235,
+      "renderer": 140,
+      "gpu-process": 58,
+      "utility": 38
+    },
+    "byTypeSettled": {
+      "browser": 104,
+      "renderer": 73,
+      "gpu-process": 46,
+      "utility": 30
+    },
+    "watchdogLevel": "warn throughout (OS free <8% triggered early-shed path; never breach/critical)",
+    "convergence": "post-workload slope negative then ~0; no residual accumulation over 15 min"
+  },
+  "samples": [
+    {
+      "t": "20:34:21",
+      "appMb": 297.5,
+      "byType": {
+        "browser": 117,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 55
+      },
+      "osAvailMb": 5977,
+      "bridge": {
+        "totalMb": 299,
+        "byType": {
+          "Browser": 119,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 299,
+        "slopeMbPerMin": 0,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:34:31",
+      "appMb": 295.7,
+      "byType": {
+        "browser": 115,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 55
+      },
+      "osAvailMb": 5856,
+      "bridge": {
+        "totalMb": 299,
+        "byType": {
+          "Browser": 119,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 299,
+        "slopeMbPerMin": 0,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:34:43",
+      "appMb": 304.8,
+      "byType": {
+        "browser": 121,
+        "renderer": 90,
+        "utility": 39,
+        "gpu-process": 55
+      },
+      "osAvailMb": 5437,
+      "bridge": {
+        "totalMb": 303,
+        "byType": {
+          "Browser": 123,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 299,
+        "slopeMbPerMin": 8,
+        "osFreePct": 1
+      }
+    },
+    {
+      "t": "20:34:54",
+      "appMb": 299.3,
+      "byType": {
+        "browser": 118,
+        "renderer": 88,
+        "utility": 38,
+        "gpu-process": 55
+      },
+      "osAvailMb": 5257,
+      "bridge": {
+        "totalMb": 303,
+        "byType": {
+          "Browser": 123,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 299,
+        "slopeMbPerMin": 8,
+        "osFreePct": 1
+      }
+    },
+    {
+      "t": "20:35:06",
+      "appMb": 298.3,
+      "byType": {
+        "browser": 117,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4772,
+      "bridge": {
+        "totalMb": 295,
+        "byType": {
+          "Browser": 115,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": -4,
+        "osFreePct": 1.3
+      }
+    },
+    {
+      "t": "20:35:17",
+      "appMb": 294.2,
+      "byType": {
+        "browser": 113,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4717,
+      "bridge": {
+        "totalMb": 295,
+        "byType": {
+          "Browser": 115,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": -4,
+        "osFreePct": 1.3
+      }
+    },
+    {
+      "t": "20:35:28",
+      "appMb": 298.7,
+      "byType": {
+        "browser": 116,
+        "renderer": 88,
+        "utility": 38,
+        "gpu-process": 57
+      },
+      "osAvailMb": 5119,
+      "bridge": {
+        "totalMb": 295,
+        "byType": {
+          "Browser": 115,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": -4,
+        "osFreePct": 1.3
+      }
+    },
+    {
+      "t": "20:35:39",
+      "appMb": 303.8,
+      "byType": {
+        "browser": 120,
+        "renderer": 88,
+        "utility": 39,
+        "gpu-process": 57
+      },
+      "osAvailMb": 5250,
+      "bridge": {
+        "totalMb": 300,
+        "byType": {
+          "Browser": 117,
+          "GPU": 57,
+          "Utility": 38,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 0.7,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:35:50",
+      "appMb": 301.5,
+      "byType": {
+        "browser": 119,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 58
+      },
+      "osAvailMb": 5241,
+      "bridge": {
+        "totalMb": 300,
+        "byType": {
+          "Browser": 117,
+          "GPU": 57,
+          "Utility": 38,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 0.7,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:36:01",
+      "appMb": 293.7,
+      "byType": {
+        "browser": 113,
+        "renderer": 88,
+        "utility": 38,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4942,
+      "bridge": {
+        "totalMb": 300,
+        "byType": {
+          "Browser": 117,
+          "GPU": 57,
+          "Utility": 38,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 0.7,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:36:11",
+      "appMb": 296.5,
+      "byType": {
+        "browser": 116,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4907,
+      "bridge": {
+        "totalMb": 298,
+        "byType": {
+          "Browser": 117,
+          "GPU": 55,
+          "Utility": 38,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": -0.5,
+        "osFreePct": 1.4
+      }
+    },
+    {
+      "t": "20:36:22",
+      "appMb": 292.7,
+      "byType": {
+        "browser": 113,
+        "renderer": 88,
+        "utility": 37,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4737,
+      "bridge": {
+        "totalMb": 298,
+        "byType": {
+          "Browser": 117,
+          "GPU": 55,
+          "Utility": 38,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": -0.5,
+        "osFreePct": 1.4
+      }
+    },
+    {
+      "t": "20:36:34",
+      "appMb": 312.2,
+      "byType": {
+        "browser": 128,
+        "renderer": 88,
+        "utility": 39,
+        "gpu-process": 58
+      },
+      "osAvailMb": 4676,
+      "bridge": {
+        "totalMb": 306,
+        "byType": {
+          "Browser": 122,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 2.8,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:36:45",
+      "appMb": 423.7,
+      "byType": {
+        "browser": 195,
+        "renderer": 134,
+        "utility": 38,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4840,
+      "bridge": {
+        "totalMb": 306,
+        "byType": {
+          "Browser": 122,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 2.8,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:36:57",
+      "appMb": 470.9,
+      "byType": {
+        "browser": 235,
+        "renderer": 140,
+        "utility": 38,
+        "gpu-process": 58
+      },
+      "osAvailMb": 4815,
+      "bridge": {
+        "totalMb": 306,
+        "byType": {
+          "Browser": 122,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 88
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 2.8,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:37:08",
+      "appMb": 438.5,
+      "byType": {
+        "browser": 207,
+        "renderer": 131,
+        "utility": 39,
+        "gpu-process": 62
+      },
+      "osAvailMb": 4919,
+      "bridge": {
+        "totalMb": 357,
+        "byType": {
+          "Browser": 128,
+          "GPU": 64,
+          "Utility": 38,
+          "Tab": 126
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 19.3,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:37:20",
+      "appMb": 398.6,
+      "byType": {
+        "browser": 143,
+        "renderer": 159,
+        "utility": 38,
+        "gpu-process": 58
+      },
+      "osAvailMb": 4963,
+      "bridge": {
+        "totalMb": 357,
+        "byType": {
+          "Browser": 128,
+          "GPU": 64,
+          "Utility": 38,
+          "Tab": 126
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 19.3,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:37:32",
+      "appMb": 455.0,
+      "byType": {
+        "browser": 223,
+        "renderer": 136,
+        "utility": 38,
+        "gpu-process": 58
+      },
+      "osAvailMb": 4836,
+      "bridge": {
+        "totalMb": 348,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 126
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 14,
+        "osFreePct": 2.1
+      }
+    },
+    {
+      "t": "20:37:44",
+      "appMb": 382.7,
+      "byType": {
+        "browser": 168,
+        "renderer": 119,
+        "utility": 38,
+        "gpu-process": 57
+      },
+      "osAvailMb": 4851,
+      "bridge": {
+        "totalMb": 348,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 126
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 14,
+        "osFreePct": 2.1
+      }
+    },
+    {
+      "t": "20:37:56",
+      "appMb": 400.4,
+      "byType": {
+        "browser": 130,
+        "renderer": 176,
+        "utility": 38,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4742,
+      "bridge": {
+        "totalMb": 348,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 37,
+          "Tab": 126
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 14,
+        "osFreePct": 2.1
+      }
+    },
+    {
+      "t": "20:38:07",
+      "appMb": 353.0,
+      "byType": {
+        "browser": 134,
+        "renderer": 127,
+        "utility": 37,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4924,
+      "bridge": {
+        "totalMb": 344,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 38,
+          "Tab": 121
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 11.2,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:38:19",
+      "appMb": 349.4,
+      "byType": {
+        "browser": 137,
+        "renderer": 119,
+        "utility": 38,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4754,
+      "bridge": {
+        "totalMb": 344,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 38,
+          "Tab": 121
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 11.2,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:38:31",
+      "appMb": 402.2,
+      "byType": {
+        "browser": 179,
+        "renderer": 123,
+        "utility": 38,
+        "gpu-process": 61
+      },
+      "osAvailMb": 4584,
+      "bridge": {
+        "totalMb": 344,
+        "byType": {
+          "Browser": 130,
+          "GPU": 55,
+          "Utility": 38,
+          "Tab": 121
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 11.2,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:38:43",
+      "appMb": 352.4,
+      "byType": {
+        "browser": 144,
+        "renderer": 115,
+        "utility": 37,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4619,
+      "bridge": {
+        "totalMb": 353,
+        "byType": {
+          "Browser": 131,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 125
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 12,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:38:55",
+      "appMb": 447.5,
+      "byType": {
+        "browser": 215,
+        "renderer": 136,
+        "utility": 39,
+        "gpu-process": 58
+      },
+      "osAvailMb": 4996,
+      "bridge": {
+        "totalMb": 353,
+        "byType": {
+          "Browser": 131,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 125
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 12,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:39:06",
+      "appMb": 426.6,
+      "byType": {
+        "browser": 203,
+        "renderer": 128,
+        "utility": 39,
+        "gpu-process": 57
+      },
+      "osAvailMb": 4695,
+      "bridge": {
+        "totalMb": 337,
+        "byType": {
+          "Browser": 130,
+          "GPU": 56,
+          "Utility": 37,
+          "Tab": 114
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 7.6,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:39:18",
+      "appMb": 367.2,
+      "byType": {
+        "browser": 150,
+        "renderer": 123,
+        "utility": 38,
+        "gpu-process": 56
+      },
+      "osAvailMb": 4222,
+      "bridge": {
+        "totalMb": 337,
+        "byType": {
+          "Browser": 130,
+          "GPU": 56,
+          "Utility": 37,
+          "Tab": 114
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 7.6,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:39:29",
+      "appMb": 335.4,
+      "byType": {
+        "browser": 131,
+        "renderer": 111,
+        "utility": 38,
+        "gpu-process": 55
+      },
+      "osAvailMb": 4796,
+      "bridge": {
+        "totalMb": 337,
+        "byType": {
+          "Browser": 130,
+          "GPU": 56,
+          "Utility": 37,
+          "Tab": 114
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 7.6,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:39:41",
+      "appMb": 343.3,
+      "byType": {
+        "browser": 134,
+        "renderer": 114,
+        "utility": 38,
+        "gpu-process": 57
+      },
+      "osAvailMb": 4616,
+      "bridge": {
+        "totalMb": 408,
+        "byType": {
+          "Browser": 127,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 185
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 19.8,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:39:52",
+      "appMb": 449.9,
+      "byType": {
+        "browser": 190,
+        "renderer": 163,
+        "utility": 39,
+        "gpu-process": 58
+      },
+      "osAvailMb": 5130,
+      "bridge": {
+        "totalMb": 408,
+        "byType": {
+          "Browser": 127,
+          "GPU": 58,
+          "Utility": 39,
+          "Tab": 185
+        },
+        "level": "warn",
+        "baselineMb": 295,
+        "slopeMbPerMin": 19.8,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:40:03",
+      "appMb": 362.8,
+      "byType": {
+        "browser": 198,
+        "renderer": 92,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 4335,
+      "bridge": {
+        "totalMb": 264,
+        "byType": {
+          "Browser": 99,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 92
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": -5.8,
+        "osFreePct": 1.6
+      }
+    },
+    {
+      "t": "20:40:14",
+      "appMb": 295.9,
+      "byType": {
+        "browser": 113,
+        "renderer": 109,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5010,
+      "bridge": {
+        "totalMb": 264,
+        "byType": {
+          "Browser": 99,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 92
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": -5.8,
+        "osFreePct": 1.6
+      }
+    },
+    {
+      "t": "20:40:25",
+      "appMb": 374.6,
+      "byType": {
+        "browser": 184,
+        "renderer": 118,
+        "utility": 28,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5705,
+      "bridge": {
+        "totalMb": 264,
+        "byType": {
+          "Browser": 99,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 92
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": -5.8,
+        "osFreePct": 1.6
+      }
+    },
+    {
+      "t": "20:40:36",
+      "appMb": 385.6,
+      "byType": {
+        "browser": 193,
+        "renderer": 116,
+        "utility": 30,
+        "gpu-process": 47
+      },
+      "osAvailMb": 5893,
+      "bridge": {
+        "totalMb": 308,
+        "byType": {
+          "Browser": 107,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 124
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": 1.4,
+        "osFreePct": 2
+      }
+    },
+    {
+      "t": "20:40:47",
+      "appMb": 358.4,
+      "byType": {
+        "browser": 178,
+        "renderer": 105,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5672,
+      "bridge": {
+        "totalMb": 308,
+        "byType": {
+          "Browser": 107,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 124
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": 1.4,
+        "osFreePct": 2
+      }
+    },
+    {
+      "t": "20:40:58",
+      "appMb": 274.3,
+      "byType": {
+        "browser": 104,
+        "renderer": 96,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5889,
+      "bridge": {
+        "totalMb": 308,
+        "byType": {
+          "Browser": 107,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 124
+        },
+        "level": "warn",
+        "baselineMb": 264,
+        "slopeMbPerMin": 1.4,
+        "osFreePct": 2
+      }
+    },
+    {
+      "t": "20:41:10",
+      "appMb": 229.7,
+      "byType": {
+        "browser": 89,
+        "renderer": 67,
+        "utility": 28,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5441,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 231,
+        "slopeMbPerMin": -9.7,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:41:22",
+      "appMb": 226.8,
+      "byType": {
+        "browser": 87,
+        "renderer": 67,
+        "utility": 28,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5359,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 231,
+        "slopeMbPerMin": -9.7,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:41:33",
+      "appMb": 229.7,
+      "byType": {
+        "browser": 89,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5364,
+      "bridge": {
+        "totalMb": 229,
+        "byType": {
+          "Browser": 89,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -9.3,
+        "osFreePct": 0.6
+      }
+    },
+    {
+      "t": "20:41:45",
+      "appMb": 236.0,
+      "byType": {
+        "browser": 91,
+        "renderer": 70,
+        "utility": 30,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5235,
+      "bridge": {
+        "totalMb": 229,
+        "byType": {
+          "Browser": 89,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -9.3,
+        "osFreePct": 0.6
+      }
+    },
+    {
+      "t": "20:41:56",
+      "appMb": 225.7,
+      "byType": {
+        "browser": 87,
+        "renderer": 67,
+        "utility": 28,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5371,
+      "bridge": {
+        "totalMb": 229,
+        "byType": {
+          "Browser": 89,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -9.3,
+        "osFreePct": 0.6
+      }
+    },
+    {
+      "t": "20:42:06",
+      "appMb": 233.6,
+      "byType": {
+        "browser": 93,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5556,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -8.4,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:42:17",
+      "appMb": 226.9,
+      "byType": {
+        "browser": 87,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5336,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -8.4,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:42:29",
+      "appMb": 230.1,
+      "byType": {
+        "browser": 89,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5219,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 229,
+        "slopeMbPerMin": -8.4,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:42:40",
+      "appMb": 235.2,
+      "byType": {
+        "browser": 92,
+        "renderer": 67,
+        "utility": 30,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5233,
+      "bridge": {
+        "totalMb": 228,
+        "byType": {
+          "Browser": 88,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -8.4,
+        "osFreePct": 1.3
+      }
+    },
+    {
+      "t": "20:42:51",
+      "appMb": 225.7,
+      "byType": {
+        "browser": 85,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 4826,
+      "bridge": {
+        "totalMb": 228,
+        "byType": {
+          "Browser": 88,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -8.4,
+        "osFreePct": 1.3
+      }
+    },
+    {
+      "t": "20:43:02",
+      "appMb": 223.2,
+      "byType": {
+        "browser": 84,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 43
+      },
+      "osAvailMb": 5196,
+      "bridge": {
+        "totalMb": 228,
+        "byType": {
+          "Browser": 88,
+          "GPU": 43,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.9,
+        "osFreePct": 1.4
+      }
+    },
+    {
+      "t": "20:43:14",
+      "appMb": 228.9,
+      "byType": {
+        "browser": 89,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 43
+      },
+      "osAvailMb": 5166,
+      "bridge": {
+        "totalMb": 228,
+        "byType": {
+          "Browser": 88,
+          "GPU": 43,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.9,
+        "osFreePct": 1.4
+      }
+    },
+    {
+      "t": "20:43:25",
+      "appMb": 236.1,
+      "byType": {
+        "browser": 94,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5144,
+      "bridge": {
+        "totalMb": 228,
+        "byType": {
+          "Browser": 88,
+          "GPU": 43,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.9,
+        "osFreePct": 1.4
+      }
+    },
+    {
+      "t": "20:43:35",
+      "appMb": 259.9,
+      "byType": {
+        "browser": 100,
+        "renderer": 85,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5854,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.1,
+        "osFreePct": 0.5
+      }
+    },
+    {
+      "t": "20:43:46",
+      "appMb": 260.0,
+      "byType": {
+        "browser": 99,
+        "renderer": 85,
+        "utility": 30,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5851,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.1,
+        "osFreePct": 0.5
+      }
+    },
+    {
+      "t": "20:43:57",
+      "appMb": 231.2,
+      "byType": {
+        "browser": 91,
+        "renderer": 67,
+        "utility": 28,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5347,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 29,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -7.1,
+        "osFreePct": 0.5
+      }
+    },
+    {
+      "t": "20:44:08",
+      "appMb": 228.1,
+      "byType": {
+        "browser": 89,
+        "renderer": 67,
+        "utility": 29,
+        "gpu-process": 43
+      },
+      "osAvailMb": 5442,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.6,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:44:19",
+      "appMb": 273.1,
+      "byType": {
+        "browser": 123,
+        "renderer": 77,
+        "utility": 30,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5596,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.6,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:44:30",
+      "appMb": 229.6,
+      "byType": {
+        "browser": 88,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5908,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 47,
+          "Utility": 30,
+          "Tab": 67
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.6,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:44:40",
+      "appMb": 317.8,
+      "byType": {
+        "browser": 141,
+        "renderer": 102,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 6001,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.3,
+        "osFreePct": 2.7
+      }
+    },
+    {
+      "t": "20:44:51",
+      "appMb": 311.0,
+      "byType": {
+        "browser": 138,
+        "renderer": 98,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 6016,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.3,
+        "osFreePct": 2.7
+      }
+    },
+    {
+      "t": "20:45:02",
+      "appMb": 277.4,
+      "byType": {
+        "browser": 111,
+        "renderer": 92,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5875,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -6.3,
+        "osFreePct": 2.7
+      }
+    },
+    {
+      "t": "20:45:13",
+      "appMb": 236.0,
+      "byType": {
+        "browser": 92,
+        "renderer": 68,
+        "utility": 30,
+        "gpu-process": 47
+      },
+      "osAvailMb": 5738,
+      "bridge": {
+        "totalMb": 266,
+        "byType": {
+          "Browser": 100,
+          "GPU": 44,
+          "Utility": 30,
+          "Tab": 92
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -3,
+        "osFreePct": 0.6
+      }
+    },
+    {
+      "t": "20:45:24",
+      "appMb": 300.0,
+      "byType": {
+        "browser": 124,
+        "renderer": 101,
+        "utility": 30,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5676,
+      "bridge": {
+        "totalMb": 266,
+        "byType": {
+          "Browser": 100,
+          "GPU": 44,
+          "Utility": 30,
+          "Tab": 92
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -3,
+        "osFreePct": 0.6
+      }
+    },
+    {
+      "t": "20:45:35",
+      "appMb": 268.2,
+      "byType": {
+        "browser": 101,
+        "renderer": 91,
+        "utility": 30,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5899,
+      "bridge": {
+        "totalMb": 246,
+        "byType": {
+          "Browser": 95,
+          "GPU": 45,
+          "Utility": 30,
+          "Tab": 75
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -4.6,
+        "osFreePct": 2.5
+      }
+    },
+    {
+      "t": "20:45:46",
+      "appMb": 252.3,
+      "byType": {
+        "browser": 93,
+        "renderer": 86,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5973,
+      "bridge": {
+        "totalMb": 246,
+        "byType": {
+          "Browser": 95,
+          "GPU": 45,
+          "Utility": 30,
+          "Tab": 75
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -4.6,
+        "osFreePct": 2.5
+      }
+    },
+    {
+      "t": "20:45:57",
+      "appMb": 236.8,
+      "byType": {
+        "browser": 94,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5832,
+      "bridge": {
+        "totalMb": 246,
+        "byType": {
+          "Browser": 95,
+          "GPU": 45,
+          "Utility": 30,
+          "Tab": 75
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -4.6,
+        "osFreePct": 2.5
+      }
+    },
+    {
+      "t": "20:46:08",
+      "appMb": 230.5,
+      "byType": {
+        "browser": 89,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5698,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -5.6,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:46:19",
+      "appMb": 234.2,
+      "byType": {
+        "browser": 92,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5989,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -5.6,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:46:30",
+      "appMb": 418.4,
+      "byType": {
+        "browser": 241,
+        "renderer": 102,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5704,
+      "bridge": {
+        "totalMb": 232,
+        "byType": {
+          "Browser": 90,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -5.6,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:46:42",
+      "appMb": 255.5,
+      "byType": {
+        "browser": 98,
+        "renderer": 84,
+        "utility": 30,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5783,
+      "bridge": {
+        "totalMb": 263,
+        "byType": {
+          "Browser": 99,
+          "GPU": 46,
+          "Utility": 29,
+          "Tab": 89
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -2.9,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:46:53",
+      "appMb": 229.3,
+      "byType": {
+        "browser": 88,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5900,
+      "bridge": {
+        "totalMb": 263,
+        "byType": {
+          "Browser": 99,
+          "GPU": 46,
+          "Utility": 29,
+          "Tab": 89
+        },
+        "level": "warn",
+        "baselineMb": 228,
+        "slopeMbPerMin": -2.9,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:47:04",
+      "appMb": 234.5,
+      "byType": {
+        "browser": 92,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5789,
+      "bridge": {
+        "totalMb": 227,
+        "byType": {
+          "Browser": 87,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -5.5,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:47:15",
+      "appMb": 230.8,
+      "byType": {
+        "browser": 89,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5722,
+      "bridge": {
+        "totalMb": 227,
+        "byType": {
+          "Browser": 87,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -5.5,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:47:27",
+      "appMb": 231.1,
+      "byType": {
+        "browser": 88,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5711,
+      "bridge": {
+        "totalMb": 227,
+        "byType": {
+          "Browser": 87,
+          "GPU": 44,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -5.5,
+        "osFreePct": 0.7
+      }
+    },
+    {
+      "t": "20:47:38",
+      "appMb": 225.8,
+      "byType": {
+        "browser": 86,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 43
+      },
+      "osAvailMb": 5752,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -4.9,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:47:49",
+      "appMb": 234.1,
+      "byType": {
+        "browser": 91,
+        "renderer": 68,
+        "utility": 30,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5766,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -4.9,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:48:00",
+      "appMb": 233.5,
+      "byType": {
+        "browser": 91,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5708,
+      "bridge": {
+        "totalMb": 233,
+        "byType": {
+          "Browser": 90,
+          "GPU": 46,
+          "Utility": 30,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 227,
+        "slopeMbPerMin": -4.9,
+        "osFreePct": 0.8
+      }
+    },
+    {
+      "t": "20:48:11",
+      "appMb": 227.4,
+      "byType": {
+        "browser": 86,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5734,
+      "bridge": {
+        "totalMb": 226,
+        "byType": {
+          "Browser": 85,
+          "GPU": 45,
+          "Utility": 28,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -5.2,
+        "osFreePct": 2.3
+      }
+    },
+    {
+      "t": "20:48:22",
+      "appMb": 224.0,
+      "byType": {
+        "browser": 85,
+        "renderer": 68,
+        "utility": 28,
+        "gpu-process": 43
+      },
+      "osAvailMb": 5687,
+      "bridge": {
+        "totalMb": 226,
+        "byType": {
+          "Browser": 85,
+          "GPU": 45,
+          "Utility": 28,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -5.2,
+        "osFreePct": 2.3
+      }
+    },
+    {
+      "t": "20:48:33",
+      "appMb": 234.7,
+      "byType": {
+        "browser": 92,
+        "renderer": 70,
+        "utility": 29,
+        "gpu-process": 44
+      },
+      "osAvailMb": 5683,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -4.7,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:48:45",
+      "appMb": 231.1,
+      "byType": {
+        "browser": 88,
+        "renderer": 71,
+        "utility": 28,
+        "gpu-process": 45
+      },
+      "osAvailMb": 5505,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -4.7,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:48:56",
+      "appMb": 230.5,
+      "byType": {
+        "browser": 88,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 46
+      },
+      "osAvailMb": 5761,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -4.7,
+        "osFreePct": 0.9
+      }
+    },
+    {
+      "t": "20:49:07",
+      "appMb": 237.3,
+      "byType": {
+        "browser": 94,
+        "renderer": 68,
+        "utility": 29,
+        "gpu-process": 45
+      },
+      "osAvailMb": 6247,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -5,
+        "osFreePct": 4.5
+      }
+    },
+    {
+      "t": "20:49:18",
+      "appMb": 252.2,
+      "byType": {
+        "browser": 104,
+        "renderer": 73,
+        "utility": 30,
+        "gpu-process": 46
+      },
+      "osAvailMb": 6479,
+      "bridge": {
+        "totalMb": 231,
+        "byType": {
+          "Browser": 89,
+          "GPU": 45,
+          "Utility": 29,
+          "Tab": 68
+        },
+        "level": "warn",
+        "baselineMb": 226,
+        "slopeMbPerMin": -5,
+        "osFreePct": 4.5
+      }
+    }
+  ]
+}
