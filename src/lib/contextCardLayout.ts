@@ -41,18 +41,27 @@ export function resolveContextCardDensity(
  */
 export function resolveContextCardPlacement({
   container,
+  rightInset = 0,
 }: {
   container: { width: number; height: number };
+  /** Extra clearance kept free on the card's right edge, in px — e.g.
+   * the narrow-layout right-panel sheet that overlays the canvas's
+   * right side (issue #480). */
+  rightInset?: number;
 }): { right: number; top: number; width: number; height: number } | null {
   const { width, height } = container;
   if (width - CONTEXT_CARD_WIDTH - CONTEXT_CARD_GAP * 2 < CONTEXT_CARD_MIN_REMAINING) {
     return null;
   }
+  const right = CONTEXT_CARD_GAP + rightInset;
+  // The shifted card must still fit inside the container — otherwise the
+  // popover fallback is the lesser evil.
+  if (width - right - CONTEXT_CARD_WIDTH < CONTEXT_CARD_GAP) return null;
   const top = CONTEXT_CARD_GAP;
   const available = height - top - CONTEXT_CARD_GAP;
   if (available < CONTEXT_CARD_MIN_HEIGHT) return null;
   return {
-    right: CONTEXT_CARD_GAP,
+    right,
     top,
     width: CONTEXT_CARD_WIDTH,
     height: available,

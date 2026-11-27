@@ -747,7 +747,9 @@ function RegisterArtifactDialog({
                 onValueChange={(value) => setKind(value === "__auto__" ? "" : value)}
               >
                 <SelectTrigger aria-label="Artifact kind" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => (value === "__auto__" ? "auto (infer)" : value)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__auto__">auto (infer from extension/MIME)</SelectItem>
@@ -766,7 +768,11 @@ function RegisterArtifactDialog({
                 }
               >
                 <SelectTrigger aria-label="Storage mode" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) =>
+                      value === "__default__" ? "default (state_copy)" : value
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__default__">default (state_copy)</SelectItem>
@@ -798,7 +804,9 @@ function RegisterArtifactDialog({
                 }
               >
                 <SelectTrigger aria-label="Created by" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => (value === "__any__" ? "plugin default" : value)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__any__">plugin default</SelectItem>
@@ -1120,51 +1128,70 @@ function FilterBar({
   onChange: (next: ArtifactFilters) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Select
-        value={filters.kind === "" ? "__all__" : filters.kind}
-        onValueChange={(value) =>
-          onChange({ ...filters, kind: value === "__all__" ? "" : value })
-        }
-      >
-        <SelectTrigger aria-label="Kind filter" className="w-28">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">all kinds</SelectItem>
-          {kinds.map((kind) => (
-            <SelectItem key={kind} value={kind}>
-              {kind}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Input
-        size="sm"
-        value={filters.paneId}
-        onChange={(e) => onChange({ ...filters, paneId: e.target.value })}
-        placeholder="pane filter (e.g. w1:p1)"
-        aria-label="Pane filter"
-        className="w-32"
-      />
-      <Select
-        value={filters.createdBy === "" ? "__all__" : filters.createdBy}
-        onValueChange={(value) =>
-          onChange({ ...filters, createdBy: value === "__all__" ? "" : value })
-        }
-      >
-        <SelectTrigger aria-label="Created-by filter" className="w-32">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">any creator</SelectItem>
-          {CREATED_BY_VALUES.map((value) => (
-            <SelectItem key={value} value={value}>
-              {value}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+      {/* Visible field labels: the selects' "__all__" sentinel values
+          read as unlabeled duplicate dropdowns without them, and the
+          pane input's placeholder clipped at narrow widths (issue
+          #480). SelectValue gets an explicit mapper so the trigger
+          never falls back to the raw sentinel when items are
+          unmounted. */}
+      <span className="flex items-center gap-1 text-2xs text-muted-foreground/70">
+        kind
+        <Select
+          value={filters.kind === "" ? "__all__" : filters.kind}
+          onValueChange={(value) =>
+            onChange({ ...filters, kind: value === "__all__" ? "" : value })
+          }
+        >
+          <SelectTrigger aria-label="Kind filter" className="w-28">
+            <SelectValue>
+              {(value) => (value === "__all__" ? "all kinds" : value)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">all kinds</SelectItem>
+            {kinds.map((kind) => (
+              <SelectItem key={kind} value={kind}>
+                {kind}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </span>
+      <span className="flex items-center gap-1 text-2xs text-muted-foreground/70">
+        pane
+        <Input
+          size="sm"
+          value={filters.paneId}
+          onChange={(e) => onChange({ ...filters, paneId: e.target.value })}
+          placeholder="e.g. w1:p1"
+          aria-label="Pane filter"
+          className="w-28"
+        />
+      </span>
+      <span className="flex items-center gap-1 text-2xs text-muted-foreground/70">
+        creator
+        <Select
+          value={filters.createdBy === "" ? "__all__" : filters.createdBy}
+          onValueChange={(value) =>
+            onChange({ ...filters, createdBy: value === "__all__" ? "" : value })
+          }
+        >
+          <SelectTrigger aria-label="Created-by filter" className="w-32">
+            <SelectValue>
+              {(value) => (value === "__all__" ? "any creator" : value)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">any creator</SelectItem>
+            {CREATED_BY_VALUES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </span>
     </div>
   );
 }
@@ -1192,6 +1219,8 @@ function RegistrySection({
   cap,
   refreshNonce,
   onMutated,
+  canRegister,
+  onRegister,
 }: {
   machine: string;
   filters: ArtifactFilters;
@@ -1199,6 +1228,10 @@ function RegistrySection({
   /** Bumped after a mutation so the registry refetches. */
   refreshNonce: number;
   onMutated: () => void;
+  /** Empty registry is the normal first-run state — offer Register as
+   * the primary action there (issue #480). */
+  canRegister: boolean;
+  onRegister: () => void;
 }) {
   const options = useDebouncedOptions(filters);
   const active = filtersActive(filters);
@@ -1240,11 +1273,19 @@ function RegistrySection({
       {report !== null ? (
         <>
           {report.artifacts.length === 0 ? (
-            <p className="text-2xs text-muted-foreground">
-              {active
-                ? "no artifacts match these filters"
-                : "no artifacts registered — producer plugins may not exist yet; an empty registry is honest, not an error"}
-            </p>
+            <div className="flex flex-col items-start gap-1.5">
+              <p className="text-2xs text-muted-foreground">
+                {active
+                  ? "no artifacts match these filters"
+                  : "no artifacts registered — producer plugins may not exist yet; an empty registry is honest, not an error"}
+              </p>
+              {!active && canRegister ? (
+                <Button size="sm" onClick={onRegister}>
+                  <PackagePlusIcon />
+                  Register artifact…
+                </Button>
+              ) : null}
+            </div>
           ) : (
             <div className="flex flex-col gap-1">
               {report.artifacts.map((record) => (
@@ -1345,25 +1386,35 @@ function SearchSection({
           aria-label="Search artifacts"
           className="min-w-40 flex-1"
         />
-        <Input
-          size="sm"
-          type="datetime-local"
-          value={filters.since}
-          onChange={(e) => onFiltersChange({ ...filters, since: e.target.value })}
-          aria-label="Since"
-          title="Since (inclusive, created_at)"
-        />
-        <Input
-          size="sm"
-          type="datetime-local"
-          value={filters.until}
-          onChange={(e) => onFiltersChange({ ...filters, until: e.target.value })}
-          aria-label="Until"
-          title="Until (inclusive, created_at)"
-        />
+        {/* Visible from/to labels: two identical datetime fields read
+            as a duplicate pair without them (same fix as the Usage
+            surface, issue #417; flagged again in #480). */}
+        <span className="flex items-center gap-1 text-2xs text-muted-foreground/70">
+          from
+          <Input
+            size="sm"
+            type="datetime-local"
+            value={filters.since}
+            onChange={(e) => onFiltersChange({ ...filters, since: e.target.value })}
+            aria-label="Since"
+            title="Since (inclusive, created_at)"
+          />
+        </span>
+        <span className="flex items-center gap-1 text-2xs text-muted-foreground/70">
+          to
+          <Input
+            size="sm"
+            type="datetime-local"
+            value={filters.until}
+            onChange={(e) => onFiltersChange({ ...filters, until: e.target.value })}
+            aria-label="Until"
+            title="Until (inclusive, created_at)"
+          />
+        </span>
         <Button
           size="sm"
           type="submit"
+          variant={loading || query.trim() === "" ? "secondary" : "default"}
           disabled={loading || query.trim() === ""}
         >
           <SearchIcon />
@@ -1583,8 +1634,11 @@ export function ArtifactsSurface({ machine }: { machine: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DialogPanel scrollAreaClassName="min-h-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
+        {/* flex-wrap + ml-auto: in a narrow docked panel/sheet the
+            action row drops below the intro instead of clipping the
+            Refresh button past the right edge (issue #480). */}
+        <div className="flex flex-wrap items-start gap-2">
+          <p className="min-w-0 flex-1 basis-56 text-2xs text-muted-foreground">
             Artifact registry from the rebuildup.artifacts plugin —
             references to generated files (html/image/pdf/file/other)
             with kind validation and integrity checks. Reads:
@@ -1593,7 +1647,7 @@ export function ArtifactsSurface({ machine }: { machine: string }) {
             Payloads are never rendered inline — resolved_path is shown
             for external open.
           </p>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {canRegister ? (
               <Button
                 size="xs"
@@ -1656,6 +1710,8 @@ export function ArtifactsSurface({ machine }: { machine: string }) {
               cap={cap}
               refreshNonce={mutationNonce}
               onMutated={onMutated}
+              canRegister={canRegister}
+              onRegister={() => setRegisterOpen(true)}
             />
             <SearchSection
               machine={machine}

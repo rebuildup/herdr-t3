@@ -600,8 +600,11 @@ function RegisterSection({
       <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
         Register repo
       </div>
-      <div className="grid gap-1.5 sm:grid-cols-3">
-        <label className="flex min-w-0 flex-col gap-1 text-2xs text-muted-foreground sm:col-span-1">
+      {/* Repo path spans two of four columns: it carries a filesystem
+          path and needs more room than the optional Title/Id fields
+          (issue #480). */}
+      <div className="grid gap-1.5 sm:grid-cols-4">
+        <label className="flex min-w-0 flex-col gap-1 text-2xs text-muted-foreground sm:col-span-2">
           Repo path
           <Input
             value={path}

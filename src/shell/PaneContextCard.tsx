@@ -48,6 +48,7 @@ import {
 
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { paneTitle, workspaceTitle } from "~/lib/workspace";
 import { Popover, PopoverPopup } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
@@ -95,7 +96,7 @@ import {
   toggleContextCard,
   useContextCardState,
 } from "./contextCardStore";
-import { openSurface, type RightPanelSurface } from "./rightPanelStore";
+import { openSurface, useRightPanelState, type RightPanelSurface } from "./rightPanelStore";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LABEL_CLASS,
@@ -117,6 +118,20 @@ import { pushNotice } from "./notices";
 
 const AGENT_PREVIEW_COUNT = 6;
 const SCRIPT_PREVIEW_COUNT = 6;
+
+/* Same narrow-layout breakpoint as RightPanel (NARROW_QUERY). */
+const NARROW_QUERY = "(max-width: 980px)";
+
+/**
+ * Rendered width of RightPanel's narrow-layout SheetPopup — mirrors its
+ * Tailwind classes (`w-[min(42vw,28rem)] min-w-80 max-w-[28rem]`
+ * `max-[760px]:w-[min(88vw,24rem)] max-[760px]:min-w-0`, issue #480).
+ */
+function narrowSheetWidth(): number {
+  const vw = window.innerWidth;
+  if (vw <= 760) return Math.min(vw * 0.88, 384);
+  return Math.min(Math.max(Math.min(vw * 0.42, 448), 320), 448);
+}
 
 /* ------------------------------ rows --------------------------------- */
 
@@ -1252,6 +1267,8 @@ export function WorkspaceContextCard({
 }) {
   const scope = `${machine}\n${workspace?.workspace_id ?? ""}`;
   const { open } = useContextCardState(scope);
+  const narrow = useMediaQuery(NARROW_QUERY);
+  const panel = useRightPanelState(scope);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -1269,7 +1286,16 @@ export function WorkspaceContextCard({
     return observeResize(el, measure);
   }, [containerRef]);
 
-  const placement = resolveContextCardPlacement({ container: containerSize });
+  // Narrow layout renders the panel as an overlay Sheet on the canvas's
+  // right edge; keep the inline card clear of it instead of letting the
+  // two float over each other with an ambiguous boundary (issue #480).
+  const sheetOpen =
+    narrow && panel.isOpen && panel.surfaces.length > 0;
+  const rightInset = sheetOpen ? narrowSheetWidth() + CONTEXT_CARD_GAP : 0;
+  const placement = resolveContextCardPlacement({
+    container: containerSize,
+    rightInset,
+  });
   const mode = placement ? "inline" : "popover";
   // T3 measures density against the inline height when placed, else
   // the container height minus gaps (the popover positioner adds its
