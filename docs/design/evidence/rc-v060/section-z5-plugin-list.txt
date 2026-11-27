@@ -1,0 +1,16 @@
+14 plugins installed (pins resolved via ~/.config/herdr/plugins/github-installations checkouts):
+
+- rebuildup.artifacts enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.automations enabled [github:rebuildup/herdr-plugins@6c1cfa501323...]
+- rebuildup.checkpoints enabled [github:rebuildup/herdr-plugins@ae4f214c523d...]
+- rebuildup.controls enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.conversations enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.git enabled [github:rebuildup/herdr-plugins@d0578307a856...]
+- rebuildup.handoff enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.inbox enabled [github:rebuildup/herdr-plugins@414e87dea9fa...]
+- rebuildup.machines enabled [github:rebuildup/herdr-plugins@08f96a4d151f...]
+- rebuildup.mcp enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.projects enabled [github:rebuildup/herdr-plugins@2dcb2abfa57b...]
+- rebuildup.secrets enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.textgen enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
+- rebuildup.usage enabled [github:rebuildup/herdr-plugins@d23205af0cd2...]
