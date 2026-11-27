@@ -50,6 +50,11 @@ scripts/check-ui-scenarios.ts   validator (CI)
 
 - `fixture` names an initial-state fixture (isolated herdr test
   profile; never the user's live session — AGENTS.md §3).
+- `adapters` (optional) lists the adapters the scenario claims; absent
+  means every adapter. Use it only when a contract genuinely cannot be
+  expressed on an adapter yet (e.g. a pixel-frame geometry check the
+  semantic GPUI test host cannot measure) — the readiness gate then
+  requires PASS evidence only from the claimed adapters.
 - `action`/`assert` come from the closed vocabularies in
   `scripts/check-ui-scenarios.ts`; `target` must exist in
   `targets.json`.

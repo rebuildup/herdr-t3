@@ -98,10 +98,29 @@ section (reproduces the regression). Positive: viewport-derived height
 with per-region scroll ownership — height identical across sections,
 content scrolls internally.
 
-**Status.** `open` — RCA recorded; fix direction is restoring
-viewport-derived height (revert `sm:h-auto`) while handling the z5
-whitespace observation inside the content column, not by re-deriving
-height from content. Detection check not yet implemented.
+**Fix delivered.** `sm:h-auto` removed from the popup class list —
+the frame is viewport-derived again (`size-full` + `sm:max-h-[60rem]`),
+matching the #83 contract. The z5 "empty area" observation is absorbed
+by the content column's own spacing, not by re-deriving frame height.
+
+**Detection (landed).** Scenario `shell.settings-modal-frame-contract`
+(`harness/ui/scenarios/shell/`, contract `settings-modal-frame@1`)
+asserts `dialog.settings_frame_contract` — an electron-adapter observe
+that computes the expected frame height in-page (viewport content box
+capped at the resolved `max-height`) and compares it to the rendered
+popup rect across three sections of differing content height. The
+scenario declares `"adapters": ["electron"]`: the GPUI test host models
+settings semantically (open/section flags) and has no layout engine for
+a pixel-frame contract yet; the optional `adapters` field was added to
+the scenario schema, validator, and readiness gate so unclaimed
+adapters are not required to produce evidence. Verified both ways on
+the real Electron app: PASS with the fix, FAIL at step 3 with
+`sm:h-auto` restored.
+
+**Status.** `fix+gate landed` — fix + contract scenario + committed
+PASS evidence (`harness/ui/evidence/electron/`). GPUI-side coverage
+lands when the settings modal is ported; until then the scenario's
+`adapters` claim keeps the gate honest rather than rubber-stamped.
 
 **Unguaranteed.** Whether the whitespace itself is aesthetically
 acceptable is a review property (#413), not proven by the geometry check.

@@ -42,6 +42,7 @@ const ASSERTS = new Set([
   "terminal.cursor_visible",
   "dialog.open",
   "dialog.section",
+  "dialog.settings_frame_contract",
   "element.visible",
   "element.enabled",
 ]);
@@ -114,6 +115,11 @@ for (const file of scenarioFiles(join(UI_DIR, "scenarios"))) {
   }
   if (!sc.fixture || !FIXTURES.has(sc.fixture)) fail(`${rel}: unknown fixture "${sc.fixture}"`);
   if (!Array.isArray(sc.os) || sc.os.length === 0) fail(`${rel}: os coverage required`);
+  if (sc.adapters !== undefined) {
+    if (!Array.isArray(sc.adapters) || sc.adapters.length === 0 || sc.adapters.some((a) => typeof a !== "string" || a.length === 0)) {
+      fail(`${rel}: adapters must be a non-empty string array when present`);
+    }
+  }
   if (!Array.isArray(sc.steps) || sc.steps.length === 0) fail(`${rel}: steps required`);
 
   for (const [i, step] of (sc.steps ?? []).entries()) {
