@@ -121,8 +121,8 @@ herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設
 
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
-| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ)。状態名テキストは印字せず、icon + 棚名 + hover card + aria が担う (issue #381) | 「どこで・どの状態か」— T3 card variant の context 行に相当し、secondary weight |
-| 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label + provider/harness アイコン | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない |
+| 1 | identity/status glyph (ブランド provider アイコン主体 + `agent_status` を担う外周リング、issue #419 — working は静止ブランドの外周弧のみ回転、reduced-motion では静止リングに縮退) + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ)。状態名テキストは印字せず、リング + 棚名 + hover card + aria が担う (issue #381)。リング文法の正本は `src/components/agentIdentityIcon.tsx` と ui-shell.md contract | 「どこで・どの状態か」— T3 card variant の context 行に相当し、secondary weight |
+| 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない。ブランドアイコンは行1の identity glyph に統合済み (issue #419) で、行末への重複表示はしない |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
 

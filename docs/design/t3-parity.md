@@ -22,7 +22,7 @@ source of truth. Each feature is classified by where its data comes from:
 
 | T3 feature | Class | Notes |
 |---|---|---|
-| Provider/harness icon on agent rows | [herdr] | `agent` name → icon map; T3 shows provider artwork |
+| Provider/harness icon on agent rows | [herdr] | `agent` name → icon map; T3 shows provider artwork. herdr-t3 leads the row with the brand mark + perimeter status ring (issue #419) |
 | Thread status indicators (working/blocked/done) | [herdr] | `agent_status` + `state_change_seq` already mapped |
 | Settle / Snooze / settled shelf | [plugin] | `rebuildup.inbox` v1 owns organize state (#219, ADR-0011); #173 localStorage migrated |
 | Thread hover card with title + agent row | [herdr] | needs terminal title in row data |

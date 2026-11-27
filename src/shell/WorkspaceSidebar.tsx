@@ -56,7 +56,7 @@ import {
 } from "~/components/ui/context-menu";
 import { statusIcon } from "~/components/statusIcons";
 import { isAgentKindName } from "~/components/agentKind";
-import { AgentProviderIcon } from "~/components/agentIcons";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import {
   Dialog,
   DialogContent,
@@ -415,8 +415,9 @@ function formatSnoozeUntil(iso: string): string | null {
  * One agent row in the Agents shelves. Two lines per T3
  * `SidebarThreadRow`'s hierarchy (issue #200,
  * info-architecture.md §6.1): line 1 is context at secondary weight
- * (status icon, workspace/tab/machine) — the resolved state name is
- * icon/section/hover-card/aria only, never printed text (issue #381) —
+ * (identity/status glyph, workspace/tab/machine) — the resolved state
+ * name is icon/section/hover-card/aria only, never printed text (issue
+ * #381) —
  * line 2 leads with the work target — the live pane's terminal title —
  * with agent identity, pane disambiguator and auxiliary labels as meta.
  * Clicking jumps to the agent's workspace and focuses its pane
@@ -501,9 +502,12 @@ function AgentRow({
       )}
     >
       <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {statusIcon(agent.agent_status)}
-        </span>
+        {/* Issue #419: the row's left edge is the shared identity/status
+            glyph — brand provider mark led, agent_status carried by the
+            perimeter ring (working = rotating arc). The resolved state
+            name stays icon-adjacent only via hover card / shelf / aria,
+            never printed text (issue #381). */}
+        <AgentIdentityIcon agent={agent.agent} status={agent.agent_status} />
         <span className="min-w-0 flex-1 truncate">
           {entry.workspaceTitle}
           {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
@@ -517,10 +521,10 @@ function AgentRow({
             information the row does not already have). */}
         <span className="sr-only">{stateLabel}</span>
       </span>
-      {/* ps-6 aligns line 2 with line 1's text: size-4 icon (16px) +
-          gap-2 (8px) = 24px. ps-6.5 left a 2px rail mismatch (issue
-          #204 review). */}
-      <span className="flex w-full min-w-0 items-center gap-2 ps-6">
+      {/* ps-7 aligns line 2 with line 1's text: size-5 identity glyph
+          (20px) + gap-2 (8px) = 28px (issue #419; supersedes the #204
+          ps-6 note, which tracked the old size-4 status icon). */}
+      <span className="flex w-full min-w-0 items-center gap-2 ps-7">
         {/* Title and meta are separate flex items (issue #204 review):
             concatenating them inside one truncating node sliced mid-
             separator ("update onboarding docs ...") and dropped the
@@ -542,7 +546,6 @@ function AgentRow({
             {auxLabels.join(" · ")}
           </span>
         ) : null}
-        <AgentProviderIcon agent={agent.agent} className="size-3" />
       </span>
     </button>
   );
