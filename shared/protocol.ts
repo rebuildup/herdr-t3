@@ -462,10 +462,63 @@ export interface PluginListEntry {
   enabled: boolean;
   plugin_root: string;
   description?: string;
+  /**
+   * Lowest herdr version the plugin supports (`plugin_list`'s
+   * `min_herdr_version`, e.g. "0.9.0"). Absent on hosts/plugins that do
+   * not report it — never fabricated.
+   */
+  min_herdr_version?: string;
+  /** OS ids the plugin supports (`plugin_list`'s `platforms`). */
+  platforms?: string[];
 }
 
 export interface PluginListResult {
   plugins: PluginListEntry[];
+}
+
+/**
+ * Compare two dotted-numeric versions ("0.9.5" vs "0.9.0"). Parses the
+ * leading `v?\d+(\.\d+)*` prefix and pads missing components with 0, so
+ * "0.9" equals "0.9.0". Returns null when either side has no numeric
+ * version prefix — callers must treat null as "unknown", never as equal.
+ */
+export function compareVersions(a: string, b: string): number | null {
+  const parse = (v: string): number[] | null => {
+    const match = /^\s*v?(\d+(?:\.\d+)*)/.exec(v);
+    const digits = match?.[1];
+    if (digits === undefined) return null;
+    return digits.split(".").map((part) => Number.parseInt(part, 10));
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return null;
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i++) {
+    const l = left[i] ?? 0;
+    const r = right[i] ?? 0;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * ADR-0011 §10 version-skew check for one `plugin_list` entry against the
+ * machine's reported herdr version. Returns a display-ready detail string
+ * only when the host herdr is *definitively* older than the plugin's
+ * `min_herdr_version`; null when compatible or when either version is
+ * unknown — missing data never blocks a surface.
+ */
+export function pluginHerdrSkew(
+  entry: Pick<PluginListEntry, "min_herdr_version">,
+  hostVersion: string | undefined,
+): string | null {
+  const min = entry.min_herdr_version;
+  if (typeof min !== "string" || min.length === 0 || hostVersion === undefined) {
+    return null;
+  }
+  const cmp = compareVersions(hostVersion, min);
+  if (cmp === null || cmp >= 0) return null;
+  return `requires herdr >= ${min} (host reports ${hostVersion})`;
 }
 
 /**

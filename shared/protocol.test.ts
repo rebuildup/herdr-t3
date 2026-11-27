@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isClientFrame, isRpcMethod, type ServerFrame } from "./protocol";
+import { compareVersions, isClientFrame, isRpcMethod, pluginHerdrSkew, type ServerFrame } from "./protocol";
 
 describe("RPC_METHODS allow-list (issue #113)", () => {
   test("exposes the parity methods the client actually calls", () => {
@@ -92,5 +92,31 @@ describe("rpc_result error fields (issue #257)", () => {
       error: { code: "usage", message: "bad args" },
     };
     expect(legacy.type).toBe("rpc_result");
+  });
+});
+
+describe("plugin_list version fields + skew classification (issue #539)", () => {
+  test("compareVersions orders dotted numeric versions and rejects garbage", () => {
+    expect(compareVersions("0.9.5", "0.9.0")).toBe(1);
+    expect(compareVersions("0.9.0", "0.9.5")).toBe(-1);
+    expect(compareVersions("0.9.5", "0.9.5")).toBe(0);
+    // Missing components pad with 0; a leading v is tolerated.
+    expect(compareVersions("0.9", "0.9.0")).toBe(0);
+    expect(compareVersions("v0.10.0", "0.9.9")).toBe(1);
+    // Unparseable input is unknown, never equal.
+    expect(compareVersions("nightly", "0.9.0")).toBeNull();
+    expect(compareVersions("0.9.0", "")).toBeNull();
+  });
+
+  test("pluginHerdrSkew flags only a definitively newer min_herdr_version", () => {
+    const entry = { min_herdr_version: "0.9.0" };
+    expect(pluginHerdrSkew(entry, "0.8.9")).toContain("requires herdr >= 0.9.0");
+    expect(pluginHerdrSkew(entry, "0.9.0")).toBeNull();
+    expect(pluginHerdrSkew(entry, "0.9.5")).toBeNull();
+    // Missing requirement or unknown host version never blocks.
+    expect(pluginHerdrSkew({}, "0.1.0")).toBeNull();
+    expect(pluginHerdrSkew({ min_herdr_version: "" }, "0.1.0")).toBeNull();
+    expect(pluginHerdrSkew(entry, undefined)).toBeNull();
+    expect(pluginHerdrSkew(entry, "unknown")).toBeNull();
   });
 });
