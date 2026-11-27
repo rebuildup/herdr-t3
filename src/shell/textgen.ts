@@ -42,6 +42,7 @@ import { useSyncExternalStore } from "react";
 import { pluginCall, pluginList } from "../lib/api";
 import { onMachineStatus, onMachines, onSnapshot } from "../lib/api";
 import type { PluginCallResult } from "../../shared/protocol";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail } from "./pluginErrors";
 
 export const TEXTGEN_PLUGIN_ID = "rebuildup.textgen";
 export const TEXTGEN_CONTRACT_PREFIX = "herdr-plugins.textgen/";
@@ -526,26 +527,9 @@ export function classifyTextgenError(error: unknown): {
   reason: TextgenUnavailableReason;
   detail: string;
 } {
-  const code = (error as { code?: string })?.code ?? "";
-  const message = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { reason: "not_installed", detail: message };
-    case "plugin_disabled":
-      return { reason: "disabled", detail: message };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { reason: "incompatible", detail: message };
-    case "plugin_host_unreachable":
-    case "connect_failed":
-    case "unreachable":
-    case "machine_unavailable":
-    case "plugin_timeout":
-      return { reason: "unreachable", detail: message };
-    default:
-      return { reason: "error", detail: message };
-  }
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(pluginErrorCode(error));
+  return boundary === null ? { reason: "error", detail } : { reason: boundary, detail };
 }
 
 /**
