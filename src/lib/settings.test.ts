@@ -78,6 +78,25 @@ describe("terminal settings", () => {
     settings.setTerminalSettings({ copyOnSelect: false });
     expect(settings.getTerminalSettings().copyOnSelect).toBe(false);
   });
+
+  test("copy range patterns default empty, accept bounded strings and round-trip (issue #429)", () => {
+    expect(settings.parseTerminalSettings({}).copyStartPattern).toBe("");
+    expect(settings.parseTerminalSettings({}).copyEndPattern).toBe("");
+    // wrong-typed values fall back to empty — never a stored non-string
+    expect(settings.parseTerminalSettings({ copyStartPattern: 42 }).copyStartPattern).toBe("");
+    expect(settings.parseTerminalSettings({ copyEndPattern: null }).copyEndPattern).toBe("");
+    // over-long patterns are truncated at the 200-char bound
+    const long = "x".repeat(500);
+    expect(settings.parseTerminalSettings({ copyStartPattern: long }).copyStartPattern).toHaveLength(200);
+
+    settings.setTerminalSettings({ copyStartPattern: "^## Report", copyEndPattern: "^Done\\.$" });
+    const current = settings.getTerminalSettings();
+    expect(current.copyStartPattern).toBe("^## Report");
+    expect(current.copyEndPattern).toBe("^Done\\.$");
+    const raw = storage.getItem("herdr-t3:settings:terminal");
+    expect(settings.parseTerminalSettings(JSON.parse(raw!))).toEqual(current);
+    settings.setTerminalSettings({ copyStartPattern: "", copyEndPattern: "" });
+  });
 });
 
 describe("notifications settings", () => {

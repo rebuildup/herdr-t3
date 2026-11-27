@@ -46,8 +46,11 @@ describe("fresh-start load against seeded storage", () => {
       lineHeight: null,
       scrollbackLines: 2000,
       // fields an older build did not know parse to their defaults
-      // (issue #440 added copyOnSelect, default OFF)
+      // (issue #440 added copyOnSelect, default OFF; #429 added the
+      // copy range patterns, default empty)
       copyOnSelect: false,
+      copyStartPattern: "",
+      copyEndPattern: "",
     });
   });
 });

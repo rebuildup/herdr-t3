@@ -45,6 +45,11 @@ the bare discovery document without the `ok` envelope):
   duplicates_skipped, events_present, events_size}}`. `next_cursor` is
   a stringified byte offset — opaque to the client, passed back
   verbatim; a rewritten event log fails `cursor_invalid`.
+  The pane context menu's copy-report dialog (issue #429,
+  `docs/design/report-copy.md`) also consumes `history --pane` —
+  bounded paging (≤8×200 events) on explicit invocation only — and
+  applies the same identity/stale/truncated honesty rules; it adds no
+  new contract surface.
 - `search <query> [--pane PANE] [--session-id REF] [--provider ID]
   [--type TYPE] [--limit N] [--cursor CUR] [--offline]` →
   `{query, filters, selector_note, results:[{session_key, event_id,

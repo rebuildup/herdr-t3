@@ -10,6 +10,7 @@ import { isEditableTarget, isMacPlatform } from "~/lib/shortcuts";
 import { PaneTerminal } from "~/components/PaneTerminal";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
+import { PaneCopyDialog } from "~/components/PaneCopyDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,6 +27,7 @@ import { useWorkspaceBranch } from "./worktrees";
 import { WorkspaceContextCard } from "./PaneContextCard";
 import {
   Columns2,
+  Copy,
   Info,
   Maximize2,
   MousePointerClick,
@@ -44,6 +46,7 @@ function PaneSurface({
   hasSiblings,
   onFocus,
   onDetails,
+  onCopy,
   dnd,
 }: {
   machine: string;
@@ -57,6 +60,7 @@ function PaneSurface({
   hasSiblings: boolean;
   onFocus: () => void;
   onDetails: () => void;
+  onCopy: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
   dnd?:
     | {
@@ -168,6 +172,11 @@ function PaneSurface({
         <ContextMenuItem onSelect={onDetails}>
           <Info /> Details…
         </ContextMenuItem>
+        {/* Structured copy (issue #429): labeled range candidates —
+            transcript/scrollback — instead of drag-selecting the TUI. */}
+        <ContextMenuItem onSelect={onCopy}>
+          <Copy /> Copy output…
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           destructive
@@ -195,6 +204,7 @@ export function WorkspaceCanvas() {
   const [paneDropId, setPaneDropId] = useState<string | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  const [copyPane, setCopyPane] = useState<PaneInfo | null>(null);
   // Context card (issue #390): the inline card positions inside this
   // container; the popover fallback anchors to the header trigger.
   const canvasAreaRef = useRef<HTMLDivElement>(null);
@@ -338,6 +348,7 @@ export function WorkspaceCanvas() {
             hasSiblings={visiblePanes.length > 1}
             onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
             onDetails={() => setDetailsPane(pane)}
+            onCopy={() => setCopyPane(pane)}
             dnd={paneDnd(pane)}
           />
         ))}
@@ -368,6 +379,11 @@ export function WorkspaceCanvas() {
         pane={messagePane}
         machine={machine}
         onClose={() => setMessagePane(null)}
+      />
+      <PaneCopyDialog
+        pane={copyPane}
+        machine={machine}
+        onClose={() => setCopyPane(null)}
       />
     </div>
   );

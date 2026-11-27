@@ -28,6 +28,7 @@ import {
 } from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
 import { createSelectionCopy } from "../lib/selectionCopy";
+import { registerPaneSurface, unregisterPaneSurface } from "../lib/paneSurfaces";
 import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
 import { sanitizePasteText } from "../lib/ghostty/pasteText.ts";
@@ -175,6 +176,15 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        // Copy-report dialog (issue #429): expose a read-only handle to the
+        // live engine's kept history so candidates come from the same text
+        // the user sees. Unregistered on dispose — never a dead engine.
+        registerPaneSurface(machine, paneId, {
+          cols: () => sizeRef.current.cols,
+          rows: () => sizeRef.current.rows,
+          history: () => created.history(),
+          textOf: (range) => created.textOf(range),
+        });
         // Conformance observation (#238): rows scrolled above the bottom.
         unregisterProbe = registerTerminalScrollProbe(`${machine}\n${paneId}`, () => {
           const h = created.history();
@@ -544,6 +554,7 @@ export function PaneTerminal({
       pendingPtyResize.current = null;
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
+      unregisterPaneSurface(machine, paneId);
       unregisterProbe?.();
       surface?.dispose();
       session?.dispose();
