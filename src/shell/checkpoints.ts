@@ -60,6 +60,7 @@
  * collapsed into a generic failure.
  */
 import { pluginCall } from "../lib/api";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail, pluginErrorFields } from "./pluginErrors";
 
 export const CHECKPOINTS_PLUGIN_ID = "rebuildup.checkpoints";
 export const CHECKPOINTS_CONTRACT_PREFIX = "herdr-plugins.checkpoints/";
@@ -141,42 +142,25 @@ const CHECKPOINTS_ERROR_KINDS = new Set([
  * success.
  */
 export function classifyCheckpointsError(error: unknown): CheckpointsError {
-  const code = (error as { code?: string })?.code ?? "";
-  const detail = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { kind: "unavailable", reason: "not_installed", detail };
-    case "plugin_disabled":
-      return { kind: "unavailable", reason: "disabled", detail };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { kind: "unavailable", reason: "incompatible", detail };
-    case "plugin_host_unreachable":
-    case "machine_unavailable":
-    case "connect_failed":
-    case "unreachable":
-      return { kind: "unavailable", reason: "unreachable", detail };
-    default: {
-      // Contract extras (panes, pre_restore_*) arrive as ApiError.fields;
-      // pass them through so the UI can render pane ids and the
-      // recovery checkpoint without re-parsing the message.
-      const fields = (error as { fields?: unknown })?.fields;
-      const extras =
-        typeof fields === "object" && fields !== null && !Array.isArray(fields)
-          ? (fields as Record<string, unknown>)
-          : undefined;
-      if (CHECKPOINTS_ERROR_KINDS.has(code)) {
-        return { kind: "plugin", code, detail, ...(extras ? { fields: extras } : {}) };
-      }
-      return {
-        kind: "plugin",
-        code: "plugin_error",
-        detail,
-        ...(extras ? { fields: extras } : {}),
-      };
-    }
+  const code = pluginErrorCode(error);
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(code);
+  if (boundary !== null) {
+    return { kind: "unavailable", reason: boundary, detail };
   }
+  // Contract extras (panes, pre_restore_*) arrive as ApiError.fields;
+  // pass them through so the UI can render pane ids and the
+  // recovery checkpoint without re-parsing the message.
+  const extras = pluginErrorFields(error);
+  if (CHECKPOINTS_ERROR_KINDS.has(code)) {
+    return { kind: "plugin", code, detail, ...(extras ? { fields: extras } : {}) };
+  }
+  return {
+    kind: "plugin",
+    code: "plugin_error",
+    detail,
+    ...(extras ? { fields: extras } : {}),
+  };
 }
 
 /* ------------------------------ capability ---------------------------- */

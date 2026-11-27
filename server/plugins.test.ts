@@ -951,3 +951,121 @@ describe("localPluginHost exec bounds (issue #537)", () => {
     // Generous budget: a real `bun -e` spawn plus an 8s inner timeout.
   }, 30_000);
 });
+
+describe("PluginService exec concurrency bound (issue #538)", () => {
+  const TWO_COMMANDS = {
+    contract: "herdr-plugins.inbox/v1",
+    version: "0.1.0",
+    commands: ["a", "b"],
+    mutation_commands: [],
+  };
+
+  /**
+   * Host whose contract-command execs (`bun run src/cli.ts <cmd>`, i.e.
+   * argv[3] !== "capability") block on `gate` and count invocations;
+   * discovery and capability probes answer immediately.
+   */
+  function gatedHost() {
+    const calls: string[][] = [];
+    const cliCalls: string[] = [];
+    const capabilityCalls: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const host: PluginHost = {
+      async exec(argv) {
+        calls.push([...argv]);
+        if (argv[0] === "herdr") return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") {
+          capabilityCalls.push(argv[3] as string);
+          return ok(TWO_COMMANDS);
+        }
+        cliCalls.push(argv[3] as string);
+        await gate;
+        return ok({ ok: true });
+      },
+    };
+    return { host, calls, cliCalls, capabilityCalls, release: () => release() };
+  }
+
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+
+  test("concurrent execs per machine are bounded; the queue drains in order", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    await tick();
+    // call1 is parked inside its contract exec holding the only slot.
+    expect(g.cliCalls).toEqual(["a"]);
+    const p2 = svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"] });
+    await tick();
+    // call2's exec is queued — no second plugin process spawned.
+    expect(g.cliCalls).toEqual(["a"]);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "b"]);
+  });
+
+  test("queued calls respect their timeout budget and fail as plugin_timeout", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    await tick();
+    expect(g.cliCalls).toEqual(["a"]);
+    // 50ms budget expires while queued behind the blocked exec: the call
+    // must fail as plugin_timeout without ever spawning.
+    await expect(
+      svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"], timeoutMs: 50 }),
+    ).rejects.toMatchObject({ code: "plugin_timeout" });
+    expect(g.cliCalls).toEqual(["a"]);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+  });
+
+  test("concurrent capability probes for the same plugin single-flight", async () => {
+    const g = gatedHost();
+    // Block only the capability probe so both calls pile up on it.
+    let releaseCap!: () => void;
+    const capGate = new Promise<void>((r) => (releaseCap = r));
+    const host: PluginHost = {
+      async exec(argv) {
+        g.calls.push([...argv]);
+        if (argv[0] === "herdr") return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") {
+          g.capabilityCalls.push("capability");
+          await capGate;
+          return ok(TWO_COMMANDS);
+        }
+        g.cliCalls.push(argv[3] as string);
+        return ok({ ok: true });
+      },
+    };
+    void g.release;
+    const svc = new PluginService(async () => host);
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    const p2 = svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"] });
+    await tick();
+    expect(g.capabilityCalls).toHaveLength(1);
+    releaseCap();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "b"]);
+  });
+
+  test("invalidate stops new callers joining pre-invalidate exec flights", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const req = { plugin: "rebuildup.inbox", command: "a", args: ["1"] };
+    const p1 = svc.call("m", req);
+    await tick();
+    expect(g.cliCalls).toEqual(["a"]);
+    svc.invalidate("m");
+    // Identical request after invalidate must NOT share the in-flight
+    // exec (and re-probes discovery/capability): two real execs total.
+    const p2 = svc.call("m", req);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "a"]);
+  });
+});

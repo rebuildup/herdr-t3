@@ -33,6 +33,7 @@
  * UI marks them "not wired" and offers no trigger affordance.
  */
 import { pluginCall } from "../lib/api";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail, pluginErrorFields } from "./pluginErrors";
 
 export const PROJECTS_PLUGIN_ID = "rebuildup.projects";
 export const PROJECTS_CONTRACT_PREFIX = "herdr-plugins.projects/";
@@ -98,36 +99,23 @@ const PROJECTS_ERROR_KINDS = new Set([
  * to `plugin_error` rather than collapsing into a fake success.
  */
 export function classifyProjectScriptsError(error: unknown): ProjectsError {
-  const code = (error as { code?: string })?.code ?? "";
-  const detail = error instanceof Error ? error.message : String(error);
+  const code = pluginErrorCode(error);
+  const detail = pluginErrorDetail(error);
   // Bounded contract extras forwarded by the bridge (issue #257); absent
   // on older plugin revisions and non-plugin failures.
-  const rawFields = (error as { fields?: unknown })?.fields;
-  const fields = isRecord(rawFields) ? rawFields : undefined;
-  switch (code) {
-    case "plugin_not_installed":
-      return { kind: "unavailable", reason: "not_installed", detail };
-    case "plugin_disabled":
-      return { kind: "unavailable", reason: "disabled", detail };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { kind: "unavailable", reason: "incompatible", detail };
-    case "plugin_host_unreachable":
-    case "machine_unavailable":
-    case "connect_failed":
-    case "unreachable":
-      return { kind: "unavailable", reason: "unreachable", detail };
-    default:
-      if (PROJECTS_ERROR_KINDS.has(code)) {
-        return fields === undefined
-          ? { kind: "plugin", code, detail }
-          : { kind: "plugin", code, detail, fields };
-      }
-      return fields === undefined
-        ? { kind: "plugin", code: "plugin_error", detail }
-        : { kind: "plugin", code: "plugin_error", detail, fields };
+  const fields = pluginErrorFields(error);
+  const boundary = pluginBoundaryReason(code);
+  if (boundary !== null) {
+    return { kind: "unavailable", reason: boundary, detail };
   }
+  if (PROJECTS_ERROR_KINDS.has(code)) {
+    return fields === undefined
+      ? { kind: "plugin", code, detail }
+      : { kind: "plugin", code, detail, fields };
+  }
+  return fields === undefined
+    ? { kind: "plugin", code: "plugin_error", detail }
+    : { kind: "plugin", code: "plugin_error", detail, fields };
 }
 
 /**
