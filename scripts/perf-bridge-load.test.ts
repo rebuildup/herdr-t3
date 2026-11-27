@@ -43,6 +43,25 @@ describe("diffMetrics", () => {
     expect(d.timers["herdr.rpc"]).toEqual({ count: 6, totalMs: 70, avgMs: 11.67, maxMs: 10 });
     expect(d.timers["plugin.exec{what=plugin_call}"]?.count).toBe(2);
   });
+
+  test("diffs quantity meters (terminal delivery bytes) and tolerates absent meters", () => {
+    const meter = (count: number, total: number) => ({ count, total, avg: total / count, max: total, last: total });
+    const before = snap({}, {});
+    before.meters = { "terminal.delivery.bytes{phase=initial}": meter(4, 4000) };
+    const after = snap({}, {});
+    after.meters = {
+      "terminal.delivery.bytes{phase=initial}": meter(8, 12000),
+      "terminal.delivery.bytes{phase=scroll}": meter(3, 9000),
+    };
+    const d = diffMetrics(before, after);
+    expect(d.meters?.["terminal.delivery.bytes{phase=initial}"]).toEqual({
+      count: 4, total: 8000, avg: 2000, max: 12000,
+    });
+    expect(d.meters?.["terminal.delivery.bytes{phase=scroll}"]?.total).toBe(9000);
+    // Pre-#572 snapshots carry no meters key at all.
+    const legacy = diffMetrics(snap(), snap());
+    expect(legacy.meters).toEqual({});
+  });
 });
 
 describe("evaluateLeg", () => {
@@ -129,5 +148,59 @@ describe("evaluateLeg", () => {
     );
     const ok = evaluateLeg("reconnect", healthy, { reconnect: 6 });
     expect(ok.ok).toBe(true);
+  });
+
+  test("#572 terminal-io: healthy delivery leg reports bytes and passes", () => {
+    const d = delta(
+      {
+        "bridge.terminal.attach": 4,
+        "bridge.terminal.detach": 4,
+        "bridge.terminal.op{op=scroll}": 40,
+        "bridge.terminal.op{op=resize}": 10,
+        "terminal.link.open": 4,
+        "terminal.link.close": 4,
+        "bridge.subscription.open": 2,
+      },
+      {},
+    );
+    d.meters = {
+      "terminal.delivery.bytes{phase=initial}": { count: 40, total: 512000, avg: 12800, max: 60000 },
+      "terminal.delivery.bytes{phase=scroll}": { count: 400, total: 4096000, avg: 10240, max: 60000 },
+    };
+    const v = evaluateLeg("terminal-io", d, {
+      subscribe_terminal: 4,
+      unsubscribe_terminal: 4,
+      terminal_scroll: 40,
+      terminal_resize: 10,
+      attach_batch: 4,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.failures).toHaveLength(0);
+    expect(v.notes.some((n) => n.includes("terminal delivery") && n.includes("initial="))).toBe(true);
+    expect(v.notes.some((n) => n.includes("post-scroll="))).toBe(true);
+  });
+
+  test("#572 terminal-io: op amplification and duplicate attaches fail", () => {
+    const d = delta(
+      {
+        "bridge.terminal.attach": 9,
+        "bridge.terminal.op{op=scroll}": 50,
+        "bridge.terminal.op{op=resize}": 12,
+        "bridge.subscription.open": 8,
+      },
+      {},
+    );
+    const v = evaluateLeg("terminal-io", d, {
+      subscribe_terminal: 4,
+      unsubscribe_terminal: 4,
+      terminal_scroll: 40,
+      terminal_resize: 10,
+      attach_batch: 4,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.failures.some((f) => f.includes("amplification"))).toBe(true);
+    expect(v.failures.some((f) => f.includes("duplicate attach"))).toBe(true);
+    // The same open count is also per-pane reopen amplification here.
+    expect(v.failures.some((f) => f.includes("per-pane reopen"))).toBe(true);
   });
 });

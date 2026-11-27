@@ -198,6 +198,29 @@ describe("probe snapshot distribution (issue #212)", () => {
   });
 });
 
+describe("machine scoping (issue #572)", () => {
+  test("rpc for an unknown machine is refused once, never forwarded to local", async () => {
+    const h = harness([...SAVED]);
+    h.manager.handleFrame({
+      type: "rpc",
+      id: "x1",
+      method: "session.snapshot",
+      params: {},
+      machine: "ghost",
+    });
+    const result = await h.waitResult("x1");
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("machine_unavailable");
+    // If the frame had leaked to the local session it would answer too
+    // (its endpoint is a dead socket → a second rpc_result with the same
+    // id). Exactly one result proves the frame never left its machine.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const results = h.frames.filter((f) => f.type === "rpc_result" && f.id === "x1");
+    expect(results).toHaveLength(1);
+    h.manager.close();
+  });
+});
+
 describe("isClientFrame machine frames", () => {
   test("accepts well-formed remove/update frames", () => {
     expect(isClientFrame({ type: "machine_remove", id: "a", machine: "m1" })).toBe(true);

@@ -1,0 +1,339 @@
+{
+  "format": "herdr-t3/bridge-load",
+  "version": 1,
+  "recorded_at": "2026-11-27T18:52:08.158Z",
+  "git_sha": "98cd4f510dd44e93e91f42d3f63c1634e0769fbc",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "condition": {
+    "loadavg_1m": 22.732421875,
+    "loadavg_5m": 26.95361328125,
+    "loadavg_15m": 28.93310546875
+  },
+  "leg_seconds": 8,
+  "plugin_refresh_ms": 800,
+  "server_metrics": true,
+  "plugins_discovered": [],
+  "legs": {
+    "idle": {
+      "delta": {
+        "seconds": 8,
+        "counters": {},
+        "timers": {},
+        "meters": {}
+      },
+      "issued": {},
+      "verdict": {
+        "leg": "idle",
+        "ok": true,
+        "failures": [],
+        "notes": []
+      },
+      "client_frames": {},
+      "plugin_exec_pids_observed": 0
+    },
+    "rpc-read": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "client.frame{type=rpc}": 28
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 28,
+            "totalMs": 8037.82,
+            "avgMs": 287.07,
+            "maxMs": 304.26
+          }
+        },
+        "meters": {}
+      },
+      "issued": {
+        "rpc": 28,
+        "rpc_read": 28
+      },
+      "verdict": {
+        "leg": "rpc-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 28 rpc frames",
+          "herdr.rpc avg=287.07ms max=304.26ms n=28"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 28
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "plugin-read": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "client.frame{type=plugin_call}": 16,
+          "plugin.discovery.hit": 16,
+          "plugin.capability.miss": 4,
+          "plugin.capability.hit": 12
+        },
+        "timers": {
+          "plugin.exec{ok=true,what=capability}": {
+            "count": 4,
+            "totalMs": 522.49,
+            "avgMs": 130.62,
+            "maxMs": 161.91
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 8,
+            "totalMs": 2165.42,
+            "avgMs": 270.68,
+            "maxMs": 425.73
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 4,
+            "totalMs": 1625.4,
+            "avgMs": 406.35,
+            "maxMs": 420.99
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 4,
+            "totalMs": 1416.13,
+            "avgMs": 354.03,
+            "maxMs": 965.3
+          }
+        },
+        "meters": {}
+      },
+      "issued": {
+        "plugin_call": 16
+      },
+      "verdict": {
+        "leg": "plugin-read",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "plugin.exec/plugin_call=1.00 (16 execs / 16 calls)"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 16
+      },
+      "plugin_exec_pids_observed": 4
+    },
+    "activity": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "bridge.subscription.open": 6,
+          "client.frame{type=rpc}": 3,
+          "client.frame{type=plugin_call}": 12,
+          "plugin.discovery.hit": 12,
+          "plugin.capability.hit": 12,
+          "bridge.snapshot.schedule{cause=event}": 15,
+          "bridge.snapshot.push": 6
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 9,
+            "totalMs": 2235.22,
+            "avgMs": 248.36,
+            "maxMs": 304.26
+          },
+          "plugin.exec{command=list,ok=true,what=plugin_call}": {
+            "count": 6,
+            "totalMs": 2880.21,
+            "avgMs": 480.04,
+            "maxMs": 745.79
+          },
+          "plugin.exec{command=sessions,ok=true,what=plugin_call}": {
+            "count": 3,
+            "totalMs": 2057.73,
+            "avgMs": 685.91,
+            "maxMs": 919.43
+          },
+          "plugin.exec{command=quota,ok=true,what=plugin_call}": {
+            "count": 3,
+            "totalMs": 1301.61,
+            "avgMs": 433.87,
+            "maxMs": 965.3
+          }
+        },
+        "meters": {}
+      },
+      "issued": {
+        "rpc": 3,
+        "rpc_read": 3,
+        "plugin_call": 12
+      },
+      "verdict": {
+        "leg": "activity",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "snapshot.schedule{cause=rpc}=0 for 3 rpc frames",
+          "plugin.exec/plugin_call=1.00 (12 execs / 12 calls)",
+          "herdr.rpc avg=248.36ms max=304.26ms n=9",
+          "snapshot pushes=6 unchanged=0 scheduled=0"
+        ]
+      },
+      "client_frames": {
+        "rpc_result": 15,
+        "event": 15,
+        "snapshot": 6
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "attach-churn": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "bridge.subscription.open": 10,
+          "client.frame{type=subscribe_terminal}": 20,
+          "bridge.terminal.attach": 20,
+          "terminal.link.open": 20,
+          "client.frame{type=unsubscribe_terminal}": 20,
+          "bridge.terminal.detach": 20,
+          "terminal.link.close": 20
+        },
+        "timers": {},
+        "meters": {
+          "terminal.delivery.bytes{phase=initial}": {
+            "count": 21,
+            "total": 43136,
+            "avg": 2054.1,
+            "max": 2152
+          }
+        }
+      },
+      "issued": {
+        "subscribe_terminal": 20,
+        "unsubscribe_terminal": 20,
+        "attach_batch": 4
+      },
+      "verdict": {
+        "leg": "attach-churn",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "subscription.open=10 across 20 subscribes in batches of 4 (~5 attach/detach phases)",
+          "terminal delivery 0.04MiB (0.01MiB/s): initial=0.04MiB post-scroll=0.00MiB"
+        ]
+      },
+      "client_frames": {
+        "terminal_mouse_capture": 20,
+        "terminal_data": 21
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "terminal-io": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "machine.refresh": 1,
+          "bridge.subscription.open": 1,
+          "client.frame{type=subscribe_terminal}": 4,
+          "bridge.terminal.attach": 4,
+          "terminal.link.open": 4,
+          "client.frame{type=unsubscribe_terminal}": 4,
+          "bridge.terminal.detach": 4,
+          "terminal.link.close": 4,
+          "bridge.snapshot.schedule.skip{reason=scroll_event}": 21,
+          "client.frame{type=terminal_scroll}": 28,
+          "bridge.terminal.op{op=scroll}": 28,
+          "client.frame{type=terminal_resize}": 7,
+          "bridge.terminal.op{op=resize}": 7
+        },
+        "timers": {},
+        "meters": {
+          "terminal.delivery.bytes{phase=initial}": {
+            "count": 43,
+            "total": 70116,
+            "avg": 1630.6,
+            "max": 2384
+          },
+          "terminal.delivery.bytes{phase=scroll}": {
+            "count": 111,
+            "total": 261186,
+            "avg": 2353.03,
+            "max": 2868
+          }
+        }
+      },
+      "issued": {
+        "subscribe_terminal": 4,
+        "unsubscribe_terminal": 4,
+        "terminal_scroll": 28,
+        "terminal_resize": 7,
+        "attach_batch": 4
+      },
+      "verdict": {
+        "leg": "terminal-io",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "subscription.open=1 across 4 subscribes in batches of 4 (~1 attach/detach phases)",
+          "terminal.op forwarded scroll=28/28 resize=7/7",
+          "attach=4 detach=4 link.open=4 link.close=4 subscribes=4 unsubscribes=4",
+          "terminal delivery 0.32MiB (0.04MiB/s): initial=0.07MiB post-scroll=0.25MiB"
+        ]
+      },
+      "client_frames": {
+        "machines": 1,
+        "event": 21,
+        "terminal_mouse_capture": 4,
+        "terminal_data": 154
+      },
+      "plugin_exec_pids_observed": 0
+    },
+    "reconnect": {
+      "delta": {
+        "seconds": 8,
+        "counters": {
+          "machine.refresh": 4,
+          "bridge.subscription.open": 4
+        },
+        "timers": {
+          "herdr.rpc{method=session.snapshot,ok=true}": {
+            "count": 4,
+            "totalMs": 1187.17,
+            "avgMs": 296.79,
+            "maxMs": 304.26
+          }
+        },
+        "meters": {}
+      },
+      "issued": {
+        "reconnect": 4
+      },
+      "verdict": {
+        "leg": "reconnect",
+        "ok": true,
+        "failures": [],
+        "notes": [
+          "herdr.rpc avg=296.79ms max=304.26ms n=4",
+          "reconnects=4 subscription.open=4 snapshot_fetches=4"
+        ]
+      },
+      "client_frames": {
+        "machines": 4,
+        "machine_status": 4,
+        "ready": 4
+      },
+      "plugin_exec_pids_observed": 0
+    }
+  },
+  "client": {
+    "rpc_latencies_ms": {
+      "p50": 477.6835830000018,
+      "p95": 1018.4644589999953,
+      "max": 1431.2497919999987
+    },
+    "errors": 0,
+    "frames_received": 334
+  }
+}

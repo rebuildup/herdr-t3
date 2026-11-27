@@ -318,6 +318,7 @@ function scheduleSnapshot(state: SessionState, cause: string): void {
 function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, reason: string): void {
   if (slot.gone) return;
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   if (state.terminals.get(paneId) === slot) state.terminals.delete(paneId);
   state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
@@ -370,6 +371,7 @@ function attachTerminal(
   // Default attach observes without stealing the viewer role from an
   // existing client (TUI, second window). Takeover is only requested when
   // the client explicitly asked for it after an attach refusal.
+  metricInc("bridge.terminal.attach");
   openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover }, {
     onEvent: (event) => {
       if (slot.gone) return;
@@ -408,6 +410,7 @@ function releaseTerminal(state: SessionState, paneId: string): void {
   if (slot.refs > 0) return;
   state.terminals.delete(paneId);
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   slot.link?.close();
   syncScrollSubscriptions(state);
 }
@@ -464,6 +467,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_input": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "input" });
       const bytes = Buffer.from(frame.data, "base64");
       const write = () => slot.link?.write(bytes);
       if (slot.link) write();
@@ -473,6 +477,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_resize": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "resize" });
       const resize = () => slot.link?.resize(frame.cols, frame.rows);
       if (slot.link) resize();
       else enqueueSlotOp(state, slot, frame.paneId, 0, resize);
@@ -496,6 +501,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_scroll": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "scroll" });
       const scroll = () =>
         slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
       if (slot.link) scroll();

@@ -17,6 +17,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { herdrSocketPath, socketAddress } from "./herdr.ts";
+import { metricAdd, metricInc } from "./metrics.ts";
 import { socketConnector, type Connector, type SocketHandlers } from "./socket.ts";
 
 export const CLIENT_PROTOCOL_VERSION = 22;
@@ -298,6 +299,15 @@ export function openTerminalLink(
     let sock: { write(data: string | Uint8Array): unknown; end(): unknown } | null = null;
     let buffer = new Uint8Array(0);
     let closed = false;
+    /**
+     * Delivery-phase tracking for the demand-driven metrics (issue #572):
+     * bytes delivered before the first AttachScroll on this link are the
+     * initial-attach delivery; bytes after it include history paging plus
+     * live output — an upper bound on paging volume, since the wire
+     * protocol has no separate history-fetch message (herdr protocol v22:
+     * AttachScroll is the only paging trigger).
+     */
+    let scrollSeen = false;
 
     const finish = (fn: () => void) => {
       if (settled) return;
@@ -356,21 +366,30 @@ export function openTerminalLink(
             terminalId,
             write: (data) => send(clientInput(data)),
             resize: (cols, rows) => send(clientResize(cols, rows)),
-            scroll: (direction, lines = 3, column, row, modifiers) =>
-              send(attachScroll(direction, lines, column, row, modifiers)),
+            scroll: (direction, lines = 3, column, row, modifiers) => {
+              scrollSeen = true;
+              send(attachScroll(direction, lines, column, row, modifiers));
+            },
             mouse: (event) =>
               send(attachMouse(event.action, event.button ?? null, event.column, event.row, event.modifiers ?? 0)),
             close: () => {
               if (closed) return;
               closed = true;
+              metricInc("terminal.link.close");
               send(clientDetach());
               try { sock?.end(); } catch { /* gone */ }
             },
           };
+          metricInc("terminal.link.open");
           finish(() => resolve(link));
           continue;
         }
         if (closed) continue;
+        if (event.type === "terminal") {
+          metricAdd("terminal.delivery.bytes", event.bytes.length, {
+            phase: scrollSeen ? "scroll" : "initial",
+          });
+        }
         handlers.onEvent(event);
       }
     };

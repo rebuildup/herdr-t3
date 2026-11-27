@@ -24,6 +24,7 @@ import {
   registerMemoryProbe,
   registerMemoryShedder,
 } from "../src/lib/memoryBudget.ts";
+import { metricAdd, metricsReset, metricsSnapshot } from "../server/metrics.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(REPO_ROOT, rel), "utf8");
@@ -177,6 +178,69 @@ const PIECES: ContractPiece[] = [
         /inconclusiveReasons\.length > 0 \? "inconclusive"/,
       ]),
       ...fileHas("scripts/perf-observe.test.ts", [/exit 3/, /exit 1/, /exit 0/]),
+    ],
+  },
+  {
+    id: "demand-driven-delivery-metrics",
+    description: "terminal delivery volume metrics: metricAdd meters, per-phase delivery bytes, attach/detach/op counters, bench legs (#572)",
+    verify: () => {
+      const failures = [
+        ...sourceHas("server/metrics.ts", [/metricAdd\(/, /meters/]),
+        ...sourceHas("server/client-link.ts", [
+          /terminal\.delivery\.bytes/,
+          /phase: scrollSeen \? "scroll" : "initial"/,
+          /terminal\.link\.open/,
+          /terminal\.link\.close/,
+        ]),
+        ...sourceHas("server/bridge-core.ts", [
+          /bridge\.terminal\.attach/,
+          /bridge\.terminal\.detach/,
+          /bridge\.terminal\.op/,
+        ]),
+        ...sourceHas("scripts/perf-bridge-load.ts", [
+          /terminal-io/,
+          /meterTotal\(delta, "terminal\.delivery\.bytes"\)/,
+          /meters\?: Record<string/,
+        ]),
+        ...fileHas("scripts/perf-bridge-load.test.ts", [/terminal-io/, /meters/]),
+        ...fileHas("server/metrics.test.ts", [/metricAdd/, /meters/]),
+      ];
+      // Functional proof: a meter accumulates quantity (not duration).
+      try {
+        metricsReset();
+        metricAdd("contract.check.bytes", 100, { phase: "initial" });
+        metricAdd("contract.check.bytes", 300, { phase: "initial" });
+        const m = metricsSnapshot().meters["contract.check.bytes{phase=initial}"];
+        if (!m || m.total !== 400 || m.count !== 2) {
+          failures.push("metrics: metricAdd did not accumulate into meters");
+        }
+        metricsReset();
+      } catch (error) {
+        failures.push(`metrics functional check threw: ${error}`);
+      }
+      return failures;
+    },
+  },
+  {
+    id: "non-interference-contract",
+    description: "multi-client non-interference + hidden-surface gate: takeover flag contract, observer isolation tests, hidden bench leg (#572)",
+    verify: () => [
+      ...sourceHas("shared/protocol.ts", [/takeover\?: boolean/]),
+      ...sourceHas("server/bridge-core.ts", [/frame\.takeover === true/]),
+      ...sourceHas("server/client-link.ts", [/msgAttachTerminal\(terminalId, options\.takeover \?\? false\)/]),
+      ...sourceHas("scripts/perf-memory-bench.ts", [
+        /hidden/,
+        /api\/metrics/,
+        /HIDDEN_DELIVERY_MAX_BYTES/,
+        /bridgeMetricsDelta/,
+      ]),
+      ...fileHas("server/bridge-core.test.ts", [
+        /multi-client non-interference/,
+        /attachTakeovers/,
+        /OBSERVER-TYPED/,
+        /demand-driven delivery/,
+      ]),
+      ...fileHas("server/machine-manager.test.ts", [/machine scoping/, /machine_unavailable/]),
     ],
   },
   {
