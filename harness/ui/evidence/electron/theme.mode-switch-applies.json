@@ -8,8 +8,8 @@
   "fixture": "default-settings",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "98cd4f510dd44e93e91f42d3f63c1634e0769fbc",
-  "recorded_at": "2026-11-27T17:20:01.348Z",
+  "git_sha": "87fb1c2221139612e0cd591dfe9148f85cd6a088",
+  "recorded_at": "2026-11-27T18:41:59.859Z",
   "steps": [
     {
       "index": 0,
