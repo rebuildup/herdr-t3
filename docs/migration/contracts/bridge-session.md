@@ -22,6 +22,16 @@ ADR-0010; wire shapes: protocol-frames.
     triggers during a fetch queue a single trailing refetch.
   - A fetched snapshot identical to the last one delivered to the
     client is not re-pushed (dedup on content, not on fetch).
+  - `READ_ONLY_RPC_METHODS`/`isReadOnlyRpcMethod` in
+    `shared/protocol.ts` are the shared classification both
+    implementations must honor. The TS session applies it where client
+    RPC results are handled; the Rust `BridgeSession` has no client-RPC
+    path of its own — a GPUI consumer that issues mutating RPCs must
+    apply the same rule (schedule a refetch only for non-read-only
+    methods) at its call site. Verification condition: the
+    `rpc-read`/`activity` legs of `scripts/perf-bridge-load.ts` must
+    show `bridge.snapshot.schedule{cause=rpc}` == 0 for read-only
+    traffic on whichever implementation is under test.
 - `subscribe_terminal` → attach stream (`terminal_data` frames) is the
   truth for that pane's screen; input flows back through
   `terminal_input`/`terminal_mouse`/`terminal_scroll`.

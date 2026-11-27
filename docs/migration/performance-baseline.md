@@ -96,7 +96,7 @@ RC freeze collects both-OS evidence on reference hardware.
 | startup time, idle CPU/RSS, peak memory | deferred — needs packaged-app harness at RC |
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
 | input-to-paint p50/p95/p99, scroll/resize/streaming | partially — scene path timed in Bun; `perf-frame-bench.ts` gives frame-interval/longtask/task-utilization under storm, but input→photon latency still needs renderer-side instrumentation |
-| local/SSH/reconnect, plugin calls | deferred — bridge-level timing not yet instrumented |
+| local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
 
 The Rust port must reproduce **equivalent functionality and render
@@ -244,11 +244,61 @@ evidence only.
 - The bench drives vite dev (React dev build), not the packaged
   Electron app; a packaged-app leg is still deferred to RC.
 
+## Bridge/plugin data-plane load bench (issues #416/#425)
+
+`scripts/perf-bridge-load.ts` measures the system-level workloads the
+terminal benches cannot: snapshot push policy, RPC fan-out, plugin CLI
+spawn rate, subscription stability and RPC wait — the exact surfaces the
+#416 regression lived on. It drives the **real** dev bridge
+(`server/index.ts`) over its actual client protocol (WebSocket frames +
+`/api/metrics`) against an isolated herdr session (`--session`, default
+`ht3load`, enforced by `verify-guard.ts` — the live session is refused).
+No vite/Chrome needed; all spawned processes are reaped on exit.
+
+**Legs** (each `--seconds N`, default 12):
+
+| leg | workload | invariants checked |
+|---|---|---|
+| `idle` | WS connected, no requests | baseline subscription count, ~zero churn |
+| `rpc-read` | 4 concurrent readers × `session.snapshot` every 400 ms | `bridge.snapshot.schedule{cause=rpc}` must be **0** (#423 read-only exemption); `herdr.rpc` count == frames issued |
+| `plugin-read` | the 4 surface stores' refresh pattern — one read `plugin_call` per installed surface plugin every 800 ms, all concurrent | `plugin.exec{what=plugin_call}` ≤ issued calls — single-flight merges, never amplifies (#424) |
+| `activity` | external herdr workspace churn (create/focus/close ~700 ms) + client read polling | snapshot push/dedup counts, `subscription.reopen` must be 0, RPC wait under real event flow |
+
+**Report** (`perf-reports/bridge-load-<sha>.json`): per-leg metric
+*deltas* (not cumulative counters) for every `bridge.*`,
+`herdr.rpc{method=…}`, `plugin.exec{what=…,command=…}`,
+`plugin.discovery/capability`, `client.frame`, `machine.*` key, plus
+client-side rpc_result latency p50/p95/max, `condition.loadavg`, host
+metadata and git SHA — same comparability rules as the terminal baselines
+(same host class + same loadavg band; `compare` refuses cross-host).
+
+**Detectors** (`evaluateLeg`, exported + fault-injection tested in
+`scripts/perf-bridge-load.test.ts`): a leg fails only on hard invariant
+breaks — read-RPC snapshot scheduling, subscription flapping, plugin exec
+fan-out beyond issued calls. Timing regressions are *reported* (avg/max
+`herdr.rpc`, `plugin.exec` durations) but wall-clock gating stays with
+`perf-baseline.ts`; provisional thresholds get justified at RC freeze,
+same convention as the 20 % decode/scene gate.
+
+**#416 before/after protocol:** run `record` on the pre-fix SHA and on
+the post-fix SHA under the same `--session`/`--seconds` and comparable
+loadavg, then `compare before.json after.json` — it prints per-leg
+plugin.exec/s, snapshot.push/s and herdr.rpc avg side by side. The
+plugin-read leg only exercises plugins actually installed on the host;
+legs with zero known plugins are recorded as skipped, never passed.
+
+**Honest scope:** this measures the bridge↔herdr↔plugin-CLI data plane.
+herdr *本体* workspace-switch latency inside its own TUI is a herdr-side
+metric and is tracked on #416 via the `herdr.rpc`/`machine.*` timers plus
+manual TUI observation — herdr-t3 cannot instrument herdr's renderer.
+CPU/RAM of the herdr-t3 process itself is covered by the deferred
+packaged-app startup/memory suite at RC freeze (see Coverage map).
+
 ## Fast gate vs RC gate
 
 - Fast gate (`bun test`, `./scripts/ci.sh`): only deterministic, cheap
-  checks — `perf-baseline.test.ts` fault injection. No wall-clock
-  benchmarks in CI per-commit.
+  checks — `perf-baseline.test.ts` and `perf-bridge-load.test.ts` fault
+  injection. No wall-clock benchmarks in CI per-commit.
 - RC freeze: full `record` on reference macOS + Windows 11 hardware,
   `check` against committed baselines, packaged-app startup/memory
   suite, both-OS evidence committed under `docs/design/evidence/`.
