@@ -1,0 +1,134 @@
+[
+ {
+  "file": "z4-00-main.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 155300
+ },
+ {
+  "file": "z4-01-artifacts.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 130564
+ },
+ {
+  "file": "z4-02-artifacts-registered.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 34354
+ },
+ {
+  "file": "z4-03-artifacts-after-delete.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 133528
+ },
+ {
+  "file": "z4-04-handoffs.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 125968
+ },
+ {
+  "file": "z4-05-handoffs-record.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 126488
+ },
+ {
+  "file": "z4-06-controls.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 134432
+ },
+ {
+  "file": "z4-07-textgen.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 153810
+ },
+ {
+  "file": "z4-08-secrets.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 132326
+ },
+ {
+  "file": "z4-09-machines.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 121254
+ },
+ {
+  "file": "z4-10-mcp.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 153790
+ },
+ {
+  "file": "z4-11-ws-tilde.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 60700
+ },
+ {
+  "file": "z4-12-unicode-io.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 63870
+ },
+ {
+  "file": "z4-13-settings.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 13596
+ },
+ {
+  "file": "z4-14-context-card.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 70514
+ },
+ {
+  "file": "z4-15-light-main.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 62196
+ },
+ {
+  "file": "z4-16-narrow.webp",
+  "width": 960,
+  "height": 900,
+  "bytes": 29912
+ },
+ {
+  "file": "z4-18-dark-main.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 57322
+ },
+ {
+  "file": "z4-19-block-cursor.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 69794
+ },
+ {
+  "file": "z4-20-block-cursor-clip.webp",
+  "width": 740,
+  "height": 750,
+  "bytes": 33416
+ },
+ {
+  "file": "z4-21-projects.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 45258
+ },
+ {
+  "file": "z4-22-checkpoints.webp",
+  "width": 1440,
+  "height": 900,
+  "bytes": 58420
+ }
+]
