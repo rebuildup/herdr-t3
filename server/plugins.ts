@@ -91,7 +91,69 @@ export interface PluginHost {
   herdrArgv?: string[];
 }
 
-const OUTPUT_CAP = 16 * 1024 * 1024;
+/**
+ * Per-stream ceiling for plugin exec output, shared by the local spawn
+ * path and the SSH transport (issue #537): a plugin emitting unbounded
+ * stdout must not grow bridge memory without limit. The cap keeps the
+ * *tail* — same semantics on both transports.
+ */
+export const OUTPUT_CAP = 16 * 1024 * 1024;
+
+/**
+ * Append one chunk under OUTPUT_CAP, keeping the most recent bytes.
+ * Exported so ssh.ts applies the identical tail-cap to remote execs.
+ */
+export function appendOutputCapped(current: string, chunk: Buffer): string {
+  return current.length >= OUTPUT_CAP ? current : (current + chunk.toString("utf8")).slice(-OUTPUT_CAP);
+}
+
+/**
+ * Kill a spawned plugin process *and its descendants* (issue #537).
+ * `child.kill()` alone only signals the direct child — a plugin CLI that
+ * spawned `git`/helpers would leave them running after a timeout.
+ *
+ * POSIX: the child is spawned `detached`, making it a process-group
+ * leader, so `kill(-pid)` reaches the whole group. Windows has no
+ * POSIX-style groups for this: `taskkill /T /F` walks the tree instead
+ * (plain `child.kill` there maps to TerminateProcess — direct child
+ * only).
+ */
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (process.platform === "win32") {
+    // Do NOT child.kill() first: once the root is dead `taskkill /T`
+    // can no longer resolve the tree and grandchildren would survive.
+    // The direct kill is only a failsafe for taskkill being unavailable.
+    const fallback = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    };
+    try {
+      const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      killer.on("error", fallback);
+      killer.unref();
+    } catch {
+      /* spawn threw synchronously — taskkill unavailable */
+      fallback();
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+    return;
+  } catch {
+    /* not a group leader (spawn without detached) — direct kill below */
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    /* already dead */
+  }
+}
 
 function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<PluginExecOutcome> {
   return new Promise((resolve) => {
@@ -107,18 +169,12 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<Pl
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already dead */
-      }
+      killProcessTree(child);
       finish({ code: null, stdout, stderr, timedOut: true });
     }, timeoutMs);
     timer.unref?.();
-    const append = (current: string, chunk: Buffer) =>
-      current.length >= OUTPUT_CAP ? current : (current + chunk.toString("utf8")).slice(-OUTPUT_CAP);
-    child.stdout?.on("data", (c: Buffer) => (stdout = append(stdout, c)));
-    child.stderr?.on("data", (c: Buffer) => (stderr = append(stderr, c)));
+    child.stdout?.on("data", (c: Buffer) => (stdout = appendOutputCapped(stdout, c)));
+    child.stderr?.on("data", (c: Buffer) => (stderr = appendOutputCapped(stderr, c)));
     child.on("error", (err) => {
       finish({ code: null, stdout, stderr, timedOut, error: err.message });
     });
@@ -174,6 +230,11 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
         // written; it is always ended immediately after the write so
         // stdin-reading CLIs see EOF (issue #458).
         stdio: ["pipe", "pipe", "pipe"],
+        // POSIX only: make the child a process-group leader so a timeout
+        // can SIGKILL the whole tree, not just the direct `bun` process
+        // (issue #537). On Windows `detached` would allocate a visible
+        // console — the tree kill there goes through taskkill /T instead.
+        detached: process.platform !== "win32",
       };
       if (env !== undefined) spawnOptions.env = env;
       let child: ReturnType<typeof spawn>;

@@ -915,3 +915,39 @@ describe("plugin host session/socket targeting (issue #289)", () => {
     // Real subprocess spawns; same headroom as the tests above.
   }, 120_000);
 });
+
+describe("localPluginHost exec bounds (issue #537)", () => {
+  test("stdout is tail-capped at OUTPUT_CAP", async () => {
+    const outcome = await execWithTimeoutRetry(
+      localPluginHost(),
+      [process.execPath, "-e", `process.stdout.write("a".repeat(${16 * 1024 * 1024 + 1024}))`],
+      { timeoutMs: 15_000 },
+    );
+    expect(outcome.code).toBe(0);
+    expect(outcome.stdout.length).toBe(16 * 1024 * 1024);
+    // Real subprocess spawn; same headroom rationale as above.
+  }, 60_000);
+
+  test("timeout kills the whole process group, including grandchildren", async () => {
+    if (process.platform === "win32") return; // taskkill /T path; see killProcessTree
+    // The child spawns a grandchild `bun -e` that would otherwise
+    // outlive a direct-child-only SIGKILL, prints its pid, then hangs.
+    const script = [
+      `const c = Bun.spawn([process.execPath, "-e", "setInterval(()=>{},1e3)"], { stdout: "ignore", stderr: "ignore" });`,
+      `console.log("GC:" + c.pid);`,
+      `setInterval(()=>{},1e3);`,
+    ].join("");
+    const outcome = await localPluginHost().exec([process.execPath, "-e", script], {
+      timeoutMs: 8_000,
+    });
+    expect(outcome.timedOut).toBe(true);
+    const gcPid = Number(outcome.stdout.match(/GC:(\d+)/)?.[1] ?? 0);
+    expect(gcPid).toBeGreaterThan(0);
+    // SIGKILL delivery + reparenting is fast; give it a beat, then the
+    // grandchild must be gone — before the fix only the direct child
+    // died and this pid stayed alive.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(() => process.kill(gcPid, 0)).toThrow();
+    // Generous budget: a real `bun -e` spawn plus an 8s inner timeout.
+  }, 30_000);
+});
