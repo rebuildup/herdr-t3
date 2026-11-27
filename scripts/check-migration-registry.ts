@@ -15,6 +15,9 @@
  *  - referenced repo paths (spec/scenarios/evidence/parity/spec_ref)
  *    exist; issue:/pr:/url:/note: prefixed refs are exempt
  *  - os/boundary/owner fields use known vocabularies
+ *  - B6 (pane/UI composition) capabilities must pin the design-system
+ *    contract — T3 design-system conformance is inherited by the GPUI
+ *    target per docs/migration/contracts/design-system.md (issue #412)
  *  - herdr-plugins pins in status.upstream_deps match the canonical pin
  *    list in docs/migration/contracts/plugins-boundary.md, and every
  *    plugin-owned capability declares a pin for its plugin (#285 audit)
@@ -160,6 +163,19 @@ function validate(reg: Registry): void {
       );
       if (!resolved) {
         fail(`${where}: unresolved contract ref "${ref}"`);
+      }
+    }
+
+    // B6 UI-composition capabilities must carry the design-system
+    // contract so conformance requirements travel with the capability
+    // into the GPUI target (issue #412).
+    if (cap.boundary === "B6") {
+      const pinned = (cap.contracts ?? []).some((ref) => {
+        const at = ref.lastIndexOf("@");
+        return (at === -1 ? ref : ref.slice(0, at)) === "design-system";
+      });
+      if (!pinned) {
+        fail(`${where}: B6 capability must pin a design-system contract ref`);
       }
     }
 
@@ -329,6 +345,38 @@ function selfTest(): void {
         ],
       },
       false,
+    ],
+    [
+      "B6 capability without design-system contract fails",
+      {
+        ...good,
+        capabilities: [{ ...good.capabilities[0], boundary: "B6" }],
+      },
+      false,
+    ],
+    [
+      "B6 capability with design-system contract passes",
+      {
+        ...good,
+        contracts: [
+          ...good.contracts,
+          {
+            id: "design-system",
+            version: 1,
+            title: "t",
+            spec: "docs/migration/README.md",
+            oracle: "conformance",
+          },
+        ],
+        capabilities: [
+          {
+            ...good.capabilities[0],
+            boundary: "B6",
+            contracts: ["c1@1", "design-system@1"],
+          },
+        ],
+      },
+      true,
     ],
   ];
   let failed = 0;

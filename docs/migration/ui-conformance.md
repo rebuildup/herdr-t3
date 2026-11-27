@@ -61,6 +61,16 @@ scripts/check-ui-scenarios.ts   validator (CI)
   screenshot comparison (when added) fixes viewport/theme/font/DPI and
   complements, never replaces, structural assertions.
 
+## Design-system conformance is a separate axis (issue #412)
+
+These scenarios prove semantic equivalence only. T3 design-system
+conformance — inherited tokens, primitives, composition rules, type
+hierarchy, and T3-reference visual fidelity — is governed by contract
+`design-system@1` (`docs/migration/contracts/design-system.md`), which
+all B6 capabilities pin. It is enforced by contract tests, the
+`verification.md` capture/side-by-side pipeline, and RC manual review —
+never by pixel assertions in this scenario format.
+
 ## Status
 
 - **Electron adapter: implemented.** `harness/ui/adapters/electron.ts`
