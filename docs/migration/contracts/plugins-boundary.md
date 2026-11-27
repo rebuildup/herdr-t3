@@ -78,6 +78,37 @@ CLI implementations.
   overlay is a legacy migration source only, removed per ADR-0011 — it
   must not become a second source of truth.
 
+## Data-plane coalescing (issue #424, program #416)
+
+Concurrent identical `plugin_call`s may share one in-flight plugin CLI
+execution — single-flight at the `host.exec` boundary, keyed by
+machine + plugin root + command + args + stdin + effective timeout.
+Nothing is cached: entries are removed on settle, so only *simultaneous*
+callers merge and every caller still receives the plugin's own document.
+
+Classification is contract-driven, never name- or flag-guessed:
+
+- a command **absent** from the plugin's advertised
+  `capability.mutation_commands` is a contract read and may coalesce;
+- a command **declared** in `mutation_commands` never coalesces — each
+  caller runs its own exec, even when calls are identical and concurrent;
+- a plugin that omits `mutation_commands` fails closed: nothing
+  coalesces for it;
+- a call carrying `stdin` never joins a shared execution — the payload
+  is per-call input.
+
+`plugin_list` discovery coalesces unconditionally (it is read-only by
+contract) at both the client (`api.ts`) and service layers.
+
+Upstream dependency: `mutation_commands` is a coarse read/write bit.
+Per-command side-effects, idempotency, coalescibility, freshness and
+invalidation declarations are tracked as the source of truth in
+rebuildup/herdr-plugins#263; once that contract extension lands, this
+classification is replaced by the declared per-command semantics rather
+than extended heuristically. Until then, TTL caching of `plugin_call`
+results is deliberately NOT performed — staleness cannot be bounded
+without freshness declarations.
+
 ## Errors
 
 - Distinct failure codes: `not_installed`, `disabled`,
@@ -108,6 +139,8 @@ CLI implementations.
   exec on local or SSH hosts;
 - no offering mutations when `mutation_commands`/`capability` does not
   advertise them;
+- no coalescing of `mutation_commands`-declared mutations, of plugins
+  omitting the field, or of calls carrying `stdin`;
 - no localStorage organize state surviving as authoritative after
   migration.
 
