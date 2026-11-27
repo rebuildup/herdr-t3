@@ -20,11 +20,13 @@
  *   full primary ring keeps the state readable.
  * - blocked: destructive ring at a heavier stroke plus a centered red
  *   "!" disc large enough to cover the brand mark.
- * - done: success ring plus a centered success check disc.
- * - idle: quiet solid muted ring, no overlay — the resting state.
- * - unknown/other statuses: dashed muted ring plus a centered muted "?"
- *   disc — dashed vs solid and the muted tone keep unrecognized states
- *   distinct from idle without relying on hue.
+ * - done: success ring plus a small success check badge on the
+ *   bottom-right corner.
+ * - idle: quiet solid muted ring, no marker — the resting state.
+ * - unknown/other statuses: dashed muted ring plus a small muted "?"
+ *   badge on the bottom-right corner — dashed vs solid and the muted
+ *   tone keep unrecognized states distinct from idle without relying
+ *   on hue.
  *
  * State meaning is never color-only: working is motion, unknown is a
  * dash pattern + "?", blocked is stroke weight + "!", and the resolved
@@ -181,22 +183,50 @@ function StatusOverlay({
   );
 }
 
+/**
+ * Small corner badge — the quiet markers (done check, unknown "?").
+ * `size-3` (12px) straddles the mark's bottom-right corner: roughly a
+ * quarter overlaps the glyph, the rest hangs into the row's padding.
+ * Absolutely positioned so it layers over the mark and ring without
+ * squeezing the slot.
+ */
+function StatusBadge({
+  tone,
+  children,
+}: {
+  tone: "success" | "muted";
+  children: ReactNode;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute -bottom-1 -right-1 flex size-3 items-center justify-center rounded-full text-4xs font-bold leading-none",
+        tone === "success" && "bg-success text-white",
+        tone === "muted" && "bg-muted-foreground/20 text-muted-foreground",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 function StatusMark({ status }: { status: AgentStatus }) {
-  const overlay =
+  const marker =
     status === "blocked" ? (
       <StatusOverlay tone="destructive">!</StatusOverlay>
     ) : status === "done" ? (
-      <StatusOverlay tone="success">
-        <Check className="size-3" strokeWidth={3.5} />
-      </StatusOverlay>
+      <StatusBadge tone="success">
+        <Check className="size-2" strokeWidth={3.5} />
+      </StatusBadge>
     ) : status === "idle" || status === "working" ? null : (
       // `unknown` and any status herdr adds later.
-      <StatusOverlay tone="muted">?</StatusOverlay>
+      <StatusBadge tone="muted">?</StatusBadge>
     );
   return (
     <>
       <StatusRing status={status} />
-      {overlay}
+      {marker}
     </>
   );
 }

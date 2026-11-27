@@ -67,26 +67,29 @@ describe("AgentIdentityIcon", () => {
     }
   });
 
-  test("overlay markers cover the mark only where the state asks for attention", () => {
-    // blocked → centered destructive "!" disc.
+  test("markers: blocked centers a destructive disc, done/unknown badge the corner", () => {
+    // blocked → centered destructive "!" disc covering the mark.
     const blocked = render("claude", "blocked");
     expect(blocked).toContain("bg-destructive");
     expect(blocked).toContain(">!</span>");
-    // done → centered success check disc.
+    // done → small success check badge on the bottom-right corner.
     const done = render("claude", "done");
     expect(done).toContain("bg-success");
+    expect(done).toContain("-bottom-1");
     expect(done).toContain("lucide-check");
-    // working and idle → ring only, no overlay disc.
+    // working and idle → ring only, no marker at all.
     for (const status of ["working", "idle"] as const) {
       const html = render("claude", status);
       expect(html, status).not.toContain("bg-destructive");
       expect(html, status).not.toContain("bg-success");
-      expect(html, status).not.toContain("bg-muted-foreground text-background");
+      expect(html, status).not.toContain("-bottom-1");
+      expect(html, status).not.toContain("bg-muted-foreground/20");
     }
-    // Unknown and unrecognized statuses share the centered muted "?" disc.
+    // Unknown and unrecognized statuses share the muted "?" corner badge.
     for (const status of ["unknown", "some-future-status"] as const) {
       const html = render("claude", status);
-      expect(html, status).toContain("bg-muted-foreground text-background");
+      expect(html, status).toContain("bg-muted-foreground/20");
+      expect(html, status).toContain("-bottom-1");
       expect(html, status).toContain(">?</span>");
     }
   });
