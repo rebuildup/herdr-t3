@@ -31,7 +31,7 @@ CLI implementations.
   usage/v1 @ `d23205af`, artifacts/v1 @ `d23205af`,
   handoff/v1 @ `d23205af`, textgen/v1 @ `d23205af`,
   controls/v1 @ `d23205af`,
-  secrets/v1 @ `d23205af`, machines/v1 @ `d23205af`,
+  secrets/v1 @ `d23205af`, machines/v1 @ `08f96a4`,
   mcp/v1 @ `d23205af`); a
   host running an older plugin build yields capability-gated UI, not
   errors.
