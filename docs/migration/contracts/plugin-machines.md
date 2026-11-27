@@ -2,8 +2,9 @@
 
 Version: 1. Scope: consuming `herdr-plugins.machines/v1` through
 `plugin_call` (ADR-0011 boundary, pinned at
-`rebuildup/herdr-plugins@d23205af0cd2ff7dba25f72e1f3b872762a108ee` =
-tag `v0.9.0`, same pin as the other plugin surfaces). The plugin owns
+`rebuildup/herdr-plugins@08f96a4d151f0edb72b61483376ff977177f92e8`
+(RC defect fix: `--socket`/`--session` target-arg acceptance backported
+onto the v0.6.0 pin base `d23205af`; see herdr-plugins#264 / #483)). The plugin owns
 read-only saved-machine inventory: live `herdr machine list` merged
 with last-known probe metadata, plus an on-demand live probe over the
 saved-machine SSH bridge. This client renders the surface (issue
