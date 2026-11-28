@@ -47,8 +47,6 @@ export interface ToastNoticeData {
   createdAt?: number | undefined;
   /** Auto-dismiss budget counted only while visible+focused+unhovered. */
   dismissAfterVisibleMs?: number;
-  /** "stacked-end" renders the action under the description (upstream layout). */
-  actionLayout?: "inline" | "stacked-end";
   /**
    * Agent status behind an attention toast — renders the unified
    * AgentIdentityIcon glyph instead of the type icon (issue #550).
@@ -222,18 +220,21 @@ function ToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastMeta({ data }: { data: ToastNoticeData | undefined }) {
-  const parts = [data?.context, data?.createdAt !== undefined ? toastAgeLabel(data.createdAt) : null]
+function toastMetaParts(data: ToastNoticeData | undefined): string[] {
+  return [data?.context, data?.createdAt !== undefined ? toastAgeLabel(data.createdAt) : null]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
+}
+
+function ToastMeta({ parts }: { parts: string[] }) {
   if (parts.length === 0) return null;
   return (
-    <div
-      className="mt-0.5 truncate text-2xs text-muted-foreground/80"
+    <span
+      className="min-w-0 flex-1 truncate text-2xs text-muted-foreground/80"
       data-slot="toast-meta"
     >
       {parts.join(" · ")}
-    </div>
+    </span>
   );
 }
 
@@ -294,9 +295,7 @@ function Toasts({ position }: { position: ToastPosition }) {
             : null;
           const ActionIcon = toast.data?.actionIcon;
           const hasAction = hasVisibleToastAction(toast.actionProps);
-          const stackedActionLayout =
-            hasAction && toast.data?.actionLayout === "stacked-end";
-          const inlineContentEndPad = hasAction ? "pr-6" : "pr-3.5";
+          const metaParts = toastMetaParts(toast.data);
 
           return (
             <Toast.Root
@@ -378,30 +377,23 @@ function Toasts({ position }: { position: ToastPosition }) {
               <Toast.Content
                 className={cn(
                   // overflow-x:clip preserves visible vertical overflow; hidden would force overflow-y:auto
-                  // and clip detail panels.
-                  "pointer-events-auto min-h-0 overflow-y-visible pl-3 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
-                  stackedActionLayout
-                    ? "flex flex-col gap-2 py-2.5 pr-3.5"
-                    : cn("py-2", "flex items-center justify-between gap-1.5", inlineContentEndPad),
+                  // and clip detail panels. pr-6 keeps the top line clear
+                  // of the corner dismiss orb.
+                  "pointer-events-auto min-h-0 overflow-y-visible py-2 pl-3 pr-6 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
                 {/* Issue #550: icon column on the left, vertically
-                    centered against the whole title/description/meta
-                    block — the same glyph-to-content grammar as sidebar
-                    rows. `shrink-0` keeps the glyph at its slot size and
-                    `min-w-0` on the text column lets long unbroken
-                    strings wrap/truncate instead of pushing the action
-                    out (the systemic no-breakage guarantee). */}
-                <div
-                  className={cn(
-                    "flex min-h-0 min-w-0 flex-1 items-center gap-2.5",
-                    stackedActionLayout
-                      ? "pr-5"
-                      : !hasAction && "pr-6",
-                  )}
-                >
+                    centered against the whole title/description block —
+                    the same glyph-to-content grammar as sidebar rows.
+                    The action lives on the meta footer row (right end),
+                    never beside the text, so long content truncates
+                    instead of colliding with it. `shrink-0` keeps the
+                    glyph at its slot size and `min-w-0` on the text
+                    column lets long unbroken strings wrap/truncate
+                    (the systemic no-breakage guarantee). */}
+                <div className="flex min-h-0 min-w-0 items-center gap-2.5">
                   {toast.data?.agentStatus ? (
                     // Attention toasts lead with the same unified
                     // agent-work glyph as rows (issue #550): brand
@@ -428,32 +420,30 @@ function Toasts({ position }: { position: ToastPosition }) {
                       className="min-w-0 select-text wrap-break-word text-muted-foreground leading-tight"
                       data-slot="toast-description"
                     />
-                    <ToastMeta data={toast.data} />
+                    {metaParts.length > 0 || hasAction ? (
+                      <div className="mt-1 flex items-center gap-2">
+                        <ToastMeta parts={metaParts} />
+                        {hasAction ? (
+                          <Toast.Action
+                            className={cn(
+                              // Issue #550: compact chip, not a primary
+                              // CTA — `micro` (20px) + `secondary` keeps
+                              // the action subordinate to the notice
+                              // content; the optional actionIcon rides
+                              // inside as a glyph.
+                              buttonVariants({ size: "micro", variant: "secondary" }),
+                              "ml-auto shrink-0",
+                            )}
+                            data-slot="toast-action"
+                          >
+                            {ActionIcon ? <ActionIcon /> : null}
+                            {toast.actionProps?.children}
+                          </Toast.Action>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-                {hasAction ? (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5",
-                      stackedActionLayout ? "w-full justify-end" : "shrink-0",
-                    )}
-                  >
-                    <Toast.Action
-                      className={cn(
-                        // Issue #550: compact chip, not a primary CTA —
-                        // `micro` (20px) + `secondary` keeps the action
-                        // subordinate to the notice content; the
-                        // optional actionIcon rides inside as a glyph.
-                        buttonVariants({ size: "micro", variant: "secondary" }),
-                        "shrink-0",
-                      )}
-                      data-slot="toast-action"
-                    >
-                      {ActionIcon ? <ActionIcon /> : null}
-                      {toast.actionProps?.children}
-                    </Toast.Action>
-                  </div>
-                ) : null}
               </Toast.Content>
             </Toast.Root>
           );
