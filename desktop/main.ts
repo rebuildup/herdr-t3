@@ -411,6 +411,7 @@ function externalUrlAllowed(url: string): boolean {
 
 function createWindow(): void {
   const shouldUseDarkColors = nativeTheme.shouldUseDarkColors;
+  diag("info", "startup.windowCtor", "BrowserWindow ctor begin", { ms: startupMs() });
   const bw = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -429,6 +430,7 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  diag("info", "startup.windowCtorDone", "BrowserWindow ctor returned", { ms: startupMs() });
   win = bw;
   const contents = bw.webContents;
   diagAttachWebContents(contents);
@@ -465,8 +467,11 @@ function createWindow(): void {
     // the getter throws "Object has been destroyed" (the quit-time JS error).
     if (win === bw) win = null;
   });
+  contents.on("did-start-loading", () => {
+    diag("info", "window.loading", "renderer started loading", { ms: startupMs() });
+  });
   contents.on("did-finish-load", () => {
-    diag("info", "window.loaded", "renderer finished loading");
+    diag("info", "window.loaded", "renderer finished loading", { ms: startupMs() });
   });
 
   // Popups and navigations never leave the app except allowlisted external
@@ -524,6 +529,14 @@ function ensureManager(): void {
 app.whenReady().then(() => {
   diagAttachApp();
   diag("info", "app.ready", "Electron app ready", { ms: startupMs() });
+  // Window first (issue #611): the BrowserWindow ctor + renderer/GPU
+  // process spawn is the longest pole on the spawn->operable path
+  // (~1s+ under load), so it must start before any non-critical
+  // main-process work. Everything below runs synchronously in the same
+  // tick — no IPC from the renderer can be processed until this callback
+  // returns, so handler registration still precedes the first frame.
+  createWindow();
+  diag("info", "startup.window", "createWindow returned", { ms: startupMs() });
   ensureManager();
   diag("info", "startup.manager", "machine manager started", { ms: startupMs() });
   if (process.env["HERDR_T3_DEBUG"]) {
@@ -657,9 +670,7 @@ app.whenReady().then(() => {
     ghosttyImageDataUrl(filePath),
   );
 
-  diag("info", "startup.preWindow", "ipc handlers + ghostty watcher ready", { ms: startupMs() });
-  createWindow();
-  diag("info", "startup.window", "createWindow returned", { ms: startupMs() });
+  diag("info", "startup.services", "ipc handlers + ghostty watcher ready", { ms: startupMs() });
   app.on("activate", () => {
     ensureManager();
     if (BrowserWindow.getAllWindows().length === 0) {
