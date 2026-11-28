@@ -373,6 +373,57 @@ visible brand cannot diverge.
 beyond the brand probe; does not judge whether text-only "hoxay" is the
 final wordmark treatment (open brand task per `docs/brand/README.md`).
 
+## AC-005 — Sidebar empty state renders before first snapshot arrives
+
+**Statement.** On cold start the workspace sidebar shows "No workspaces
+yet" plus a "New workspace" CTA during the window between
+`bridge.connection === "open"` and the first session snapshot per
+machine (~4.8 s under dev workload load). The empty state is only
+truthful on a live `workspaces: []`; before snapshots arrive the list
+is "not loaded", not "empty" — a false claim that invites the user to
+create a workspace that may already exist.
+
+**Evidence.** Independent design review on the v0.7.0 RC (#413): DOM
+polling showed the empty state for ~4.8 s between connection open
+(~15.2 s) and first snapshot (~19.9 s) under load. Code:
+`src/shell/WorkspaceSidebar.tsx` gated the empty state only on
+`totalWorkspaces === 0 && bridge.connection === "open"` with no
+snapshot-arrival guard; the `snapshots[m.id] === undefined` pattern
+already existed for agent-organize resolution in the same file.
+`docs/design/info-architecture.md` §10 states "No workspaces" renders
+only on live `workspaces: []`.
+
+**Root cause.** The empty-state condition treated "no rows rendered"
+as "no workspaces exist" without distinguishing unloaded from empty.
+The canvas side received the analogous guard in #421; the sidebar
+list was missed.
+
+**Scope.** Sidebar workspace-list empty state and any other surface
+that renders an emptiness claim from `totalWorkspaces`-style derived
+counts before per-machine snapshots resolve.
+
+**Detection.** Unit level: `awaitingFirstSnapshots` predicate in
+`src/shell/view.ts` (covered by `view.test.ts`) — true while any
+non-stale machine lacks its first snapshot. Rendered level: cold-start
+DOM probe asserting the empty state is absent until snapshots resolve
+(reuse the review's DOM-polling method; no committed scenario yet —
+see Status).
+
+**Fixtures.** Negative: pre-fix sidebar — empty state visible while
+`snapshots` is empty and connection is open. Positive: post-fix —
+empty state suppressed until every live machine's first snapshot
+arrives; stale (offline/unreachable) machines never block it.
+
+**Status.** `fix+gate landed` (#622) — `awaitingFirstSnapshots` gate
+added to the empty-state condition; unit-tested. `verified` pending a
+cold-start rendered check on the landing SHA.
+
+**Unguaranteed.** Does not cover other derived-count surfaces beyond
+the sidebar workspace list; does not bound *how long* a machine may
+stay in `connecting` before its status turns stale — a permanently
+connecting machine still suppresses the empty state (conservative:
+never claim empty while unknown).
+
 ## Adding cases
 
 Append `AC-NNN` entries here in the same PR that lands the fix + gate

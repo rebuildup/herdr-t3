@@ -52,6 +52,22 @@ export function machineStale(info: MachineInfo | undefined): boolean {
   return info !== undefined && MACHINE_STALE_STATUSES.has(info.status);
 }
 
+/**
+ * True while any live (non-stale) machine has not yet delivered its first
+ * snapshot — until then an empty workspace list means "not loaded", not
+ * "empty" (anti-case AC-005, info-architecture.md §10). Stale machines are
+ * excluded so a permanently offline machine cannot suppress the empty
+ * state forever.
+ */
+export function awaitingFirstSnapshots(
+  machines: MachineInfo[],
+  snapshots: ShellBridgeState["snapshots"],
+): boolean {
+  return machines.some(
+    (m) => !machineStale(m) && snapshots[m.id] === undefined,
+  );
+}
+
 function defaultMachine(s: ShellBridgeState): string {
   // Probe snapshots (issue #212) are display data without a session; the
   // default route must land on a machine with a live snapshot, or local
