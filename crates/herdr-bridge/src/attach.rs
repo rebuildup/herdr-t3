@@ -296,14 +296,14 @@ fn summarize_snapshot(snapshot: &Value) -> Value {
     s
 }
 
-fn wire_snapshot(detail: SnapshotDetail, snapshot: &Value) -> Value {
+pub(crate) fn wire_snapshot(detail: SnapshotDetail, snapshot: &Value) -> Value {
     match detail {
         SnapshotDetail::Summary => summarize_snapshot(snapshot),
         SnapshotDetail::Full => snapshot.clone(),
     }
 }
 
-fn wire_detail(detail: SnapshotDetail) -> Option<SnapshotDetail> {
+pub(crate) fn wire_detail(detail: SnapshotDetail) -> Option<SnapshotDetail> {
     match detail {
         SnapshotDetail::Summary => Some(SnapshotDetail::Summary),
         SnapshotDetail::Full => None,
@@ -488,6 +488,57 @@ impl AttachManager {
                     true,
                 );
             }
+        }
+    }
+
+    /// Mode negotiation without a refcount change (issue #607 session
+    /// wiring): flips an existing live slot between observe and writable
+    /// — the same close+reopen a `subscribe_terminal` mode change
+    /// performs — but never creates a slot and never touches `refs`, so
+    /// the session layer can drive operator promote/demote without
+    /// unbalancing the subscribe/unsubscribe refcount contract. Returns
+    /// false when there is no live slot for `pane_id` or the slot is
+    /// already in `writable` mode.
+    pub fn negotiate_mode(
+        &self,
+        pane_id: &str,
+        cols: u16,
+        rows: u16,
+        takeover: bool,
+        writable: bool,
+    ) -> bool {
+        let start = {
+            let mut inner = self.inner.lock().unwrap();
+            let Some(slot) = inner.slots.get_mut(pane_id) else {
+                return false;
+            };
+            if slot.gone || slot.writable == writable {
+                return false;
+            }
+            let link = flip_slot_mode(
+                slot,
+                AttachParams {
+                    cols,
+                    rows,
+                    takeover,
+                },
+                writable,
+            );
+            if let Some(link) = link {
+                link.close();
+            }
+            begin_attach(&mut inner, pane_id)
+        };
+        match start {
+            AttachStart::Open(pending) => {
+                dispatch_open(&self.inner, pending);
+                true
+            }
+            AttachStart::Retry { pane_id, slot_id } => {
+                self.retry_attach(pane_id, slot_id);
+                true
+            }
+            AttachStart::Idle => false,
         }
     }
 
@@ -713,25 +764,7 @@ fn ensure_terminal(
             // link in order. This subscribe does not take a reference:
             // the client pairs it with the single unsubscribe it
             // already sends.
-            slot.writable = writable;
-            // Supersede the old link before closing it: its
-            // detach/close callbacks must already read as stale.
-            slot.epoch += 1;
-            if !writable {
-                // Demotion to observe (issue #584): ops queued for the
-                // writable epoch can never be delivered —
-                // ClientInput/AttachScroll/AttachMouse are illegal on an
-                // ObserveTerminal link and herdr drops them anyway.
-                // Discard them here instead of letting them flush onto
-                // the observe connection (a stale keystroke delivered
-                // minutes later would be worse than a dropped one; the
-                // pane's client-side egress keeps anything not yet
-                // sent).
-                slot.queue.clear();
-                slot.queue_bytes = 0;
-            }
-            let link = slot.link.take();
-            slot.attach = params;
+            let link = flip_slot_mode(slot, params, writable);
             if let Some(link) = link {
                 link.close();
             }
@@ -756,6 +789,33 @@ fn ensure_terminal(
     inner.slots.insert(pane_id.to_string(), slot);
     scroll_sync(inner);
     begin_attach(inner, pane_id)
+}
+
+/// Shared mode-flip mechanics for `ensure_terminal`'s negotiation
+/// branch and `AttachManager::negotiate_mode`: update the desired mode
+/// and attach params, supersede the epoch, discard the queue on
+/// writable→observe demotion (queued input-class ops are illegal on an
+/// ObserveTerminal link — issue #584), detach the old link and return
+/// it for the caller to close *after* the slot state is consistent.
+fn flip_slot_mode(slot: &mut Slot, params: AttachParams, writable: bool) -> Option<Arc<dyn TerminalLink>> {
+    slot.writable = writable;
+    // Supersede the old link before closing it: its detach/close
+    // callbacks must already read as stale.
+    slot.epoch += 1;
+    if !writable {
+        // Demotion to observe (issue #584): ops queued for the writable
+        // epoch can never be delivered — ClientInput/AttachScroll/
+        // AttachMouse are illegal on an ObserveTerminal link and herdr
+        // drops them anyway. Discard them here instead of letting them
+        // flush onto the observe connection (a stale keystroke delivered
+        // minutes later would be worse than a dropped one; the pane's
+        // client-side egress keeps anything not yet sent).
+        slot.queue.clear();
+        slot.queue_bytes = 0;
+    }
+    let link = slot.link.take();
+    slot.attach = params;
+    link
 }
 
 /// `attachTerminal`: bump the epoch (each attempt supersedes earlier
