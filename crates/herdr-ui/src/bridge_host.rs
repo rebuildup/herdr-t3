@@ -1,17 +1,20 @@
-//! Bridge wiring for the product host (issue #618).
+//! Bridge wiring for the product host (issue #618, SSH connect path
+//! issue #646).
 //!
-//! Owns a `herdr_bridge::client_session::SessionHub` and the local
-//! machine's `ClientSession`, fed by a `ConnectFactory`-free
-//! configuration: the hub routes `ClientFrame`s exactly like the TS
-//! `machine-manager`, and `ServerFrame` JSON arrives on a channel the
-//! GPUI view drains on its poll tick.
+//! Owns a `herdr_bridge::client_session::SessionHub` configured with
+//! the production `ConnectFactory`: `local` sessions go through the
+//! herdr socket connectors, saved SSH machines through
+//! `herdr_bridge::ssh` (endpoint probing + `remote-api-bridge`/
+//! `remote-client-bridge` ssh transports). The hub routes
+//! `ClientFrame`s exactly like the TS `machine-manager`, and
+//! `ServerFrame` JSON arrives on a channel the GPUI view drains on its
+//! poll tick.
 //!
 //! Scope honesty:
-//! - Only the `local` machine is connectable today. `SessionHub`'s
-//!   `ConnectFactory` is `None`, so `machine_connect` for a remote
-//!   machine idles — the UI renders those machines as pending /
-//!   unavailable rather than pretending a session exists. SSH machine
-//!   connectors are B2/B7 work, not this scaffold.
+//! - Remote machines use the same ssh transport as the TS bridge;
+//!   machines whose endpoints cannot be resolved surface the TS
+//!   failure classes (`auth_required`/`unreachable`/`incompatible`/
+//!   `error`) rather than pretending a session exists.
 //! - Terminal attach frames (`subscribe_terminal`, `terminal_data`,
 //!   `terminal_closed`) are decoded and tracked (closed-pane set feeds
 //!   the placeholder state) but no `TerminalLink` consumer exists yet —
@@ -24,12 +27,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-use std::thread;
 
-use herdr_bridge::attach::SnapshotDetail;
-use herdr_bridge::client_session::{ClientSession, SessionHub};
+use herdr_bridge::client_session::{ClientSession, ConnectFactory, SessionHub, SessionHubOptions};
 use herdr_bridge::io::Connector;
-use herdr_bridge::{local_connector, HerdrError};
+use herdr_bridge::machines::{self, MachineMetadata, SavedMachine};
+use herdr_bridge::ssh::{self, EndpointResolver, SshTransport};
+use herdr_bridge::local_connector;
 use protocol_codec::{self, ClientFrame, MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
 
@@ -61,18 +64,11 @@ pub fn client_socket_path() -> String {
     herdr_bridge::socket_address(&format!("{dir}{stem}-client.sock"))
 }
 
-/// Internal control messages alongside the ServerFrame stream.
-enum InnerMsg {
-    /// The background `ClientSession::start` finished.
-    LocalReady(Result<ClientSession, HerdrError>),
-}
-
 /// Everything the view needs from the bridge, drained per poll tick.
 pub struct BridgeHost {
     hub: Arc<SessionHub>,
     /// ServerFrame JSON values emitted by sessions.
     frames: Receiver<Value>,
-    inner: Receiver<InnerMsg>,
     /// Parsed per-machine snapshots (latest wins).
     pub snapshots: HashMap<String, SessionSnapshot>,
     /// `ready.capabilities` per machine (absent = none advertised).
@@ -87,41 +83,67 @@ pub struct BridgeHost {
 }
 
 impl BridgeHost {
-    /// Create the host and spawn the local session connect on a
-    /// background thread (`ClientSession::start` blocks on the initial
-    /// `session.snapshot` fetch — it must not run on the UI thread).
+    /// Create the host and start the hub: the initial registry refresh
+    /// connects `local` through the connect factory on a hub worker
+    /// thread (`ClientSession::start` blocks on the initial
+    /// `session.snapshot` fetch — it must not run on the UI thread) and
+    /// picks up saved SSH machines for probing/on-demand connect.
     pub fn start() -> Self {
         let (tx, frames) = channel::<Value>();
         let send: Arc<dyn Fn(Value) + Send + Sync> = Arc::new(move |v| {
             let _ = tx.send(v);
         });
-        // No ConnectFactory: remote machine sessions are not wired in
-        // this scaffold (see module docs). `machine_connect` frames are
-        // accepted by the hub but idle without a factory.
-        let hub = Arc::new(SessionHub::new(send.clone(), None));
-        let (itx, inner) = channel::<InnerMsg>();
 
-        thread::spawn({
-            let send = send.clone();
-            move || {
+        // Production wiring (issue #646): the same sources the TS
+        // machine-manager uses — herdr's endpoints.json registry,
+        // ssh-metadata cache, `ssh` transport with endpoint probing.
+        let list_machines: Arc<dyn Fn() -> Vec<SavedMachine> + Send + Sync> =
+            Arc::new(|| machines::load_saved_machines(&machines::system_env));
+        let load_metadata: Arc<dyn Fn(&str) -> Option<MachineMetadata> + Send + Sync> =
+            Arc::new(|id| machines::load_machine_metadata(id, &machines::system_env));
+        let resolver = EndpointResolver::new(SshTransport::system());
+        let ssh_connect = ssh::ssh_connect_factory(
+            list_machines.clone(),
+            load_metadata.clone(),
+            resolver.clone(),
+        );
+        let ssh_probe = ssh::ssh_probe_fetcher(
+            list_machines.clone(),
+            load_metadata.clone(),
+            resolver.clone(),
+        );
+        let ssh_plugins = ssh::ssh_plugin_host_resolver(
+            list_machines.clone(),
+            load_metadata.clone(),
+            resolver,
+        );
+        // `local` keeps the direct socket connectors; every other
+        // machine id goes through the ssh connect path. The hub only
+        // invokes the factory for registry-known, enabled machines.
+        let connect: ConnectFactory = Arc::new(move |machine, detail, send| {
+            if machine == LOCAL_MACHINE {
                 let api: Arc<dyn Connector> = Arc::new(local_connector());
                 let client: Arc<dyn Connector> =
                     Arc::new(herdr_bridge::io::SocketConnector::new(client_socket_path()));
-                let result = ClientSession::start(
-                    api,
-                    client,
-                    LOCAL_MACHINE.to_string(),
-                    SnapshotDetail::Full,
-                    send,
-                );
-                let _ = itx.send(InnerMsg::LocalReady(result));
+                return ClientSession::start(api, client, machine.to_string(), detail, send);
             }
+            ssh_connect(machine, detail, send)
         });
+        let hub = Arc::new(SessionHub::with_options(
+            send.clone(),
+            SessionHubOptions {
+                connect: Some(connect),
+                list_machines: Some(list_machines),
+                probe_snapshot: Some(ssh_probe),
+                plugin_host: Some(ssh_plugins),
+                ..Default::default()
+            },
+        ));
+        hub.start();
 
         Self {
             hub,
             frames,
-            inner,
             snapshots: HashMap::new(),
             capabilities: HashMap::new(),
             machines: vec![local_machine_info()],
@@ -134,21 +156,6 @@ impl BridgeHost {
     /// model-relevant changed (caller rebuilds `ShellModel` + notifies).
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
-        while let Ok(msg) = self.inner.try_recv() {
-            match msg {
-                InnerMsg::LocalReady(Ok(session)) => {
-                    self.hub.add_session(LOCAL_MACHINE.to_string(), session);
-                    changed = true;
-                }
-                InnerMsg::LocalReady(Err(e)) => {
-                    self.machine_errors.insert(
-                        LOCAL_MACHINE.to_string(),
-                        format!("{}: {}", e.code, e.message),
-                    );
-                    changed = true;
-                }
-            }
-        }
         while let Ok(frame) = self.frames.try_recv() {
             changed |= self.handle_frame_value(&frame);
         }
@@ -300,6 +307,12 @@ impl BridgeHost {
             // consumed by the #620 terminal view; ignored here.
             _ => false,
         }
+    }
+}
+
+impl Drop for BridgeHost {
+    fn drop(&mut self) {
+        self.hub.close();
     }
 }
 

@@ -47,6 +47,23 @@ impl Connection {
         }
     }
 
+    /// Assemble a `Connection` from raw parts — crate-internal
+    /// transports (e.g. the ssh process pipe) that drive their own
+    /// reader/supervisor loop instead of `spawn_reader`.
+    pub(crate) fn from_parts(
+        events: Receiver<ConnEvent>,
+        writer: Box<dyn Write + Send>,
+        closer: Box<dyn FnMut() + Send>,
+        reader: Option<JoinHandle<()>>,
+    ) -> Self {
+        Self {
+            events,
+            writer,
+            closer,
+            reader,
+        }
+    }
+
     /// Split into the pieces a long-lived protocol link needs
     /// (issue #598): the event stream for the pump thread, the writer
     /// for the send thread, the transport closer, and the reader join

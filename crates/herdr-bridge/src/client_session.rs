@@ -1020,7 +1020,23 @@ impl HubCtx {
     fn handle_frame(&self, frame: &ClientFrame) {
         match frame {
             ClientFrame::ListMachines { .. } => self.push_machines(),
-            ClientFrame::MachineConnect { machine, .. } => self.ensure_connect(machine),
+            ClientFrame::MachineConnect { machine, .. } => {
+                // `connect()` parity: an explicit connect on a live
+                // session reconnects it — connectInner drops the stale
+                // session first. `local` is exempt: its session is
+                // host-managed and ensure_connect dedups anyway.
+                if machine.as_str() != LOCAL_MACHINE
+                    && self
+                        .inner
+                        .lock()
+                        .unwrap()
+                        .sessions
+                        .contains_key(machine.as_str())
+                {
+                    self.disconnect(machine, false);
+                }
+                self.ensure_connect(machine);
+            }
             ClientFrame::MachineDisconnect { machine, .. } => {
                 // The local session is never disconnected (TS parity).
                 if machine.as_str() != LOCAL_MACHINE {
@@ -1561,6 +1577,22 @@ impl HubCtx {
             *generation += 1;
             *generation
         };
+        // connectInner parity: ssh machines report `connecting` for the
+        // duration of endpoint resolution + session boot. Once per
+        // attempt — the `connecting` set above already dedups.
+        if machine != LOCAL_MACHINE {
+            let info = {
+                let mut inner = self.inner.lock().unwrap();
+                inner.infos.get_mut(machine).map(|info| {
+                    info.status = MachineStatus::Connecting;
+                    info.detail = None;
+                    info.clone()
+                })
+            };
+            if let Some(info) = info {
+                push_status_json(&self.send, &info);
+            }
+        }
         let machine = machine.to_string();
         let send = self.wrapped_send(&machine);
         let inner_arc = self.inner.clone();
@@ -1573,7 +1605,7 @@ impl HubCtx {
             // The factory receives the detail current at connect time;
             // it is re-aligned with the selection once the session lands.
             let detail = SnapshotDetail::Summary;
-            match factory(&machine, detail, send) {
+            match factory(&machine, detail, send.clone()) {
                 Ok(session) => {
                     let (pending, session, detail) = {
                         let mut guard = inner_arc.lock().unwrap();
@@ -1603,11 +1635,53 @@ impl HubCtx {
                         session.handle_frame(&frame);
                     }
                 }
-                Err(_) => {
+                Err(e) => {
                     // TS parity: pendingFrames survive a failed connect —
                     // the next routed frame retries and the queued
                     // attach-lifecycle frames still flush on success.
                     inner_arc.lock().unwrap().connecting.remove(&machine);
+                    // connectInner catch parity: endpoint-resolution
+                    // failures are classified like probe/boot failures.
+                    // Session-boot failures already arrived as a `boot`
+                    // rpc_result that `observe` classified — only the
+                    // resolver's SSH_CONNECT_ERROR needs handling here,
+                    // and only while this attempt is still current.
+                    let current = inner_arc
+                        .lock()
+                        .unwrap()
+                        .generations
+                        .get(&machine)
+                        .copied()
+                        .unwrap_or(0)
+                        == generation;
+                    if current && e.code == crate::ssh::SSH_CONNECT_ERROR {
+                        let (kind, detail) = classify_ssh_failure(&e.message);
+                        let next = match kind {
+                            SshFailureKind::AuthRequired => MachineStatus::AuthRequired,
+                            SshFailureKind::Unreachable => MachineStatus::Unreachable,
+                            SshFailureKind::Incompatible => MachineStatus::Incompatible,
+                            SshFailureKind::Error => MachineStatus::Error,
+                        };
+                        let detail = if detail.is_empty() {
+                            None
+                        } else {
+                            Some(detail)
+                        };
+                        let mut push = None;
+                        {
+                            let mut guard = inner_arc.lock().unwrap();
+                            if let Some(info) = guard.infos.get_mut(&machine) {
+                                if info.status != next || info.detail != detail {
+                                    info.status = next;
+                                    info.detail = detail;
+                                    push = Some(info.clone());
+                                }
+                            }
+                        }
+                        if let Some(info) = push {
+                            push_status_json(&send, &info);
+                        }
+                    }
                 }
             }
         });

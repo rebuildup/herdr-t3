@@ -23,6 +23,7 @@ pub mod machines;
 pub mod mem;
 pub mod plugins;
 pub mod session;
+pub mod ssh;
 
 use io::{ConnEvent, Connection, Connector};
 use serde_json::{json, Map, Value};
