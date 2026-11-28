@@ -27,6 +27,7 @@ export const Playground: Story = {
             pushNotice({
               kind: "attention",
               status: "blocked",
+              agent: "claude",
               title: "Agent needs input",
               body: "claude · refactor auth flow",
               context: "my-app · mbp · main",
@@ -42,6 +43,7 @@ export const Playground: Story = {
             pushNotice({
               kind: "attention",
               status: "done",
+              agent: "codex",
               title: "Agent finished",
               body: "codex · fix flaky test",
               context: "my-app · mbp · main",

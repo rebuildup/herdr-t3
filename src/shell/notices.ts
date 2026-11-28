@@ -31,6 +31,8 @@ export interface Notice {
    * the toast type/icon. Absent for plain info/error notices.
    */
   status?: string | undefined;
+  /** Provider kind for the attention glyph's brand mark, when known. */
+  agent?: string | undefined;
   /** Concise state description, e.g. "Agent needs input". */
   title: string;
   /** Secondary line: agent identity and/or work title. */
@@ -97,6 +99,10 @@ export function pushNotice(
       context: full.context,
       createdAt,
       dismissAfterVisibleMs: VISIBLE_MS,
+      // Attention toasts render the unified agent glyph (brand mark +
+      // status ring + marker) instead of a bare type icon (issue #550).
+      agentStatus: full.kind === "attention" ? full.status : undefined,
+      agent: full.agent,
     },
   });
   return id;

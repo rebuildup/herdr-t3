@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import type { AgentStatus } from "../../../shared/protocol";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import { buttonVariants } from "~/components/ui/button";
 import {
   buildVisibleToastLayout,
@@ -46,6 +48,13 @@ export interface ToastNoticeData {
   dismissAfterVisibleMs?: number;
   /** "stacked-end" renders the action under the description (upstream layout). */
   actionLayout?: "inline" | "stacked-end";
+  /**
+   * Agent status behind an attention toast — renders the unified
+   * AgentIdentityIcon glyph instead of the type icon (issue #550).
+   */
+  agentStatus?: AgentStatus | undefined;
+  /** Provider kind for the attention glyph's brand mark. */
+  agent?: string | undefined;
   onClose?: (() => void) | undefined;
 }
 
@@ -386,7 +395,16 @@ function Toasts({ position }: { position: ToastPosition }) {
                       !stackedActionLayout && !hasAction && "pr-6",
                     )}
                   >
-                    {Icon ? (
+                    {toast.data?.agentStatus ? (
+                      // Attention toasts lead with the same unified
+                      // agent-work glyph as rows (issue #550): brand
+                      // mark + status ring + marker.
+                      <AgentIdentityIcon
+                        agent={toast.data.agent}
+                        status={toast.data.agentStatus}
+                        size="sm"
+                      />
+                    ) : Icon ? (
                       <div
                         className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
                         data-slot="toast-icon"

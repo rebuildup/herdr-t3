@@ -94,6 +94,7 @@ export function observeSnapshotAttention(
       pushNotice({
         kind: "attention",
         status: agent.agent_status,
+        agent: agent.agent ?? undefined,
         title: blocked ? "Agent needs input" : "Agent finished",
         body: joinParts([agentName, work]),
         context: joinParts([where, machineName, branch]),
