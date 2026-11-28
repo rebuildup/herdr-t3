@@ -84,6 +84,10 @@ fn guard_quirks_match_ts() {
     assert!(frame(json!({"type":"machine_connect","machine":"m"})));
     assert!(!frame(json!({"type":"machine_connect","machine":""})));
     assert!(frame(json!({"type":"machine_connect","machine":"x".repeat(500)})));
+    // machine_select shares the connect/disconnect rule (issue #585).
+    assert!(frame(json!({"type":"machine_select","machine":"m"})));
+    assert!(!frame(json!({"type":"machine_select","machine":""})));
+    assert!(frame(json!({"type":"machine_select","machine":"x".repeat(500)})));
     // list_machines accepts arbitrary extra fields.
     assert!(frame(json!({"type":"list_machines","whatever":[1,{"a":2}]})));
     // subscribe_terminal does not validate cols/rows.
@@ -152,6 +156,9 @@ fn server_frame_all_variants_decode() {
     let cases = [
         json!({"type":"ready","machine":"local","snapshot":{"version":"22"}}),
         json!({"type":"snapshot","machine":"local","probe":true,"snapshot":{}}),
+        // Issue #585: summary-mode sessions mark stripped snapshots.
+        json!({"type":"ready","machine":"local","detail":"summary","snapshot":{}}),
+        json!({"type":"snapshot","machine":"local","detail":"summary","snapshot":{}}),
         json!({"type":"event","machine":"local","event":{"k":1}}),
         json!({"type":"rpc_result","id":"c1","ok":true,"result":{"a":1}}),
         json!({"type":"rpc_result","id":"c1","ok":false,"error":{"code":"x","message":"m","fields":{"f":1}}}),

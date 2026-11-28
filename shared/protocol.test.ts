@@ -67,6 +67,16 @@ describe("plugin contract frames (ADR-0011)", () => {
   });
 });
 
+describe("machine_select frame (issue #585)", () => {
+  test("accepts a non-empty machine id like machine_connect", () => {
+    expect(isClientFrame({ type: "machine_select", machine: "m1" })).toBe(true);
+    expect(isClientFrame({ type: "machine_select", machine: "local" })).toBe(true);
+    expect(isClientFrame({ type: "machine_select", machine: "" })).toBe(false);
+    expect(isClientFrame({ type: "machine_select" })).toBe(false);
+    expect(isClientFrame({ type: "machine_select", machine: 1 })).toBe(false);
+  });
+});
+
 describe("rpc_result error fields (issue #257)", () => {
   test("server frame schema carries optional bounded plugin error fields", () => {
     const frame: ServerFrame = {

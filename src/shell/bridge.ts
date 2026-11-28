@@ -20,6 +20,7 @@ import {
   fetchSession,
   LOCAL_MACHINE,
   machineConnect,
+  machineSelect,
   onMachineStatus,
   onMachines,
   onSnapshot,
@@ -48,6 +49,14 @@ export interface ShellBridgeState {
    * connection; the next non-probe snapshot clears the flag.
    */
   probeSnapshots: Record<string, boolean>;
+  /**
+   * Machines whose held snapshot came from a summary-mode session
+   * (issue #585): sidebar-grade structure + agent status with canvas
+   * detail stripped. ensureMachine treats these like probe snapshots —
+   * list data, not a live detail session — and selects the machine so
+   * the bridge upgrades it to full detail.
+   */
+  summarySnapshots: Record<string, boolean>;
 }
 
 let state: ShellBridgeState = {
@@ -57,6 +66,7 @@ let state: ShellBridgeState = {
   errors: {},
   pendingMachines: {},
   probeSnapshots: {},
+  summarySnapshots: {},
 };
 
 const listeners = new Set<() => void>();
@@ -127,9 +137,15 @@ export function ensureMachine(machine: string): Promise<SessionSnapshot | null> 
     setMachineError(machine, "machine is disabled");
     return Promise.resolve(null);
   }
-  // A probe snapshot is list data, not a session: callers that reach
-  // ensureMachine want a live connection, so fall through to connect.
-  if (existing && !state.probeSnapshots[machine] && (!info || LIVE_STATUSES.has(info.status))) {
+  const liveDetail =
+    existing !== undefined &&
+    state.probeSnapshots[machine] !== true &&
+    state.summarySnapshots[machine] !== true &&
+    (!info || LIVE_STATUSES.has(info.status));
+  // A probe or summary snapshot is list data, not a detail session:
+  // callers that reach ensureMachine want a live connection, so fall
+  // through to connect/select.
+  if (liveDetail) {
     return Promise.resolve(existing);
   }
   if (state.pendingMachines[machine]) {
@@ -144,24 +160,52 @@ export function ensureMachine(machine: string): Promise<SessionSnapshot | null> 
       };
       const offStore = subscribe(() => {
         const snap = state.snapshots[machine];
-        if (snap && !state.probeSnapshots[machine]) done(snap);
-        else if (!state.pendingMachines[machine]) done(null);
+        if (
+          snap &&
+          state.probeSnapshots[machine] !== true &&
+          state.summarySnapshots[machine] !== true
+        ) {
+          done(snap);
+        } else if (!state.pendingMachines[machine]) done(null);
       });
-      const offSnapshot = onSnapshot((snapshot, m, probe) => {
-        // Probe pushes are display data; a waiter asked for a live session.
-        if (m === machine && !probe) done(snapshot);
+      const offSnapshot = onSnapshot((snapshot, m, probe, detail) => {
+        // Probe and summary pushes are display data; a waiter asked for a
+        // live, full-detail session.
+        if (m === machine && !probe && detail !== "summary") done(snapshot);
       });
     });
   }
   setPending(machine, true);
   setMachineError(machine, null);
-  machineConnect(machine);
+  // A summary snapshot means a live session already exists: select the
+  // machine so the bridge upgrades it in place (issue #585) instead of
+  // machine_connect's full session rebuild. Anything else connects.
+  const summaryLive =
+    existing !== undefined &&
+    state.summarySnapshots[machine] === true &&
+    (!info || LIVE_STATUSES.has(info.status));
+  if (summaryLive) machineSelect(machine);
+  else machineConnect(machine);
   return fetchSession(machine)
     .then((snapshot) => {
       // The pushed snapshot frame may race the fetch reply; keep whichever
-      // the listener stored, and make sure this one is stored too.
-      if (!state.snapshots[machine]) {
-        patch({ snapshots: { ...state.snapshots, [machine]: snapshot } });
+      // the listener stored, and make sure this one is stored too. A held
+      // probe/summary snapshot is not an answer — store the fetched
+      // full-detail one and clear its flag.
+      const flags = { ...state.probeSnapshots };
+      delete flags[machine];
+      const summaryFlags = { ...state.summarySnapshots };
+      delete summaryFlags[machine];
+      if (
+        !state.snapshots[machine] ||
+        state.probeSnapshots[machine] === true ||
+        state.summarySnapshots[machine] === true
+      ) {
+        patch({
+          snapshots: { ...state.snapshots, [machine]: snapshot },
+          probeSnapshots: flags,
+          summarySnapshots: summaryFlags,
+        });
       }
       setPending(machine, false);
       return state.snapshots[machine] ?? snapshot;
@@ -228,18 +272,24 @@ export function initBridge(): () => void {
   // Listeners must subscribe before connectBridge(): the desktop IPC path
   // notifies "open" synchronously inside connect(), so a later subscription
   // would miss it and the status would stay "connecting" forever (issue #92).
-  const offSnapshot = onSnapshot((snapshot, machine, probe) => {
+  const offSnapshot = onSnapshot((snapshot, machine, probe, detail) => {
     setMachineError(machine, null);
     // Store the snapshot before clearing pending so waiters observing the
     // pending flag never resolve null ahead of the data they waited for.
     // A probe push is display data only: it must not satisfy a pending
-    // live-session fetch (issue #212).
+    // live-session fetch (issue #212); a summary push (issue #585) is
+    // sidebar-grade data — kept for the lists, flagged so detail callers
+    // keep waiting for the full snapshot.
     const probeSnapshots = { ...state.probeSnapshots };
     if (probe) probeSnapshots[machine] = true;
     else delete probeSnapshots[machine];
+    const summarySnapshots = { ...state.summarySnapshots };
+    if (detail === "summary") summarySnapshots[machine] = true;
+    else delete summarySnapshots[machine];
     patch({
       snapshots: { ...state.snapshots, [machine]: snapshot },
       probeSnapshots,
+      summarySnapshots,
     });
     if (!probe) setPending(machine, false);
   });

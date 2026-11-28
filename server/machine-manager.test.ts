@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isClientFrame } from "../shared/protocol.ts";
 import { MachineManager } from "./machine-manager.ts";
+import type { BridgeSession, SnapshotDetail } from "./bridge-core.ts";
 import type { SavedMachine } from "./machines.ts";
 
 /*
@@ -234,6 +235,51 @@ describe("isClientFrame machine frames", () => {
     expect(isClientFrame({ type: "machine_update", id: "c", machine: "m1" })).toBe(false);
     expect(isClientFrame({ type: "machine_remove", id: "d" })).toBe(false);
     expect(isClientFrame({ type: "machine_update", id: "e", machine: "m1", enabled: "yes" })).toBe(false);
+  });
+});
+
+describe("machine_select detail mode (issue #585)", () => {
+  test("the selected machine's session runs full detail; every other session stays summary", () => {
+    isolateHerdr();
+    const creations: { machine: string; detail: SnapshotDetail }[] = [];
+    const setDetails = new Map<string, SnapshotDetail[]>();
+    const manager = new MachineManager({
+      send: () => {},
+      listMachines: () => [],
+      runHerdr: () => Promise.resolve(""),
+      sessionFactory: (_send, _endpoint, machine, detail) => {
+        creations.push({ machine, detail });
+        const calls: SnapshotDetail[] = [];
+        setDetails.set(machine, calls);
+        return {
+          handleFrame: () => {},
+          start: () => Promise.resolve(),
+          latestSnapshot: () => null,
+          setDetail: (d) => {
+            calls.push(d);
+          },
+          close: () => {},
+        } satisfies BridgeSession;
+      },
+    });
+
+    // Nothing is selected at boot: the local session starts in summary
+    // mode — structure + agent status for the sidebar, no canvas detail.
+    expect(creations).toEqual([{ machine: "local", detail: "summary" }]);
+
+    // Selecting local upgrades it to full detail.
+    manager.handleFrame({ type: "machine_select", machine: "local" });
+    expect(setDetails.get("local")).toEqual(["full"]);
+
+    // Selecting another machine downgrades local back to summary; the
+    // unknown id connects nothing but still declares the selection.
+    manager.handleFrame({ type: "machine_select", machine: "ghost" });
+    expect(setDetails.get("local")).toEqual(["full", "summary"]);
+
+    // Re-selecting local restores full detail — idempotent both ways.
+    manager.handleFrame({ type: "machine_select", machine: "local" });
+    expect(setDetails.get("local")).toEqual(["full", "summary", "full"]);
+    manager.close();
   });
 });
 

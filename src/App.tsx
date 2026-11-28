@@ -25,6 +25,7 @@ import { NoticeToasts } from "./shell/NoticeToasts";
 import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
 import { callRpc, ensureMachine, getBridgeState, initBridge, selectWorkspace } from "./shell/bridge";
+import { useMachineSelection } from "./shell/view";
 import { initInbox } from "./shell/inbox";
 import { initAutomations } from "./shell/automations";
 import { initConversations } from "./shell/conversations";
@@ -45,6 +46,10 @@ export default function App() {
   const route = useRoute();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [, setAppearance] = useState<AppearanceMode>(getAppearanceMode());
+  // Demand-driven detail (issue #585): declare which machine may render
+  // full session detail; every other connected machine stays in summary
+  // mode (sidebar structure + agent status only).
+  useMachineSelection();
 
   useEffect(() => {
     initRouter();

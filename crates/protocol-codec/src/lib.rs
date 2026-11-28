@@ -179,7 +179,7 @@ pub fn is_client_frame(value: &Value) -> bool {
                 && machine_ok(frame)
         }
         Some("list_machines") => true,
-        Some("machine_connect") | Some("machine_disconnect") => {
+        Some("machine_connect") | Some("machine_disconnect") | Some("machine_select") => {
             // No machineOk here: `machine` is the target id, unbounded.
             non_empty_str(frame.get("machine"))
         }
@@ -755,6 +755,11 @@ pub enum ClientFrame {
         #[serde(flatten)]
         extra: JsonMap,
     },
+    MachineSelect {
+        machine: String,
+        #[serde(flatten)]
+        extra: JsonMap,
+    },
     MachineAdd {
         id: String,
         label: String,
@@ -866,12 +871,23 @@ pub struct MachineInfo {
     pub extra: JsonMap,
 }
 
+/// `detail: "summary"` marker on ready/snapshot frames (issue #585):
+/// the session runs in summary mode — structure + agent status only,
+/// canvas detail stripped. Absent means a full-detail snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapshotDetail {
+    Summary,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerFrame {
     Ready {
         snapshot: SessionSnapshot,
         machine: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<SnapshotDetail>,
         #[serde(flatten)]
         extra: JsonMap,
     },
@@ -880,6 +896,8 @@ pub enum ServerFrame {
         machine: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         probe: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<SnapshotDetail>,
         #[serde(flatten)]
         extra: JsonMap,
     },

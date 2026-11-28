@@ -19,11 +19,21 @@ Version: 1. Scope: the wire contract between bridge and UI —
   messages; no direct response (see terminal-session contract).
 - `list_machines`, `machine_connect/disconnect/add/remove/update` →
   `machines` / `machine_status` frames.
+- `machine_select(machine)` → declares the single machine whose session
+  runs in full detail mode (issue #585): canvas layouts, pane scroll
+  state and terminal attach eligibility. Every other connected machine
+  stays in summary mode — the same `events.subscribe` structure +
+  agent-status stream and snapshot pushes, but with canvas detail
+  stripped. Idempotent; also connects the machine on demand.
 - `plugin_list(id, machine?)`, `plugin_call(id, machine, plugin, command, args, session?)`
   → `rpc_result` tagged with `machine`.
-- Server → client: `ready{snapshot,machine}`, `snapshot{snapshot,machine,probe?}`,
-  `event{event,machine}`, `terminal_data`, `terminal_mouse_capture`,
-  `terminal_closed{reason?}`, `machines`, `machine_status`.
+- Server → client: `ready{snapshot,machine,detail?}`,
+  `snapshot{snapshot,machine,probe?,detail?}`, `event{event,machine}`,
+  `terminal_data`, `terminal_mouse_capture`, `terminal_closed{reason?}`,
+  `machines`, `machine_status`. `detail?: "summary"` marks a snapshot
+  pushed by a summary-mode session (issue #585): workspaces, tabs,
+  agents and pane identity/status are intact; `layouts` is empty and
+  `panes[].scroll` is absent. Absent `detail` means full detail.
 
 ## Ordering and semantics
 
