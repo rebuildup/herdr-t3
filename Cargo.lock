@@ -2462,6 +2462,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "herdr-ui"
+version = "0.0.0"
+dependencies = [
+ "gpui",
+ "herdr-bridge",
+ "protocol-codec",
+ "serde_json",
+ "state-projections",
+ "ui-kit",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
