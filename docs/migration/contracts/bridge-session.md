@@ -45,7 +45,10 @@ ADR-0010; wire shapes: protocol-frames.
   without a PTY bridge). Never assume a pty exists.
 - While a writable attach is held, herdr fixes that pane's size to the
   client's cols/rows (ADR-0010, herdr protocol 22); the GUI reports its
-  measured cell size via `terminal_resize` and does not negotiate.
+  measured cell size via `terminal_resize` and does not negotiate. Only
+  the operator pane holds writable attach — granted by input intent,
+  released on focus change (issue #584,
+  `terminal-noninterference.md`); all other panes observe.
 - Nothing the user typed is sent automatically after a disconnect —
   typed input waits in a draft until the user sends or discards it.
 - Prompt answers go through `agent.prompt` / the prompt-answer API,
