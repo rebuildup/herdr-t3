@@ -140,6 +140,9 @@ describe("watchdog", () => {
       diagDir: dir,
       label: "contract-test",
       kill: (pid, sig) => signals.push(`${pid}:${sig}`),
+      // Hermetic: never exec the real `ps` — under host load that alone can
+      // exceed the 5s test timeout (issue #623).
+      listProcesses: () => [],
       pollMs: 10,
     });
     const err = await wd.fired;

@@ -235,12 +235,16 @@ export async function reapRecorded(pidsFile: string, opts: ReapOptions = {}): Pr
 }
 
 /** Snapshot diagnostics for a timed-out run into diagDir. */
-export function writeDiagnostics(diagDir: string, label: string): string {
+export function writeDiagnostics(
+  diagDir: string,
+  label: string,
+  procList: () => ProcInfo[] = listProcesses,
+): string {
   mkdirSync(diagDir, { recursive: true });
   const stamp = new Date().toISOString();
   const out: string[] = [`# watchdog timeout: ${label} at ${stamp}`, ""];
   try {
-    const table = listProcesses().filter((p) =>
+    const table = procList().filter((p) =>
       /herdr|electron|vite|bun|chrome|node/i.test(p.command),
     );
     out.push(
@@ -299,7 +303,11 @@ export function startWatchdog(opts: WatchdogOptions): WatchdogHandle {
         const err = new BudgetExceeded(`watchdog: ${opts.label}`, opts.budgetMs);
         try {
           opts.onTimeout?.();
-          writeDiagnostics(opts.diagDir, opts.label);
+          writeDiagnostics(
+            opts.diagDir,
+            opts.label,
+            opts.listProcesses ?? listProcesses,
+          );
           await reapRecorded(opts.pidsFile, {
             ...(opts.kill ? { kill: opts.kill } : {}),
             ...(opts.listProcesses ? { listProcesses: opts.listProcesses } : {}),
