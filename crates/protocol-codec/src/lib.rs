@@ -73,6 +73,24 @@ pub fn is_rpc_method(method: &str) -> bool {
     RPC_METHODS.contains(&method)
 }
 
+/// Mirror of `READ_ONLY_RPC_METHODS` in shared/protocol.ts (issue #423):
+/// methods that cannot mutate session state — a successful call never
+/// schedules a snapshot refetch. Unknown/future methods default to
+/// refreshing (conservative), matching the TS predicate.
+pub const READ_ONLY_RPC_METHODS: [&str; 7] = [
+    "session.snapshot",
+    "agent.get",
+    "agent.read",
+    "agent.explain",
+    "pane.process_info",
+    "pane.link.resolve",
+    "worktree.list",
+];
+
+pub fn is_read_only_rpc_method(method: &str) -> bool {
+    READ_ONLY_RPC_METHODS.contains(&method)
+}
+
 /* ------------------------- isClientFrame mirror ------------------------ */
 
 /// JavaScript `string.length`: UTF-16 code units, not bytes or scalar
@@ -110,6 +128,75 @@ fn opt_num_ok(v: Option<&Value>) -> bool {
     v.is_none_or(is_finite_number)
 }
 
+/* ---- non-interference helpers (issue #597, contract C1–C5) ---- */
+
+/// Non-negative safe integer, mirroring the TS `isNonNegSafeInt` guard:
+/// anchor/rows magnitudes are u64 on the wire but JS numbers stay exact
+/// only to 2^53-1, so the guard admits that shared subset. Checked on the
+/// f64 view so `5` and `5.0` agree with `JSON.parse` on the TS side.
+fn is_non_neg_safe_int(v: &Value) -> bool {
+    v.as_f64()
+        .is_some_and(|f| f.fract() == 0.0 && f >= 0.0 && f <= 9_007_199_254_740_991.0)
+}
+
+fn opt_non_neg_safe_int(v: Option<&Value>) -> bool {
+    v.is_none_or(is_non_neg_safe_int)
+}
+
+/// `HistoryAnchor` JSON shape: `{kind:"offset_from_bottom",offset}` or
+/// `{kind:"absolute_line",line}`.
+fn history_anchor_ok(v: &Value) -> bool {
+    let Value::Object(anchor) = v else {
+        return false;
+    };
+    match anchor.get("kind").and_then(Value::as_str) {
+        Some("offset_from_bottom") => anchor.get("offset").is_some_and(is_non_neg_safe_int),
+        Some("absolute_line") => anchor.get("line").is_some_and(is_non_neg_safe_int),
+        _ => false,
+    }
+}
+
+fn opt_history_anchor_ok(v: Option<&Value>) -> bool {
+    v.is_none_or(history_anchor_ok)
+}
+
+fn history_format_ok(v: &Value) -> bool {
+    matches!(v.as_str(), Some("text" | "ansi"))
+}
+
+fn opt_history_format_ok(v: Option<&Value>) -> bool {
+    v.is_none_or(history_format_ok)
+}
+
+/// C2b `TerminalInputGrant`: object whose keys/mouse/scroll are optional booleans.
+fn input_grant_ok(v: &Value) -> bool {
+    let Value::Object(grant) = v else {
+        return false;
+    };
+    ["keys", "mouse", "scroll"]
+        .iter()
+        .all(|k| grant.get(*k).is_none_or(Value::is_boolean))
+}
+
+/// C4 scroll scope: `"shared"` | `"viewport"`.
+fn scroll_scope_ok(v: &Value) -> bool {
+    matches!(v.as_str(), Some("shared" | "viewport"))
+}
+
+fn opt_scroll_scope_ok(v: Option<&Value>) -> bool {
+    v.is_none_or(scroll_scope_ok)
+}
+
+/// `subscribe_terminal.history` options object (C3 initial page request).
+fn history_options_ok(v: &Value) -> bool {
+    let Value::Object(history) = v else {
+        return false;
+    };
+    opt_history_anchor_ok(history.get("anchor"))
+        && opt_non_neg_safe_int(history.get("rows"))
+        && opt_history_format_ok(history.get("format"))
+}
+
 /// Runtime guard mirroring `isClientFrame` in shared/protocol.ts.
 /// Returns true iff the bridge would accept this frame.
 pub fn is_client_frame(value: &Value) -> bool {
@@ -132,6 +219,28 @@ pub fn is_client_frame(value: &Value) -> bool {
                 && frame
                     .get("takeover")
                     .is_none_or(|t| t.is_boolean())
+                && frame
+                    .get("writable")
+                    .is_none_or(|w| w.is_boolean())
+                // C1/C2b/C3/C4 (issue #597): additive non-interference options.
+                && frame
+                    .get("manageSize")
+                    .is_none_or(|m| m.is_boolean())
+                && frame
+                    .get("inputGrant")
+                    .is_none_or(input_grant_ok)
+                && opt_scroll_scope_ok(frame.get("scrollScope"))
+                && frame
+                    .get("history")
+                    .is_none_or(history_options_ok)
+        }
+        Some("terminal_history") => {
+            // C3 (issue #597): AttachHistoryRead — read-only scrollback page.
+            pane_id_ok()
+                && machine_ok(frame)
+                && frame.get("anchor").is_some_and(history_anchor_ok)
+                && opt_non_neg_safe_int(frame.get("rows"))
+                && opt_history_format_ok(frame.get("format"))
         }
         Some("unsubscribe_terminal") => pane_id_ok() && machine_ok(frame),
         Some("terminal_input") => {
@@ -173,10 +282,12 @@ pub fn is_client_frame(value: &Value) -> bool {
                 && opt_num_ok(frame.get("column"))
                 && opt_num_ok(frame.get("row"))
                 && opt_num_ok(frame.get("modifiers"))
+                // C4 (issue #597): per-client viewport scroll scope.
+                && opt_scroll_scope_ok(frame.get("scope"))
                 && machine_ok(frame)
         }
         Some("list_machines") => true,
-        Some("machine_connect") | Some("machine_disconnect") => {
+        Some("machine_connect") | Some("machine_disconnect") | Some("machine_select") => {
             // No machineOk here: `machine` is the target id, unbounded.
             non_empty_str(frame.get("machine"))
         }
@@ -650,6 +761,64 @@ pub struct SessionSnapshot {
     pub extra: JsonMap,
 }
 
+/* -------------------- non-interference types (issue #597) -------------- */
+
+/// C3 `HistoryAnchor`: a stable position in a pane's retained scrollback.
+/// `offset_from_bottom` is re-anchored by the server at read time;
+/// `absolute_line` indexes the retained scrollback and is stable under
+/// appends. Wire shape is `{kind, ...}` (internally tagged).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HistoryAnchor {
+    OffsetFromBottom { offset: Number },
+    AbsoluteLine { line: Number },
+}
+
+/// C3 row format for history pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryReadFormat {
+    Text,
+    Ansi,
+}
+
+/// C4 scroll scope: `"shared"` moves the pane-global offset (herdr v22
+/// `AttachScroll` semantics); `"viewport"` addresses the requesting
+/// client's own scroll offset (herdr `AttachScrollViewport`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalScrollScope {
+    Shared,
+    Viewport,
+}
+
+/// C2b observe-with-input-grant: per-connection grant of input message
+/// classes on an observe-mode attach. Absent fields are not granted.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TerminalInputGrant {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouse: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll: Option<bool>,
+    #[serde(flatten)]
+    pub extra: JsonMap,
+}
+
+/// C3 initial history page requested via `subscribe_terminal.history`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TerminalHistoryOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<HistoryAnchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Number>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<HistoryReadFormat>,
+    #[serde(flatten)]
+    pub extra: JsonMap,
+}
+
 /* ------------------------------ client frames -------------------------- */
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -676,6 +845,35 @@ pub enum ClientFrame {
         machine: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         takeover: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        writable: Option<bool>,
+        /// C1 (issue #597): `false` = writable attach without resize
+        /// authority (herdr `AttachTerminalSharedSize` shape).
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "manageSize")]
+        manage_size: Option<bool>,
+        /// C2b (issue #597): observe-with-input-grant.
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "inputGrant")]
+        input_grant: Option<TerminalInputGrant>,
+        /// C4 (issue #597): default scroll scope for this subscription.
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scrollScope")]
+        scroll_scope: Option<TerminalScrollScope>,
+        /// C3 (issue #597): initial history page request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        history: Option<TerminalHistoryOptions>,
+        #[serde(flatten)]
+        extra: JsonMap,
+    },
+    /// C3 (issue #597): `AttachHistoryRead` — read-only scrollback page.
+    TerminalHistory {
+        #[serde(rename = "paneId")]
+        pane_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        anchor: HistoryAnchor,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rows: Option<Number>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<HistoryReadFormat>,
         #[serde(flatten)]
         extra: JsonMap,
     },
@@ -735,6 +933,9 @@ pub enum ClientFrame {
         row: Option<Number>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifiers: Option<Number>,
+        /// C4 (issue #597): per-message scroll scope override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<TerminalScrollScope>,
         #[serde(flatten)]
         extra: JsonMap,
     },
@@ -748,6 +949,11 @@ pub enum ClientFrame {
         extra: JsonMap,
     },
     MachineDisconnect {
+        machine: String,
+        #[serde(flatten)]
+        extra: JsonMap,
+    },
+    MachineSelect {
         machine: String,
         #[serde(flatten)]
         extra: JsonMap,
@@ -863,12 +1069,28 @@ pub struct MachineInfo {
     pub extra: JsonMap,
 }
 
+/// `detail: "summary"` marker on ready/snapshot frames (issue #585):
+/// the session runs in summary mode — structure + agent status only,
+/// canvas detail stripped. Absent means a full-detail snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapshotDetail {
+    Summary,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerFrame {
     Ready {
         snapshot: SessionSnapshot,
         machine: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<SnapshotDetail>,
+        /// C5 (issue #597): non-interference capability ids this machine's
+        /// backend advertises (`TERMINAL_NONINTERFERENCE_CAPABILITIES` in
+        /// shared/protocol.ts). Absent means none advertised.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capabilities: Option<Vec<String>>,
         #[serde(flatten)]
         extra: JsonMap,
     },
@@ -877,6 +1099,8 @@ pub enum ServerFrame {
         machine: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         probe: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<SnapshotDetail>,
         #[serde(flatten)]
         extra: JsonMap,
     },
@@ -920,6 +1144,29 @@ pub enum ServerFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
         machine: String,
+        #[serde(flatten)]
+        extra: JsonMap,
+    },
+    /// C3 (issue #597): `TerminalHistoryPage` — answer to a
+    /// `terminal_history` request or a `subscribe_terminal.history` page.
+    /// `anchor` is the request anchor echoed back clamped;
+    /// `content_revision` lets the client detect drift under appends.
+    TerminalHistoryPage {
+        #[serde(rename = "paneId")]
+        pane_id: String,
+        machine: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "terminalId")]
+        terminal_id: Option<String>,
+        #[serde(rename = "contentRevision")]
+        content_revision: Number,
+        anchor: HistoryAnchor,
+        rows: Vec<String>,
+        #[serde(rename = "hasMoreAbove")]
+        has_more_above: bool,
+        #[serde(rename = "hasMoreBelow")]
+        has_more_below: bool,
+        #[serde(rename = "nextAnchor")]
+        next_anchor: HistoryAnchor,
         #[serde(flatten)]
         extra: JsonMap,
     },

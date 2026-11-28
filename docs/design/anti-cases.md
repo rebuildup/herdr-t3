@@ -98,10 +98,29 @@ section (reproduces the regression). Positive: viewport-derived height
 with per-region scroll ownership — height identical across sections,
 content scrolls internally.
 
-**Status.** `open` — RCA recorded; fix direction is restoring
-viewport-derived height (revert `sm:h-auto`) while handling the z5
-whitespace observation inside the content column, not by re-deriving
-height from content. Detection check not yet implemented.
+**Fix delivered.** `sm:h-auto` removed from the popup class list —
+the frame is viewport-derived again (`size-full` + `sm:max-h-[60rem]`),
+matching the #83 contract. The z5 "empty area" observation is absorbed
+by the content column's own spacing, not by re-deriving frame height.
+
+**Detection (landed).** Scenario `shell.settings-modal-frame-contract`
+(`harness/ui/scenarios/shell/`, contract `settings-modal-frame@1`)
+asserts `dialog.settings_frame_contract` — an electron-adapter observe
+that computes the expected frame height in-page (viewport content box
+capped at the resolved `max-height`) and compares it to the rendered
+popup rect across three sections of differing content height. The
+scenario declares `"adapters": ["electron"]`: the GPUI test host models
+settings semantically (open/section flags) and has no layout engine for
+a pixel-frame contract yet; the optional `adapters` field was added to
+the scenario schema, validator, and readiness gate so unclaimed
+adapters are not required to produce evidence. Verified both ways on
+the real Electron app: PASS with the fix, FAIL at step 3 with
+`sm:h-auto` restored.
+
+**Status.** `fix+gate landed` — fix + contract scenario + committed
+PASS evidence (`harness/ui/evidence/electron/`). GPUI-side coverage
+lands when the settings modal is ported; until then the scenario's
+`adapters` claim keeps the gate honest rather than rubber-stamped.
 
 **Unguaranteed.** Whether the whitespace itself is aesthetically
 acceptable is a review property (#413), not proven by the geometry check.
@@ -153,31 +172,60 @@ row actions and section-header accessory slots. Explicitly does **not**
 apply to primary CTAs, form submits, destructive confirms, or actions
 whose meaning genuinely needs a label.
 
-**Detection (planned).** Two-layer, per the issue's "shared
-action/slot" direction:
+**Detection (landed).**
 
-1. A shared `IconAction`/`ActionButton` contract (icon + required
-   `aria-label` + tooltip) used by the known accessory slots
-   (`SurfacePanelHeader`/`SurfaceDetailsSection` `actions`, row action
-   clusters) so the valid form is the easy form.
-2. An AST lint rule flagging `size="xs"|"sm"` text-bearing `Button`s
-   inside those slot positions (or a curated equivalent), with
-   reasoned suppressions for legitimate labeled actions.
+1. `herdr-t3/no-text-button-in-surface-slot`
+   (`lint-plugin/rules/no-text-button-in-surface-slot.ts`, error in
+   `.oxlintrc.json`) flags non-`icon-*` `size` `Button`s inside the
+   `actions`/`action` props of `SurfacePanelHeader`, `SurfaceSection`,
+   `SurfaceDetailsSection`, and `SurfaceGroupHeader`. Suppressions need
+   a reason (`require-suppression-reason`).
+2. The shared `IconAction` wrapper from the original plan was not
+   introduced: the established conforming pattern
+   (`size="icon-*" variant="ghost"` + `aria-label` + `title`/tooltip +
+   icon) already exists at multiple call sites, and the lint rule
+   enforces the slot boundary directly. Revisit only if review shows
+   the per-site pattern drifting.
 
 Honest limit: static analysis can enforce the slot/size boundary but
 cannot judge whether a given action's meaning requires text — that
 classification is recorded per call site and reviewed; the rule blocks
 *new unlabeled-in-spirit* regressions, it does not auto-approve meaning.
+Row-level action clusters outside the four header slots were audited
+under #534 and are **reviewed keeps**, not rule extensions:
 
-**Fixtures.** Negative: a `size="xs"` "Refresh" text button inside a
-`SurfacePanelHeader actions` slot (current pattern). Positive: the same
-action as `size="icon-xs"` ghost + `RefreshIcon` + `aria-label` +
-tooltip; a primary "Save changes" `size="sm"` text button outside
-accessory slots must still pass.
+- `HandoffsSurface` "Execute"/"Delegate"/"Merge back" render as
+  confirmation-dialog labels for destructive/lifecycle mutations —
+  explicit scope exclusion (destructive confirms need text).
+- `SecretsSurface` "Probe reachability"/"Preview resolve" are
+  section-level capability-gated one-off actions whose meaning needs a
+  label (explicit scope exclusion); they already carry `title`
+  explanations.
+- `AutomationsSurface` "Enable"/"Disable"/"Run now"/"Delete" are
+  lifecycle actions in an expanded task detail, including a destructive
+  delete — label-justified per the scope boundary.
+- `ConversationsSurface` "Load more"/index-now are pagination/one-off
+  actions, not repeated accessory chrome.
 
-**Status.** `open` — instances inventoried (above), detection design
-chosen, rule/fixture not yet implemented. Full per-surface enumeration
-belongs to the #534 audit table.
+The slot rule stays scoped to the four accessory slots; extending it to
+row clusters would iconify destructive and lifecycle actions the scope
+explicitly excludes.
+
+**Fixtures.** `scripts/lint-fixtures/bad.tsx` carries a `size="xs"`
+"Refresh" text button inside `SurfacePanelHeader actions` (asserted by
+`scripts/lint-ui.test.ts`); `good.tsx` carries the `size="icon-xs"`
+ghost + `aria-label` positive control.
+
+**Fix delivered.** All 13 inventoried violations converted to the icon
+pattern: `ProjectScriptsSurface` (1), `ProjectsSurface` (1),
+`GitSurface` (5 — remotes/branch/PR reload, group stage/unstage,
+show/hide form), `ConversationsSurface` (2), `AutomationsSurface` (2).
+`oxlint src` reports zero errors for the rule.
+
+**Status.** `fix+gate landed` — rule + fixtures + all known slot
+violations delivered; row-cluster counter-examples audited and
+classified as reviewed keeps (see Detection). Rendered verification of
+the converted controls rides with the release-candidate review (#413).
 
 **Unguaranteed.** Does not prove every remaining text button is
 misclassified; borderline cases (rare but ambiguous actions) stay a
@@ -222,30 +270,55 @@ and is the correct vehicle for non-semantic values.
 (status, severity, classification that changes meaning or action) is
 preserved — this is not a badge-count limit.
 
-**Detection (planned).** Split the primitive boundary:
+**Detection (partially landed).**
 
-1. A typed status component (e.g. `StatusBadge` mapping a known
-   state/variant union) becomes the only supported path for status
-   badges; raw `<Badge>` is restricted by an AST rule to that component
-   (and vendored `ui/` files).
-2. Metadata values render via the existing muted text styles; the lint
-   rule flags `<Badge>` whose children are clearly metadata (paths,
-   counts, `kind`/`type` echoes) where mechanically determinable, with
-   the semantic-vs-metadata classification recorded per call site for
-   review.
+1. `StatusBadge` (`src/components/ui/status-badge.tsx`) is the typed
+   status channel: `status: "ok" | "info" | "warning" | "error" |
+   "neutral"` maps to the Badge variant union in one place.
+2. `herdr-t3/no-raw-badge`
+   (`lint-plugin/rules/no-raw-badge.ts`) flags raw `<Badge>` JSX. It is
+   `error` everywhere except `src/components/ui/**` (the primitives
+   themselves) and tests. `src/components/**` was promoted warn→error
+   after the #534 burn-down cleared every unclassified call site.
+3. Metadata values render via muted text (`text-2xs
+   text-muted-foreground`, `font-mono` for ids/paths); status and
+   severity indicators go through `StatusBadge`.
 
 Honest limit: whether a value is "meaning-bearing" is partially a
 judgment call; the rule enforces the *channel* (status component vs raw
 badge vs text) and the audit records each call site's classification.
+Until the component-level warn debt is burned down, new raw `<Badge>`
+inside `src/components/**` only warns — that gap is explicit, not
+silent.
 
-**Fixtures.** Negative: `<Badge variant="info">{task.kind}</Badge>` and
-`<Badge>{guards.expensiveTaskOptIn ? "on" : "off"}</Badge>` patterns.
-Positive: a run-status badge through the typed status component; a
-kind/provider label rendered as `text-2xs text-muted-foreground` text.
+**Fixtures.** `scripts/lint-fixtures/bad.tsx` carries a raw
+`<Badge variant="secondary">` metadata chip (asserted by
+`scripts/lint-ui.test.ts`); `good.tsx` carries a `StatusBadge` positive
+control.
 
-**Status.** `open` — usage inventoried, detection design chosen, rule
-and typed component not yet implemented. Per-call-site classification
-is part of the #534 audit table.
+**Fix delivered (shell scope).** `SettingsModal` migrated: four status
+indicators (machine, bridge, herdr health, ghostty engine) now go
+through `StatusBadge`; three metadata chips ("T3 Code", "Ghostty",
+"MIT") render as muted text. `SidebarChrome`'s environment
+identification pill keeps raw `Badge` with a reasoned suppression — it
+is a persistent environment *classification*, matching T3's own
+badge usage for environment identification.
+
+**Fix delivered (full burn-down).** Every `src/components/**` call site
+was classified and converted: status/severity/guard-state indicators →
+`StatusBadge` (per-file `*Status()` helpers now return
+`StatusBadgeStatus` instead of Badge variant unions); kind/provider/
+path/count/id/flag metadata → muted `text-2xs` spans; two genuine
+classifications kept raw `Badge` with reasoned suppressions —
+`HandoffsSurface` lineage-kind badge (carries a parent tooltip) and
+`SidebarChrome`'s environment identification pill (T3-parity
+classification). `no-raw-badge` is now `error` in `src/components/**`;
+`oxlint src` reports zero errors and zero un-suppressed raw `<Badge>`
+outside `ui/`.
+
+**Status.** `fix+gate landed` — channel enforcement + full call-site
+classification + error promotion landed in one change; rendered
+verification of the converted surfaces is tracked under #413 RC.
 
 **Unguaranteed.** Does not judge whether a retained status badge's
 variant choice is the *right* semantic mapping; that stays with review

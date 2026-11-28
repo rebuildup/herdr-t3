@@ -17,6 +17,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { herdrSocketPath, socketAddress } from "./herdr.ts";
+import { metricAdd, metricInc } from "./metrics.ts";
 import { socketConnector, type Connector, type SocketHandlers } from "./socket.ts";
 
 export const CLIENT_PROTOCOL_VERSION = 22;
@@ -96,6 +97,18 @@ export function clientDetach(): number[] {
 
 export function msgAttachTerminal(terminalId: string, takeover: boolean): number[] {
   return [...vi(5), ...vs(terminalId), ...vu8(takeover)];
+}
+
+/**
+ * ClientMessage::ObserveTerminal (variant 7): read-only stream of the
+ * terminal. The server renders into the client's announced cols/rows but
+ * never calls runtime.resize and never takes direct_attach_resize_locks;
+ * ClientInput/AttachScroll/AttachMouse are routed only for TerminalAttach
+ * mode, so an observe link must not carry them (headless.rs @ e8d7d97).
+ * `target` accepts a pane, terminal or agent id; the terminal id resolves.
+ */
+export function msgObserveTerminal(target: string): number[] {
+  return [...vi(7), ...vs(target)];
 }
 
 /** AttachScrollSource::Wheel = 0, AttachScrollDirection::Up = 0 / Down = 1. */
@@ -257,6 +270,8 @@ export interface TerminalMouseEvent {
 
 export interface TerminalLink {
   readonly terminalId: string;
+  /** True when the link holds writable AttachTerminal mode; false for ObserveTerminal. */
+  readonly writable: boolean;
   write: (data: Uint8Array) => void;
   resize: (cols: number, rows: number) => void;
   scroll: (direction: "up" | "down", lines?: number, column?: number, row?: number, modifiers?: number) => void;
@@ -282,12 +297,13 @@ export function clientSocketPath(env: Record<string, string | undefined> = proce
 
 /**
  * Open a client-protocol connection and attach to `terminalId`. Resolves once
- * the server answered AttachTerminal; the first Terminal frame follows. Rejects
- * on handshake refusal, attach failure or socket loss before welcome.
+ * the mode message (AttachTerminal, or ObserveTerminal when `writable` is
+ * false) is sent after the handshake; the first Terminal frame follows.
+ * Rejects on handshake refusal, attach failure or socket loss before welcome.
  */
 export function openTerminalLink(
   terminalId: string,
-  options: { cols: number; rows: number; socketPath?: string; connect?: Connector; takeover?: boolean },
+  options: { cols: number; rows: number; socketPath?: string; connect?: Connector; takeover?: boolean; writable?: boolean },
   handlers: LinkHandlers,
 ): Promise<TerminalLink> {
   const connect =
@@ -298,6 +314,15 @@ export function openTerminalLink(
     let sock: { write(data: string | Uint8Array): unknown; end(): unknown } | null = null;
     let buffer = new Uint8Array(0);
     let closed = false;
+    /**
+     * Delivery-phase tracking for the demand-driven metrics (issue #572):
+     * bytes delivered before the first AttachScroll on this link are the
+     * initial-attach delivery; bytes after it include history paging plus
+     * live output — an upper bound on paging volume, since the wire
+     * protocol has no separate history-fetch message (herdr protocol v22:
+     * AttachScroll is the only paging trigger).
+     */
+    let scrollSeen = false;
 
     const finish = (fn: () => void) => {
       if (settled) return;
@@ -350,27 +375,43 @@ export function openTerminalLink(
             try { sock?.end(); } catch { /* gone */ }
             return;
           }
-          // Attach now that the handshake is accepted.
-          send(msgAttachTerminal(terminalId, options.takeover ?? false));
+          // Pick the attach mode before any frame flows: writable
+          // AttachTerminal takes the pane's resize authority; ObserveTerminal
+          // streams read-only with no size or input effect (issue #571).
+          // Mode is fixed for the life of the connection — herdr only
+          // accepts the mode message while the client is TerminalPending —
+          // so switching modes means a new connection (a new subscribe).
+          const writable = options.writable ?? true;
+          send(writable ? msgAttachTerminal(terminalId, options.takeover ?? false) : msgObserveTerminal(terminalId));
           const link: TerminalLink = {
             terminalId,
+            writable,
             write: (data) => send(clientInput(data)),
             resize: (cols, rows) => send(clientResize(cols, rows)),
-            scroll: (direction, lines = 3, column, row, modifiers) =>
-              send(attachScroll(direction, lines, column, row, modifiers)),
+            scroll: (direction, lines = 3, column, row, modifiers) => {
+              scrollSeen = true;
+              send(attachScroll(direction, lines, column, row, modifiers));
+            },
             mouse: (event) =>
               send(attachMouse(event.action, event.button ?? null, event.column, event.row, event.modifiers ?? 0)),
             close: () => {
               if (closed) return;
               closed = true;
+              metricInc("terminal.link.close");
               send(clientDetach());
               try { sock?.end(); } catch { /* gone */ }
             },
           };
+          metricInc("terminal.link.open");
           finish(() => resolve(link));
           continue;
         }
         if (closed) continue;
+        if (event.type === "terminal") {
+          metricAdd("terminal.delivery.bytes", event.bytes.length, {
+            phase: scrollSeen ? "scroll" : "initial",
+          });
+        }
         handlers.onEvent(event);
       }
     };

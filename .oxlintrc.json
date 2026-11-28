@@ -19,9 +19,11 @@
   },
   "rules": {
     "herdr-t3/no-native-title-tooltip": "error",
+    "herdr-t3/no-raw-badge": "error",
     "herdr-t3/no-raw-control": "error",
     "herdr-t3/no-raw-resize-observer": "error",
     "herdr-t3/no-static-inline-style": "error",
+    "herdr-t3/no-text-button-in-surface-slot": "error",
     "herdr-t3/require-suppression-reason": "error",
     "oxc/no-accumulating-spread": "error",
     "oxc/no-map-spread": "off",
@@ -53,8 +55,19 @@
       "files": ["src/components/ui/**"],
       "rules": {
         "herdr-t3/no-raw-control": "off",
+        "herdr-t3/no-raw-badge": "off",
         "herdr-t3/no-native-title-tooltip": "off",
         "herdr-t3/no-static-inline-style": "off"
+      }
+    },
+    {
+      // AC-003: Badge call sites inside surface components — migration
+      // debt cleared by the #534 burn-down; error keeps the typed
+      // StatusBadge channel the only status path (docs/design/anti-cases.md).
+      "files": ["src/components/**"],
+      "excludeFiles": ["src/components/ui/**", "src/**/*.test.{ts,tsx}"],
+      "rules": {
+        "herdr-t3/no-raw-badge": "error"
       }
     },
     {

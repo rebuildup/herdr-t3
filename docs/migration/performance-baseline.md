@@ -97,11 +97,17 @@ RC freeze collects both-OS evidence on reference hardware.
 | terminal decode/frame microbench (streaming ANSI, base64 hop) | ✅ `perf-terminal-bench.ts` via `perf-baseline.ts` |
 | scene build + paint-op emission (SurfaceCore.tick → GhosttyScene collect/render, scroll storm) | ✅ `perf-scene-bench.ts` via `perf-baseline.ts` `scene` section (#354) |
 | Canvas2D rasterization (`GhosttyRenderer.paint`: fillText/drawImage onto canvas) | ✅ measured — `perf-frame-bench.ts` (CDP, real app); loaded-host legs only so far, see Frame-bench section |
-| memory growth / leaks (JS heap, Chrome tree, bridge, herdr) under idle/storm/kitty/switch workloads | ✅ `perf-memory-bench.ts` (CDP, real app, isolated herdr session; issue #499). `--check` enforces absolute per-scenario budgets (default jsHeap 256 MB / Chrome tree 2048 MB / bridge 512 MB / herdr 512 MB) plus convergence gates: tail-slope flattening for idle/switch and storm2-vs-storm peak reuse. Kitty chunks exercise the full transmit/place/move/delete lifecycle. Evidence: `perf-reports/mem-*.json` |
+| memory growth / leaks (JS heap, Chrome tree, bridge, herdr) under idle/storm/kitty/switch workloads | ✅ `perf-memory-bench.ts` (CDP, real app, isolated herdr session; issue #499). `--check` enforces absolute per-scenario budgets (default jsHeap 256 MB / Chrome tree 2048 MB / bridge 512 MB / herdr 512 MB) plus convergence gates: tail-slope flattening for idle/switch and storm2-vs-storm peak reuse. Kitty chunks exercise the full transmit/place/move/delete lifecycle. Since #572 every scenario also records a bridge `/api/metrics` delta (delivery bytes, attach/op counts) and the `hidden` scenario gates hidden-workspace non-delivery. Evidence: `perf-reports/mem-*.json` |
 | startup time, idle CPU/RSS | partially — workload CPU% measured by `perf-frame-bench.ts` (#526); startup time and idle RSS still deferred to the packaged-app harness at RC |
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
 | input-to-paint p50/p95/p99, scroll/resize/streaming | ✅ input→paint p50/p95/p99 (trusted wheel+click → next rAF frame), Chrome-tree CPU%, and longtask container attribution under idle/storm/workspace-switch workloads — `perf-frame-bench.ts` (#526), gated by `--check` with provisional budgets; resize leg and true photon-present latency still deferred |
 | local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |
+| multi-client non-interference (observe vs writable: size/focus/scroll authority) | ✅ contract tests — `server/bridge-core.test.ts` "non-interference" describes (#571/#572, strengthened #586); C5 conformance corpus `harness/scenarios/bridge/` + `harness/lib/adapters/bridge.ts` (#600); live two-client leg deferred |
+| operator handoff (writable follows focus; demote/promote mode flips) | ✅ contract test — `server/bridge-core.test.ts` "operator handoff" (#586), pins CURRENT per-slot semantics; `src/lib/windowActivity.test.ts` + `WorkspaceCanvas` gate release/suppress the role while the GUI window is hidden/blurred (#600 verifying #584); #584 may add server-side single-writable arbitration — revisit on landing |
+| window inactive/blur → no operator promotion, resize lock released | ✅ contract test — `src/lib/windowActivity.test.ts` + `WorkspaceCanvas` wiring (#600); live blur leg deferred to RC manual check |
+| unselected-host summary delivery (#585 `machine_select` detail mode) | ✅ contract tests — `server/bridge-core.test.ts` / `server/machine-manager.test.ts` "summary detail mode" + `harness/scenarios/bridge/summary-detail-gates.json` (#600); live second-host leg deferred (needs SSH machines) |
+| local history scroll (viewport-only paging, zero RPC/attach/refetch) | ✅ contract test — `server/bridge-core.test.ts` "local history scroll" (#586) + `terminal-io` leg delivery meters (#572) |
+| host scaling (N machines × M visible panes → O(visible) RPC/attach/subscription) | ✅ fake-machine contract test — `server/bridge-core.test.ts` "host scaling" (#586); live multi-host leg deferred (needs SSH machines) |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
 
 The Rust port must reproduce **equivalent functionality and render
@@ -122,19 +128,94 @@ GPUI path):
   pending-queue/attach-queue byte ceilings in the host layer.
 - **Aggregate budget**: the host sums per-session WASM/native heap
   high-water marks against a machine-scaled budget (renderer:
-  `src/lib/memoryBudget.ts`; native: TBD — must land before GPUI ships
-  panes). Over budget → lossless cache shedding only; WASM/native heap
-  cannot shrink without session disposal, so shedding is rate-limited
-  and attributed (top sessions named) rather than thrashing.
+  `src/lib/memoryBudget.ts`; native: `crates/terminal-render/src/memory_budget.rs`
+  for the budget/watchdog math, `memory_host.rs` for the host-side
+  wiring — issue #553). Over budget → lossless cache shedding only;
+  WASM/native heap cannot shrink without session disposal, so shedding
+  is rate-limited and attributed (top sessions named) rather than
+  thrashing.
 - **Watchdog**: main process derives warn/critical/breach from physical
   RAM, a 2 h measured baseline, a 15 min RSS slope, and OS free-memory
   pressure (`osFreePct`); only breach reloads. `herdr-t3:memory-pressure`
-  pushes drive renderer shedding. The native port must reproduce the
-  same level semantics — a fixed absolute threshold is a defect, not a
-  design.
+  pushes drive renderer shedding. The native port reproduces the same
+  level semantics in `memory_budget::MemoryWatchdog` — a fixed absolute
+  threshold is a defect, not a design — fed by `memory_host::MemoryHost`
+  with process RSS and platform-aware OS-available memory
+  (`os_mem.rs`: `vm_stat` on macOS, `MemAvailable` on Linux). Breach is
+  a signal to the host (`MemoryHostEvent::SurfaceReloadDue`, 10 min
+  cooldown); session disposal stays a host decision that preserves
+  drafts/attach state — the crate never kills sessions.
 - **Measurement**: `perf-memory-bench.ts --check` gates absolute budgets
   plus convergence (tail slope, storm2/switch2 reuse). The same
   scenarios must run against the GPUI host before parity is claimed.
+
+### Assurance coverage (issue #586, program #416/#425/#568)
+
+Cheap deterministic contract tests pin the four assurance properties the
+RC legs measure live. They run in `bun test server/bridge-core.test.ts`
+(part of `bun run test` / `./scripts/ci.sh`) and are also asserted by
+`scripts/perf-contract-check.ts` (piece `assurance-noninterference-handoff`)
+so a removed contract fails loudly:
+
+- **Non-interference** — "non-interference contract: observe cannot move
+  the writable link": an observe client (`writable:false`) plus a second
+  observe subscribe cannot add Resize/Detach/Input/AttachScroll frames or
+  a re-attach to the writable link; dropped observer ops are still counted
+  in `bridge.terminal.op`; the writable path stays functional afterwards.
+- **Operator handoff** — "operator handoff: writable follows focus":
+  demote flips the slot to `ObserveTerminal` on a new connection (old
+  link gets Detach = resize authority released), observe-mode input is
+  dropped and counted, re-promote restores the writable AttachTerminal
+  with in-flight input flushed in order. Written against CURRENT merged
+  semantics (`writable` is per-slot; the renderer sends it only for the
+  focused pane): if #584 lands server-side single-writable arbitration
+  these tests must be revisited.
+- **Local history scroll** — "local history scroll is viewport-only":
+  12 alternating scroll ticks + a stray scroll on an unsubscribed pane
+  produce zero new herdr requests (no `session.snapshot` refetch, no
+  `events.subscribe` reopen, no RPC, no re-attach), exactly one
+  `AttachScroll` (variant 6) per issued scroll, `pane.scroll_changed`
+  stays event-only, and post-scroll bytes meter as
+  `terminal.delivery.bytes{phase=scroll}`.
+- **Host scaling** — "host scaling: cost tracks visible panes": 3 fake
+  machines × 6 panes each; mounting 2 visible panes per machine yields
+  exactly 6 attach connections, scroll subscriptions covering only the
+  visible ids, 1 snapshot fetch + ≤2 `events.subscribe` per machine;
+  growing the visible set to all 6 panes/machine grows attaches linearly
+  while RPC/subscription-reopen counts stay flat.
+
+**C5 conformance corpus & window gate (issue #600, program
+#233/#416/#568)**: `harness/scenarios/bridge/*.json` is the shared
+`terminal-noninterference@3` corpus — seven scenarios driven through the
+new TS bridge adapter (`harness/lib/adapters/bridge.ts`, in-process
+`createBridgeSession` + fake connectors) covering the eight C5 checklist
+points, takeover arbitration, detach grant release, and the #585
+summary/detail `machine_select` gate. `oracle: "spec"`, `adapters:
+["ts", "rust"]` — the Rust side is `herdr-bridge-adapter`
+(`crates/herdr-bridge`), driving the product `AttachManager` over the
+same fake connectors (see `harness/README.md`). The client-side window-activity gate
+(`src/lib/windowActivity.ts` + `WorkspaceCanvas`) demotes/releases the
+operator role on window hide/blur and refuses promotion while inactive.
+All of these are pinned by `perf-contract-check.ts` pieces
+`c5-conformance-corpus`, `window-activity-operator-gate`,
+`summary-detail-mode`, and `attach-egress-promotion-bounds`.
+
+**RC / live legs** (isolated herdr sessions only — never the live
+session; `verify-guard` enforces):
+
+```sh
+bun test server/bridge-core.test.ts     # fast gate, deterministic
+bun test harness/                       # C5 corpus + codec/terminal/projection scenarios
+bun scripts/perf-contract-check.ts      # contract pieces incl. #586/#600
+bun scripts/perf-contract-check.ts --self-test
+# RC measurement legs (heavy, run at freeze):
+bun scripts/perf-bridge-load.ts record --session ht3load   # attach-churn + terminal-io legs
+bun scripts/perf-memory-bench.ts --session ht3mem --scenario hidden  # hidden-workspace non-delivery gate
+bun scripts/perf-observe.ts compare <before.json> <after.json>
+```
+
+The live legs still own wall-clock/volume evidence (delivery MiB/s,
+attach rates under real herdr); the contract tests own the invariants.
 
 ## RC section-l re-measurement (issue #354, 2026-11-26)
 
@@ -351,6 +432,7 @@ No vite/Chrome needed; all spawned processes are reaped on exit.
 | `plugin-read` | the 4 surface stores' refresh pattern — one read `plugin_call` per installed surface plugin every 800 ms, all concurrent | `plugin.exec{what=plugin_call}` ≤ issued calls — single-flight merges, never amplifies (#424) |
 | `activity` | external herdr workspace churn (create/focus/close ~700 ms) + client read polling | snapshot push/dedup counts, `subscription.reopen` must be 0, RPC wait under real event flow |
 | `attach-churn` | workspace-switch attach pattern: `subscribe_terminal` for every pane in a ~4-pane batch, then unsubscribe, repeated | `bridge.subscription.open` must stay ~2 per attach/detach phase — per-pane reopens are the #416/#527 amplification |
+| `terminal-io` | demand-driven delivery (issue #572): one attach batch + bounded ~4 KiB-line output storm on the first pane + scroll up/down and resize probes on all subscribed panes | `bridge.terminal.op{op=scroll|resize}` forwarded ≤ issued (no amplification); `bridge.terminal.attach` ≤ subscribes (no duplicate attaches); delivery bytes/meters reported per leg |
 | `reconnect` | WS drop + reconnect cycles | each connect costs exactly 1 `session.snapshot` fetch + 1 `subscription.open`; more is session/subscription fan-out |
 
 **Report** (`perf-reports/bridge-load-<sha>.json`): per-leg metric
@@ -360,6 +442,10 @@ No vite/Chrome needed; all spawned processes are reaped on exit.
 client-side rpc_result latency p50/p95/max, `condition.loadavg`, host
 metadata and git SHA — same comparability rules as the terminal baselines
 (same host class + same loadavg band; `compare` refuses cross-host).
+Since #572 the deltas also cover `meters` (quantity accumulators, see
+below) and every leg's verdict notes include a `terminal delivery`
+line — total MiB, MiB/s, and the initial vs post-scroll split — whenever
+terminal bytes flowed.
 
 **Detectors** (`evaluateLeg`, exported + fault-injection tested in
 `scripts/perf-bridge-load.test.ts`): a leg fails only on hard invariant
@@ -383,11 +469,162 @@ manual TUI observation — herdr-t3 cannot instrument herdr's renderer.
 CPU/RAM of the herdr-t3 process itself is covered by the deferred
 packaged-app startup/memory suite at RC freeze (see Coverage map).
 
+## Demand-driven delivery & non-interference metrics (issue #572, program #568)
+
+Assurance metrics for the demand-driven terminal-data program: measure
+that only visible surfaces cost delivery/RPC, and that an observing
+client cannot perturb a writable one. All numbers come from the existing
+benches — no parallel harness.
+
+**New server metrics** (`server/metrics.ts` gained `metricAdd`/`meters`
+— quantity accumulators distinct from duration timers, exposed on
+`/api/metrics` and the `herdr-t3:metrics` IPC):
+
+| metric | kind | meaning |
+|---|---|---|
+| `terminal.delivery.bytes{phase=initial}` | meter (bytes) | terminal bytes delivered between AttachTerminal resolution and the first AttachScroll on that link — the initial-attach delivery per attach (`count` = frames; divide `total` by `terminal.link.open` for per-pane average) |
+| `terminal.delivery.bytes{phase=scroll}` | meter (bytes) | bytes delivered after the first scroll gesture — history paging **plus** live output; an upper bound on paging volume, since herdr protocol v22 has no separate history-fetch message (AttachScroll is the only paging trigger) |
+| `terminal.link.open` / `terminal.link.close` | counter | client-protocol attach/detach lifecycle |
+| `bridge.terminal.attach` / `bridge.terminal.detach` | counter | bridge attach attempts / slot teardowns (clean unsubscribe and failure paths) |
+| `bridge.terminal.op{op=input|resize|mouse|scroll}` | counter | client ops that reached a live or attaching slot — compare against `client.frame{type=…}` issued counts to spot drops/amplification |
+
+**Bench legs.**
+
+- `perf-bridge-load.ts` gained the `terminal-io` leg (see legs table
+  above): attach batch → bounded output storm → scroll/resize probes →
+  detach. `evaluateLeg` fails on op amplification, duplicate attaches,
+  and subscription reopen amplification; delivery bytes are *reported*
+  per leg (MiB, MiB/s, initial/post-scroll split) — thresholds are
+  provisional until RC freeze, same convention as the other legs.
+- `perf-memory-bench.ts` gained the `hidden` scenario (in `all`): N
+  workspaces (`--hidden-workspaces`, default 6) run a throttled ~300
+  KiB/s/pane chunk looper for 14 s while the UI stays on the fixture
+  workspace. Every scenario now also records a `bridge` delta
+  (`/api/metrics` counters+meters over the scenario window), so
+  attach/detach counts per workspace switch and per-scenario delivery
+  bandwidth are in `summary[<scenario>].bridge`. `--check` enforces
+  `HIDDEN_DELIVERY_MAX_BYTES` (default 4 MiB,
+  `--max-hidden-delivery-mb`): hidden panes stream ~25 MiB aggregate,
+  so a demand-driven regression exceeds the ceiling ~6× while visible-
+  pane idle noise stays orders below; unmeasured bridge metrics fail.
+- Contract tests (`bun test`, no live herdr): `server/bridge-core.test.ts`
+  "demand-driven delivery" asserts unsubscribed panes open zero
+  client-protocol connections (load scales with visible usage), scroll
+  encodes AttachScroll and meters post-scroll bytes; "multi-client
+  non-interference" asserts the second client's AttachTerminal carries
+  `takeover=false` vs the writable client's `true`, observer
+  input/resize/scroll never reach the writable link, an
+  `ObserveTerminal` (`writable:false`, issue #571) client is dropped at
+  the bridge for input/scroll/mouse while resize flows on its own link
+  only, and observer detach leaves the writable link alive; machine-tag
+  propagation covers multi-host isolation, and
+  `server/machine-manager.test.ts` proves an unknown-machine rpc is
+  refused once, never forwarded to local. The attach-mode contract itself
+  is specified in `docs/migration/contracts/terminal-noninterference.md`.
+
+**Honest gaps.**
+
+- The non-interference tests pin *what the bridge sends* (takeover flag,
+  per-link isolation, observe-mode drops). Whether herdr itself honors a
+  non-takeover `AttachTerminal` against a live TUI client is upstream
+  semantics — `ObserveTerminal` (variant 7) is implemented since #571 and
+  `ControlTerminal` (variant 8, a writable-attach alias) remains
+  unimplemented in `client-link.ts`; the full observe/control split is
+  specified in `docs/migration/contracts/terminal-noninterference.md`
+  and tracked as upstream-contract work under #568.
+- `terminal.delivery.bytes` meters **every** client-protocol terminal
+  stream, including `ObserveTerminal` links — observe streams can never
+  scroll, so their bytes all land in `phase=initial`.
+- `bridge.terminal.attach` counts link-open *attempts*: a #571
+  observe↔writable mode switch closes the old link and re-attaches, so
+  it counts as a second attach while `bridge.terminal.detach` (slot
+  teardown) stays single; pair with `terminal.link.open/close` for the
+  socket-level view.
+- `phase=scroll` bytes include live output after the first scroll, so it
+  overstates pure history paging; a dedicated paging counter needs a
+  protocol signal that does not exist yet.
+- The hidden leg measures bridge→client delivery; herdr-internal
+  scrollback retention for hidden panes is herdr's own concern (its
+  scrollback caps apply regardless of clients).
+
+**RC evaluation commands** (extend the #552 leg; same isolated-session
+and committed-baseline rules):
+
+```sh
+# 1. Bridge data-plane incl. the terminal-io delivery leg.
+bun scripts/perf-bridge-load.ts record --seconds 12 --out perf-reports/bridge-load-<rc-sha>-572.json
+
+# 2. Memory bench incl. the hidden non-interference leg, gated.
+bun scripts/perf-memory-bench.ts --check --scenario all --out perf-reports/mem-<rc-sha>-572.json
+
+# 3. Contract gate (per-commit, already in ci.sh).
+bun scripts/perf-contract-check.ts && bun scripts/perf-contract-check.ts --self-test
+```
+
 ## Fast gate vs RC gate
 
 - Fast gate (`bun test`, `./scripts/ci.sh`): only deterministic, cheap
-  checks — `perf-baseline.test.ts` and `perf-bridge-load.test.ts` fault
-  injection. No wall-clock benchmarks in CI per-commit.
+  checks — `perf-baseline.test.ts`, `perf-bridge-load.test.ts` and
+  `perf-frame-bench.test.ts` fault injection, plus
+  `scripts/perf-observe.test.ts` verdict/diagnose rejection tests and
+  `scripts/perf-contract-check.ts` (wired into `ci.sh`), which asserts
+  every bounded resource the benches rely on still exists and is
+  unit-covered: scrollback byte cap (`SCROLLBACK_MAX_BYTES` /
+  `scrollback_bytes`, TS + Rust), the `memoryBudget` shed path, bridge
+  `slot.queue` caps, `PaneTerminal` pending caps, the plugin exec
+  semaphore, `LruCache` bounds, the #572 demand-driven delivery metrics
+  (`metricAdd`/meters, per-phase delivery bytes, attach/op counters) and
+  the non-interference contract (takeover flag, observer isolation,
+  hidden-surface gate) — plus the committed baselines under
+  `perf-reports/`. No wall-clock benchmarks in CI per-commit.
 - RC freeze: full `record` on reference macOS + Windows 11 hardware,
   `check` against committed baselines, packaged-app startup/memory
   suite, both-OS evidence committed under `docs/design/evidence/`.
+
+### RC-freeze evaluation leg (issue #552)
+
+The release-candidate performance verdict is a manual, on-demand leg —
+it is deliberately NOT wired into per-PR or release-path CI
+(`.github/workflows/release-path.yml` only validates branch shape; the
+benches need ~10-minute real-app runs on reference hardware, which CI
+does not provide). Run it on the RC freeze commit, on an otherwise-idle
+reference machine, macOS and Windows 11 separately:
+
+```sh
+# 1. Absolute-budget benches under --check (memory + frame).
+#    Same fixed conditions for every leg: default storm size/seconds,
+#    default budgets, no --cpu-throttle.
+bun scripts/perf-memory-bench.ts --check --out perf-reports/mem-<rc-sha>-rc.json
+bun scripts/perf-frame-bench.ts  --check --out perf-reports/frame-<rc-sha>-rc.json
+
+# 2. Compare each candidate against the committed baseline of the same
+#    report kind. Exit codes: 0=pass, 1=regression, 3=inconclusive,
+#    2=usage. --json emits the machine-readable verdict.
+bun scripts/perf-observe.ts compare perf-reports/mem-baseline-0e5d6a7.json   perf-reports/mem-<rc-sha>-rc.json
+bun scripts/perf-observe.ts compare perf-reports/frame-2febbbf.json          perf-reports/frame-<rc-sha>-rc.json
+
+# 3. Verdict rule: BOTH compares must print verdict "pass" (exit 0).
+#    "inconclusive" (exit 3) is NOT a pass — it means the runs differed
+#    in workload shape, host class, loadavg band, or had unmeasured/
+#    missing metrics, so no code-attributable delta exists. Fix the
+#    conditions (idle host, same --storm-* flags, same machine class)
+#    and re-run; never average inconclusive legs into a pass.
+```
+
+Notes:
+
+- The committed anchors are `perf-reports/mem-baseline-0e5d6a7.json`
+  (memory, `stormMb:128/15s`) and `perf-reports/frame-2febbbf.json`
+  (frame). `compare` refuses cross-workload/cross-host pairs, so the
+  RC legs must reuse the anchors' workload shape; if the anchor's
+  recorded `condition.loadavg` band cannot be matched on the freeze
+  machine, record a new same-condition anchor first and commit it.
+- `--check` on the benches is the absolute-ceiling gate (memory:
+  jsHeap/Chrome/bridge/herdr budgets + convergence; frame: provisional
+  input→paint p95 / CPU budgets). A `--check` breach exits 1 and fails
+  the leg regardless of the compare verdict.
+- Post-hoc diagnosis of a suspect run:
+  `bun scripts/perf-observe.ts diagnose --user-data "<userData dir>"`
+  analyzes `memory-history.jsonl` anomaly windows; it exits 1 on
+  missing/insufficient history — a diagnose failure is evidence of
+  missing forensics, not a pass.

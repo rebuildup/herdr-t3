@@ -10,6 +10,7 @@ name: release-path
 #   - PRs into `release-*`       -> head must be a ticket/feature branch,
 #                                   never another `release-*`
 #   - PRs into `release-0-6-0`   -> frozen RC (issue #464): ticket PRs
+#   - PRs into `release-0-7-0`   -> frozen RC (issue #413): ticket PRs
 #                                   additionally require the `rc-fix`
 #                                   label, applied only by the RC owner
 #                                   for acceptance-required defect fixes
@@ -68,13 +69,18 @@ jobs:
                   fi
                   ;;
                 *)
-                  if [ "$BASE" = "release-0-6-0" ]; then
+                  frozen_issue=""
+                  case "$BASE" in
+                    release-0-6-0) frozen_issue=464 ;;
+                    release-0-7-0) frozen_issue=413 ;;
+                  esac
+                  if [ -n "$frozen_issue" ]; then
                     case ",$LABELS," in
                       *,rc-fix,*)
                         echo "OK: rc-fix ticket PR ($HEAD -> $BASE)"
                         ;;
                       *)
-                        echo "FAIL: release-0-6-0 is frozen (issue #464); only RC defect fixes carrying the rc-fix label may merge. New features target release-0-7-0."
+                        echo "FAIL: $BASE is frozen (issue #$frozen_issue); only RC defect fixes carrying the rc-fix label may merge."
                         exit 1
                         ;;
                     esac

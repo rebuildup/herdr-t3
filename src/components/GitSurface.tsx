@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "./ui/badge";
+import {
+  ArrowDownToLineIcon,
+  ArrowUpFromLineIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+} from "lucide-react";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input, Label, Textarea } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -495,22 +501,26 @@ function ChangesSection({
                     <>
                       {groupStage ? (
                         <Button
-                          size="xs"
+                          size="icon-xs"
                           variant="ghost"
                           disabled={mutations.busy}
                           onClick={() => void stagePaths(groupPaths)}
+                          aria-label={`Stage all ${GROUP_LABELS[group].toLowerCase()} changes`}
+                          title="Stage all changes in this group"
                         >
-                          Stage all
+                          <ArrowDownToLineIcon />
                         </Button>
                       ) : null}
                       {groupUnstage ? (
                         <Button
-                          size="xs"
+                          size="icon-xs"
                           variant="ghost"
                           disabled={mutations.busy}
                           onClick={() => void unstagePaths(groupPaths)}
+                          aria-label={`Unstage all ${GROUP_LABELS[group].toLowerCase()} changes`}
+                          title="Unstage all changes in this group"
                         >
-                          Unstage all
+                          <ArrowUpFromLineIcon />
                         </Button>
                       ) : null}
                     </>
@@ -546,9 +556,9 @@ function ChangesSection({
                           {fileLabel(entry)}
                         </span>
                         {entry.binary === true ? (
-                          <Badge size="sm" variant="outline">
+                          <StatusBadge size="sm" status="neutral">
                             binary
-                          </Badge>
+                          </StatusBadge>
                         ) : null}
                       </button>
                       {fileCanStage && canStage === true ? (
@@ -1162,8 +1172,14 @@ function RemoteSyncBlock({
       title="Remotes"
       actions={
         canList ? (
-          <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadRemotes}>
-            {listLoading ? "loading…" : "Reload"}
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            disabled={listLoading}
+            onClick={loadRemotes}
+            aria-label="Reload remotes"
+          >
+            <RefreshIcon refreshing={listLoading} />
           </Button>
         ) : undefined
       }
@@ -1411,14 +1427,14 @@ function prBadge(state: string, isDraft: boolean) {
   return (
     <>
       {isDraft ? (
-        <Badge size="sm" variant="outline">
+        <StatusBadge size="sm" status="neutral">
           draft
-        </Badge>
+        </StatusBadge>
       ) : null}
       {state !== "" ? (
-        <Badge size="sm" variant={state === "OPEN" ? "secondary" : "outline"}>
+        <StatusBadge size="sm" status={state === "OPEN" ? "info" : "neutral"}>
           {state.toLowerCase()}
-        </Badge>
+        </StatusBadge>
       ) : null}
     </>
   );
@@ -1673,8 +1689,14 @@ function ForgeSection({
         <SurfaceDetailsSection
           title="Current branch"
           actions={
-            <Button size="xs" variant="ghost" disabled={statusLoading} onClick={loadStatus}>
-              {statusLoading ? "loading…" : "Refresh"}
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              disabled={statusLoading}
+              onClick={loadStatus}
+              aria-label="Refresh branch status"
+            >
+              <RefreshIcon refreshing={statusLoading} />
             </Button>
           }
         >
@@ -1687,9 +1709,9 @@ function ForgeSection({
               <div className="flex items-center gap-1.5">
                 <span className="font-mono">{status.branch}</span>
                 {status.detached ? (
-                  <Badge size="sm" variant="outline">
+                  <StatusBadge size="sm" status="neutral">
                     detached
-                  </Badge>
+                  </StatusBadge>
                 ) : null}
                 {status.repo !== null ? (
                   <span className="font-mono text-2xs text-muted-foreground">{status.repo}</span>
@@ -1724,8 +1746,14 @@ function ForgeSection({
           title="Pull requests"
           count={list?.prs.length}
           actions={
-            <Button size="xs" variant="ghost" disabled={listLoading} onClick={loadList}>
-              {listLoading ? "loading…" : "Reload"}
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              disabled={listLoading}
+              onClick={loadList}
+              aria-label="Reload pull requests"
+            >
+              <RefreshIcon refreshing={listLoading} />
             </Button>
           }
         >
@@ -1800,11 +1828,13 @@ function ForgeSection({
             title="New pull request"
             actions={
               <Button
-                size="xs"
+                size="icon-xs"
                 variant="ghost"
                 onClick={() => setShowCreate((v) => !v)}
+                aria-label={showCreate ? "Hide new pull request form" : "Show new pull request form"}
+                title={showCreate ? "Hide form" : "Show form"}
               >
-                {showCreate ? "Hide form" : "Show form"}
+                {showCreate ? <ChevronUpIcon /> : <ChevronDownIcon />}
               </Button>
             }
           >

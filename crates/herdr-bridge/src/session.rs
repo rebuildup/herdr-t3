@@ -56,6 +56,9 @@ const STRUCTURE_SUBSCRIPTIONS: &[&str] = &[
 const SNAPSHOT_DEBOUNCE: Duration = Duration::from_millis(120);
 const RESUBSCRIBE_DELAY: Duration = Duration::from_secs(2);
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Coalescing window for scroll-subscription set changes — parity with
+/// `SCROLL_SYNC_DEBOUNCE_MS` in bridge-core.ts (issue #527).
+const SCROLL_SYNC_DEBOUNCE: Duration = Duration::from_millis(120);
 
 fn status_subscriptions(snapshot: &Value) -> Vec<Value> {
     snapshot
@@ -71,12 +74,17 @@ fn status_subscriptions(snapshot: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-fn subscription_set(snapshot: &Value) -> Value {
+fn subscription_set(snapshot: &Value, scroll_ids: &BTreeSet<String>) -> Value {
     let mut subs: Vec<Value> = STRUCTURE_SUBSCRIPTIONS
         .iter()
         .map(|t| json!({ "type": t }))
         .collect();
     subs.extend(status_subscriptions(snapshot));
+    // `pane.scroll_changed` per attached pane (issues #433/#436): the
+    // selection contract needs the server's authoritative scroll offsets.
+    for id in scroll_ids {
+        subs.push(json!({ "type": "pane.scroll_changed", "pane_id": id }));
+    }
     Value::Array(subs)
 }
 
@@ -93,7 +101,7 @@ fn pane_id_set(snapshot: &Value) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-fn fetch_snapshot(connector: &dyn Connector) -> Result<Value, HerdrError> {
+pub(crate) fn fetch_snapshot(connector: &dyn Connector) -> Result<Value, HerdrError> {
     rpc(
         connector,
         "session.snapshot",
@@ -122,7 +130,43 @@ enum SupMsg {
     Snapshot(Value),
     /// The live subscription reported an error or closed.
     SubscriptionDied,
+    /// The attached-pane set changed: reopen `events.subscribe` with the
+    /// `pane.scroll_changed` filters after the debounce window (the
+    /// `syncScrollSubscriptions`/`scrollSyncTimer` parity, issue #527).
+    ScrollSync,
     Shutdown,
+}
+
+/// Cloneable handle for requesting a scroll-subscription resync — the
+/// attach layer's `on_scroll_sync` hook fires this when the attached
+/// pane set changes. Carries only a channel sender, so it cannot create
+/// an owner cycle with the session.
+#[derive(Clone)]
+pub struct ScrollSyncHandle {
+    tx: Sender<SupMsg>,
+}
+
+impl ScrollSyncHandle {
+    /// Request a debounced `events.subscribe` reopen covering the
+    /// current attached-pane scroll set.
+    pub fn request(&self) {
+        let _ = self.tx.send(SupMsg::ScrollSync);
+    }
+}
+
+/// Cloneable handle for scheduling a debounced snapshot refetch — the
+/// post-RPC refresh hook (`scheduleSnapshot(state, "rpc")` in
+/// bridge-core.ts). Carries only a channel sender.
+#[derive(Clone)]
+pub struct PokeHandle {
+    tx: Sender<ActorMsg>,
+}
+
+impl PokeHandle {
+    /// Schedule a snapshot refetch on the actor's debounce timer.
+    pub fn poke(&self) {
+        let _ = self.tx.send(ActorMsg::Event);
+    }
 }
 
 /// Live bridge session for one herdr endpoint. Snapshots and events are
@@ -157,6 +201,23 @@ impl BridgeSession {
         // First snapshot before subscribing, matching pushSnapshot
         // ordering: status subscriptions need the pane set anyway.
         let snapshot = fetch_snapshot(connector.as_ref())?;
+        Self::start_with_snapshot(connector, snapshot, on_snapshot, on_event, on_error, None)
+    }
+
+    /// `start` with the initial snapshot supplied by the caller — the
+    /// session layer fetches once so it can seed its own delivery state
+    /// (dedup key, `ready` frame) before the actor opens (issue #607).
+    /// `scroll_ids` supplies the attached-pane set for
+    /// `pane.scroll_changed` subscription filters; `None` keeps the
+    /// pre-attach subscription set.
+    pub fn start_with_snapshot(
+        connector: Arc<dyn Connector>,
+        snapshot: Value,
+        on_snapshot: Arc<dyn Fn(Value) + Send + Sync>,
+        on_event: Arc<dyn Fn(Value) + Send + Sync>,
+        on_error: Option<Arc<dyn Fn(HerdrError) + Send + Sync>>,
+        scroll_ids: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+    ) -> Result<Self, HerdrError> {
         on_snapshot(snapshot.clone());
 
         let (actor_tx, actor_rx) = channel::<ActorMsg>();
@@ -203,6 +264,7 @@ impl BridgeSession {
                     sup_tx2,
                     on_event2,
                     alive2,
+                    scroll_ids,
                 )
             })
         };
@@ -217,6 +279,30 @@ impl BridgeSession {
             alive,
             threads: Mutex::new(vec![actor, supervisor]),
         })
+    }
+
+    /// Schedule a debounced snapshot refetch — the post-RPC refresh hook
+    /// (`scheduleSnapshot(state, "rpc")` in bridge-core.ts) for mutating
+    /// `rpc` frames the session layer forwards (issue #607).
+    pub fn poke(&self) {
+        let _ = self.actor_tx.send(ActorMsg::Event);
+    }
+
+    /// Handle for the attach layer's `on_scroll_sync` hook: requests a
+    /// debounced `events.subscribe` reopen carrying `pane.scroll_changed`
+    /// filters for the currently attached panes.
+    pub fn scroll_sync_handle(&self) -> ScrollSyncHandle {
+        ScrollSyncHandle {
+            tx: self.sup_tx.clone(),
+        }
+    }
+
+    /// Cloneable poke handle for callers that outlive the session value
+    /// (e.g. per-RPC worker threads in the session layer).
+    pub fn poke_handle(&self) -> PokeHandle {
+        PokeHandle {
+            tx: self.actor_tx.clone(),
+        }
     }
 
     /// Stop the session: closes the subscription and both threads.
@@ -335,17 +421,36 @@ fn run_supervisor(
     sup_tx: Sender<SupMsg>,
     on_event: Arc<dyn Fn(Value) + Send + Sync>,
     alive: Arc<AtomicBool>,
+    scroll_ids: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
 ) {
     let mut subscription: Option<Subscription> = None;
     // Pane id set the live subscription was built from.
     let mut sub_ids: BTreeSet<String> = BTreeSet::new();
+    // `pane.scroll_changed` filters the live subscription carries —
+    // compared against the attach layer's current set on ScrollSync.
+    let mut sub_scroll_ids: BTreeSet<String> = BTreeSet::new();
+    // Freshest snapshot seen, for scroll-sync reopens (which need the
+    // status subscription set without a refetch).
+    let mut latest: Option<Value> = None;
     // Set while a post-drop reopen is scheduled; snapshots arriving in
     // the window do not trigger an early open (TS waits the 2s timer).
     let mut reopen_at: Option<Instant> = None;
+    // Pending coalesced scroll-subscription reopen (issue #527).
+    let mut scroll_sync_at: Option<Instant> = None;
+
+    let scroll_set = |provider: &Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>| -> BTreeSet<String> {
+        provider
+            .as_ref()
+            .map(|p| p().into_iter().collect())
+            .unwrap_or_default()
+    };
 
     while alive.load(Ordering::SeqCst) {
-        let wait = reopen_at
+        let wait = [reopen_at, scroll_sync_at]
+            .into_iter()
+            .flatten()
             .map(|t| t.saturating_duration_since(Instant::now()))
+            .min()
             .unwrap_or(Duration::from_secs(3600))
             .min(Duration::from_secs(60));
         let msg = match rx.recv_timeout(wait) {
@@ -353,6 +458,34 @@ fn run_supervisor(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         };
+
+        // Fire a due scroll-sync reopen before handling the message:
+        // reopen with the full set (structure + status + scroll) when
+        // the attached-pane set drifted from what the live subscription
+        // carries. A second subscribe on a live connection is ignored,
+        // so the connection is closed and reopened (issue #527).
+        if scroll_sync_at.is_some_and(|t| t <= Instant::now()) {
+            scroll_sync_at = None;
+            if subscription.is_some() {
+                if let Some(snap) = &latest {
+                    let want = scroll_set(&scroll_ids);
+                    if want != sub_scroll_ids {
+                        drop(subscription.take());
+                        subscription = open_sub(
+                            &connector,
+                            snap,
+                            &want,
+                            &actor_tx,
+                            &sup_tx,
+                            &on_event,
+                        );
+                        if subscription.is_some() {
+                            sub_scroll_ids = want;
+                        }
+                    }
+                }
+            }
+        }
 
         // Fire a due reopen before handling the message.
         if reopen_at.is_some_and(|t| t <= Instant::now()) {
@@ -366,8 +499,13 @@ fn run_supervisor(
             match fetch_snapshot(connector.as_ref()) {
                 Ok(snap) => {
                     sub_ids = pane_id_set(&snap);
+                    latest = Some(snap.clone());
                     let _ = actor_tx.send(ActorMsg::ResubscribedSnapshot(snap.clone()));
-                    subscription = open_sub(&connector, &snap, &actor_tx, &sup_tx, &on_event);
+                    let want = scroll_set(&scroll_ids);
+                    subscription = open_sub(&connector, &snap, &want, &actor_tx, &sup_tx, &on_event);
+                    if subscription.is_some() {
+                        sub_scroll_ids = want;
+                    }
                 }
                 Err(_) => {
                     reopen_at = Some(Instant::now() + RESUBSCRIBE_DELAY);
@@ -381,7 +519,16 @@ fn run_supervisor(
                 subscription = None;
                 reopen_at = Some(Instant::now() + RESUBSCRIBE_DELAY);
             }
+            Some(SupMsg::ScrollSync) => {
+                // Coalesce into one trailing reopen (issue #527): attach
+                // bursts during workspace switches must not tear down
+                // the whole events.subscribe connection per frame.
+                if scroll_sync_at.is_none() {
+                    scroll_sync_at = Some(Instant::now() + SCROLL_SYNC_DEBOUNCE);
+                }
+            }
             Some(SupMsg::Snapshot(snap)) => {
+                latest = Some(snap.clone());
                 let ids = pane_id_set(&snap);
                 let pane_set_changed = subscription.is_some() && ids != sub_ids;
                 if subscription.is_none() {
@@ -390,7 +537,11 @@ fn run_supervisor(
                         // (initial prime or a snapshot arriving while the
                         // previous open failed).
                         sub_ids = ids;
-                        subscription = open_sub(&connector, &snap, &actor_tx, &sup_tx, &on_event);
+                        let want = scroll_set(&scroll_ids);
+                        subscription = open_sub(&connector, &snap, &want, &actor_tx, &sup_tx, &on_event);
+                        if subscription.is_some() {
+                            sub_scroll_ids = want;
+                        }
                     }
                     // reopen pending: the timer fetch supplies the set.
                 } else if pane_set_changed {
@@ -399,7 +550,11 @@ fn run_supervisor(
                     // the full set for the new snapshot.
                     drop(subscription.take());
                     sub_ids = ids;
-                    subscription = open_sub(&connector, &snap, &actor_tx, &sup_tx, &on_event);
+                    let want = scroll_set(&scroll_ids);
+                    subscription = open_sub(&connector, &snap, &want, &actor_tx, &sup_tx, &on_event);
+                    if subscription.is_some() {
+                        sub_scroll_ids = want;
+                    }
                 }
             }
             None => {
@@ -419,6 +574,7 @@ fn run_supervisor(
 fn open_sub(
     connector: &Arc<dyn Connector>,
     snapshot: &Value,
+    scroll_ids: &BTreeSet<String>,
     actor_tx: &Sender<ActorMsg>,
     sup_tx: &Sender<SupMsg>,
     on_event: &Arc<dyn Fn(Value) + Send + Sync>,
@@ -429,7 +585,7 @@ fn open_sub(
     let on_event_ev = on_event.clone();
     match subscribe_events(
         connector.as_ref(),
-        subscription_set(snapshot),
+        subscription_set(snapshot, scroll_ids),
         SubscribeHandlers {
             on_event: Box::new(move |frame: EventFrame| {
                 let value = json!({

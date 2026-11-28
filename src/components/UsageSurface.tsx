@@ -30,7 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import { InfoIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -126,42 +126,36 @@ const DIMENSION_LABELS: Record<UsageBreakdownDimension, string> = {
   by_pane: "pane",
 };
 
-function quotaStatusVariant(
-  status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function quotaStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "ok":
-      return "success";
+      return "ok";
     case "unsupported":
-      return "outline";
+      return "neutral";
     case "no_credential":
     case "credential_expired":
       return "warning";
     case "request_failed":
       return "error";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
-function cacheTokenVariant(
-  status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function cacheStatus(status: string): StatusBadgeStatus {
   switch (status) {
     case "reported":
-      return "success";
+      return "ok";
     case "unsupported":
-      return "outline";
+      return "neutral";
     case "unknown":
       return "warning";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
-function verdictVariant(
-  verdict: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+function verdictStatus(verdict: string): StatusBadgeStatus {
   switch (verdict) {
     case "different_units":
       return "info";
@@ -169,9 +163,9 @@ function verdictVariant(
     case "quota_unavailable":
       return "warning";
     case "no_data":
-      return "outline";
+      return "neutral";
     default:
-      return "secondary";
+      return "neutral";
   }
 }
 
@@ -243,30 +237,30 @@ function QuotaProviderCard({ provider }: { provider: UsageQuotaProvider }) {
     <SurfaceRow className="flex flex-col gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-foreground">{provider.provider}</span>
-        <Badge variant={quotaStatusVariant(provider.status)}>
+        <StatusBadge status={quotaStatus(provider.status)}>
           {provider.status}
-        </Badge>
+        </StatusBadge>
         {provider.plan !== null ? (
           <span className="truncate text-xs text-muted-foreground">{provider.plan}</span>
         ) : null}
         {provider.stale ? (
-          <Badge variant="warning" title={provider.stale_reason ?? undefined}>
+          <StatusBadge status="warning" title={provider.stale_reason ?? undefined}>
             stale{provider.stale_reason !== null ? `: ${provider.stale_reason}` : ""}
-          </Badge>
+          </StatusBadge>
         ) : null}
         {provider.cache?.hit === true ? (
-          <Badge variant="secondary" title="served from the plugin quota cache">
+          <StatusBadge status="info" title="served from the plugin quota cache">
             cached
             {provider.cache.age_seconds !== null
               ? ` ${Math.round(provider.cache.age_seconds)}s`
               : ""}
-          </Badge>
+          </StatusBadge>
         ) : null}
         {provider.reset_credits_available !== null ? (
-          <Badge variant="info">
+          <span className="text-xs text-muted-foreground">
             {provider.reset_credits_available} reset credit
             {provider.reset_credits_available === 1 ? "" : "s"}
-          </Badge>
+          </span>
         ) : null}
       </div>
       {provider.detail !== null ? (
@@ -299,17 +293,17 @@ function QuotaHubCard({ hub }: { hub: UsageQuotaHub }) {
   return (
     <SurfaceRow className="flex flex-col gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge variant="outline">hub:{hub.id ?? "unknown"}</Badge>
-        <Badge variant={quotaStatusVariant(hub.status)}>{hub.status}</Badge>
+        <span className="font-mono text-xs text-muted-foreground">hub:{hub.id ?? "unknown"}</span>
+        <StatusBadge status={quotaStatus(hub.status)}>{hub.status}</StatusBadge>
         {hub.endpoint !== null ? (
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {hub.endpoint}
           </span>
         ) : null}
         {hub.stale ? (
-          <Badge variant="warning" title={hub.stale_reason ?? undefined}>
+          <StatusBadge status="warning" title={hub.stale_reason ?? undefined}>
             stale
-          </Badge>
+          </StatusBadge>
         ) : null}
       </div>
       {hub.detail !== null ? (
@@ -326,10 +320,10 @@ function QuotaHubCard({ hub }: { hub: UsageQuotaHub }) {
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
                   {account.account ?? "account"}
                 </span>
-                <Badge variant="outline">{account.provider ?? "?"}</Badge>
-                <Badge variant={quotaStatusVariant(account.status)}>
+                <span className="text-xs text-muted-foreground">{account.provider ?? "?"}</span>
+                <StatusBadge status={quotaStatus(account.status)}>
                   {account.status}
-                </Badge>
+                </StatusBadge>
                 {account.plan !== null ? (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {account.plan}
@@ -559,8 +553,8 @@ function TotalsRow({ report }: { report: UsageReport }) {
 function CacheTokenRow({ entry }: { entry: UsageCacheTokenProvider }) {
   return (
     <SurfaceRow className="flex flex-wrap items-center gap-2">
-      <Badge variant="outline">{entry.provider}</Badge>
-      <Badge variant={cacheTokenVariant(entry.status)}>{entry.status}</Badge>
+      <span className="text-xs text-muted-foreground">{entry.provider}</span>
+      <StatusBadge status={cacheStatus(entry.status)}>{entry.status}</StatusBadge>
       <span className="text-xs text-muted-foreground tabular-nums">
         {formatTokens(entry.events)} event{entry.events === 1 ? "" : "s"}
       </span>
@@ -817,7 +811,7 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
             </SurfaceRow>
           </SurfaceGroup>
           {!cost.estimate_complete ? (
-            <Badge variant="warning">Partial — unpriced models excluded</Badge>
+            <StatusBadge status="warning">Partial — unpriced models excluded</StatusBadge>
           ) : null}
           {cost.unpriced_models.length > 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -858,9 +852,9 @@ function CostSection({ machine, filters }: { machine: string; filters: UsageFilt
                       <td className="max-w-48 truncate py-2.5 pr-3 pl-2 text-left font-mono text-foreground">
                         {row.key ?? "—"}
                         {row.cost_source === "unpriced" ? (
-                          <Badge variant="outline" className="ml-2">
+                          <StatusBadge status="neutral" className="ml-2">
                             unpriced
-                          </Badge>
+                          </StatusBadge>
                         ) : null}
                       </td>
                       <td className="py-2.5 pl-4">{formatTokens(row.total_tokens)}</td>
@@ -937,9 +931,9 @@ function DivergenceSection({ machine, filters }: { machine: string; filters: Usa
                     <span className="text-sm font-medium text-foreground">
                       {comparison.provider}
                     </span>
-                    <Badge variant={verdictVariant(comparison.verdict)}>
+                    <StatusBadge status={verdictStatus(comparison.verdict)}>
                       {comparison.verdict}
-                    </Badge>
+                    </StatusBadge>
                     {comparison.window_alignment !== null ? (
                       <span className="text-xs text-muted-foreground">
                         window: {comparison.window_alignment}

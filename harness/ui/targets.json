@@ -48,6 +48,10 @@
       "kind": "control",
       "evidence": ["src/shell/SettingsModal.tsx data-settings-section=appearance"]
     },
+    "nav.settings-section": {
+      "kind": "control",
+      "evidence": ["src/shell/SettingsModal.tsx data-settings-section=<section>", "issue #407 AC-001"]
+    },
     "theme.mode-tiles": {
       "kind": "control",
       "evidence": ["src/components/ThemeModeTiles.tsx", "src/lib/theme.ts"]

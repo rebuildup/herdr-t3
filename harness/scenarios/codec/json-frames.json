@@ -1498,6 +1498,529 @@
         "snapshot": null
       },
       "expect_error": "must be an object"
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "w1:p1",
+          "cols": 80,
+          "rows": 24,
+          "writable": false,
+          "manageSize": false,
+          "inputGrant": {
+            "keys": true,
+            "scroll": false
+          },
+          "scrollScope": "viewport",
+          "history": {
+            "anchor": {
+              "kind": "offset_from_bottom",
+              "offset": 3
+            },
+            "rows": 100,
+            "format": "text"
+          }
+        }
+      },
+      "note": "subscribe_terminal non-interference options (C1/C2b/C3/C4)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "w1:p1",
+          "cols": 80,
+          "rows": 24,
+          "writable": false,
+          "manageSize": false,
+          "inputGrant": {
+            "keys": true,
+            "scroll": false
+          },
+          "scrollScope": "viewport",
+          "history": {
+            "anchor": {
+              "kind": "offset_from_bottom",
+              "offset": 3
+            },
+            "rows": 100,
+            "format": "text"
+          }
+        }
+      },
+      "note": "subscribe_terminal non-interference options round-trip",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "subscribe_terminal",
+            "paneId": "w1:p1",
+            "cols": 80,
+            "rows": 24,
+            "writable": false,
+            "manageSize": false,
+            "inputGrant": {
+              "keys": true,
+              "scroll": false
+            },
+            "scrollScope": "viewport",
+            "history": {
+              "anchor": {
+                "kind": "offset_from_bottom",
+                "offset": 3
+              },
+              "rows": 100,
+              "format": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "manageSize": "no"
+        }
+      },
+      "note": "manageSize must be boolean",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "inputGrant": {
+            "keys": "yes"
+          }
+        }
+      },
+      "note": "inputGrant fields must be boolean",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "inputGrant": [
+            "keys"
+          ]
+        }
+      },
+      "note": "inputGrant must be object",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "scrollScope": "global"
+        }
+      },
+      "note": "scrollScope enum",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "history": {
+            "anchor": {
+              "kind": "bogus"
+            }
+          }
+        }
+      },
+      "note": "history anchor kind",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "history": {
+            "rows": 1.5
+          }
+        }
+      },
+      "note": "history rows safe int",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "subscribe_terminal",
+          "paneId": "p",
+          "history": {
+            "format": "html"
+          }
+        }
+      },
+      "note": "history format enum",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "w1:p1",
+          "machine": "local",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": 7
+          },
+          "rows": 50,
+          "format": "ansi"
+        }
+      },
+      "note": "terminal_history valid (C3)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "w1:p1",
+          "machine": "local",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": 7
+          },
+          "rows": 50,
+          "format": "ansi"
+        }
+      },
+      "note": "terminal_history round-trip",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_history",
+            "paneId": "w1:p1",
+            "machine": "local",
+            "anchor": {
+              "kind": "absolute_line",
+              "line": 7
+            },
+            "rows": 50,
+            "format": "ansi"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p"
+        }
+      },
+      "note": "terminal_history anchor required",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": "bottom"
+        }
+      },
+      "note": "terminal_history anchor shape",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": {
+            "kind": "absolute_line"
+          }
+        }
+      },
+      "note": "anchor magnitude required",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": -1
+          }
+        }
+      },
+      "note": "anchor non-negative",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": 1.5
+          }
+        }
+      },
+      "note": "anchor integer",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": 9007199254740992
+          },
+          "rows": 10
+        }
+      },
+      "note": "anchor beyond safe int",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_history",
+          "paneId": "p",
+          "anchor": {
+            "kind": "absolute_line",
+            "line": 1
+          },
+          "format": "html"
+        }
+      },
+      "note": "history format enum",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "w1:p1",
+          "direction": "down",
+          "lines": 3,
+          "scope": "viewport"
+        }
+      },
+      "note": "terminal_scroll viewport scope (C4)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": true
+        }
+      }
+    },
+    {
+      "op": "json_encode_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "w1:p1",
+          "direction": "down",
+          "lines": 3,
+          "scope": "viewport"
+        }
+      },
+      "note": "terminal_scroll scope round-trip",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_scroll",
+            "paneId": "w1:p1",
+            "direction": "down",
+            "lines": 3,
+            "scope": "viewport"
+          }
+        }
+      }
+    },
+    {
+      "op": "json_is_client_frame",
+      "input": {
+        "frame": {
+          "type": "terminal_scroll",
+          "paneId": "p",
+          "direction": "up",
+          "scope": "client"
+        }
+      },
+      "note": "scroll scope enum",
+      "expect": {
+        "ok": true,
+        "value": {
+          "valid": false
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\": \"terminal_history_page\", \"paneId\": \"w1:p1\", \"machine\": \"local\", \"terminalId\": \"t1\", \"contentRevision\": 42, \"anchor\": {\"kind\": \"absolute_line\", \"line\": 10}, \"rows\": [\"line one\", \"line two\"], \"hasMoreAbove\": true, \"hasMoreBelow\": false, \"nextAnchor\": {\"kind\": \"absolute_line\", \"line\": 8}}"
+      },
+      "note": "terminal_history_page decode (C3)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "terminal_history_page",
+            "paneId": "w1:p1",
+            "machine": "local",
+            "terminalId": "t1",
+            "contentRevision": 42,
+            "anchor": {
+              "kind": "absolute_line",
+              "line": 10
+            },
+            "rows": [
+              "line one",
+              "line two"
+            ],
+            "hasMoreAbove": true,
+            "hasMoreBelow": false,
+            "nextAnchor": {
+              "kind": "absolute_line",
+              "line": 8
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "json_decode_server_frame",
+      "input": {
+        "json": "{\"type\": \"ready\", \"machine\": \"local\", \"capabilities\": [\"terminal.shared_size_attach\", \"terminal.history_paging\"], \"snapshot\": {}}"
+      },
+      "note": "ready capabilities advertisement (C5)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "frame": {
+            "type": "ready",
+            "machine": "local",
+            "capabilities": [
+              "terminal.shared_size_attach",
+              "terminal.history_paging"
+            ],
+            "snapshot": {}
+          }
+        }
+      }
     }
   ]
 }

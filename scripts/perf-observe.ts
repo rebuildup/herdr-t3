@@ -45,24 +45,21 @@ interface ScenarioSummary {
   [k: string]: unknown;
 }
 
-const args = process.argv.slice(2);
-const mode = args[0];
-const flag = (name: string, dflt = ""): string => {
+const flag = (args: string[], name: string, dflt = ""): string => {
   const i = args.indexOf(name);
   return i >= 0 ? (args[i + 1] ?? dflt) : dflt;
 };
-const JSON_OUT = args.includes("--json");
-const REGRESSION_PCT = Number(flag("--regression-pct", "20"));
 
-function userDataDir(): string {
-  const explicit = flag("--user-data");
+function userDataDir(args: string[]): string {
+  const explicit = flag(args, "--user-data");
   if (explicit) return explicit;
   const profile = process.env["HERDR_T3_PROFILE"] === "dev" ? "herdr-t3-dev" : "herdr-t3";
   return join(homedir(), "Library", "Application Support", profile);
 }
 
-function diagnose(): number {
-  const dir = userDataDir();
+export function diagnose(argv: string[] = []): number {
+  const jsonOut = argv.includes("--json");
+  const dir = userDataDir(argv);
   const histPath = join(dir, "memory-history.jsonl");
   const statusPath = join(dir, "bridge-status.json");
   if (!existsSync(histPath)) {
@@ -138,7 +135,7 @@ function diagnose(): number {
     processTypeDelta: typeDelta,
     osAvailPct: { min: Math.min(...samples.map((s) => s.osAvailPct ?? 100)), last: samples[samples.length - 1]!.osAvailPct },
   };
-  if (JSON_OUT) {
+  if (jsonOut) {
     console.log(JSON.stringify(report, null, 2));
     return 0;
   }
@@ -244,7 +241,13 @@ const FRAME_METRICS: MetricDef[] = [
   { label: "cpuUtilPct", lowerBetter: true, get: (w) => (w as { cpu_utilization_pct?: number })?.cpu_utilization_pct },
 ];
 
-function compare(baselinePath: string, candidatePath: string): number {
+export function compare(
+  baselinePath: string,
+  candidatePath: string,
+  argv: string[] = [],
+): number {
+  const jsonOut = argv.includes("--json");
+  const regressionPct = Number(flag(argv, "--regression-pct", "20"));
   const load = (p: string): ReportEnvelope => JSON.parse(readFileSync(p, "utf8")) as ReportEnvelope;
   const baseEnv = load(baselinePath);
   const candEnv = load(candidatePath);
@@ -337,7 +340,7 @@ function compare(baselinePath: string, candidatePath: string): number {
       }
       const deltaPct = ((cv - bv) / bv) * 100;
       const worse = m.lowerBetter ? cv > bv : cv < bv;
-      const flag = worse && Math.abs(deltaPct) >= REGRESSION_PCT ? `regression >${REGRESSION_PCT}%` : undefined;
+      const flag = worse && Math.abs(deltaPct) >= regressionPct ? `regression >${regressionPct}%` : undefined;
       if (flag) regressions++;
       deltas[m.label] = { base: bv, cand: cv, deltaPct: Math.round(deltaPct * 10) / 10, flag };
     }
@@ -364,11 +367,11 @@ function compare(baselinePath: string, candidatePath: string): number {
     unmeasuredMetrics: unmeasured,
     verdict,
     inconclusiveReasons,
-    regressionPct: REGRESSION_PCT,
+    regressionPct: regressionPct,
     regressions,
     scenarios: rows,
   };
-  if (JSON_OUT) {
+  if (jsonOut) {
     console.log(JSON.stringify(report, null, 2));
     return verdict === "pass" ? 0 : verdict === "fail" ? 1 : 3;
   }
@@ -383,7 +386,7 @@ function compare(baselinePath: string, candidatePath: string): number {
       .map(([k, v]) => `${k} ${v.deltaPct !== undefined ? (v.deltaPct >= 0 ? "+" : "") + v.deltaPct + "%" : "n/a"}${v.flag ? ` ⚠${v.flag}` : ""}`);
     console.log(`${(r as { scenario: string }).scenario}: ${parts.join(", ") || "n/a"}`);
   }
-  if (regressions) console.log(`\n${regressions} regression(s) beyond ±${REGRESSION_PCT}%`);
+  if (regressions) console.log(`\n${regressions} regression(s) beyond ±${regressionPct}%`);
   else console.log("\nno regressions beyond threshold");
   if (verdict === "inconclusive") {
     console.log(`INCONCLUSIVE — cannot certify PASS: ${inconclusiveReasons.join("; ")}`);
@@ -392,10 +395,11 @@ function compare(baselinePath: string, candidatePath: string): number {
   return regressions > 0 ? 1 : 0;
 }
 
-function main(): number {
-  if (mode === "diagnose") return diagnose();
-  if (mode === "compare" && args[1] && args[2] && !args[1].startsWith("--")) {
-    return compare(args[1], args[2]);
+export function main(argv: string[] = process.argv.slice(2)): number {
+  const mode = argv[0];
+  if (mode === "diagnose") return diagnose(argv.slice(1));
+  if (mode === "compare" && argv[1] && argv[2] && !argv[1].startsWith("--")) {
+    return compare(argv[1], argv[2], argv.slice(3));
   }
   console.error("usage: perf-observe.ts diagnose [--user-data <dir>] [--json]\n" +
     "       perf-observe.ts compare <baseline.json> <candidate.json> [--json] [--regression-pct 20]\n" +
@@ -403,4 +407,4 @@ function main(): number {
   return 2;
 }
 
-process.exit(main());
+if (import.meta.main) process.exit(main());

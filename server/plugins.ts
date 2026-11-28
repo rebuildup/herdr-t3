@@ -264,6 +264,34 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
 const DISCOVERY_TTL_MS = 30_000;
 const CAPABILITY_TTL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Bound on plugin processes executing concurrently *per machine*
+ * (issue #538). Every plugin_call/plugin_list/capability probe spawns a
+ * fresh `bun` process; pane fan-out (e.g. per-pane git status refreshes)
+ * can burst dozens of them at once and starve the host. The default of
+ * 4 keeps interactive latency low while a burst queues instead of
+ * stampeding; override with HERDR_T3_PLUGIN_MAX_CONCURRENT (positive
+ * integer, anything else falls back to the default).
+ */
+const DEFAULT_MAX_CONCURRENT_EXECS = 4;
+
+function pluginMaxConcurrentExecs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env["HERDR_T3_PLUGIN_MAX_CONCURRENT"];
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CONCURRENT_EXECS;
+}
+
+interface ExecSlotWaiter {
+  grant: () => void;
+  cancel: () => void;
+}
+
+interface ExecSlot {
+  active: number;
+  waiting: ExecSlotWaiter[];
+}
+
 // textgen-v1 agent-path tasks default to 120–600s internally
 // (review_guide 600s, issue #458); the cap must cover the largest
 // per-task default or long generations die as plugin_timeout.
@@ -600,15 +628,30 @@ function outcomeToJson(
   return { doc };
 }
 
+export interface PluginServiceOptions {
+  /**
+   * Per-machine bound on concurrently executing plugin processes
+   * (issue #538). Defaults to `HERDR_T3_PLUGIN_MAX_CONCURRENT` or 4.
+   */
+  maxConcurrentExecs?: number;
+}
+
 export class PluginService {
   private readonly hostFor: (machine: string) => Promise<PluginHost | null>;
   private readonly discovery = new Map<string, DiscoveryCacheEntry>();
   private readonly capabilities = new Map<string, CapabilityCacheEntry>();
   /** In-flight operations keyed for single-flight coalescing (issue #424). */
   private readonly inflight = new Map<string, Promise<unknown>>();
+  /** Per-machine exec slots enforcing the concurrency bound (issue #538). */
+  private readonly execSlots = new Map<string, ExecSlot>();
+  private readonly maxConcurrentExecs: number;
 
-  constructor(hostFor: (machine: string) => Promise<PluginHost | null>) {
+  constructor(
+    hostFor: (machine: string) => Promise<PluginHost | null>,
+    options: PluginServiceOptions = {},
+  ) {
     this.hostFor = hostFor;
+    this.maxConcurrentExecs = options.maxConcurrentExecs ?? pluginMaxConcurrentExecs();
   }
 
   /**
@@ -625,6 +668,87 @@ export class PluginService {
     return pending;
   }
 
+  /**
+   * Take one of the machine's exec slots, or null when `deadline` passes
+   * while queued (issue #538). A granted slot is released by calling the
+   * returned function; release hands the slot directly to the next
+   * waiter, so `active` never exceeds the bound and a queued call's
+   * timeout budget transparently covers queue wait + exec.
+   */
+  private acquireExecSlot(machine: string, deadline: number): Promise<(() => void) | null> {
+    let slot = this.execSlots.get(machine);
+    if (slot === undefined) {
+      slot = { active: 0, waiting: [] };
+      this.execSlots.set(machine, slot);
+    }
+    const current = slot;
+    if (current.active < this.maxConcurrentExecs) {
+      current.active += 1;
+      return Promise.resolve(() => this.releaseExecSlot(machine));
+    }
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter: ExecSlotWaiter = {
+        grant: () => {
+          if (timer !== undefined) clearTimeout(timer);
+          resolve(() => this.releaseExecSlot(machine));
+        },
+        cancel: () => resolve(null),
+      };
+      current.waiting.push(waiter);
+      timer = setTimeout(() => {
+        const index = current.waiting.indexOf(waiter);
+        if (index >= 0) {
+          current.waiting.splice(index, 1);
+          metricInc("plugin.exec.queue_timeout");
+          waiter.cancel();
+        }
+      }, Math.max(0, deadline - Date.now()));
+      timer.unref?.();
+    });
+  }
+
+  private releaseExecSlot(machine: string): void {
+    const slot = this.execSlots.get(machine);
+    if (slot === undefined) return;
+    const next = slot.waiting.shift();
+    if (next !== undefined) {
+      // Hand the slot straight to the next waiter: `active` is unchanged.
+      next.grant();
+      return;
+    }
+    slot.active -= 1;
+    if (slot.active <= 0) this.execSlots.delete(machine);
+  }
+
+  /**
+   * Run one plugin exec under the per-machine concurrency bound
+   * (issue #538). `timeoutMs` is a *deadline* covering queue wait plus
+   * exec: a call that cannot start before its budget expires resolves
+   * as `timedOut` without spawning (surfaced as `plugin_timeout`), and
+   * a started exec receives only the remaining budget.
+   */
+  private async execWithSlot(
+    machine: string,
+    timeoutMs: number,
+    run: (timeoutMs: number) => Promise<PluginExecOutcome>,
+  ): Promise<PluginExecOutcome> {
+    const deadline = Date.now() + timeoutMs;
+    const release = await this.acquireExecSlot(machine, deadline);
+    if (release === null) {
+      return { code: null, stdout: "", stderr: "", timedOut: true };
+    }
+    try {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return { code: null, stdout: "", stderr: "", timedOut: true };
+      }
+      return await run(remaining);
+    } finally {
+      release();
+    }
+  }
+
   /** Drop cached discovery/capability for a machine (disconnect/refresh). */
   invalidate(machine: string): void {
     this.discovery.delete(machine);
@@ -632,9 +756,15 @@ export class PluginService {
       if (key.startsWith(`${machine}\u0000`)) this.capabilities.delete(key);
     }
     // Stop new callers from joining pre-invalidate in-flight work; the
-    // running operation itself is left to settle.
+    // running operation itself is left to settle. Covers every coalesced
+    // key family for the machine: `list`, `cap` and `exec` (issue #538 —
+    // the `exec`/`cap` prefixes were previously unmatched here).
     for (const key of [...this.inflight.keys()]) {
-      if (key === `list\u0000${machine}` || key.startsWith(`call\u0000${machine}\u0000`)) {
+      if (
+        key === `list\u0000${machine}` ||
+        key.startsWith(`cap\u0000${machine}\u0000`) ||
+        key.startsWith(`exec\u0000${machine}\u0000`)
+      ) {
         this.inflight.delete(key);
       }
     }
@@ -653,23 +783,25 @@ export class PluginService {
     }
     metricInc("plugin.discovery.miss");
     const host = await this.requireHost(machine);
-    const outcome = await metricTimed(
-      "plugin.exec",
-      () =>
-        host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
-          timeoutMs: DEFAULT_TIMEOUT_MS,
-          // `herdr plugin list` itself resolves its socket through the same
-          // env precedence — scrub or discovery could read a foreign session.
-          envRemove: PLUGIN_ENV_SCRUB,
-          // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
-          // explicit socket override and beats `--session`/default. Set it
-          // *after* the scrub so it carries the bridge's own socket, not an
-          // ambient one (issue #289).
-          ...(host.pluginSocket !== undefined
-            ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
-            : {}),
-        }),
-      { what: "plugin_list" },
+    const outcome = await this.execWithSlot(machine, DEFAULT_TIMEOUT_MS, (timeoutMs) =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
+            timeoutMs,
+            // `herdr plugin list` itself resolves its socket through the same
+            // env precedence — scrub or discovery could read a foreign session.
+            envRemove: PLUGIN_ENV_SCRUB,
+            // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
+            // explicit socket override and beats `--session`/default. Set it
+            // *after* the scrub so it carries the bridge's own socket, not an
+            // ambient one (issue #289).
+            ...(host.pluginSocket !== undefined
+              ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
+              : {}),
+          }),
+        { what: "plugin_list" },
+      ),
     );
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
@@ -687,7 +819,7 @@ export class PluginService {
     const plugins: PluginListEntry[] = [];
     for (const entry of pluginsRaw) {
       if (!isRecord(entry)) continue;
-      const { plugin_id, name, version, enabled, plugin_root, description } = entry;
+      const { plugin_id, name, version, enabled, plugin_root, description, min_herdr_version, platforms } = entry;
       if (typeof plugin_id !== "string" || typeof plugin_root !== "string") continue;
       const item: PluginListEntry = {
         plugin_id,
@@ -697,6 +829,18 @@ export class PluginService {
         plugin_root,
       };
       if (typeof description === "string") item.description = description;
+      // herdr >= 0.9.x reports these (issue #539); absent on older hosts —
+      // forward only well-formed values, never fabricate.
+      if (typeof min_herdr_version === "string" && min_herdr_version.length > 0) {
+        item.min_herdr_version = min_herdr_version;
+      }
+      if (
+        Array.isArray(platforms) &&
+        platforms.every((p): p is string => typeof p === "string") &&
+        platforms.length > 0
+      ) {
+        item.platforms = [...platforms];
+      }
       plugins.push(item);
     }
     const result: PluginListResult = { plugins };
@@ -724,7 +868,7 @@ export class PluginService {
     if (!entry.enabled) {
       throw new HerdrError("plugin_disabled", `plugin ${request.plugin} is disabled`);
     }
-    const capability = await this.capability(machine, entry.plugin_root);
+    const capability = await this.capability(machine, entry.plugin_root, entry.version);
     const commands = capability.doc?.["commands"];
     const contract = capability.doc?.["contract"];
     if (typeof contract !== "string" || contract.length === 0) {
@@ -733,7 +877,14 @@ export class PluginService {
         `plugin ${request.plugin} capability has no contract field`,
       );
     }
-    if (!Array.isArray(commands) || !commands.includes(request.command)) {
+    // `capability` is the meta-command the probe itself just answered —
+    // upstream contracts do not have to list it in `commands` (issue #539),
+    // so the membership gate must not reject it. Every other command still
+    // requires an explicit `commands` entry.
+    const commandAllowed =
+      request.command === "capability" ||
+      (Array.isArray(commands) && commands.includes(request.command));
+    if (!commandAllowed) {
       throw new HerdrError(
         "plugin_unsupported_command",
         `plugin ${request.plugin} does not provide command "${request.command}"`,
@@ -743,17 +894,20 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
     argv.push(...pluginTargetArgs(host));
+    const callTimeoutMs = Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS);
     const exec = () =>
-      metricTimed(
-        "plugin.exec",
-        () =>
-          host.exec(argv, {
-            cwd: entry.plugin_root,
-            timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
-            envRemove: PLUGIN_ENV_SCRUB,
-            ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
-          }),
-        { what: "plugin_call", command: request.command },
+      this.execWithSlot(machine, callTimeoutMs, (timeoutMs) =>
+        metricTimed(
+          "plugin.exec",
+          () =>
+            host.exec(argv, {
+              cwd: entry.plugin_root,
+              timeoutMs,
+              envRemove: PLUGIN_ENV_SCRUB,
+              ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
+            }),
+          { what: "plugin_call", command: request.command },
+        ),
       );
     // Single-flight at the spawn boundary (issue #424). The capability
     // document's `mutation_commands` is the contract's own read/write
@@ -781,9 +935,31 @@ export class PluginService {
     return parsed.doc as PluginCallResult;
   }
 
-  /** `capability` document for one plugin_root, cached per host+root. */
-  private async capability(machine: string, pluginRoot: string): Promise<CapabilityCacheEntry> {
-    const key = `${machine}\u0000${pluginRoot}`;
+  /**
+   * `capability` document for one plugin_root, cached per host+root+version
+   * (issue #539). Keying by the discovered plugin `version` means an
+   * upstream plugin update — which changes `plugin_list`'s version — can
+   * never be served a stale capability document inside the TTL window;
+   * superseded same-root entries are dropped on write. Concurrent misses
+   * for the same host+root+version single-flight (issue #538): a pane
+   * fan-out must not spawn one `bun` probe per caller.
+   */
+  private async capability(
+    machine: string,
+    pluginRoot: string,
+    pluginVersion: string,
+  ): Promise<CapabilityCacheEntry> {
+    return this.coalesce(`cap\u0000${machine}\u0000${pluginRoot}\u0000${pluginVersion}`, () =>
+      this.capabilityInner(machine, pluginRoot, pluginVersion),
+    );
+  }
+
+  private async capabilityInner(
+    machine: string,
+    pluginRoot: string,
+    pluginVersion: string,
+  ): Promise<CapabilityCacheEntry> {
+    const key = `${machine}\u0000${pluginRoot}\u0000${pluginVersion}`;
     const cached = this.capabilities.get(key);
     if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) {
       metricInc("plugin.capability.hit");
@@ -791,18 +967,20 @@ export class PluginService {
     }
     metricInc("plugin.capability.miss");
     const host = await this.requireHost(machine);
-    const outcome = await metricTimed(
-      "plugin.exec",
-      () =>
-        host.exec(
-          ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
-          {
-            cwd: pluginRoot,
-            timeoutMs: DEFAULT_TIMEOUT_MS,
-            envRemove: PLUGIN_ENV_SCRUB,
-          },
-        ),
-      { what: "capability" },
+    const outcome = await this.execWithSlot(machine, DEFAULT_TIMEOUT_MS, (timeoutMs) =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec(
+            ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
+            {
+              cwd: pluginRoot,
+              timeoutMs,
+              envRemove: PLUGIN_ENV_SCRUB,
+            },
+          ),
+        { what: "capability" },
+      ),
     );
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
     if ("error" in parsed) {
@@ -815,6 +993,12 @@ export class PluginService {
       at: Date.now(),
       doc: isRecord(parsed.doc) ? parsed.doc : {},
     };
+    // Drop superseded entries for the same host+root (older plugin
+    // versions) so version churn cannot grow the cache unboundedly.
+    const rootPrefix = `${machine}\u0000${pluginRoot}\u0000`;
+    for (const stale of [...this.capabilities.keys()]) {
+      if (stale !== key && stale.startsWith(rootPrefix)) this.capabilities.delete(stale);
+    }
     this.capabilities.set(key, entry);
     return entry;
   }

@@ -166,39 +166,50 @@ impl MemHubOwned {
     }
 }
 
+/// Establish one in-memory duplex pair without a hub: the returned
+/// `Connection` is the client side (what `Connector::connect` yields)
+/// and the `MemEnd` is the server peer the other side scripts. Pairing
+/// is deterministic — no accept queue — so connection indices match
+/// `connect()` call order (the harness bridge adapter relies on this).
+pub fn duplex_connection() -> (Connection, MemEnd) {
+    let a_to_b = Arc::new(Shared::default());
+    let b_to_a = Arc::new(Shared::default());
+    let client = MemEnd {
+        read: b_to_a.clone(),
+        write: a_to_b.clone(),
+    };
+    let server = MemEnd {
+        read: a_to_b,
+        write: b_to_a,
+    };
+    let closer_read = client.read.clone();
+    let closer_write = client.write.clone();
+    let conn = spawn_reader(
+        Box::new(client.clone()),
+        Box::new(client),
+        Box::new(move || {
+            for shared in [&closer_read, &closer_write] {
+                let mut state = shared.state.lock().unwrap();
+                state.closed = true;
+                shared.cv.notify_all();
+            }
+        }),
+    );
+    (conn, server)
+}
+
 pub struct MemConnectorOwned {
     inner: Arc<MemHubInner>,
 }
 
 impl crate::io::Connector for MemConnectorOwned {
     fn connect(&self) -> Result<Connection, String> {
-        let a_to_b = Arc::new(Shared::default());
-        let b_to_a = Arc::new(Shared::default());
-        let client = MemEnd {
-            read: b_to_a.clone(),
-            write: a_to_b.clone(),
-        };
-        let server = MemEnd {
-            read: a_to_b,
-            write: b_to_a,
-        };
+        let (conn, server) = duplex_connection();
         {
             let mut pending = self.inner.pending.lock().unwrap();
             pending.push_back(server);
         }
         self.inner.cv.notify_one();
-        let closer_read = client.read.clone();
-        let closer_write = client.write.clone();
-        Ok(spawn_reader(
-            Box::new(client.clone()),
-            Box::new(client),
-            Box::new(move || {
-                for shared in [&closer_read, &closer_write] {
-                    let mut state = shared.state.lock().unwrap();
-                    state.closed = true;
-                    shared.cv.notify_all();
-                }
-            }),
-        ))
+        Ok(conn)
     }
 }

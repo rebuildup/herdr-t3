@@ -19,7 +19,7 @@
  * Clipboard failures surface as an error — nothing is claimed copied.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -171,17 +171,17 @@ function CandidateRow({
     >
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">{candidate.label}</span>
-        <Badge size="sm" variant="outline">
+        <span className="text-2xs text-muted-foreground">
           {candidate.source === "transcript"
             ? "transcript"
             : candidate.source === "agent_read"
               ? "agent.read"
               : "scrollback"}
-        </Badge>
+        </span>
         {candidate.estimate ? (
-          <Badge size="sm" variant="warning">
+          <StatusBadge size="sm" status="warning">
             estimate
-          </Badge>
+          </StatusBadge>
         ) : null}
       </span>
       {candidate.notes.length > 0 ? (

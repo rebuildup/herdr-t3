@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlayIcon, PlusIcon, ShieldCheckIcon } from "lucide-react";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { RefreshIcon } from "./ui/refresh-icon";
@@ -91,13 +91,13 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function statusVariant(
+function resolveStatus(
   status: string,
-): "success" | "error" | "warning" | "info" | "secondary" | "outline" {
+): StatusBadgeStatus {
   switch (status) {
     case "resolved":
     case "ok":
-      return "success";
+      return "ok";
     case "unresolved":
     case "auth_missing":
     case "config_error":
@@ -106,7 +106,7 @@ function statusVariant(
     case "provider_error":
       return "warning";
     default:
-      return "outline";
+      return "neutral";
   }
 }
 
@@ -155,31 +155,26 @@ function ProviderSection({
       </div>
       <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <Badge size="sm" variant="secondary">
-            {provider.name ?? "provider"}
-          </Badge>
+          <span className="text-2xs text-muted-foreground">{provider.name ?? "provider"}</span>
           <span className="min-w-0 flex-1 truncate font-mono text-2xs">
             {provider.domain ?? "—"}
           </span>
-          <Badge
-            size="sm"
-            variant={provider.projectIdConfigured ? "success" : "warning"}
-          >
+          <StatusBadge size="sm" status={provider.projectIdConfigured ? "ok" : "warning"}>
             {provider.projectIdConfigured ? "project id set" : "no project id"}
-          </Badge>
+          </StatusBadge>
         </div>
         {provider.cli !== null ? (
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
             <span className="shrink-0">
               cli {provider.cli.bin ?? "?"}{" "}
               {provider.cli.available ? (
-                <Badge size="sm" variant="success">
+                <StatusBadge size="sm" status="ok">
                   available
-                </Badge>
+                </StatusBadge>
               ) : (
-                <Badge size="sm" variant="error">
+                <StatusBadge size="sm" status="error">
                   missing
-                </Badge>
+                </StatusBadge>
               )}
             </span>
             {provider.cli.version !== null ? (
@@ -195,9 +190,9 @@ function ProviderSection({
         {reachability !== null ? (
           <div className="flex min-w-0 items-center gap-2 text-2xs text-muted-foreground">
             <span className="shrink-0">reachability</span>
-            <Badge size="sm" variant={statusVariant(reachability.status)}>
+            <StatusBadge size="sm" status={resolveStatus(reachability.status)}>
               {reachability.status}
-            </Badge>
+            </StatusBadge>
             {reachability.detail !== null ? (
               <span className="min-w-0 truncate text-muted-foreground/70">
                 {reachability.detail}
@@ -259,9 +254,7 @@ function BindingsSection({
                 aria-pressed={isSelected}
               >
                 <div className="flex min-w-0 items-center gap-2">
-                  <Badge size="sm" variant={isSelected ? "info" : "secondary"}>
-                    {binding.name}
-                  </Badge>
+                  <span className="text-2xs text-muted-foreground">{binding.name}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-2xs">
                     {binding.env ?? "—"}
                   </span>
@@ -283,9 +276,9 @@ function BindingsSection({
               className="flex min-w-0 flex-col gap-0.5 rounded-md border border-destructive/40 px-2 py-1.5"
             >
               <div className="flex min-w-0 items-center gap-2">
-                <Badge size="sm" variant="error">
+                <StatusBadge size="sm" status="error">
                   {invalid.name}
-                </Badge>
+                </StatusBadge>
                 <span className="text-2xs text-destructive">invalid binding</span>
               </div>
               {invalid.error !== null ? (
@@ -358,9 +351,9 @@ function ResolveSection({
       {report !== null ? (
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2 text-2xs text-muted-foreground">
-            <Badge size="sm" variant={report.ok ? "success" : "warning"}>
+            <StatusBadge size="sm" status={report.ok ? "ok" : "warning"}>
               {report.ok ? "all resolved" : "not all resolved"}
-            </Badge>
+            </StatusBadge>
             {report.generatedAt !== null ? (
               <span className="text-muted-foreground/70">
                 {formatTime(report.generatedAt)}
@@ -373,15 +366,13 @@ function ResolveSection({
               className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border/60 px-2 py-1.5"
             >
               <div className="flex min-w-0 items-center gap-2">
-                <Badge size="sm" variant="secondary">
-                  {row.name}
-                </Badge>
+                <span className="text-2xs text-muted-foreground">{row.name}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-2xs">
                   {row.env ?? "—"}
                 </span>
-                <Badge size="sm" variant={statusVariant(row.status)}>
+                <StatusBadge size="sm" status={resolveStatus(row.status)}>
                   {row.status}
-                </Badge>
+                </StatusBadge>
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
                 {row.ref !== null ? (
@@ -662,9 +653,9 @@ function MutationsSection({
               {injectResult.paneId !== null ? ` · pane ${injectResult.paneId}` : ""}
             </span>
             {injectResult.envNames.map((name) => (
-              <Badge key={name} size="sm" variant="outline">
+              <span key={name} className="font-mono text-2xs text-muted-foreground">
                 {name}
-              </Badge>
+              </span>
             ))}
           </div>
         ) : null}

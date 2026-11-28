@@ -31,6 +31,7 @@ import { createSelectionCopy } from "../lib/selectionCopy";
 import { registerPaneSurface, unregisterPaneSurface } from "../lib/paneSurfaces";
 import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
+import { AttachEgress, observeScrollTarget } from "../lib/paneOperator";
 import { deliverPanePaste } from "../lib/panePaste.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
 import { registerMemoryProbe, registerMemoryShedder } from "../lib/memoryBudget.ts";
@@ -80,6 +81,8 @@ export function PaneTerminal({
   connected,
   className,
   label,
+  writable = true,
+  onOperatorIntent,
 }: {
   machine: string;
   paneId: string;
@@ -87,6 +90,23 @@ export function PaneTerminal({
   className?: string;
   /** pane title used for the terminal input's accessible name (issue #115) */
   label?: string;
+  /**
+   * Whether this pane currently holds the writable AttachTerminal mode
+   * (issue #571): only the pane the user is operating gets resize authority
+   * and input; every other visible pane streams through read-only
+   * ObserveTerminal so merely having the GUI open cannot pin pane sizes or
+   * steal input/scroll arbitration from other clients. Focus changes
+   * negotiate the mode on the live subscription — no detach gap.
+   */
+  writable?: boolean;
+  /**
+   * Operating intent reached this pane while it observes (issue #584):
+   * keystrokes, IME commits, mouse presses, paste, link activation. The
+   * host promotes the pane into the operator role; until `writable` flips
+   * the attach-bound bytes wait in the egress buffer and flush in order —
+   * nothing typed is lost across the mode negotiation.
+   */
+  onOperatorIntent?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttySurface | null>(null);
@@ -124,6 +144,17 @@ export function PaneTerminal({
   // `offset_from_bottom` targets through it.
   const scrollInfo = useRef({ offset: 0, max: 0 });
   const gridRef = useRef({ cols: 0, rows: 0 });
+  // Mirrors `writable` for the surface callbacks (created once per pane);
+  // the subscribe effect reads it so a focus flip never rebuilds the engine.
+  const writableRef = useRef(writable);
+  // Same pattern for the promotion callback: the egress gate and the
+  // surface callbacks read the latest prop without rebuilding.
+  const intentRef = useRef(onOperatorIntent);
+  // Buffers attach-bound ops while the slot observes and flushes them in
+  // order right after the writable subscribe frame (issue #584).
+  const egressRef = useRef<AttachEgress | null>(null);
+  const lastSentWritable = useRef<boolean | null>(null);
+  const subscribedRef = useRef(false);
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -161,6 +192,36 @@ export function PaneTerminal({
       // program's queries are all stream bytes for the pane's pty
       if (bytes.length > 0) terminalInput(machine, paneId, bytes);
     };
+    // Attach-egress gate (issue #584): while this pane observes, user
+    // input promotes it and waits here in order; engine replies wait too
+    // but never promote; hover and observe-mode wheel scrolls never reach
+    // the pty at all. flush() runs right after each writable subscribe.
+    const egress = new AttachEgress({
+      writable: () => writableRef.current,
+      intent: () => intentRef.current?.(),
+    });
+    egressRef.current = egress;
+    // `pane.scroll` to an absolute offset — shared by selection edge
+    // auto-scroll and observe-mode wheel scrolling (issue #584). Works on
+    // observe panes: it is an RPC, not attach traffic.
+    const scrollViewportTo = (target: number) => {
+      void rpc<{ pane?: { scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null } }>(
+        "pane.scroll",
+        { pane_id: paneId, offset_from_bottom: target },
+        machine,
+      )
+        .then((res) => {
+          const scroll = res?.pane?.scroll;
+          if (!scroll) return;
+          if (typeof scroll.offset_from_bottom === "number") {
+            scrollInfo.current.offset = scroll.offset_from_bottom;
+          }
+          if (typeof scroll.max_offset_from_bottom === "number") {
+            scrollInfo.current.max = scroll.max_offset_from_bottom;
+          }
+        })
+        .catch(() => {});
+    };
     // Copy on select (issue #440): the surface reports selection *commits*
     // only; the setting is read live per commit so toggles apply to this
     // open pane without a rebuild, and writes are serialized so a delayed
@@ -181,7 +242,10 @@ export function PaneTerminal({
       rows: sizeRef.current.rows,
       widths: "core",
       scrollbackLines: getTerminalSettings().scrollbackLines,
-      onReply: send,
+      // Engine replies to the program's queries: held with user input
+      // while observing, flushed on promotion — but never an intent
+      // themselves (issue #584).
+      onReply: (bytes) => egress.reply(() => send(bytes), bytes.length),
       onBell: () => {
         setBell(true);
         if (bellTimer.current) clearTimeout(bellTimer.current);
@@ -223,9 +287,13 @@ export function PaneTerminal({
           ...(terminalSettings.lineHeight !== null
             ? { lineHeight: terminalSettings.lineHeight }
             : {}),
-          onInput: send,
+          onInput: (bytes) => egress.input(() => send(bytes), bytes.length),
           onSelectionCommit: copySelection,
           onPasteText: (text) => {
+            // Paste is explicit operating intent: promote the pane even
+            // though pane.send_input itself does not need the attach
+            // (issue #584) — what follows a paste is typing.
+            if (!writableRef.current) intentRef.current?.();
             // pane.send_input routes the body through herdr's
             // encode_api_text, which wraps \x1b[200~…\x1b[201~ iff the pane
             // enabled bracketed paste — the attach stream carries no mode
@@ -233,8 +301,18 @@ export function PaneTerminal({
             // herdr#6215). See deliverPanePaste for the full contract.
             deliverPanePaste(rpc, machine, paneId, text);
           },
-          onMouse: (event) => terminalMouse(machine, paneId, event),
+          onMouse: (event) =>
+            egress.mouse(event.action, () => terminalMouse(machine, paneId, event)),
           onWheel: (event) => {
+            // Wheel coalesces to one scroll per animation frame with the
+            // net line count (issue #213). The mode is read at flush time:
+            // a writable pane sends AttachScroll (server arbitrates
+            // mouse-report vs scrollback); an observe pane moves the shared
+            // viewport through `pane.scroll` instead — scrolling history
+            // is viewing, not operating intent, so it must not promote
+            // (issue #584). Panes whose program owns the mouse never reach
+            // this branch: the engine encodes their wheel as mouse reports
+            // through onInput, which is genuine input intent.
             const signed = event.direction === "down" ? event.lines : -event.lines;
             const acc = wheelAccum.current ?? {
               lines: 0,
@@ -253,14 +331,19 @@ export function PaneTerminal({
                 const pending = wheelAccum.current;
                 wheelAccum.current = null;
                 if (!pending || pending.lines === 0) return;
-                terminalScroll(machine, paneId, {
-                  direction: pending.lines > 0 ? "down" : "up",
-                  lines: Math.abs(pending.lines),
-                  ...(pending.column !== undefined && pending.row !== undefined
-                    ? { column: pending.column, row: pending.row }
-                    : {}),
-                  modifiers: pending.modifiers,
-                });
+                if (writableRef.current) {
+                  terminalScroll(machine, paneId, {
+                    direction: pending.lines > 0 ? "down" : "up",
+                    lines: Math.abs(pending.lines),
+                    ...(pending.column !== undefined && pending.row !== undefined
+                      ? { column: pending.column, row: pending.row }
+                      : {}),
+                    modifiers: pending.modifiers,
+                  });
+                  return;
+                }
+                const target = observeScrollTarget(scrollInfo.current, pending.lines);
+                if (target !== null) scrollViewportTo(target);
               });
             }
           },
@@ -272,22 +355,7 @@ export function PaneTerminal({
             const delta = direction === "up" ? lines : -lines;
             const target = Math.max(0, info.offset + delta);
             if (target === info.offset) return;
-            void rpc<{ pane?: { scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null } }>(
-              "pane.scroll",
-              { pane_id: paneId, offset_from_bottom: target },
-              machine,
-            )
-              .then((res) => {
-                const scroll = res?.pane?.scroll;
-                if (!scroll) return;
-                if (typeof scroll.offset_from_bottom === "number") {
-                  scrollInfo.current.offset = scroll.offset_from_bottom;
-                }
-                if (typeof scroll.max_offset_from_bottom === "number") {
-                  scrollInfo.current.max = scroll.max_offset_from_bottom;
-                }
-              })
-              .catch(() => {});
+            scrollViewportTo(target);
           },
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
@@ -545,6 +613,9 @@ export function PaneTerminal({
       event.stopPropagation();
       link.pending = cell;
       surfaceRef.current?.focus();
+      // Activating a link is an explicit action on the pane: promote it
+      // into the operator role (issue #584).
+      intentRef.current?.();
       void rpc("pane.focus", { pane_id: paneId }, machine).catch(() => {});
     };
     const onLinkPointerUp = (event: PointerEvent) => {
@@ -590,6 +661,7 @@ export function PaneTerminal({
       pendingPtyResize.current = null;
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
+      egressRef.current = null;
       unregisterPaneSurface(machine, paneId);
       unregisterProbe?.();
       offMemoryProbe?.();
@@ -605,15 +677,50 @@ export function PaneTerminal({
     surfaceRef.current?.setAriaLabel(label ? `terminal ${label}` : "terminal input");
   }, [label]);
 
+  // Keep writableRef/intentRef current before any effect that reads them
+  // (declared above the subscribe effect so they run first on every commit).
+  useEffect(() => {
+    writableRef.current = writable;
+    intentRef.current = onOperatorIntent;
+  }, [writable, onOperatorIntent]);
+
   // (Re)subscribe once the surface has measured its grid and whenever the
   // bridge connection is up. The server queues input/resize until the attach
-  // resolves and replays a full redraw.
+  // resolves and replays a full redraw. `writable` is deliberately NOT a
+  // dependency: a focus flip is negotiated by the effect below instead of
+  // tearing the subscription down.
   useEffect(() => {
     if (!connected || !grid) return;
-    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover);
+    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover, writableRef.current);
+    lastSentWritable.current = writableRef.current;
+    // Buffered input flushes only behind a writable subscribe — while the
+    // slot still observes the ops would be dropped bridge-side anyway
+    // (issue #584).
+    if (writableRef.current) egressRef.current?.flush();
+    subscribedRef.current = true;
     setClosedReason(null);
-    return () => unsubscribeTerminal(machine, paneId);
+    return () => {
+      subscribedRef.current = false;
+      unsubscribeTerminal(machine, paneId);
+    };
   }, [machine, paneId, connected, takeover, grid]);
+
+  // Attach-mode negotiation (issue #571): the bridge re-subscribes the live
+  // slot with the new `writable` flag, which re-opens the client-protocol
+  // link as AttachTerminal or ObserveTerminal while preserving the slot,
+  // its refcount and its op queue — input typed during the switch still
+  // reaches the pane in order. Skipped until a subscription exists and only
+  // sent on an actual mode change, so no redundant reference is taken.
+  useEffect(() => {
+    if (!subscribedRef.current || lastSentWritable.current === writable) return;
+    subscribeTerminal(machine, paneId, gridRef.current.cols, gridRef.current.rows, takeover, writable);
+    lastSentWritable.current = writable;
+    // Promotion flush (issue #584): the writable subscribe frame precedes
+    // every buffered op on the wire, so queued keystrokes/mouse reports
+    // land on the new link in order — the first input of a promotion is
+    // never lost.
+    if (writable) egressRef.current?.flush();
+  }, [machine, paneId, takeover, writable]);
 
   const closeSearch = () => {
     setSearchOpen(false);

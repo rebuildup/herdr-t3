@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshIcon } from "./ui/refresh-icon";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import { DialogPanel } from "./ui/dialog";
 import {
@@ -153,10 +153,10 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString();
 }
 
-function resultBadgeVariant(result: string): "success" | "error" | "warning" | "secondary" {
+function resultStatus(result: string): StatusBadgeStatus {
   switch (result) {
     case "success":
-      return "success";
+      return "ok";
     case "failed":
       return "error";
     case "running":
@@ -168,7 +168,7 @@ function resultBadgeVariant(result: string): "success" | "error" | "warning" | "
     default:
       // stopped / unknown / anything unrecognized stays neutral — never
       // presented as success.
-      return "secondary";
+      return "neutral";
   }
 }
 
@@ -376,7 +376,7 @@ function ScriptsPane({
             {project.id}
           </div>
         </div>
-        {project.pinned ? <Badge variant="secondary">Pinned</Badge> : null}
+        {project.pinned ? <StatusBadge size="sm" status="neutral">Pinned</StatusBadge> : null}
       </div>
 
       {multiRepo ? (
@@ -465,9 +465,9 @@ function ScriptsPane({
                       {script.name}
                     </span>
                     {script.source !== "" ? (
-                      <Badge variant="outline">
+                      <span className="text-2xs text-muted-foreground">
                         {SCRIPT_SOURCE_LABELS[script.source] ?? script.source}
-                      </Badge>
+                      </span>
                     ) : null}
                   </div>
                   <div className="truncate font-mono text-xs text-muted-foreground">
@@ -536,7 +536,7 @@ function RunDetail({
     <SurfaceGroup divided={false} className="flex flex-col gap-3 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-xs">{run.run_id}</span>
-        <Badge variant={resultBadgeVariant(run.result)}>{run.result}</Badge>
+        <StatusBadge size="sm" status={resultStatus(run.result)}>{run.result}</StatusBadge>
         {run.exit_code !== null ? (
           <span className="text-xs text-muted-foreground tabular-nums">
             exit {run.exit_code}
@@ -698,9 +698,14 @@ function RunsPane({
     <SurfaceSection
       title="Runs"
       action={
-        <Button size="xs" variant="ghost" onClick={onRefresh} disabled={loading}>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          aria-label="Refresh runs"
+          onClick={onRefresh}
+          disabled={loading}
+        >
           <RefreshIcon refreshing={loading} />
-          Refresh
         </Button>
       }
     >
@@ -722,9 +727,9 @@ function RunsPane({
                   selected ? "bg-accent" : ""
                 }`}
               >
-                <Badge variant={resultBadgeVariant(run.result)}>
+                <StatusBadge size="sm" status={resultStatus(run.result)}>
                   {run.result}
-                </Badge>
+                </StatusBadge>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-foreground">
                     {run.script?.name ?? run.script?.id ?? run.run_id}
@@ -901,13 +906,13 @@ export function ProjectScriptsSurface({
                 title="Projects"
                 action={
                   <Button
-                    size="xs"
+                    size="icon-xs"
                     variant="ghost"
+                    aria-label="Refresh projects"
                     onClick={loadProjects}
                     disabled={projectsLoading}
                   >
                     <RefreshIcon refreshing={projectsLoading} />
-                    Refresh
                   </Button>
                 }
               >
@@ -960,7 +965,7 @@ export function ProjectScriptsSurface({
                             </span>
                           </span>
                           {project.pinned ? (
-                            <Badge variant="secondary">Pinned</Badge>
+                            <StatusBadge size="sm" status="neutral">Pinned</StatusBadge>
                           ) : null}
                         </button>
                       );

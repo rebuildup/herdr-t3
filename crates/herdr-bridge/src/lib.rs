@@ -14,6 +14,10 @@
 //!   max): 64 MiB for `pane.read`/`pane.selection.read`/`session.snapshot`,
 //!   16 MiB otherwise.
 
+pub mod attach;
+pub mod client_session;
+pub mod client_link;
+pub mod egress;
 pub mod io;
 pub mod session;
 pub mod mem;

@@ -11,10 +11,20 @@
 //! [`memory_budget`] is the aggregate layer above scenes: per-session
 //! byte probes, lossless cache shedders and the watchdog level semantics
 //! of the "Memory budget contract" (issue #528).
+//!
+//! [`history`], [`viewport`] and [`data_plane`] are the C3/C4 native
+//! data-plane primitives of contract `terminal-noninterference@3`
+//! (issue #599): bounded demand-driven history page caching, per-client
+//! scroll viewports, and viewport-scoped delivery accounting.
 
 use std::collections::{HashMap, HashSet};
 
+pub mod data_plane;
+pub mod history;
 pub mod memory_budget;
+pub mod memory_host;
+pub mod os_mem;
+pub mod viewport;
 use terminal_core::{
     CursorStyle, GhosttyImage, GhosttyRun, GhosttySession, RunColor, ScreenRange,
     STYLE_BOLD, STYLE_FAINT, STYLE_INVERSE, STYLE_INVISIBLE, STYLE_ITALIC, STYLE_STRIKE,
@@ -240,6 +250,12 @@ impl<M: TextMetrics> GhosttyScene<M> {
             font_strings: HashMap::new(),
             advance_cache: HashMap::new(),
         }
+    }
+
+    /// The session's byte estimate for the aggregate memory budget
+    /// (issue #528) — the payload [`memory_host::scene_probe`] wraps.
+    pub fn memory_estimate_bytes(&self) -> u64 {
+        self.session.memory_estimate_bytes()
     }
 
     pub fn session(&mut self) -> &mut GhosttySession {

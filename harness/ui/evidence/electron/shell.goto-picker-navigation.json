@@ -8,8 +8,8 @@
   "fixture": "goto-picker",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "098dd3568a3ce6f9667141a11206ed6613698769",
-  "recorded_at": "2026-11-26T05:05:08.451Z",
+  "git_sha": "9b59d38185d26f84e6a25a83d10b01c2642b1a45",
+  "recorded_at": "2026-11-27T18:46:35.051Z",
   "steps": [
     {
       "index": 0,

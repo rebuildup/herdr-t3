@@ -11,19 +11,40 @@ Version: 1. Scope: the wire contract between bridge and UI —
 - `rpc(id, method, params, machine?)` → `rpc_result(id, ok, result|error{code,message}, machine?)`.
   One outstanding call per id; ids are caller-chosen and may be reused
   after the answer arrives.
-- `subscribe_terminal(paneId, cols?, rows?, machine?, takeover?)` →
+- `subscribe_terminal(paneId, cols?, rows?, machine?, takeover?, writable?,
+  manageSize?, inputGrant?, scrollScope?, history?)` →
   `terminal_data` frames then steady-state attach stream;
-  `unsubscribe_terminal(paneId)` detaches.
+  `unsubscribe_terminal(paneId)` detaches. The `writable`/`manageSize`/
+  `inputGrant`/`scrollScope`/`history` options are the additive
+  non-interference surface of `terminal-noninterference` §C1–C5 (issue
+  #597); each is gated on the machine's `ready.capabilities` advertisement
+  and degrades to the observe/promotion interim on herdr v22.
+- `terminal_history(paneId, anchor, rows?, format?, machine?)` →
+  `terminal_history_page{paneId, machine, terminalId?, contentRevision,
+  anchor, rows[], hasMoreAbove, hasMoreBelow, nextAnchor}` — read-only
+  scrollback paging that never moves any scroll viewport (C3).
 - `terminal_input(paneId, data)`, `terminal_resize(paneId, cols, rows)`,
-  `terminal_mouse(...)`, `terminal_scroll(...)` → attach-stream client
-  messages; no direct response (see terminal-session contract).
+  `terminal_mouse(...)`, `terminal_scroll(..., scope?)` → attach-stream
+  client messages; no direct response (see terminal-session contract).
+  `scope: "viewport"` selects per-client scroll (C4); absent/`"shared"`
+  keeps the pane-global offset.
 - `list_machines`, `machine_connect/disconnect/add/remove/update` →
   `machines` / `machine_status` frames.
+- `machine_select(machine)` → declares the single machine whose session
+  runs in full detail mode (issue #585): canvas layouts, pane scroll
+  state and terminal attach eligibility. Every other connected machine
+  stays in summary mode — the same `events.subscribe` structure +
+  agent-status stream and snapshot pushes, but with canvas detail
+  stripped. Idempotent; also connects the machine on demand.
 - `plugin_list(id, machine?)`, `plugin_call(id, machine, plugin, command, args, session?)`
   → `rpc_result` tagged with `machine`.
-- Server → client: `ready{snapshot,machine}`, `snapshot{snapshot,machine,probe?}`,
-  `event{event,machine}`, `terminal_data`, `terminal_mouse_capture`,
-  `terminal_closed{reason?}`, `machines`, `machine_status`.
+- Server → client: `ready{snapshot,machine,detail?,capabilities?}`,
+  `snapshot{snapshot,machine,probe?,detail?}`, `event{event,machine}`,
+  `terminal_data`, `terminal_mouse_capture`, `terminal_closed{reason?}`,
+  `terminal_history_page`, `machines`, `machine_status`. `detail?: "summary"` marks a snapshot
+  pushed by a summary-mode session (issue #585): workspaces, tabs,
+  agents and pane identity/status are intact; `layouts` is empty and
+  `panes[].scroll` is absent. Absent `detail` means full detail.
 
 ## Ordering and semantics
 
@@ -33,6 +54,13 @@ Version: 1. Scope: the wire contract between bridge and UI —
   live state.
 - `rpc_result` answers are matched by `id`; a bridge must not emit two
   answers for one id.
+- `ready.capabilities` (issue #597) advertises the non-interference
+  capability ids a machine's backend supports (contract
+  `terminal-noninterference` C5, "advertised, not implied"): clients must
+  not send the gated `subscribe_terminal` fields (`manageSize`,
+  `inputGrant`, `scrollScope`, `history`), the `terminal_scroll.scope`
+  override, or `terminal_history` to a machine that did not advertise the
+  matching id. Absent `capabilities` means none advertised.
 - Snapshot fields herdr adds later are tolerated (additive tolerance);
   a consumer must not depend on field order or on fields outside the
   declared types.

@@ -19,6 +19,11 @@ import {
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
 import { paneCanvasView, type CanvasPaneView } from "~/lib/paneCanvas";
+import { operatorAfterFocusChange } from "~/lib/paneOperator";
+import {
+  operatorAfterWindowActivity,
+  subscribeWindowActivity,
+} from "~/lib/windowActivity";
 import { focusPaneTerminal } from "~/lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -58,7 +63,9 @@ function PaneSurface({
   view,
   connected,
   zoomed,
+  operator,
   onFocus,
+  onOperator,
   onDetails,
   onCopy,
   dnd,
@@ -67,7 +74,11 @@ function PaneSurface({
   view: CanvasPaneView;
   connected: boolean;
   zoomed: boolean;
+  /** this pane holds the writable attach (the inter-client operator role) */
+  operator: boolean;
   onFocus: () => void;
+  /** real input intent on this pane — grants the operator role (issue #584) */
+  onOperator: () => void;
   onDetails: () => void;
   onCopy: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
@@ -119,6 +130,11 @@ function PaneSurface({
           onDragEnd={dnd?.onDragEnd}
           // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
           title={title}
+          // A click is explicit operating intent: it promotes the pane
+          // into the operator role (writable attach). Dragging the pane
+          // frame for a swap suppresses click, so reordering never
+          // promotes (issue #584).
+          onClick={onOperator}
           onMouseDown={() => {
             if (!focused) onFocus();
           }}
@@ -128,6 +144,12 @@ function PaneSurface({
             paneId={pane.pane_id}
             connected={connected}
             label={title}
+            // Only real input intent grants the writable attach (resize
+            // authority + input); merely viewing or scrolling history
+            // keeps the pane on read-only ObserveTerminal so the GUI's
+            // presence cannot pin its size (issues #571/#584).
+            writable={operator}
+            onOperatorIntent={onOperator}
           />
         </div>
       </ContextMenuTrigger>
@@ -200,7 +222,7 @@ function PaneSurface({
 }
 
 export function WorkspaceCanvas() {
-  const { machine, machineInfo, snapshot, view, probe } = useRouteWorkspace();
+  const { machine, machineInfo, snapshot, view, probe, summary } = useRouteWorkspace();
   const bridge = useBridgeState();
   const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
   // Attach attempts are gated on the client bridge only: the server queues
@@ -220,6 +242,61 @@ export function WorkspaceCanvas() {
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const machines = machineListOf(bridge);
   const focusedPaneId = focusedPane?.pane_id ?? layout?.focused_pane_id ?? null;
+
+  // Operator role vs pane focus (issue #584): `operatorPaneId` is the one
+  // pane holding the writable attach — input AND PTY size authority.
+  // It is granted only by real input intent (pane click, keystroke, mouse
+  // press, paste, link activation via PaneTerminal's onOperatorIntent) and
+  // released when herdr focus moves to a different pane, so a pane the
+  // user merely looked at — or navigated past — cannot keep pinning its
+  // size against the TUI or other clients. Viewing and history scrolling
+  // never grant it.
+  const [operatorPaneId, setOperatorPaneId] = useState<string | null>(null);
+  // Window activity gate (issue #600, verifying #584): a hidden or blurred
+  // GUI window must not hold the writable attach — its resize lock would
+  // keep pinning pane sizes for a viewer nobody is watching, and buffered
+  // input must not flush into panes while the window is inactive. Losing
+  // activity releases the role (observe demotion returns resize authority
+  // to layout/herdr); regaining it never restores one — real input intent
+  // must re-grant (src/lib/windowActivity.ts).
+  const [windowActive, setWindowActive] = useState(true);
+  useEffect(() => subscribeWindowActivity(setWindowActive), []);
+  useEffect(() => {
+    if (!windowActive) {
+      setOperatorPaneId((op) => operatorAfterWindowActivity(op, false));
+    }
+  }, [windowActive]);
+  const grantOperator = (paneId: string) => {
+    if (!windowActive) return;
+    setOperatorPaneId((cur) => (cur === paneId ? cur : paneId));
+  };
+  const prevFocusedPaneRef = useRef<string | null>(null);
+  const focusSeededRef = useRef(false);
+  useEffect(() => {
+    if (!focusSeededRef.current) {
+      focusSeededRef.current = true;
+      prevFocusedPaneRef.current = focusedPaneId;
+      return;
+    }
+    const prev = prevFocusedPaneRef.current;
+    prevFocusedPaneRef.current = focusedPaneId;
+    if (prev === focusedPaneId) return;
+    // Demote: the writable attach — and its resize lock — returns to
+    // layout/herdr control. Input already flushed stays flushed (the
+    // bridge drains the slot queue ahead of the observe re-attach); input
+    // still buffered in the pane's egress waits for the next promotion.
+    setOperatorPaneId((op) => operatorAfterFocusChange(op, prev, focusedPaneId));
+  }, [focusedPaneId]);
+  // Switching machine/workspace/tab unmounts the old panes anyway; drop
+  // the role so a stale id can never match a pane in the new scope.
+  // Render-time adjustment (React's props-changed pattern) — no effect,
+  // no extra commit.
+  const operatorScope = `${machine}:${workspace?.workspace_id ?? ""}:${activeTab?.tab_id ?? ""}`;
+  const [operatorScopeSeen, setOperatorScopeSeen] = useState(operatorScope);
+  if (operatorScopeSeen !== operatorScope) {
+    setOperatorScopeSeen(operatorScope);
+    setOperatorPaneId(null);
+  }
 
   // Keyboard pane navigation (issue #113): ⌘+Arrow on macOS,
   // Ctrl+Alt+Arrow elsewhere — modifier chords that never reach the pane
@@ -265,7 +342,10 @@ export function WorkspaceCanvas() {
   // evidence behind each branch.
   const session = resolveCanvasSession({
     snapshot,
-    probeSnapshot: probe,
+    // Summary snapshots (issue #585) are stripped sidebar data: the canvas
+    // waits in `connecting` for the full-detail push the selection
+    // upgrade triggers, same as a probe-only machine.
+    probeSnapshot: probe || summary,
     machineInfo,
     bridgeConnection: bridge.connection,
     machineError: bridge.errors[machine],
@@ -453,9 +533,11 @@ export function WorkspaceCanvas() {
             view={paneView}
             connected={machineOnline}
             zoomed={zoomed}
+            operator={operatorPaneId === paneView.pane.pane_id}
             onFocus={() =>
               void callRpc(machine, "pane.focus", { pane_id: paneView.pane.pane_id })
             }
+            onOperator={() => grantOperator(paneView.pane.pane_id)}
             onDetails={() => setDetailsPane(paneView.pane)}
             onCopy={() => setCopyPane(paneView.pane)}
             dnd={paneDnd(paneView.pane)}

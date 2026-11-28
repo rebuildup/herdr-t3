@@ -47,7 +47,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshIcon } from "./ui/refresh-icon";
 
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./ui/status-badge";
 import { Button } from "./ui/button";
 import {
   Empty,
@@ -224,13 +224,7 @@ function kindLabel(kind: string): string {
  * unknown future kinds render their raw value — never relabelled.
  */
 function KindBadge({ kind }: { kind: string }) {
-  const variant =
-    kind === "auto" ? "secondary" : kind === "pre_restore" ? "info" : "outline";
-  return (
-    <Badge size="sm" variant={variant}>
-      {kindLabel(kind)}
-    </Badge>
-  );
+  return <span className="text-2xs text-muted-foreground">{kindLabel(kind)}</span>;
 }
 
 /**
@@ -587,9 +581,7 @@ function SaveGroupReport({ result }: { result: CheckpointSaveResult }) {
             : `partial save — ${result.succeeded}/${result.total} repos captured`}
         </span>
         {result.group !== null ? (
-          <Badge size="sm" variant="secondary">
-            {result.group}
-          </Badge>
+          <span className="font-mono text-2xs text-muted-foreground">{result.group}</span>
         ) : null}
       </div>
       {result.results.map((item) => (
@@ -665,17 +657,13 @@ function CheckpointList({
               </span>
             </span>
             {entry.group_id !== null ? (
-              <Badge size="sm" variant="outline" title={entry.group_id}>
-                {entry.group_id}
-              </Badge>
+              <span className="font-mono text-2xs text-muted-foreground">{entry.group_id}</span>
             ) : null}
             {/* manual is the default provenance — badge only
                 non-default kinds to keep rows quiet; detail shows all. */}
             {entry.kind !== "manual" ? <KindBadge kind={entry.kind} /> : null}
             {entry.submodules.length > 0 ? (
-              <Badge size="sm" variant="outline">
-                submodules
-              </Badge>
+              <span className="text-2xs text-muted-foreground">submodules</span>
             ) : null}
           </button>
         );
@@ -708,14 +696,14 @@ function PlanPreview({ plan }: { plan: CheckpointPlanResult }) {
         <span className="text-muted-foreground">untracked to delete:</span>
         <span className="font-mono">{plan.untracked_to_delete}</span>
         {plan.already_matches ? (
-          <Badge size="sm" variant="outline">
+          <StatusBadge size="sm" status="neutral">
             already matches
-          </Badge>
+          </StatusBadge>
         ) : null}
         {plan.ref !== null && !plan.ref.exists ? (
-          <Badge size="sm" variant="warning">
+          <StatusBadge size="sm" status="warning">
             ref missing — planning recorded commit
-          </Badge>
+          </StatusBadge>
         ) : null}
       </div>
       {plan.untracked_to_delete > 0 ? (
@@ -1109,13 +1097,13 @@ function RestoreGroupDialog({
                         {item.id}
                       </span>
                       {item.ok ? (
-                        <Badge size="sm" variant="success">
+                        <StatusBadge size="sm" status="ok">
                           restored
-                        </Badge>
+                        </StatusBadge>
                       ) : (
-                        <Badge size="sm" variant="error">
+                        <StatusBadge size="sm" status="error">
                           failed
-                        </Badge>
+                        </StatusBadge>
                       )}
                     </div>
                     {item.ok ? (
@@ -1324,13 +1312,13 @@ function CheckpointDetail({
             <span className="font-mono">{entry.ref}</span>
             {show?.ref !== null && show?.ref !== undefined ? (
               show.ref.exists ? (
-                <Badge size="sm" variant="success" className="ml-1.5">
+                <StatusBadge size="sm" status="ok" className="ml-1.5">
                   exists
-                </Badge>
+                </StatusBadge>
               ) : (
-                <Badge size="sm" variant="warning" className="ml-1.5">
+                <StatusBadge size="sm" status="warning" className="ml-1.5">
                   ref missing
-                </Badge>
+                </StatusBadge>
               )
             ) : null}
           </dd>
@@ -1589,9 +1577,9 @@ function GcReportView({ result }: { result: CheckpointGcResult }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
+        <StatusBadge size="sm" status={result.dry_run ? "info" : "neutral"}>
           {result.dry_run ? "dry-run preview" : "executed"}
-        </Badge>
+        </StatusBadge>
         <span className="text-muted-foreground">
           {result.ok
             ? "ok"
@@ -1656,9 +1644,9 @@ function PruneReportView({ result }: { result: CheckpointPruneResult }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge size="sm" variant={result.dry_run ? "outline" : "secondary"}>
+        <StatusBadge size="sm" status={result.dry_run ? "info" : "neutral"}>
           {result.dry_run ? "dry-run preview" : "executed"}
-        </Badge>
+        </StatusBadge>
         <span className="text-muted-foreground">
           {result.ok
             ? "ok"

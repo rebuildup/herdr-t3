@@ -26,7 +26,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, 
 
 import { cn } from "~/lib/utils";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
-import { Badge } from "~/components/ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "~/components/ui/status-badge";
 import { Button } from "~/components/ui/button";
 import { DialogBackdrop } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
@@ -127,7 +127,7 @@ const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms
   { anchor: "setting-ghostty-engine", label: "Ghostty engine", section: "diagnostics", terms: "wasm libghostty status" },
   { anchor: "setting-app-version", label: "App version", section: "diagnostics", terms: "build version commit" },
   { anchor: "setting-motion-gate", label: "Motion visibility gate", section: "diagnostics", terms: "animation spinner working motion visibility reduced report" },
-  { anchor: "setting-about-app", label: "herdr-t3", section: "about", terms: "version about" },
+  { anchor: "setting-about-app", label: "hoxay", section: "about", terms: "version about" },
   { anchor: "setting-license", label: "License", section: "about", terms: "mit license notices" },
 ];
 
@@ -246,9 +246,9 @@ function useHealth() {
   return { health, error, refresh: () => setNonce((n) => n + 1) };
 }
 
-function statusBadgeVariant(status: MachineInfo["status"]) {
+function machineStatusBadge(status: MachineInfo["status"]): StatusBadgeStatus {
   return status === "online"
-    ? "success"
+    ? "ok"
     : status === "offline" || status === "unreachable" || status === "error"
       ? "error"
       : "warning";
@@ -284,10 +284,10 @@ function MachineRow({
           : [machine.target, machine.session].filter(Boolean).join(" · ") || "SSH endpoint")
       }
     >
-      <Badge variant={statusBadgeVariant(machine.status)} size="sm">
+      <StatusBadge status={machineStatusBadge(machine.status)} size="sm">
         {machine.status}
         {machine.version ? ` · herdr ${machine.version}` : ""}
-      </Badge>
+      </StatusBadge>
       {action ? (
         <Button size="sm" variant="outline" onClick={action.run}>
           {action.label}
@@ -358,7 +358,7 @@ function SectionPage({ section }: { section: SectionId }) {
                 loginItem === null
                   ? "Available in the desktop app."
                   : loginItem.supported
-                    ? "Start herdr-t3 when you sign in."
+                    ? "Start hoxay when you sign in."
                     : "Not supported on this platform."
               }
             >
@@ -481,7 +481,7 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
-              SSH endpoints and the local session herdr-t3 can attach to.
+              SSH endpoints and the local session hoxay can attach to.
             </p>
             {machines.map((m) => (
               <MachineRow key={m.id} machine={m} onDialog={setMachineDialog} />
@@ -597,9 +597,9 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <SettingsRow anchor="setting-bridge" label="Bridge" description="herdr RPC connection state.">
-              <Badge
-                variant={
-                  bridge.connection === "open" ? "success" : bridge.connection === "closed" ? "error" : "warning"
+              <StatusBadge
+                status={
+                  bridge.connection === "open" ? "ok" : bridge.connection === "closed" ? "error" : "warning"
                 }
                 size="sm"
               >
@@ -608,7 +608,7 @@ function SectionPage({ section }: { section: SectionId }) {
                   : bridge.connection === "connecting"
                     ? "Connecting"
                     : "Disconnected"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-herdr"
@@ -621,8 +621,8 @@ function SectionPage({ section }: { section: SectionId }) {
                     : healthError ?? "Checking…"
               }
             >
-              <Badge
-                variant={health ? (health.herdr.reachable ? "success" : "error") : "secondary"}
+              <StatusBadge
+                status={health ? (health.herdr.reachable ? "ok" : "error") : "neutral"}
                 size="sm"
               >
                 {health
@@ -632,16 +632,16 @@ function SectionPage({ section }: { section: SectionId }) {
                   : healthError
                     ? "Error"
                     : "Checking…"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-ghostty-engine"
               label="Ghostty engine"
               description="libghostty-vt WASM terminal core."
             >
-              <Badge
-                variant={
-                  ghosttyEngine === "ready" ? "success" : ghosttyEngine === "error" ? "error" : "secondary"
+              <StatusBadge
+                status={
+                  ghosttyEngine === "ready" ? "ok" : ghosttyEngine === "error" ? "error" : "neutral"
                 }
                 size="sm"
               >
@@ -652,7 +652,7 @@ function SectionPage({ section }: { section: SectionId }) {
                     : ghosttyEngine === "ready"
                       ? "Ready"
                       : "Error"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow anchor="setting-app-version" label="App version" description="Build identity for support.">
               <span className="font-mono text-xs text-muted-foreground">
@@ -687,7 +687,7 @@ function SectionPage({ section }: { section: SectionId }) {
       return (
         <div className="flex flex-col gap-8">
           <SettingsSection title="About">
-            <SettingsRow anchor="setting-about-app" label="herdr-t3" description="A personal GUI client for herdr.">
+            <SettingsRow anchor="setting-about-app" label="hoxay" description="A personal GUI client for herdr.">
               <span className="font-mono text-xs text-muted-foreground">
                 {health ? `${health.version} (${health.commit.slice(0, 8)})` : "…"}
               </span>
@@ -696,26 +696,20 @@ function SectionPage({ section }: { section: SectionId }) {
               label="Design system"
               description="UI primitives and tokens from T3 Code (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                T3 Code
-              </Badge>
+              <span className="text-sm text-muted-foreground">T3 Code</span>
             </SettingsRow>
             <SettingsRow
               label="Terminal engine"
               description="libghostty-vt compiled to WASM (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                Ghostty
-              </Badge>
+              <span className="text-sm text-muted-foreground">Ghostty</span>
             </SettingsRow>
             <SettingsRow
               anchor="setting-license"
               label="License"
-              description="herdr-t3 is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
+              description="hoxay is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
             >
-              <Badge variant="secondary" size="sm">
-                MIT
-              </Badge>
+              <span className="text-sm text-muted-foreground">MIT</span>
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -828,7 +822,7 @@ export function SettingsModal() {
             initialFocus={popupRef}
             aria-label="Settings"
             data-app-modal=""
-            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:h-auto sm:max-h-[60rem] sm:max-w-[72rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
+            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:max-h-[60rem] sm:max-w-[72rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
           >
             <div
               aria-hidden

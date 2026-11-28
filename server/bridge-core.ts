@@ -34,6 +34,18 @@ export interface BridgeEndpoint {
   label: string;
 }
 
+/**
+ * Session detail level (issue #585, program #568). `full` delivers the
+ * whole snapshot — canvas layouts and pane scroll state included — and
+ * allows terminal attaches. `summary` is the demand-driven idle mode for
+ * machines the client is not viewing: the pushed snapshot keeps the
+ * structure + agent status the sidebar needs (workspaces, tabs, agents,
+ * panes minus viewport scroll state, no layouts) and terminal attaches
+ * are not expected; a subscribe_terminal still upgrades the session to
+ * `full` on the spot because it is itself proof the pane is on screen.
+ */
+export type SnapshotDetail = "full" | "summary";
+
 export function localEndpoint(): BridgeEndpoint {
   return {
     api: socketConnector(socketAddress(herdrSocketPath())),
@@ -149,6 +161,17 @@ interface TerminalSlot {
   /** Payload bytes currently held by `queue` (input buffers dominate). */
   queueBytes: number;
   gone: boolean;
+  /**
+   * Desired attach mode (issue #571): true = writable AttachTerminal
+   * (resize authority + input), false = read-only ObserveTerminal. Set at
+   * subscribe time and updated by a mode-negotiation subscribe; input,
+   * mouse and scroll frames are dropped while false — the server would
+   * ignore them anyway — while terminal_resize still flows because an
+   * observe client renders into the size it announces.
+   */
+  writable: boolean;
+  /** Bumped on every (re)attach; a late-resolving link from an older epoch is closed, not installed. */
+  epoch: number;
 }
 
 interface SessionState {
@@ -170,7 +193,72 @@ interface SessionState {
   snapshot: SessionSnapshot | null;
   /** JSON of the last snapshot actually sent to this client (issue #423 dedup). */
   lastPushedSnapshotJson: string | null;
+  /** Detail level for pushed snapshots and terminal delivery (issue #585). */
+  detail: SnapshotDetail;
   terminals: Map<string, TerminalSlot>;
+}
+
+/**
+ * The snapshot a summary-mode session pushes (issue #585): everything the
+ * sidebar/agent shelves consume — workspaces, tabs, agents and pane
+ * identity/status — minus canvas-only detail. `layouts` drive only the
+ * selected machine's split view and `panes[].scroll` is viewport state
+ * for attached terminals; neither is rendered for an unselected machine.
+ * The internal `state.snapshot` always keeps the full fetch — attach
+ * resolution and detail upgrades never depend on what was last pushed.
+ */
+function summarizeSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  return {
+    ...snapshot,
+    layouts: [],
+    panes: snapshot.panes.map((pane) => {
+      if (pane.scroll === undefined) return pane;
+      const { scroll: _scroll, ...rest } = pane;
+      return rest;
+    }),
+  };
+}
+
+/**
+ * The wire form of `snapshot` for the session's current detail level,
+ * plus the `detail` marker carried on ready/snapshot frames.
+ */
+function wireSnapshot(state: SessionState, snapshot: SessionSnapshot): SessionSnapshot {
+  return state.detail === "summary" ? summarizeSnapshot(snapshot) : snapshot;
+}
+
+function wireDetail(state: SessionState): { detail?: "summary" } {
+  return state.detail === "summary" ? { detail: "summary" as const } : {};
+}
+
+/**
+ * Switch a session's detail level (issue #585). Downgrading to summary
+ * detaches every terminal slot — an unselected machine must not keep
+ * terminal delivery — re-delivers the held snapshot stripped, and the
+ * scroll-subscription sync drops the now-empty scroll filters. Upgrading
+ * to full re-delivers the held snapshot unstripped and refetches so
+ * canvas detail (layouts, scroll offsets) is fresh for the viewer.
+ */
+function applyDetail(state: SessionState, detail: SnapshotDetail): void {
+  if (state.detail === detail) return;
+  state.detail = detail;
+  metricInc("bridge.detail.set", { detail });
+  if (detail === "summary") {
+    for (const [paneId, slot] of [...state.terminals]) {
+      // dropTerminal alone leaves the attach link open (it only marks the
+      // slot gone); close it like releaseTerminal does so an unselected
+      // machine really stops terminal delivery.
+      dropTerminal(state, paneId, slot, "machine_idle");
+      slot.link?.close();
+    }
+    syncScrollSubscriptions(state);
+  } else {
+    // Detail demand (selection or a terminal subscribe): refresh so the
+    // pushed snapshot carries fresh layouts/scroll state, not just the
+    // possibly-stale held copy.
+    pushSnapshot(state);
+  }
+  if (state.snapshot) deliverSnapshot(state, state.snapshot);
 }
 
 /**
@@ -180,14 +268,15 @@ interface SessionState {
  */
 function deliverSnapshot(state: SessionState, snapshot: SessionSnapshot): void {
   state.snapshot = snapshot;
-  const json = JSON.stringify(snapshot);
+  const wire = wireSnapshot(state, snapshot);
+  const json = JSON.stringify(wire);
   if (json === state.lastPushedSnapshotJson) {
     metricInc("bridge.snapshot.push.unchanged");
     return;
   }
   state.lastPushedSnapshotJson = json;
   metricInc("bridge.snapshot.push");
-  state.send({ type: "snapshot", snapshot, machine: state.machine });
+  state.send({ type: "snapshot", snapshot: wire, machine: state.machine, ...wireDetail(state) });
 }
 
 function pushSnapshot(state: SessionState): void {
@@ -318,20 +407,23 @@ function scheduleSnapshot(state: SessionState, cause: string): void {
 function dropTerminal(state: SessionState, paneId: string, slot: TerminalSlot, reason: string): void {
   if (slot.gone) return;
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   if (state.terminals.get(paneId) === slot) state.terminals.delete(paneId);
   state.send({ type: "terminal_closed", paneId, reason, machine: state.machine });
 }
 
-function ensureTerminal(state: SessionState, paneId: string, cols: number, rows: number, takeover: boolean): TerminalSlot {
-  const existing = state.terminals.get(paneId);
-  if (existing) {
-    existing.refs += 1;
-    return existing;
-  }
-  const slot: TerminalSlot = { refs: 1, link: null, queue: [], queueBytes: 0, gone: false };
-  state.terminals.set(paneId, slot);
-  syncScrollSubscriptions(state);
-
+/**
+ * Resolve the pane's terminal id (refreshing the snapshot once for panes
+ * newer than the last fetch) and open the attach link for `slot`.
+ */
+function attachSlot(
+  state: SessionState,
+  slot: TerminalSlot,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover: boolean,
+): void {
   const pane = state.snapshot?.panes.find((p) => p.pane_id === paneId);
   const terminalId = pane?.terminal_id;
   if (!terminalId) {
@@ -352,9 +444,55 @@ function ensureTerminal(state: SessionState, paneId: string, cols: number, rows:
       .catch(() => {
         if (!slot.gone) dropTerminal(state, paneId, slot, "unknown_pane");
       });
-    return slot;
+    return;
   }
   attachTerminal(state, slot, paneId, terminalId, cols, rows, takeover);
+}
+
+function ensureTerminal(
+  state: SessionState,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover: boolean,
+  writable: boolean,
+): TerminalSlot {
+  const existing = state.terminals.get(paneId);
+  if (existing) {
+    if (existing.writable !== writable) {
+      // Mode negotiation (issue #571): herdr accepts the attach-mode message
+      // only while the client is TerminalPending, so a mode change is a new
+      // connection — but the slot, its refcount and its op queue survive, so
+      // input typed during the switch still flushes to the new link in
+      // order. This subscribe does not take a reference: the client pairs
+      // it with the single unsubscribe it already sends.
+      existing.writable = writable;
+      // Supersede the old link before closing it: its detach/close
+      // callbacks must already read as stale (issue #571).
+      existing.epoch += 1;
+      if (!writable) {
+        // Demotion to observe (issue #584): ops queued for the writable
+        // epoch can never be delivered — ClientInput/AttachScroll/
+        // AttachMouse are illegal on an ObserveTerminal link and herdr
+        // drops them anyway. Discard them here instead of letting them
+        // flush onto the observe connection (a stale keystroke delivered
+        // minutes later would be worse than a dropped one; the pane's
+        // client-side egress keeps anything not yet sent).
+        existing.queue.length = 0;
+        existing.queueBytes = 0;
+      }
+      existing.link?.close();
+      existing.link = null;
+      attachSlot(state, existing, paneId, cols, rows, takeover);
+      return existing;
+    }
+    existing.refs += 1;
+    return existing;
+  }
+  const slot: TerminalSlot = { refs: 1, link: null, queue: [], queueBytes: 0, gone: false, writable, epoch: 0 };
+  state.terminals.set(paneId, slot);
+  syncScrollSubscriptions(state);
+  attachSlot(state, slot, paneId, cols, rows, takeover);
   return slot;
 }
 
@@ -369,10 +507,23 @@ function attachTerminal(
 ): void {
   // Default attach observes without stealing the viewer role from an
   // existing client (TUI, second window). Takeover is only requested when
-  // the client explicitly asked for it after an attach refusal.
-  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover }, {
+  // the client explicitly asked for it after an attach refusal. `writable`
+  // false opens a read-only ObserveTerminal stream instead (issue #571).
+  // Each attach attempt gets its own epoch: a mode switch or a second
+  // in-flight attempt (snapshot-retry path) supersedes every earlier one,
+  // so only the newest resolved link is ever installed (issue #571).
+  slot.epoch += 1;
+  const epoch = slot.epoch;
+  // Counted per link-open attempt (issue #572): a #571 mode switch closes
+  // the old link and re-enters here, so it counts as a second attach while
+  // the slot — and therefore bridge.terminal.detach — stays single. Pair
+  // with terminal.link.open/close for the socket-level view.
+  metricInc("bridge.terminal.attach");
+  openTerminalLink(terminalId, { cols, rows, connect: state.endpoint.client, takeover, writable: slot.writable }, {
     onEvent: (event) => {
-      if (slot.gone) return;
+      // A superseded link (mode switch, newer attach attempt) must not feed
+      // the client or tear the slot down (issue #571).
+      if (slot.gone || slot.epoch !== epoch) return;
       if (event.type === "terminal") {
         state.send({ type: "terminal_data", paneId, data: Buffer.from(event.bytes).toString("base64"), machine: state.machine });
       } else if (event.type === "mouse_capture") {
@@ -386,10 +537,14 @@ function attachTerminal(
       }
     },
     onClose: (reason) => {
+      if (slot.gone || slot.epoch !== epoch) return;
       dropTerminal(state, paneId, slot, reason);
     },
   }).then((link) => {
-    if (slot.gone) {
+    // A mode switch or slot teardown while this attach was in flight makes
+    // the resolved link stale: close it instead of installing it over the
+    // newer link (issue #571).
+    if (slot.gone || slot.epoch !== epoch) {
       link.close();
       return;
     }
@@ -397,6 +552,9 @@ function attachTerminal(
     for (const op of slot.queue.splice(0)) op();
     slot.queueBytes = 0;
   }).catch((error: unknown) => {
+    // Same staleness rule as the resolve path: a superseded attach's failure
+    // must not tear down the slot's newer link.
+    if (slot.gone || slot.epoch !== epoch) return;
     dropTerminal(state, paneId, slot, error instanceof Error ? error.message : String(error));
   });
 }
@@ -408,6 +566,7 @@ function releaseTerminal(state: SessionState, paneId: string): void {
   if (slot.refs > 0) return;
   state.terminals.delete(paneId);
   slot.gone = true;
+  metricInc("bridge.terminal.detach");
   slot.link?.close();
   syncScrollSubscriptions(state);
 }
@@ -455,8 +614,15 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     }
     case "subscribe_terminal":
       // The client follows with terminal_resize once its grid is measured;
-      // input/resize frames queue until the attach resolves.
-      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true);
+      // input/resize frames queue until the attach resolves. `writable`
+      // false requests the read-only ObserveTerminal stream (issue #571);
+      // absent means writable, the pre-#571 behavior.
+      // A subscribe on a summary-mode session is itself proof the pane is
+      // on screen (issue #585): upgrade to full detail before attaching —
+      // this also covers the route race where subscribe_terminal reaches
+      // the session a frame before machine_select.
+      if (state.detail === "summary") applyDetail(state, "full");
+      ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true, frame.writable !== false);
       return;
     case "unsubscribe_terminal":
       releaseTerminal(state, frame.paneId);
@@ -464,6 +630,14 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_input": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      // Counted at slot receipt (issue #572): observe-mode input is
+      // received-then-dropped by the #571 gate below, so op counts include
+      // deliberately dropped frames — compare with client.frame to see them.
+      metricInc("bridge.terminal.op", { op: "input" });
+      // Observe-mode links cannot carry input (herdr routes ClientInput only
+      // for TerminalAttach); drop it here instead of shipping bytes the
+      // server silently ignores (issue #571).
+      if (!slot.writable) return;
       const bytes = Buffer.from(frame.data, "base64");
       const write = () => slot.link?.write(bytes);
       if (slot.link) write();
@@ -473,6 +647,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_resize": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "resize" });
       const resize = () => slot.link?.resize(frame.cols, frame.rows);
       if (slot.link) resize();
       else enqueueSlotOp(state, slot, frame.paneId, 0, resize);
@@ -481,6 +656,8 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_mouse": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "mouse" });
+      if (!slot.writable) return;
       const mouse = () =>
         slot.link?.mouse({
           action: frame.action,
@@ -496,6 +673,8 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "terminal_scroll": {
       const slot = state.terminals.get(frame.paneId);
       if (!slot || slot.gone) return;
+      metricInc("bridge.terminal.op", { op: "scroll" });
+      if (!slot.writable) return;
       const scroll = () =>
         slot.link?.scroll(frame.direction, frame.lines, frame.column, frame.row, frame.modifiers);
       if (slot.link) scroll();
@@ -507,6 +686,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "list_machines":
     case "machine_connect":
     case "machine_disconnect":
+    case "machine_select":
     case "machine_add":
     case "machine_remove":
     case "machine_update":
@@ -521,6 +701,12 @@ export interface BridgeSession {
   start(): Promise<void>;
   /** Most recent snapshot this session produced, or null before the first one. */
   latestSnapshot(): SessionSnapshot | null;
+  /**
+   * Switch the session's detail level (issue #585). `summary` strips
+   * canvas detail from pushed snapshots and detaches terminals;
+   * `full` restores complete pushes and refetches. Idempotent.
+   */
+  setDetail(detail: SnapshotDetail): void;
   /** Release subscriptions and every terminal link. */
   close(): void;
 }
@@ -533,6 +719,7 @@ export function createBridgeSession(
   send: (frame: ServerFrame) => void,
   endpoint: BridgeEndpoint = localEndpoint(),
   machine = "local",
+  detail: SnapshotDetail = "full",
 ): BridgeSession {
   const state: SessionState = {
     send,
@@ -548,6 +735,7 @@ export function createBridgeSession(
     snapshotQueued: false,
     snapshot: null,
     lastPushedSnapshotJson: null,
+    detail,
     terminals: new Map(),
   };
   return {
@@ -558,8 +746,9 @@ export function createBridgeSession(
           state.snapshot = snapshot;
           // `ready` already carried this snapshot to the client; seed the
           // dedup key so an identical first refetch is not re-pushed (#423).
-          state.lastPushedSnapshotJson = JSON.stringify(snapshot);
-          state.send({ type: "ready", snapshot, machine });
+          const wire = wireSnapshot(state, snapshot);
+          state.lastPushedSnapshotJson = JSON.stringify(wire);
+          state.send({ type: "ready", snapshot: wire, machine, ...wireDetail(state) });
           state.subscription = openSubscription(state, snapshot);
         })
         .catch((error: unknown) => {
@@ -567,6 +756,7 @@ export function createBridgeSession(
           state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message }, machine });
         }),
     latestSnapshot: () => state.snapshot,
+    setDetail: (level) => applyDetail(state, level),
     close: () => {
       state.subscription?.close();
       if (state.snapshotTimer) clearTimeout(state.snapshotTimer);

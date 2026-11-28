@@ -68,6 +68,7 @@ const SERVER_FRAME_TYPES = new Set([
   "terminal_data",
   "terminal_mouse_capture",
   "terminal_closed",
+  "terminal_history_page",
   "machines",
   "machine_status",
 ]);
@@ -93,6 +94,20 @@ function serverFrameShapeOk(frame: Record<string, unknown>): boolean {
       return str("paneId") && typeof frame["enabled"] === "boolean" && str("machine");
     case "terminal_closed":
       return str("paneId") && str("machine");
+    case "terminal_history_page":
+      // C3 (issue #597): envelope check mirrors the Rust codec's required
+      // fields; anchor internals are validated by the typed decode.
+      return (
+        str("paneId") &&
+        str("machine") &&
+        typeof frame["contentRevision"] === "number" &&
+        isPlainObject(frame["anchor"]) &&
+        Array.isArray(frame["rows"]) &&
+        frame["rows"].every((r) => typeof r === "string") &&
+        typeof frame["hasMoreAbove"] === "boolean" &&
+        typeof frame["hasMoreBelow"] === "boolean" &&
+        isPlainObject(frame["nextAnchor"])
+      );
     case "machines":
       return Array.isArray(frame["machines"]);
     case "machine_status":

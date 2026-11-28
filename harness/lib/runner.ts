@@ -50,12 +50,13 @@ export function* scenarioFiles(dir: string): Generator<string> {
   }
 }
 
-/** Create the composite TS adapter: codec + terminal + projection behind one name. */
+/** Create the composite TS adapter: codec + terminal + projection + bridge behind one name. */
 export async function createTsAdapter(): Promise<Adapter> {
   const { codecAdapter } = await import("./adapters/codec.ts");
   const { createTerminalAdapter } = await import("./adapters/terminal.ts");
   const { createProjectionAdapter } = await import("./adapters/projection.ts");
-  const parts = [codecAdapter, createTerminalAdapter(), createProjectionAdapter()];
+  const { createBridgeAdapter } = await import("./adapters/bridge.ts");
+  const parts = [codecAdapter, createTerminalAdapter(), createProjectionAdapter(), createBridgeAdapter()];
   const ops = new Set(parts.flatMap((a) => [...a.ops]));
   return {
     name: "ts",

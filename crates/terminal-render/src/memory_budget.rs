@@ -133,6 +133,12 @@ impl MemoryBudget {
         self.probes.len()
     }
 
+    /// The configured budget in bytes — for diagnostics before the
+    /// first [`Self::evaluate`].
+    pub fn budget_bytes(&self) -> u64 {
+        self.budget_bytes
+    }
+
     pub fn shedder_count(&self) -> usize {
         self.shedders.len()
     }

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { localPluginHost, pluginChildEnv, PluginService, PLUGIN_ENV_SCRUB, type PluginExecOptions, type PluginExecOutcome, type PluginHost } from "./plugins.ts";
 import { HerdrError } from "./herdr.ts";
+import { pluginHerdrSkew, type PluginListEntry } from "../shared/protocol.ts";
 
 /** Scripted host: each exec pops the next outcome for its argv match. */
 function fakeHost(handlers: Array<{ match: (argv: string[]) => boolean; outcome: PluginExecOutcome }>): PluginHost & { calls: string[][]; options: PluginExecOptions[] } {
@@ -36,6 +38,8 @@ const PLUGIN_LIST = {
         version: "0.1.0",
         enabled: true,
         plugin_root: "/plugins/inbox",
+        min_herdr_version: "0.9.0",
+        platforms: ["macos", "windows"],
       },
       { plugin_id: "other.off", enabled: false, plugin_root: "/plugins/off" },
       { plugin_id: "broken.no_root" },
@@ -95,8 +99,13 @@ describe("PluginService.listPlugins (ADR-0011)", () => {
       plugin_id: "rebuildup.inbox",
       enabled: true,
       plugin_root: "/plugins/inbox",
+      min_herdr_version: "0.9.0",
+      platforms: ["macos", "windows"],
     });
     expect(result.plugins[1]?.enabled).toBe(false);
+    // Entries without the fields (older herdr/plugin) simply omit them.
+    expect(result.plugins[1]?.min_herdr_version).toBeUndefined();
+    expect(result.plugins[1]?.platforms).toBeUndefined();
     // discovery ran `herdr plugin list --json` as argv
     expect(host.calls[0]).toEqual(["herdr", "plugin", "list", "--json"]);
   });
@@ -749,6 +758,81 @@ describe("PluginService.call", () => {
       serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "list" }),
     ).rejects.toMatchObject({ code: "plugin_incompatible" });
   });
+
+  test("plugin_call command 'capability' bypasses the commands-membership gate (issue #539)", async () => {
+    // The capability probe itself already proved the CLI answers
+    // `capability`; upstream contracts are not required to self-list it.
+    const host = fakeHost([
+      { match: (a) => a[0] === "herdr" && a.includes("plugin"), outcome: ok(PLUGIN_LIST) },
+      {
+        match: (a) => a[3] === "capability",
+        outcome: ok({ contract: "herdr-plugins.inbox/v1", commands: ["list"] }),
+      },
+    ]);
+    const doc = await serviceFor(host).call("local", {
+      plugin: "rebuildup.inbox",
+      command: "capability",
+    });
+    expect(doc["contract"]).toBe("herdr-plugins.inbox/v1");
+    // Other unlisted commands still fail closed.
+    await expect(
+      serviceFor(host).call("local", { plugin: "rebuildup.inbox", command: "settle" }),
+    ).rejects.toMatchObject({ code: "plugin_unsupported_command" });
+  });
+
+  test("capability cache is keyed by plugin version: an update re-probes inside the TTL window (issue #539)", async () => {
+    let pluginVersion = "0.1.0";
+    let capabilityVersion = "0.1.0";
+    const calls: string[][] = [];
+    const host: PluginHost = {
+      async exec(argv: string[]): Promise<PluginExecOutcome> {
+        calls.push([...argv]);
+        if (argv[0] === "herdr" && argv.includes("plugin")) {
+          return ok({
+            id: "x",
+            result: {
+              plugins: [
+                {
+                  plugin_id: "rebuildup.inbox",
+                  version: pluginVersion,
+                  enabled: true,
+                  plugin_root: "/plugins/inbox",
+                },
+              ],
+            },
+          });
+        }
+        if (argv[3] === "capability") {
+          return ok({
+            contract: "herdr-plugins.inbox/v1",
+            version: capabilityVersion,
+            commands: ["list", "capability"],
+          });
+        }
+        return ok({ ok: true });
+      },
+    };
+    const svc = serviceFor(host);
+    const realNow = Date.now;
+    try {
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(1);
+      // The plugin updated upstream: the discovery TTL (30s) has expired
+      // but the capability TTL (60s) has not — a root-only cache key
+      // would serve the stale v0.1.0 document here.
+      pluginVersion = "0.2.0";
+      capabilityVersion = "0.2.0";
+      const t0 = realNow();
+      Date.now = () => t0 + 31_000;
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(2);
+      // The fresh document is now cached under the new version.
+      await svc.call("m", { plugin: "rebuildup.inbox", command: "list" });
+      expect(calls.filter((c) => c[3] === "capability")).toHaveLength(2);
+    } finally {
+      Date.now = realNow;
+    }
+  });
 });
 
 describe("PluginService probe failure caching (issue #339)", () => {
@@ -950,4 +1034,190 @@ describe("localPluginHost exec bounds (issue #537)", () => {
     expect(() => process.kill(gcPid, 0)).toThrow();
     // Generous budget: a real `bun -e` spawn plus an 8s inner timeout.
   }, 30_000);
+});
+
+describe("PluginService exec concurrency bound (issue #538)", () => {
+  const TWO_COMMANDS = {
+    contract: "herdr-plugins.inbox/v1",
+    version: "0.1.0",
+    commands: ["a", "b"],
+    mutation_commands: [],
+  };
+
+  /**
+   * Host whose contract-command execs (`bun run src/cli.ts <cmd>`, i.e.
+   * argv[3] !== "capability") block on `gate` and count invocations;
+   * discovery and capability probes answer immediately.
+   */
+  function gatedHost() {
+    const calls: string[][] = [];
+    const cliCalls: string[] = [];
+    const capabilityCalls: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const host: PluginHost = {
+      async exec(argv) {
+        calls.push([...argv]);
+        if (argv[0] === "herdr") return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") {
+          capabilityCalls.push(argv[3] as string);
+          return ok(TWO_COMMANDS);
+        }
+        cliCalls.push(argv[3] as string);
+        await gate;
+        return ok({ ok: true });
+      },
+    };
+    return { host, calls, cliCalls, capabilityCalls, release: () => release() };
+  }
+
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+
+  test("concurrent execs per machine are bounded; the queue drains in order", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    await tick();
+    // call1 is parked inside its contract exec holding the only slot.
+    expect(g.cliCalls).toEqual(["a"]);
+    const p2 = svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"] });
+    await tick();
+    // call2's exec is queued — no second plugin process spawned.
+    expect(g.cliCalls).toEqual(["a"]);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "b"]);
+  });
+
+  test("queued calls respect their timeout budget and fail as plugin_timeout", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    await tick();
+    expect(g.cliCalls).toEqual(["a"]);
+    // 50ms budget expires while queued behind the blocked exec: the call
+    // must fail as plugin_timeout without ever spawning.
+    await expect(
+      svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"], timeoutMs: 50 }),
+    ).rejects.toMatchObject({ code: "plugin_timeout" });
+    expect(g.cliCalls).toEqual(["a"]);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+  });
+
+  test("concurrent capability probes for the same plugin single-flight", async () => {
+    const g = gatedHost();
+    // Block only the capability probe so both calls pile up on it.
+    let releaseCap!: () => void;
+    const capGate = new Promise<void>((r) => (releaseCap = r));
+    const host: PluginHost = {
+      async exec(argv) {
+        g.calls.push([...argv]);
+        if (argv[0] === "herdr") return ok(PLUGIN_LIST);
+        if (argv[3] === "capability") {
+          g.capabilityCalls.push("capability");
+          await capGate;
+          return ok(TWO_COMMANDS);
+        }
+        g.cliCalls.push(argv[3] as string);
+        return ok({ ok: true });
+      },
+    };
+    void g.release;
+    const svc = new PluginService(async () => host);
+    const p1 = svc.call("m", { plugin: "rebuildup.inbox", command: "a", args: ["1"] });
+    const p2 = svc.call("m", { plugin: "rebuildup.inbox", command: "b", args: ["2"] });
+    await tick();
+    expect(g.capabilityCalls).toHaveLength(1);
+    releaseCap();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "b"]);
+  });
+
+  test("invalidate stops new callers joining pre-invalidate exec flights", async () => {
+    const g = gatedHost();
+    const svc = new PluginService(async () => g.host, { maxConcurrentExecs: 1 });
+    const req = { plugin: "rebuildup.inbox", command: "a", args: ["1"] };
+    const p1 = svc.call("m", req);
+    await tick();
+    expect(g.cliCalls).toEqual(["a"]);
+    svc.invalidate("m");
+    // Identical request after invalidate must NOT share the in-flight
+    // exec (and re-probes discovery/capability): two real execs total.
+    const p2 = svc.call("m", req);
+    g.release();
+    await expect(p1).resolves.toMatchObject({ ok: true });
+    await expect(p2).resolves.toMatchObject({ ok: true });
+    expect(g.cliCalls).toEqual(["a", "a"]);
+  });
+});
+
+/**
+ * Upstream conformance fixture (issue #555, ADR-0011): the REAL
+ * `herdr plugin list --json` envelopes captured from a live herdr
+ * v0.9.5 host during RC verification (docs/design/evidence/rc-v060/).
+ * Feeding the actual upstream bytes through the discovery parser pins
+ * the boundary against silent contract drift — a schema change on the
+ * herdr side fails here before it reaches a client. The captures cover
+ * 5, 6 and 14 installed plugins respectively, all reporting
+ * `min_herdr_version`/`platforms` (the fields added for issue #539).
+ */
+const REAL_PLUGIN_LIST_CAPTURES = [
+  "../docs/design/evidence/rc-v060/section-z-plugin-list-win.txt",
+  "../docs/design/evidence/rc-v060/section-z2-plugin-list-win.json",
+  "../docs/design/evidence/rc-v060/section-z4-plugin-list-win.json",
+];
+
+describe("plugin_list conformance: real herdr 0.9.5 captures (issue #555)", () => {
+  for (const rel of REAL_PLUGIN_LIST_CAPTURES) {
+    test(`parses ${rel} verbatim`, async () => {
+      const raw = readFileSync(new URL(rel, import.meta.url), "utf8");
+      const envelope = JSON.parse(raw) as {
+        id?: string;
+        result?: { type?: string; plugins?: PluginListEntry[] };
+      };
+      // Guard the fixture itself: these files must stay real envelopes.
+      expect(envelope.result?.type).toBe("plugin_list");
+      const captured = envelope.result?.plugins ?? [];
+      expect(captured.length).toBeGreaterThan(0);
+
+      const host = fakeHost([
+        {
+          match: (a) => a[0] === "herdr" && a.includes("plugin"),
+          outcome: { code: 0, stdout: raw, stderr: "", timedOut: false },
+        },
+      ]);
+      const { plugins } = await serviceFor(host).listPlugins("m");
+
+      expect(plugins).toHaveLength(captured.length);
+      const byId = new Map(plugins.map((p) => [p.plugin_id, p]));
+      for (const rawEntry of captured) {
+        const pluginId = rawEntry["plugin_id"];
+        expect(typeof pluginId).toBe("string");
+        const entry = byId.get(pluginId as string) as PluginListEntry | undefined;
+        expect(entry, `missing parsed entry for ${String(pluginId)}`).toBeDefined();
+        // Every field the bridge forwards must survive the real envelope.
+        expect(entry?.plugin_id).toBe(rawEntry["plugin_id"]);
+        expect(entry?.name).toBe(rawEntry["name"]);
+        expect(entry?.version).toBe(rawEntry["version"]);
+        expect(entry?.enabled).toBe(rawEntry["enabled"]);
+        expect(entry?.plugin_root).toBe(rawEntry["plugin_root"]);
+        expect(entry?.description).toBe(rawEntry["description"]);
+        expect(entry?.min_herdr_version).toBe(rawEntry["min_herdr_version"]);
+        expect(entry?.platforms).toEqual(rawEntry["platforms"]);
+      }
+
+      // The skew classifier consumes the same forwarded field: every
+      // captured plugin declares min_herdr_version 0.9.0, so a 0.8.x
+      // host is definitively too old while 0.9.5 is compatible.
+      for (const entry of plugins) {
+        expect(pluginHerdrSkew(entry, "0.8.0")).toBe(
+          `requires herdr >= ${entry.min_herdr_version} (host reports 0.8.0)`,
+        );
+        expect(pluginHerdrSkew(entry, "0.9.5")).toBeNull();
+      }
+    });
+  }
 });

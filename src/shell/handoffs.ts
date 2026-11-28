@@ -42,7 +42,9 @@
 import { useSyncExternalStore } from "react";
 import { pluginCall, pluginList } from "../lib/api";
 import { onMachineStatus, onMachines, onSnapshot } from "../lib/api";
-import type { PluginCallResult } from "../../shared/protocol";
+import { pluginHerdrSkew, type PluginCallResult } from "../../shared/protocol";
+import { getBridgeState } from "./bridge";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail } from "./pluginErrors";
 
 export const HANDOFF_PLUGIN_ID = "rebuildup.handoff";
 export const HANDOFF_CONTRACT_PREFIX = "herdr-plugins.handoff/";
@@ -832,26 +834,9 @@ export function classifyHandoffError(error: unknown): {
   reason: HandoffUnavailableReason;
   detail: string;
 } {
-  const code = (error as { code?: string })?.code ?? "";
-  const message = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { reason: "not_installed", detail: message };
-    case "plugin_disabled":
-      return { reason: "disabled", detail: message };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { reason: "incompatible", detail: message };
-    case "plugin_host_unreachable":
-    case "connect_failed":
-    case "unreachable":
-    case "machine_unavailable":
-    case "plugin_timeout":
-      return { reason: "unreachable", detail: message };
-    default:
-      return { reason: "error", detail: message };
-  }
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(pluginErrorCode(error));
+  return boundary === null ? { reason: "error", detail } : { reason: boundary, detail };
 }
 
 /**
@@ -1427,6 +1412,17 @@ export async function refreshHandoffs(machine: string): Promise<void> {
       if (!entry.enabled) {
         setState(machine, {
           status: { kind: "unavailable", reason: "disabled", detail: entry.plugin_id },
+          list: null,
+          listError: null,
+        });
+        return;
+      }
+      // ADR-0011 §10: a plugin whose min_herdr_version exceeds the host's
+      // reported herdr version is `incompatible`, same as a contract miss.
+      const skew = pluginHerdrSkew(entry, getBridgeState().machines[machine]?.version);
+      if (skew !== null) {
+        setState(machine, {
+          status: { kind: "unavailable", reason: "incompatible", detail: skew },
           list: null,
           listError: null,
         });

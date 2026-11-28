@@ -226,6 +226,11 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             if (target === "nav.settings-appearance") {
               return clickSelector(`[data-settings-section="appearance"]`);
             }
+            if (target === "nav.settings-section") {
+              const section = String(params["section"] ?? "");
+              if (!section) return { ok: false, error: "nav.settings-section requires params.section" };
+              return clickSelector(`[data-settings-section="${section.replace(/"/g, '\\"')}"]`);
+            }
             if (target === "nav.goto") {
               // Real key path: ⌘K/Ctrl+K opens the command palette, type
               // the action query, then click the palette's Go to item —
@@ -335,6 +340,31 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             const route = String(state["route"] ?? "");
             const m = /^#\/settings(?:\/([^/?#]+))?/.exec(route);
             return { ok: true, value: m ? (m[1] ?? "general") : null };
+          }
+          case "dialog.settings_frame_contract": {
+            // AC-001 (docs/design/anti-cases.md): the settings popup frame
+            // is viewport-derived, not content-derived. On sm+ the popup
+            // must fill the viewport content box up to its max-h cap
+            // regardless of which section is active; max-sm is a
+            // full-bleed sheet with its own contract.
+            const holds = await evaluate<boolean>(
+              `(() => {
+                const popup = document.querySelector('[data-app-modal]');
+                if (!popup) return false;
+                if (!window.matchMedia('(min-width: 640px)').matches) return true;
+                const vp = popup.parentElement;
+                if (!vp) return false;
+                const vpStyle = getComputedStyle(vp);
+                const avail = vp.clientHeight
+                  - parseFloat(vpStyle.paddingTop)
+                  - parseFloat(vpStyle.paddingBottom);
+                const maxH = parseFloat(getComputedStyle(popup).maxHeight);
+                const expected = Math.min(avail, Number.isFinite(maxH) ? maxH : avail);
+                const actual = popup.getBoundingClientRect().height;
+                return Math.abs(actual - expected) <= 1.5;
+              })()`,
+            );
+            return { ok: true, value: holds };
           }
           case "state.focused_target": {
             const desc = await evaluate<string>(

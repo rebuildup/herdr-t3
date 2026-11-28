@@ -1,0 +1,162 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.takeover-arbitration",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "note": "C5.6 + operator transfer between clients: two writable attaches on one pane coexist only until herdr refuses the second \u2014 the refused client gets terminal_closed and NEVER silently retries or holds a phantom writable; authority moves only via an explicit takeover subscribe. Client 'a' keeps its link untouched throughout.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "a"
+      }
+    },
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "b"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "a",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "a",
+        "conn": 0
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "b",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "b",
+        "conn": 0
+      }
+    },
+    {
+      "op": "close_client_conn",
+      "input": {
+        "session": "b",
+        "conn": 0
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "b",
+        "pane": "p1",
+        "takeover": true
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "b",
+        "conn": 1
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "a": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": false,
+                  "ended": false
+                }
+              ],
+              "frames": [
+                "ready"
+              ]
+            },
+            "b": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": false,
+                  "ended": true
+                },
+                {
+                  "index": 1,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    true
+                  ],
+                  "detached": false,
+                  "ended": false
+                }
+              ],
+              "frames": [
+                "ready",
+                "terminal_closed"
+              ]
+            }
+          },
+          "metrics": {
+            "attach": 3,
+            "detach": 1,
+            "delivery_bytes": 0
+          }
+        }
+      }
+    }
+  ]
+}

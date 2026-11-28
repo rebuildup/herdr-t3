@@ -1,7 +1,7 @@
 {
   "name": "herdr-t3",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "Herdr session GUI client with the T3 Code design system (macOS/Windows)",
   "license": "MIT",

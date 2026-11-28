@@ -14,7 +14,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ClientFrame, MachineInfo, MachineStatus, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
-import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint, type BridgeSession } from "./bridge-core.ts";
+import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint, type BridgeSession, type SnapshotDetail } from "./bridge-core.ts";
 import { HerdrError } from "./herdr.ts";
 import { loadMachineMetadata, loadSavedMachines, type SavedMachine } from "./machines.ts";
 import { localPluginHost, PluginService, type PluginHost } from "./plugins.ts";
@@ -34,6 +34,24 @@ const LOCAL_ID = "local";
 const REFRESH_INTERVAL_MS = 60_000;
 const MACHINE_ADD_TIMEOUT_MS = 120_000;
 const MACHINE_OP_TIMEOUT_MS = 30_000;
+/** Cap on attach-lifecycle frames queued per machine during connect (issue #576). */
+const PENDING_FRAME_CAP = 512;
+
+/**
+ * Enqueue an attach-lifecycle frame for a connecting machine (issue #576).
+ * subscribe/unsubscribe are idempotent per pane, so the latest frame for
+ * a pane wins — collapse repeats, and past the cap drop the oldest frame
+ * rather than letting a long connect grow the queue without limit.
+ */
+export function enqueuePendingFrame(queue: ClientFrame[], frame: ClientFrame): void {
+  const paneId = "paneId" in frame ? frame.paneId : undefined;
+  if (paneId !== undefined) {
+    const prior = queue.findIndex((f) => "paneId" in f && f.paneId === paneId);
+    if (prior >= 0) queue.splice(prior, 1);
+  }
+  if (queue.length >= PENDING_FRAME_CAP) queue.shift();
+  queue.push(frame);
+}
 
 interface ManagedSession {
   session: BridgeSession;
@@ -48,6 +66,17 @@ export interface MachineManagerOptions {
   runHerdr?: (args: string[], timeoutMs: number) => Promise<string>;
   /** Override for tests: the snapshot fetch used by probe() (issue #212). */
   probeFetch?: (machine: string) => Promise<SessionSnapshot>;
+  /**
+   * Override for tests: bridge session factory (issue #585). Production
+   * always uses createBridgeSession; tests inject fakes to observe the
+   * per-machine detail level without real herdr endpoints.
+   */
+  sessionFactory?: (
+    send: (frame: ServerFrame) => void,
+    endpoint: BridgeEndpoint,
+    machine: string,
+    detail: SnapshotDetail,
+  ) => BridgeSession;
 }
 
 export class MachineManager {
@@ -68,12 +97,21 @@ export class MachineManager {
   private readonly pendingFrames = new Map<string, ClientFrame[]>();
   /** Last snapshot JSON pushed per machine by probe(), for dedupe (issue #212). */
   private readonly lastProbeSnapshots = new Map<string, string>();
+  /**
+   * The machine whose session runs in full detail mode (issue #585):
+   * canvas layouts, pane scroll state and terminal attach eligibility.
+   * Every other connected machine stays in summary mode — structure +
+   * agent status for the sidebar, stripped snapshot payload, no terminal
+   * delivery. Null until the client declares a selection.
+   */
+  private detailMachine: string | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   /** Plugin contract boundary (ADR-0011): host argv exec per machine. */
   private readonly plugins: PluginService;
   /** Resolved plugin hosts per machine (local + ssh), cached for reuse. */
   private readonly pluginHosts = new Map<string, PluginHost>();
+  private readonly sessionFactory: NonNullable<MachineManagerOptions["sessionFactory"]>;
 
   constructor(options: MachineManagerOptions) {
     this.send = options.send;
@@ -81,6 +119,7 @@ export class MachineManager {
     this.herdrRunner = options.runHerdr ?? ((args, timeoutMs) => this.spawnHerdr(args, timeoutMs));
     this.plugins = new PluginService((machine) => this.pluginHost(machine));
     this.probeFetcher = options.probeFetch ?? null;
+    this.sessionFactory = options.sessionFactory ?? createBridgeSession;
     this.infos.set(LOCAL_ID, {
       id: LOCAL_ID,
       label: "Local",
@@ -172,6 +211,9 @@ export class MachineManager {
       case "machine_disconnect":
         if (frame.machine !== LOCAL_ID) this.disconnect(frame.machine);
         return true;
+      case "machine_select":
+        this.selectMachine(frame.machine);
+        return true;
       case "machine_add":
         void this.addMachine(frame);
         return true;
@@ -204,8 +246,34 @@ export class MachineManager {
 
   /* --------------------------- internals ------------------------------ */
 
+  /**
+   * Detail level a session for `machine` should run at (issue #585):
+   * full only for the client-declared selection, summary otherwise.
+   */
+  private detailFor(machine: string): SnapshotDetail {
+    return machine === this.detailMachine ? "full" : "summary";
+  }
+
+  /**
+   * Declare the detail machine (issue #585): it gets a full-detail
+   * session — connected on demand like machine_connect — while every
+   * other live session drops to summary mode. Attention/agent status and
+   * connection status are unaffected: they ride the same events.subscribe
+   * + snapshot pushes in both modes.
+   */
+  private selectMachine(machine: string): void {
+    if (this.closed) return;
+    this.detailMachine = machine;
+    for (const [id, managed] of this.sessions) {
+      managed.session.setDetail(this.detailFor(id));
+    }
+    if (!this.sessions.has(machine)) void this.connect(machine);
+  }
+
   private ensureLocal(): void {
-    const managed: ManagedSession = { session: createBridgeSession(this.wrap(LOCAL_ID), localEndpoint(), LOCAL_ID) };
+    const managed: ManagedSession = {
+      session: this.sessionFactory(this.wrap(LOCAL_ID), localEndpoint(), LOCAL_ID, this.detailFor(LOCAL_ID)),
+    };
     this.sessions.set(LOCAL_ID, managed);
     void managed.session.start();
   }
@@ -307,7 +375,7 @@ export class MachineManager {
     // never land in a pane after reconnect (draft semantics, issue #5).
     if (frame.type === "subscribe_terminal" || frame.type === "unsubscribe_terminal") {
       const queue = this.pendingFrames.get(machine) ?? [];
-      queue.push(frame);
+      enqueuePendingFrame(queue, frame);
       this.pendingFrames.set(machine, queue);
     } else if (frame.type === "rpc") {
       this.send({
@@ -397,7 +465,7 @@ export class MachineManager {
       label: `ssh:${endpoint.target}`,
     };
     const managed: ManagedSession = {
-      session: createBridgeSession(this.wrap(machine), bridgeEndpoint, machine),
+      session: this.sessionFactory(this.wrap(machine), bridgeEndpoint, machine, this.detailFor(machine)),
       endpoint: bridgeEndpoint,
     };
     this.sessions.set(machine, managed);
