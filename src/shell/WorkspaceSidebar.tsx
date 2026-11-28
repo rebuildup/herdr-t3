@@ -103,7 +103,7 @@ import {
 } from "./inbox";
 import { workspaceTitle } from "~/lib/workspace";
 import { moveInsertIndex } from "~/lib/reorder";
-import { machineStale, useRouteWorkspace } from "./view";
+import { awaitingFirstSnapshots, machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
   ensureMachine,
@@ -775,6 +775,9 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
     (n, m) => n + (workspacesByMachine.get(m.id)?.length ?? 0),
     0,
   );
+  // AC-005: before every live machine's first snapshot arrives, an empty
+  // list means "not loaded yet" — never render the empty state then.
+  const snapshotsPending = awaitingFirstSnapshots(machines, bridge.snapshots);
 
   // Agents shelves (issue #151, info-architecture.md §6): every agent
   // across live machines partitioned into Attention/Working/Done/Idle —
@@ -1187,7 +1190,10 @@ export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }
             No workspaces found
           </p>
         ) : null}
-        {!searching && totalWorkspaces === 0 && bridge.connection === "open" ? (
+        {!searching &&
+        totalWorkspaces === 0 &&
+        bridge.connection === "open" &&
+        !snapshotsPending ? (
           <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/70">
             <span>No workspaces yet</span>
             {/* oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 empty-state CTA; custom row chrome */}
