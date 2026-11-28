@@ -46,20 +46,39 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   const remaining = () => readyDeadline - Date.now();
   let measuredReadyMs: number | undefined;
 
-  const targets = (await withTimeout(
-    (async () =>
-      (await fetch(`http://127.0.0.1:${port}/json`, {
-        signal: AbortSignal.timeout(Math.max(1, remaining())),
-      })).json())() as Promise<{
-      type: string;
-      url: string;
-      webSocketDebuggerUrl: string;
-    }[]>,
-    Math.max(1, remaining()),
-    "cdp /json discovery",
-  ));
-  const page = targets.find((t) => t.type === "page" && t.url.startsWith("http"));
-  if (!page) throw new Error(`no debuggable page on :${port} (${targets.map((t) => t.url).join(", ")})`);
+  // /json/version comes up before the first page target exists; poll
+  // target discovery inside the same shared deadline until a page shows.
+  const page = await waitFor(
+    async () => {
+      const list = (await withTimeout(
+        (async () =>
+          (await fetch(`http://127.0.0.1:${port}/json`, {
+            signal: AbortSignal.timeout(Math.max(1, remaining())),
+          })).json())() as Promise<{
+          type: string;
+          url: string;
+          webSocketDebuggerUrl: string;
+        }[]>,
+        Math.max(1, remaining()),
+        "cdp /json discovery",
+      ));
+      return (
+        list.find((t) => t.type === "page" && t.url.startsWith("http")) ??
+        list.find((t) => t.type === "page" && t.url.startsWith("file://")) ??
+        null
+      );
+    },
+    {
+      timeoutMs: Math.max(1, remaining()),
+      intervalMs: 150,
+      label: "cdp page target",
+    },
+  ).catch((e) => {
+    if (e instanceof BudgetExceeded) {
+      throw new Error(`no debuggable page on :${port} within launch budget`);
+    }
+    throw e;
+  });
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await withTimeout(
@@ -131,6 +150,14 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
         `(async () => {
           const s = await window.__herdrT3Ui?.observe?.();
           if (!s || typeof s !== "object" || typeof s.route !== "string") return "observe-unavailable";
+          // Packaged builds load dist/ over file:// where fetch("/api/…")
+          // cannot work; the product path is the preload IPC bridge
+          // (window.herdrT3.health). Dev mode has both — prefer IPC as it
+          // is the path the shipped app actually uses.
+          if (window.herdrT3?.health) {
+            try { await window.herdrT3.health(); return "ok"; }
+            catch (e) { return "health-ipc-error"; }
+          }
           return fetch("/api/health").then((r) => (r.ok ? "ok" : "health-" + r.status)).catch(() => "health-unreachable");
         })()`,
       ).catch((e) => `evaluate-error:${String(e).slice(0, 80)}`);
