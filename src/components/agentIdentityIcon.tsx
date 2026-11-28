@@ -66,12 +66,13 @@ const RING_STROKE = {
 } as const;
 
 /**
- * Two densities of the same grammar: `md` (20px) leads agent rows;
- * `sm` (16px) fits dense chrome — tab pills, goto rows, detail rows.
- * The ring is vector (viewBox scales); mark, markers and type sizes
- * scale with the slot.
+ * Two densities of the same grammar plus a promo size: `md` (20px)
+ * leads agent rows; `sm` (16px) fits dense chrome — tab pills, goto
+ * rows, detail rows; `lg` (24px) fronts notification toasts where the
+ * glyph is the surface's primary signal. The ring is vector (viewBox
+ * scales); mark, markers and type sizes scale with the slot.
  */
-export type AgentIconSize = "md" | "sm";
+export type AgentIconSize = "md" | "sm" | "lg";
 
 const GLYPH = {
   md: {
@@ -87,6 +88,13 @@ const GLYPH = {
     overlay: "size-3 text-3xs",
     badge: "size-2.5 -bottom-0.5 -right-0.5 text-5xs",
     check: "size-1.5",
+  },
+  lg: {
+    slot: "size-6",
+    mark: "size-3.5",
+    overlay: "size-4 text-xs",
+    badge: "size-3.5 -bottom-1 -right-1 text-3xs",
+    check: "size-2.5",
   },
 } as const;
 
@@ -326,6 +334,7 @@ function StatusMarker({
  * readable air, and Electron and GPUI must reproduce the same
  * footprint (ui-shell.md contract). `sm` (`size-4`, 16px) is the same
  * grammar at dense-chrome density — tab pills, goto rows, detail rows.
+ * `lg` (`size-6`, 24px) is the promo density for notification toasts.
  */
 export function AgentIdentityIcon({
   agent,
@@ -335,7 +344,7 @@ export function AgentIdentityIcon({
 }: {
   agent: string | null | undefined;
   status: AgentStatus;
-  /** `md` (20px) for agent rows, `sm` (16px) for dense chrome. */
+  /** `md` (20px) for agent rows, `sm` (16px) for dense chrome, `lg` (24px) for toasts. */
   size?: AgentIconSize;
   className?: string;
 }) {

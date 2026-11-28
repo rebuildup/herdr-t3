@@ -157,3 +157,37 @@ export const AgentShelves: Story = {
     </div>
   ),
 };
+
+/**
+ * Long-content stress (issue #550): unbroken tokens, CJK strings and
+ * max-length fields must truncate inside the row — never overflow the
+ * sidebar width or push the meta/aux columns out. The guarantee is
+ * structural: `min-w-0` on every flex child, `truncate` on each text
+ * run, `max-w-*` caps on the trailing meta spans.
+ */
+export const LongText: Story = {
+  render: () => (
+    <RowList>
+      <AgentRowEl e={entry("w1:p9", "working", {
+        focused: true,
+        agent: { title: "refactor the authentication and authorization middleware pipeline end-to-end" },
+        pane: { terminal_title_stripped: "bunx vitest run --reporter=verbose src/auth/session-refresh.test.ts --no-color" },
+        wsTitle: "extremely-long-workspace-name-that-keeps-going-and-going",
+        tabLabel: "feature/very-long-branch-name-for-stress-testing",
+      })} />
+      <AgentRowEl e={entry("w1:p10", "blocked", {
+        agent: { agent: "codex", title: "待機中：承認が必要な破壊的マイグレーション手順" },
+        pane: null,
+        wsTitle: "my-app",
+      })} />
+      <WorkspaceRow
+        machine={machine}
+        workspace={workspace("w9", "a-very-long-workspace-title-that-should-truncate-instead-of-overflowing-the-sidebar", "done", { tab_count: 12, pane_count: 34 })}
+        isActive={false}
+        onNewWorkspace={noop}
+        onRename={noop}
+        onClose={noop}
+      />
+    </RowList>
+  ),
+};

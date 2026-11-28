@@ -39,7 +39,8 @@ behavior, not the DOM.
   work-status indicator — sidebar agent rows, workspace rows, tab
   pills, goto pane rows, hover/context card rows, status badges —
   renders this one component; `sm` (16px) is the same grammar at
-  dense-chrome density, never a bare icon-glyph substitute. State
+  dense-chrome density and `lg` (24px) is the promo density for
+  notification toasts, never a bare icon-glyph substitute. State
   name is never
   printed on the row; it lives
   in the shelf, hover card and accessible name. GPUI must reproduce

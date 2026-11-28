@@ -383,45 +383,49 @@ function Toasts({ position }: { position: ToastPosition }) {
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
+                {/* Issue #550: icon column on the left, vertically
+                    centered against the whole title/description/meta
+                    block — the same glyph-to-content grammar as sidebar
+                    rows. `shrink-0` keeps the glyph at its slot size and
+                    `min-w-0` on the text column lets long unbroken
+                    strings wrap/truncate instead of pushing the action
+                    out (the systemic no-breakage guarantee). */}
                 <div
                   className={cn(
-                    "flex min-h-0 min-w-0 flex-col gap-0.5",
-                    stackedActionLayout ? "pr-5" : "flex-1",
+                    "flex min-h-0 min-w-0 flex-1 items-center gap-3",
+                    stackedActionLayout
+                      ? "pr-5"
+                      : !hasAction && "pr-6",
                   )}
                 >
-                  <div
-                    className={cn(
-                      "flex min-w-0 gap-2",
-                      !stackedActionLayout && !hasAction && "pr-6",
-                    )}
-                  >
-                    {toast.data?.agentStatus ? (
-                      // Attention toasts lead with the same unified
-                      // agent-work glyph as rows (issue #550): brand
-                      // mark + status ring + marker.
-                      <AgentIdentityIcon
-                        agent={toast.data.agent}
-                        status={toast.data.agentStatus}
-                        size="sm"
-                      />
-                    ) : Icon ? (
-                      <div
-                        className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-                        data-slot="toast-icon"
-                      >
-                        <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
-                      </div>
-                    ) : null}
+                  {toast.data?.agentStatus ? (
+                    // Attention toasts lead with the same unified
+                    // agent-work glyph as rows (issue #550): brand
+                    // mark + status ring + marker, at promo density.
+                    <AgentIdentityIcon
+                      agent={toast.data.agent}
+                      status={toast.data.agentStatus}
+                      size="lg"
+                    />
+                  ) : Icon ? (
+                    <div
+                      className="[&_svg]:pointer-events-none [&_svg]:shrink-0"
+                      data-slot="toast-icon"
+                    >
+                      <Icon className="size-6 in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
+                    </div>
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <Toast.Title
                       className="min-w-0 wrap-break-word font-medium"
                       data-slot="toast-title"
                     />
+                    <Toast.Description
+                      className="min-w-0 select-text wrap-break-word text-muted-foreground"
+                      data-slot="toast-description"
+                    />
+                    <ToastMeta data={toast.data} />
                   </div>
-                  <Toast.Description
-                    className="min-w-0 select-text wrap-break-word text-muted-foreground"
-                    data-slot="toast-description"
-                  />
-                  <ToastMeta data={toast.data} />
                 </div>
                 {hasAction ? (
                   <div
