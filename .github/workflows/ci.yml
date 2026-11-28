@@ -29,5 +29,9 @@ jobs:
           path: native
           key: ghostty-vt-${{ runner.os }}-${{ runner.arch }}-${{ steps.cpu.outputs.key }}-${{ hashFiles('scripts/ghostty-vt/build-native.sh') }}
       - run: bun install --frozen-lockfile
+      # GPUI crates (terminal-view, ui-kit, ui-test-host, herdr-ui) link
+      # X11/Wayland/EGL on Linux; ubuntu-latest lacks the -dev packages.
+      - name: Install Linux GUI deps for GPUI crates
+        run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libwayland-dev libegl-dev libgl-dev libvulkan-dev libasound2-dev
       - run: ./scripts/ci.sh
       - run: bun run build

@@ -29,10 +29,14 @@ use herdr_bridge::session::BridgeSession;
 use protocol_codec::{MachineInfo, SessionSnapshot};
 use serde_json::{json, Map, Value};
 use state_projections::{build_goto_rows, filter_goto_rows, GotoRow};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
+use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
+use terminal_render::memory_host::MemoryHost;
+use terminal_view::{GpuiTextMetrics, SurfaceHandlers, TerminalView, TerminalViewConfig};
 use ui_kit::{
     primitives::{Badge, BadgeVariant, Button, ButtonVariant, Input, Kbd, Separator},
     tokens,
@@ -261,6 +265,16 @@ struct HostView {
     /// focus, so simulate_input keystrokes travel the same dispatch
     /// path a user's keyboard does.
     goto_focus: FocusHandle,
+    /// Real GPUI terminal surfaces (issue #620): one TerminalView entity
+    /// per pane id, kept mounted across workspace switches so scroll
+    /// and selection state survive — the same preservation contract
+    /// `state.scroll` models for the simulated path.
+    terminals: HashMap<String, Entity<TerminalView>>,
+    /// Shared host-bound event ledger the surface handlers append to —
+    /// the conformance-observable stand-in for attach-stream writes.
+    terminal_events: Rc<RefCell<Vec<(String, String)>>>,
+    /// Memory budget host the surfaces register probes/shedders with.
+    memory_host: Option<MemoryHost>,
 }
 
 impl HostView {
@@ -269,7 +283,94 @@ impl HostView {
             state: fixture_state(None),
             inject_fault: std::env::var("UI_INJECT_FAULT").ok(),
             goto_focus: cx.focus_handle(),
+            terminals: HashMap::new(),
+            terminal_events: Rc::new(RefCell::new(Vec::new())),
+            memory_host: MemoryHost::for_platform(),
         }
+    }
+
+    /// Get-or-create the real [`TerminalView`] for a pane — called from
+    /// render; entity creation is cheap and idempotent per pane id.
+    fn ensure_terminal(&mut self, pane_id: &str, cx: &mut Context<Self>) -> Entity<TerminalView> {
+        if let Some(e) = self.terminals.get(pane_id) {
+            return e.clone();
+        }
+        let events = Rc::clone(&self.terminal_events);
+        let pid = pane_id.to_string();
+        let log = {
+            let pid = pid.clone();
+            let events = Rc::clone(&events);
+            move |kind: &str, detail: String| {
+                events
+                    .borrow_mut()
+                    .push((pid.clone(), format!("{kind}:{detail}")));
+            }
+        };
+        let mut handlers = SurfaceHandlers::default();
+        {
+            let log = log.clone();
+            handlers.on_input = Some(Rc::new(move |bytes: &[u8]| {
+                log("input", bytes.iter().map(|b| format!("{b:02x}")).collect());
+            }));
+        }
+        {
+            let log = log.clone();
+            handlers.on_scroll = Some(Rc::new(move |rows: i64| log("scroll", rows.to_string())));
+        }
+        {
+            let log = log.clone();
+            handlers.on_resize = Some(Rc::new(move |c: u32, r: u32| {
+                log("resize", format!("{c}x{r}"))
+            }));
+        }
+        {
+            let log = log.clone();
+            handlers.on_selection_change = Some(Rc::new(move |text: Option<&str>| {
+                log("selection", text.unwrap_or("").to_string())
+            }));
+        }
+        {
+            let log = log.clone();
+            handlers.on_dead = Some(Rc::new(move |msg: &str| log("dead", msg.to_string())));
+        }
+        {
+            let log = log.clone();
+            handlers.on_scroll_viewport =
+                Some(Rc::new(move |off: u64| log("viewport", off.to_string())));
+        }
+        {
+            let log = log;
+            handlers.on_scroll_request = Some(Rc::new(move |dir: &'static str, lines: u32| {
+                log("scrollreq", format!("{dir}:{lines}"))
+            }));
+        }
+        let metrics = GpuiTextMetrics::new(cx.text_system().clone());
+        let view = cx.new(|cx| {
+            TerminalView::new(
+                terminal_core::SessionOptions::default(),
+                metrics,
+                TerminalViewConfig {
+                    handlers,
+                    ..TerminalViewConfig::default()
+                },
+                cx,
+            )
+        });
+        // C3/C4: this surface is one viewport client on its data plane;
+        // MemoryHost gets the session/scene/image probes + shedders.
+        {
+            let surface = view.read(cx).surface();
+            let mut s = surface.borrow_mut();
+            let client_id = pane_client_id(pane_id);
+            s.attach_viewport_client(client_id);
+            let _ = s.sync_content_geometry();
+        }
+        if let Some(host) = &mut self.memory_host {
+            let surface = view.read(cx).surface();
+            surface.borrow().register_memory(host, pane_id.to_string());
+        }
+        self.terminals.insert(pane_id.to_string(), view.clone());
+        view
     }
 
     /// Rows for the current query — the same build+filter pair the
@@ -420,6 +521,17 @@ impl HostView {
             _ => "light", // host has no OS appearance; system resolves light
         }
     }
+}
+
+/// Stable per-pane viewport client id for the C4 data plane — FNV-1a
+/// with the low bit set so the id is never 0.
+fn pane_client_id(pane_id: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in pane_id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h | 1
 }
 
 fn sel(name: &str) -> &'static str {
@@ -795,9 +907,21 @@ impl Render for HostView {
             body = body.child(section);
             main = main.child(body);
         } else if let Some(ws) = self.selected_workspace() {
-            for pane in &ws.panes {
-                let pid = pane.id.clone();
-                let max = pane.scroll_max;
+            // Collect pane ids first — ensure_terminal needs &mut self
+            // while the workspace borrow is still live.
+            let panes: Vec<(String, i64)> = ws
+                .panes
+                .iter()
+                .map(|p| (p.id.clone(), p.scroll_max))
+                .collect();
+            for (pid, max) in panes {
+                // The real GPUI terminal surface (issue #620): SurfaceCore
+                // + GhosttyScene painted through the canvas. The wrapper
+                // keeps the `terminal.pane.{id}` selector and the
+                // simulated scroll ledger the conformance suite observes;
+                // the surface's own host events land in
+                // `terminal_events` (observable via `terminal.events`).
+                let surface = self.ensure_terminal(&pid, cx);
                 main = main.child(
                     gpui::div()
                         .id(gpui::SharedString::from(format!("pane-{pid}")))
@@ -808,12 +932,31 @@ impl Render for HostView {
                         .h(gpui::px(240.0))
                         .w_full()
                         .m(gpui::px(8.0))
-                        .p(gpui::px(8.0))
+                        .flex()
+                        .flex_col()
                         .rounded(gpui::px(6.0))
                         .border_1()
                         .border_color(gpui::rgb(0x444444))
                         .text_color(gpui::rgb(0xcccccc))
-                        .child(format!("{} (scroll: {})", pid, self.scroll_of(&pid)))
+                        .child(
+                            gpui::div()
+                                .flex_shrink_0()
+                                .px(gpui::px(8.0))
+                                .py(gpui::px(2.0))
+                                .text_size(gpui::px(10.0))
+                                .child(format!("{} (scroll: {})", pid, self.scroll_of(&pid))),
+                        )
+                        .child(
+                            gpui::div()
+                                .id(gpui::SharedString::from(format!("term-{pid}")))
+                                .debug_selector({
+                                    let pid = pid.clone();
+                                    move || format!("terminal.surface.{pid}")
+                                })
+                                .flex_1()
+                                .min_h(gpui::px(0.0))
+                                .child(surface),
+                        )
                         .on_scroll_wheel(cx.listener(
                             move |view, event: &ScrollWheelEvent, _window, cx| {
                                 let lines = match event.delta {
@@ -1484,6 +1627,43 @@ fn observe(
                 Value::Null
             };
             Ok(v)
+        }
+        // ---- real terminal surface (issue #620) ----------------------
+        // `terminal.surface` reports the mounted GPUI view's live grid;
+        // `terminal.events` drains nothing — it returns the cumulative
+        // host-event ledger the surface handlers recorded (attach
+        // bytes as hex, scroll/resize/selection reports, dead engine).
+        "terminal.surface" => {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+            Ok(view.read_with(&vcx.cx, |v, _| {
+                match v.terminals.get(id) {
+                    Some(entity) => entity.read_with(&vcx.cx, |tv, _| {
+                        let surface = tv.surface();
+                        let s = surface.borrow();
+                        let m = s.metrics();
+                        json!({
+                            "mounted": true,
+                            "cols": m.map(|mm| mm.cols),
+                            "rows": m.map(|mm| mm.rows),
+                            "dead": s.is_dead(),
+                            "disposed": s.is_disposed(),
+                        })
+                    }),
+                    None => json!({"mounted": false}),
+                }
+            }))
+        }
+        "terminal.events" => {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+            Ok(view.read_with(&vcx.cx, |v, _| {
+                json!(v
+                    .terminal_events
+                    .borrow()
+                    .iter()
+                    .filter(|(p, _)| p == id)
+                    .map(|(_, e)| e.clone())
+                    .collect::<Vec<_>>())
+            }))
         }
         _ => Err(format!("unknown assert {assert}")),
     }

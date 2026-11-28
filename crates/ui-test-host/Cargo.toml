@@ -12,3 +12,6 @@ serde_json = "1"
 state-projections = { path = "../state-projections" }
 herdr-bridge = { path = "../herdr-bridge" }
 ui-kit = { path = "../ui-kit" }
+terminal-core = { path = "../terminal-core" }
+terminal-render = { path = "../terminal-render" }
+terminal-view = { path = "../terminal-view" }
