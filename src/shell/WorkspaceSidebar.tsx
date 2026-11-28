@@ -17,16 +17,9 @@ import {
   type ReactNode,
 } from "react";
 import {
-  CheckCheckIcon,
   ChevronDownIcon,
-  CopyIcon,
-  InfoIcon,
   MonitorIcon,
-  MoonIcon,
-  MousePointerClickIcon,
-  PencilIcon,
   PlusIcon,
-  RotateCcwIcon,
   SearchIcon,
   SquarePenIcon,
   UnplugIcon,
@@ -48,15 +41,8 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubPopup,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import { statusIcon } from "~/components/statusIcons";
-import { isAgentKindName } from "~/components/agentKind";
-import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import {
   Dialog,
   DialogContent,
@@ -67,7 +53,8 @@ import {
 } from "~/components/ui/dialog";
 import { CollapsibleSectionHeader } from "~/components/ui/collapsible-section-header";
 import { ShowMoreButton } from "~/components/ui/show-more-button";
-import { AgentHoverCard } from "./AgentHoverCard";
+import { AgentRow, type AgentOrganizeAction } from "./AgentRow";
+import { WorkspaceRow } from "./WorkspaceRow";
 import { getGeneralSettings } from "~/lib/settings";
 import { getLocalStorageBoolean, setLocalStorageBoolean } from "~/lib/localStorage";
 import { createSidebarListMotion } from "~/lib/sidebarListMotion";
@@ -79,19 +66,14 @@ import {
   AGENT_SECTION_LABELS,
   COLLAPSIBLE_AGENT_SECTIONS,
   UNCAPPED_AGENT_SECTIONS,
-  agentAuxStateLabels,
-  agentDisplayName,
   agentOrganizeKey,
   agentRowSignature,
   agentShelfEntryKey,
   agentShelfInitialLimit,
   agentShelfPage,
-  agentStateLabel,
-  agentWorkTarget,
   collectAgentEntries,
   partitionAgents,
   shelfRows,
-  shortPaneId,
   type AgentListEntry,
   type AgentSection,
 } from "./agents";
@@ -99,22 +81,18 @@ import {
   inboxOrganize,
   useInboxOrganize,
   useInboxStates,
-  type InboxUnavailableReason,
 } from "./inbox";
 import { workspaceTitle } from "~/lib/workspace";
 import { moveInsertIndex } from "~/lib/reorder";
 import { machineStale, useRouteWorkspace } from "./view";
 import {
   callRpc,
-  ensureMachine,
   machineListOf,
   newWorkspace,
-  selectWorkspace,
   useBridgeState,
 } from "./bridge";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
-import { requestFocusHandoff } from "~/lib/focusHandoff";
-import { useWorkspaceBranch, useWorkspaceBranchIndex } from "./worktrees";
+import { useWorkspaceBranchIndex } from "./worktrees";
 import { LOCAL_MACHINE } from "~/lib/api";
 
 interface RenameState {
@@ -161,133 +139,6 @@ function SidebarHeaderIconButton({
   );
 }
 
-function WorkspaceRow({
-  machine,
-  workspace,
-  isActive,
-  inFolder = false,
-  onNewWorkspace,
-  onRename,
-  onClose,
-}: {
-  machine: MachineInfo;
-  workspace: WorkspaceInfo;
-  isActive: boolean;
-  inFolder?: boolean;
-  onNewWorkspace: () => void;
-  onRename: (target: RenameTarget, machine: string) => void;
-  onClose: () => void;
-}) {
-  const machineLabel = inFolder ? undefined : machine.label;
-  const branch = useWorkspaceBranch(machine.id, workspace.workspace_id);
-  const title = workspaceTitle(workspace, branch);
-
-  const rowButton = (
-    // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite control, same exception as T3's thread rows
-    <button
-      type="button"
-      data-sidebar-row={workspace.workspace_id}
-      data-sidebar-workspace={workspace.workspace_id}
-      onClick={() => {
-        // Issue #435: workspace selection hands focus to the displayed
-        // workspace's focused pane once snapshot + surface agree.
-        requestFocusHandoff({
-          machine: machine.id,
-          workspaceId: workspace.workspace_id,
-        });
-        selectWorkspace(machine.id, workspace.workspace_id);
-      }}
-      className={cn(
-        // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
-        // rows): identity on line 1, branch/meta on line 2 — never squeezed
-        // into one truncating row (issue #153).
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) py-1.5 text-left outline-none transition-colors",
-        inFolder
-          ? "ps-7 pe-(--sidebar-row-content-inset)"
-          : "px-(--sidebar-row-content-inset)",
-        // T3 keeps the hover fill off the active row so the selected
-        // surface does not flicker under the pointer (SidebarThreadRow).
-        !isActive && "hover:bg-sidebar-row-hover",
-        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        isActive &&
-          // T3's active thread row treatment (SidebarThreadRow): the
-          // sidebar-row-active token stays clearly distinct from
-          // row-hover in both themes — the old foreground/6% fill sat
-          // between the dark hover (8%) and selected (7%) tints and read
-          // as the same fill (issue #417). The light ring keeps the
-          // white active surface from floating on zinc-50 (issue #128).
-          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
-      )}
-    >
-      <span className="flex w-full min-w-0 items-center gap-2.5">
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {statusIcon(workspace.agent_status)}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-          {title}
-        </span>
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
-        {branch && title !== branch ? (
-          <span className="min-w-0 truncate">{branch}</span>
-        ) : null}
-        <span className="shrink-0 tabular-nums">
-          {workspace.tab_count}t · {workspace.pane_count}p
-        </span>
-        {machineLabel ? (
-          <span className="min-w-0 truncate">{machineLabel}</span>
-        ) : null}
-      </span>
-    </button>
-  );
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger className="w-full">{rowButton}</ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          onSelect={() => {
-            requestFocusHandoff({
-              machine: machine.id,
-              workspaceId: workspace.workspace_id,
-            });
-            selectWorkspace(machine.id, workspace.workspace_id);
-          }}
-        >
-          <MousePointerClickIcon /> Focus
-        </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={() =>
-            onRename(
-              {
-                kind: "workspace",
-                id: workspace.workspace_id,
-                label: title,
-              },
-              machine.id,
-            )
-          }
-        >
-          <PencilIcon /> Rename…
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onNewWorkspace}>
-          <SquarePenIcon /> New workspace here
-        </ContextMenuItem>
-        {/* Internal IDs stay out of the default UI (info-architecture.md
-            §5/§7); the context menu is where they can be inspected. */}
-        <ContextMenuItem
-          onSelect={() => void navigator.clipboard?.writeText(workspace.workspace_id)}
-        >
-          <CopyIcon /> Copy workspace ID
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onSelect={onClose}>
-          <XIcon /> Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-}
 
 function MachineFolderHeader({
   machine,
@@ -382,260 +233,6 @@ function MachineFolderHeader({
   );
 }
 
-type AgentOrganizeAction = "settle" | "snooze" | "restore";
-
-/** Why organize actions are unavailable on a machine (ADR-0011 §10). */
-const INBOX_UNAVAILABLE_LABELS: Record<InboxUnavailableReason, string> = {
-  not_installed: "inbox plugin not installed",
-  disabled: "inbox plugin disabled",
-  incompatible: "inbox contract incompatible",
-  unreachable: "inbox host unreachable",
-  error: "inbox unavailable",
-};
-
-/** Snooze presets offered by the plugin contract (`--until` specs). */
-const SNOOZE_PRESETS = [
-  { label: "1 hour", spec: "+1h" },
-  { label: "1 day", spec: "+1d" },
-  { label: "1 week", spec: "+7d" },
-] as const;
-
-function formatSnoozeUntil(iso: string): string | null {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/**
- * One agent row in the Agents shelves. Two lines per T3
- * `SidebarThreadRow`'s hierarchy (issue #200,
- * info-architecture.md §6.1): line 1 is context at secondary weight
- * (identity/status glyph, workspace/tab/machine) — the resolved state
- * name is icon/section/hover-card/aria only, never printed text (issue
- * #381) —
- * line 2 leads with the work target — the live pane's terminal title —
- * with agent identity, pane disambiguator and auxiliary labels as meta.
- * Clicking jumps to the agent's workspace and focuses its pane
- * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
- * the TUI agent sidebar's click-to-focus.
- */
-function AgentRow({
-  entry,
-  multiMachine,
-  showPaneId,
-  pane,
-  shelf,
-  inboxReady,
-  inboxReason,
-  snoozedUntil,
-  onDetails,
-  onOrganize,
-}: {
-  entry: AgentListEntry;
-  multiMachine: boolean;
-  /** Sibling rows render identically without it — append the pane token (issue #165). */
-  showPaneId: boolean;
-  pane: PaneInfo | undefined;
-  /** User-organize shelf the row currently sits in, if any (#173/#219). */
-  shelf: "settled" | "snoozed" | undefined;
-  /** Whether the host's inbox plugin can accept organize mutations. */
-  inboxReady: boolean;
-  inboxReason?: InboxUnavailableReason | undefined;
-  /** Plugin-reported snooze deadline (snoozed rows only). */
-  snoozedUntil?: string | undefined;
-  onDetails: (entry: AgentListEntry, pane: PaneInfo) => void;
-  onOrganize: (entry: AgentListEntry, action: AgentOrganizeAction, snoozeSpec?: string) => void;
-}) {
-  const { machine, agent } = entry;
-  const stateLabel = agentStateLabel(agent);
-  const displayName = agentDisplayName(agent);
-  const workTarget = agentWorkTarget(agent, pane);
-  const auxLabels = agentAuxStateLabels(agent);
-  // Line 2 leads with the work target; the agent name joins the meta
-  // only when it adds information beyond the title.
-  const rowTitle = workTarget ?? displayName;
-  // When the display name is just the agent kind (any spelling of it),
-  // the trailing icon already carries that identity — repeating the
-  // label as meta is noise, so drop it and give the title back the
-  // width (issue #204 review, generalized in #335: independent of which
-  // icon family renders, including the generic glyph and unknown kinds).
-  const nameIsAgentKind = isAgentKindName(displayName, agent.agent);
-  const metaParts = [
-    workTarget !== null && workTarget !== displayName && !nameIsAgentKind
-      ? displayName
-      : null,
-    showPaneId ? shortPaneId(agent.pane_id) : null,
-    shelf === "snoozed" && snoozedUntil
-      ? (() => {
-          const until = formatSnoozeUntil(snoozedUntil);
-          return until ? `until ${until}` : null;
-        })()
-      : null,
-  ].filter((part): part is string => part !== null);
-  const focusAgent = () => {
-    requestFocusHandoff({
-      machine: machine.id,
-      workspaceId: agent.workspace_id,
-    });
-    selectWorkspace(machine.id, agent.workspace_id);
-    void ensureMachine(machine.id).then(() =>
-      callRpc(machine.id, "pane.focus", { pane_id: agent.pane_id }).catch(() => {}),
-    );
-  };
-  const rowButton = (
-    // oxlint-disable-next-line herdr-t3/no-raw-control -- semantic sidebar row inside a composite list, same exception as workspace rows
-    <button
-      type="button"
-      data-sidebar-row={agent.pane_id}
-      onClick={focusAgent}
-      className={cn(
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) py-1.5 text-left outline-none transition-colors",
-        !agent.focused && "hover:bg-sidebar-row-hover",
-        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        agent.focused &&
-          "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
-      )}
-    >
-      <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
-        {/* Issue #419: the row's left edge is the shared identity/status
-            glyph — brand provider mark led, agent_status carried by the
-            perimeter ring (working = rotating arc). The resolved state
-            name stays icon-adjacent only via hover card / shelf / aria,
-            never printed text (issue #381). */}
-        <AgentIdentityIcon agent={agent.agent} status={agent.agent_status} />
-        <span className="min-w-0 flex-1 truncate">
-          {entry.workspaceTitle}
-          {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
-          {multiMachine ? ` · ${machine.label}` : null}
-        </span>
-        {/* The state name lives in the hover card and in the accessible
-            name only (issue #381): the icon's color/animation and the
-            section shelf already carry it, so printing "working" beside
-            the Working shelf triple-reports the same fact (T3
-            SidebarThreadRow shows the status slot only when it adds
-            information the row does not already have). */}
-        <span className="sr-only">{stateLabel}</span>
-      </span>
-      {/* ps-7 aligns line 2 with line 1's text: size-5 identity glyph
-          (20px) + gap-2 (8px) = 28px (issue #419; supersedes the #204
-          ps-6 note, which tracked the old size-4 status icon). */}
-      <span className="flex w-full min-w-0 items-center gap-2 ps-7">
-        {/* Title and meta are separate flex items (issue #204 review):
-            concatenating them inside one truncating node sliced mid-
-            separator ("update onboarding docs ...") and dropped the
-            agent name entirely on long titles. The title truncates;
-            the meta keeps its own bounded width. */}
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-          {rowTitle}
-        </span>
-        {metaParts.length > 0 ? (
-          // T3 SidebarThreadRow meta line: text-secondary-label text-xs —
-          // text-2xs read as low-contrast gray on Windows light theme
-          // (issue #417 Windows leg).
-          <span className="max-w-40 shrink-0 truncate text-xs text-secondary-label">
-            {metaParts.join(" · ")}
-          </span>
-        ) : null}
-        {auxLabels.length > 0 ? (
-          <span className="max-w-32 shrink-0 truncate text-xs text-secondary-label">
-            {auxLabels.join(" · ")}
-          </span>
-        ) : null}
-      </span>
-    </button>
-  );
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger className="w-full">
-        {/* T3 ThreadHoverCard: hover/focus shows the facts the two-line row
-            truncates (issue #154). The tooltip trigger renders the row
-            button itself so there is no nested interactive element. */}
-        <Tooltip>
-          <TooltipTrigger render={rowButton} />
-          <TooltipPopup
-            side="right"
-            align="start"
-            sideOffset={16}
-            variant="glass"
-            className="text-left"
-          >
-            <AgentHoverCard entry={entry} multiMachine={multiMachine} pane={pane} />
-          </TooltipPopup>
-        </Tooltip>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={focusAgent}>
-          <MousePointerClickIcon /> Focus
-        </ContextMenuItem>
-        {pane ? (
-          <ContextMenuItem onSelect={() => onDetails(entry, pane)}>
-            <InfoIcon /> Details…
-          </ContextMenuItem>
-        ) : null}
-        {/* User-side shelf organization (#173, plugin-backed per ADR-0011):
-            herdr state is untouched; the host's rebuildup.inbox plugin owns
-            organize state. Shelved rows can be restored or moved to the
-            other shelf; natural-section rows offer Settle/Snooze. T3 keeps
-            snoozed threads reachable for manual unsnooze — the Snoozed
-            shelf mirrors that. When the host has no usable inbox plugin the
-            actions are disabled with the reason, never silently local. */}
-        <ContextMenuSeparator />
-        {!inboxReady ? (
-          <ContextMenuItem disabled>
-            {INBOX_UNAVAILABLE_LABELS[inboxReason ?? "error"]}
-          </ContextMenuItem>
-        ) : (
-          <>
-            {shelf === "settled" || shelf === "snoozed" ? (
-              <ContextMenuItem onSelect={() => onOrganize(entry, "restore")}>
-                <RotateCcwIcon /> Restore
-              </ContextMenuItem>
-            ) : null}
-            {shelf !== "snoozed" ? (
-              <ContextMenuItem onSelect={() => onOrganize(entry, "settle")}>
-                <CheckCheckIcon /> Settle
-              </ContextMenuItem>
-            ) : null}
-            {shelf !== "settled" ? (
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <MoonIcon /> Snooze
-                </ContextMenuSubTrigger>
-                <ContextMenuSubPopup>
-                  {SNOOZE_PRESETS.map((preset) => (
-                    <ContextMenuItem
-                      key={preset.spec}
-                      onSelect={() => onOrganize(entry, "snooze", preset.spec)}
-                    >
-                      {preset.label}
-                    </ContextMenuItem>
-                  ))}
-                </ContextMenuSubPopup>
-              </ContextMenuSub>
-            ) : null}
-          </>
-        )}
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onSelect={() => void navigator.clipboard?.writeText(agent.pane_id)}
-        >
-          <CopyIcon /> Copy pane ID
-        </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={() => void navigator.clipboard?.writeText(agent.workspace_id)}
-        >
-          <CopyIcon /> Copy workspace ID
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-}
 
 export function WorkspaceSidebarBody({ settingsOpen }: { settingsOpen: boolean }) {
   const bridge = useBridgeState();

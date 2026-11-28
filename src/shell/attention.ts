@@ -14,6 +14,8 @@
  * label via the sink, branch when the cache has resolved it. Nothing is
  * fabricated and no extra RPC runs per notification.
  */
+import { ArrowUpRightIcon } from "lucide-react";
+
 import type { AgentInfo, SessionSnapshot } from "../../shared/protocol";
 import { workspaceTitle } from "../lib/workspace";
 import { agentDisplayName, agentWorkTarget } from "./agents";
@@ -94,11 +96,13 @@ export function observeSnapshotAttention(
       pushNotice({
         kind: "attention",
         status: agent.agent_status,
+        agent: agent.agent ?? undefined,
         title: blocked ? "Agent needs input" : "Agent finished",
         body: joinParts([agentName, work]),
         context: joinParts([where, machineName, branch]),
         action: {
           label: "Open",
+          icon: ArrowUpRightIcon,
           run: () => sink.focusAgent(machine, agent.workspace_id, agent.pane_id),
         },
       });

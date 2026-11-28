@@ -18,9 +18,12 @@ import {
   InfoIcon,
   TriangleAlertIcon,
   XIcon,
+  type LucideIcon,
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import type { AgentStatus } from "../../../shared/protocol";
+import { AgentIdentityIcon } from "~/components/agentIdentityIcon";
 import { buttonVariants } from "~/components/ui/button";
 import {
   buildVisibleToastLayout,
@@ -44,8 +47,15 @@ export interface ToastNoticeData {
   createdAt?: number | undefined;
   /** Auto-dismiss budget counted only while visible+focused+unhovered. */
   dismissAfterVisibleMs?: number;
-  /** "stacked-end" renders the action under the description (upstream layout). */
-  actionLayout?: "inline" | "stacked-end";
+  /**
+   * Agent status behind an attention toast — renders the unified
+   * AgentIdentityIcon glyph instead of the type icon (issue #550).
+   */
+  agentStatus?: AgentStatus | undefined;
+  /** Provider kind for the attention glyph's brand mark. */
+  agent?: string | undefined;
+  /** Leading glyph inside the action button — required upstream (issue #550). */
+  actionIcon?: LucideIcon | undefined;
   onClose?: (() => void) | undefined;
 }
 
@@ -210,18 +220,21 @@ function ToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastMeta({ data }: { data: ToastNoticeData | undefined }) {
-  const parts = [data?.context, data?.createdAt !== undefined ? toastAgeLabel(data.createdAt) : null]
+export function toastMetaParts(data: ToastNoticeData | undefined): string[] {
+  return [data?.context, data?.createdAt !== undefined ? toastAgeLabel(data.createdAt) : null]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
+}
+
+function ToastMeta({ parts }: { parts: string[] }) {
   if (parts.length === 0) return null;
   return (
-    <div
-      className="mt-1 truncate text-2xs text-muted-foreground/80"
+    <span
+      className="min-w-0 flex-1 truncate text-2xs text-muted-foreground/80"
       data-slot="toast-meta"
     >
       {parts.join(" · ")}
-    </div>
+    </span>
   );
 }
 
@@ -280,10 +293,9 @@ function Toasts({ position }: { position: ToastPosition }) {
           const Icon = toast.type
             ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
             : null;
+          const ActionIcon = toast.data?.actionIcon;
           const hasAction = hasVisibleToastAction(toast.actionProps);
-          const stackedActionLayout =
-            hasAction && toast.data?.actionLayout === "stacked-end";
-          const inlineContentEndPad = hasAction ? "pr-6" : "pr-3.5";
+          const metaParts = toastMetaParts(toast.data);
 
           return (
             <Toast.Root
@@ -365,64 +377,73 @@ function Toasts({ position }: { position: ToastPosition }) {
               <Toast.Content
                 className={cn(
                   // overflow-x:clip preserves visible vertical overflow; hidden would force overflow-y:auto
-                  // and clip detail panels.
-                  "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
-                  stackedActionLayout
-                    ? "flex flex-col gap-2 py-2.5 pr-3.5"
-                    : cn("py-3", "flex items-center justify-between gap-1.5", inlineContentEndPad),
+                  // and clip detail panels. pr-6 keeps the top line clear
+                  // of the corner dismiss orb.
+                  "pointer-events-auto min-h-0 overflow-y-visible py-2 pl-3 pr-6 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
               >
-                <div
-                  className={cn(
-                    "flex min-h-0 min-w-0 flex-col gap-0.5",
-                    stackedActionLayout ? "pr-5" : "flex-1",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "flex min-w-0 gap-2",
-                      !stackedActionLayout && !hasAction && "pr-6",
-                    )}
-                  >
-                    {Icon ? (
-                      <div
-                        className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-                        data-slot="toast-icon"
-                      >
-                        <Icon className="in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
-                      </div>
-                    ) : null}
+                {/* Issue #550: icon column on the left, vertically
+                    centered against the whole title/description block —
+                    the same glyph-to-content grammar as sidebar rows.
+                    The action lives on the meta footer row (right end),
+                    never beside the text, so long content truncates
+                    instead of colliding with it. `shrink-0` keeps the
+                    glyph at its slot size and `min-w-0` on the text
+                    column lets long unbroken strings wrap/truncate
+                    (the systemic no-breakage guarantee). */}
+                <div className="flex min-h-0 min-w-0 items-center gap-2.5">
+                  {toast.data?.agentStatus ? (
+                    // Attention toasts lead with the same unified
+                    // agent-work glyph as rows (issue #550): brand
+                    // mark + status ring + marker, at promo density.
+                    <AgentIdentityIcon
+                      agent={toast.data.agent}
+                      status={toast.data.agentStatus}
+                      size="lg"
+                    />
+                  ) : Icon ? (
+                    <div
+                      className="[&_svg]:pointer-events-none [&_svg]:shrink-0"
+                      data-slot="toast-icon"
+                    >
+                      <Icon className="size-6 in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
+                    </div>
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 flex-col gap-0">
                     <Toast.Title
-                      className="min-w-0 wrap-break-word font-medium"
+                      className="min-w-0 wrap-break-word font-medium leading-tight"
                       data-slot="toast-title"
                     />
+                    <Toast.Description
+                      className="min-w-0 select-text wrap-break-word text-muted-foreground leading-tight"
+                      data-slot="toast-description"
+                    />
+                    {metaParts.length > 0 || hasAction ? (
+                      <div className="mt-1 flex items-center gap-2">
+                        <ToastMeta parts={metaParts} />
+                        {hasAction ? (
+                          <Toast.Action
+                            className={cn(
+                              // Issue #550: compact chip, not a primary
+                              // CTA — `micro` (20px) + `secondary` keeps
+                              // the action subordinate to the notice
+                              // content; the optional actionIcon rides
+                              // inside as a glyph.
+                              buttonVariants({ size: "micro", variant: "secondary" }),
+                              "ml-auto shrink-0",
+                            )}
+                            data-slot="toast-action"
+                          >
+                            {ActionIcon ? <ActionIcon /> : null}
+                            {toast.actionProps?.children}
+                          </Toast.Action>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  <Toast.Description
-                    className="min-w-0 select-text wrap-break-word text-muted-foreground"
-                    data-slot="toast-description"
-                  />
-                  <ToastMeta data={toast.data} />
                 </div>
-                {hasAction ? (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5",
-                      stackedActionLayout ? "w-full justify-end" : "shrink-0",
-                    )}
-                  >
-                    <Toast.Action
-                      className={cn(
-                        buttonVariants({ size: "xs", variant: "default" }),
-                        "shrink-0",
-                      )}
-                      data-slot="toast-action"
-                    >
-                      {toast.actionProps?.children}
-                    </Toast.Action>
-                  </div>
-                ) : null}
               </Toast.Content>
             </Toast.Root>
           );

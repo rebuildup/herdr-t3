@@ -93,7 +93,7 @@ describe("observeSnapshotAttention", () => {
     observeSnapshotAttention(
       m,
       snapshot([agent({})]),
-      snapshot([agent({ agent_status: "blocked", state_change_seq: 2 })]),
+      snapshot([agent({ agent_status: "blocked", state_change_seq: 2, agent: "claude" })]),
       s,
     );
     const notice = getNotices().find((n) => n.title === "Agent needs input");
@@ -101,8 +101,13 @@ describe("observeSnapshotAttention", () => {
     // Issue #428: location moved to the meta context line; the body carries
     // agent identity + work target.
     expect(notice?.context).toContain("ws");
-    expect(notice?.body).toContain("agent");
+    expect(notice?.body).toContain("claude");
     expect(notice?.status).toBe("blocked");
+    // Issue #550: the attention glyph gets the provider kind and the
+    // action is a control — it must carry its required icon.
+    expect(notice?.agent).toBe("claude");
+    // Lucide icons are forwardRef objects, not functions.
+    expect(notice?.action?.icon).toBeDefined();
     notice?.action?.run();
     expect(calls).toEqual([{ machine: m, workspaceId: "w1", paneId: "p1" }]);
     dismissNotice(notice!.id);

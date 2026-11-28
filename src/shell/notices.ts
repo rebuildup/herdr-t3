@@ -13,6 +13,7 @@
  * never touch herdr.
  */
 import { useSyncExternalStore } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { toastManager } from "~/components/ui/toast";
 
@@ -21,6 +22,11 @@ export type NoticeKind = "attention" | "info" | "error";
 export interface NoticeAction {
   label: string;
   run: () => void;
+  /**
+   * Leading glyph for the toast action button — required (issue #550):
+   * a notice action is a control, and controls never render text-only.
+   */
+  icon: LucideIcon;
 }
 
 export interface Notice {
@@ -31,6 +37,8 @@ export interface Notice {
    * the toast type/icon. Absent for plain info/error notices.
    */
   status?: string | undefined;
+  /** Provider kind for the attention glyph's brand mark, when known. */
+  agent?: string | undefined;
   /** Concise state description, e.g. "Agent needs input". */
   title: string;
   /** Secondary line: agent identity and/or work title. */
@@ -97,6 +105,11 @@ export function pushNotice(
       context: full.context,
       createdAt,
       dismissAfterVisibleMs: VISIBLE_MS,
+      // Attention toasts render the unified agent glyph (brand mark +
+      // status ring + marker) instead of a bare type icon (issue #550).
+      agentStatus: full.kind === "attention" ? full.status : undefined,
+      agent: full.agent,
+      actionIcon: full.action?.icon,
     },
   });
   return id;

@@ -1,7 +1,6 @@
 import type { AgentStatus, PaneInfo } from "../../shared/protocol";
 import { cn } from "../lib/utils";
-import { observeVisibleAnimation } from "~/lib/visibleAnimation";
-import { Circle, CircleCheck, CircleDashed, CircleX, Loader2 } from "lucide-react";
+import { AgentIdentityIcon } from "./agentIdentityIcon";
 
 const LABELS: Record<string, string> = {
   working: "Working",
@@ -18,7 +17,16 @@ export function isKnownAgentStatus(status: AgentStatus): boolean {
   return LABELS[status] !== undefined;
 }
 
-export function AgentStatusBadge({ status, className }: { status: AgentStatus; className?: string }) {
+export function AgentStatusBadge({
+  status,
+  agent,
+  className,
+}: {
+  status: AgentStatus;
+  /** Provider kind for the glyph's brand mark; omit for the generic mark. */
+  agent?: string | null | undefined;
+  className?: string;
+}) {
   const color =
     status === "working"
       ? "text-primary"
@@ -27,22 +35,11 @@ export function AgentStatusBadge({ status, className }: { status: AgentStatus; c
         : status === "done"
           ? "text-success"
           : "text-muted-foreground";
-  const Icon =
-    status === "working"
-      ? Loader2
-      : status === "blocked"
-        ? CircleX
-        : status === "done"
-          ? CircleCheck
-          : status === "idle"
-            ? Circle
-            : CircleDashed;
   return (
     <span className={cn("inline-flex items-center gap-1 text-2xs transition-colors", color, className)}>
-      <Icon
-        ref={status === "working" ? observeVisibleAnimation : undefined}
-        className={cn("size-3", status === "working" && "motion-safe:visible-animate-spin")}
-      />
+      {/* The status glyph is the unified AgentIdentityIcon (issue #550) —
+          brand mark + ring + marker, dense `sm` density for the badge. */}
+      <AgentIdentityIcon agent={agent} status={status} size="sm" />
       {agentStatusLabel(status)}
     </span>
   );
