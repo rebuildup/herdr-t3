@@ -25,6 +25,7 @@ import {
   registerMemoryShedder,
 } from "../src/lib/memoryBudget.ts";
 import { metricAdd, metricsReset, metricsSnapshot } from "../server/metrics.ts";
+import { sampleGpuiReport, validateGpuiReport } from "./perf-gpui-schema.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(REPO_ROOT, rel), "utf8");
@@ -358,6 +359,56 @@ const PIECES: ContractPiece[] = [
     ],
   },
   {
+    id: "gpui-report-schema",
+    description: "GPUI product-path perf report schema (herdr-t3/perf-gpui v1): validator accepts the canonical sample, rejects doctored reports, budgets stay marked provisional, compare normalizes GPUI legs (#621)",
+    verify: () => {
+      const failures = [
+        ...sourceHas("scripts/perf-gpui-schema.ts", [
+          /GPUI_REPORT_FORMAT\s*=\s*"herdr-t3\/perf-gpui"/,
+          /GPUI_REPORT_VERSION\s*=\s*1/,
+          /export function validateGpuiReport/,
+          /provisional.*must be true|must be true.*provisional/,
+          /export function sampleGpuiReport/,
+        ]),
+        ...sourceHas("scripts/perf-observe.ts", [
+          /isGpuiReport/,
+          /GPUI_METRICS/,
+          /kindMismatch/,
+        ]),
+        ...fileHas("scripts/perf-gpui-schema.test.ts", [/validateGpuiReport/]),
+        ...fileHas("scripts/perf-observe.test.ts", [/perf-gpui|gpuiReport/i]),
+        ...fileHas("docs/migration/performance-baseline.md", [/perf-gpui/]),
+      ];
+      // Functional proof: the validator must accept the canonical
+      // sample and reject each drift class — a schema check that
+      // cannot say no is worse than none.
+      try {
+        const good = validateGpuiReport(sampleGpuiReport());
+        if (good.length > 0) {
+          failures.push(`gpui schema: canonical sample rejected: ${good.join("; ")}`);
+        }
+        const doctored = sampleGpuiReport();
+        doctored["format"] = "herdr-t3/perf-frame";
+        if (validateGpuiReport(doctored).length === 0) {
+          failures.push("gpui schema: wrong format accepted — validator cannot reject");
+        }
+        const noProv = sampleGpuiReport();
+        noProv["budgets"] = { input_paint_p95_ms: 1 };
+        if (!validateGpuiReport(noProv).join("\n").includes("provisional")) {
+          failures.push("gpui schema: unmarked budgets accepted — provisional gate missing");
+        }
+        const emptyLegs = sampleGpuiReport();
+        emptyLegs["legs"] = {};
+        if (validateGpuiReport(emptyLegs).length === 0) {
+          failures.push("gpui schema: empty legs accepted");
+        }
+      } catch (error) {
+        failures.push(`gpui schema functional check threw: ${error}`);
+      }
+      return failures;
+    },
+  },
+  {
     id: "committed-baselines",
     description: "committed perf baselines for the RC compare leg (perf-reports/)",
     verify: () => {
@@ -419,6 +470,15 @@ function selfTest(): number {
       console.error(`self-test: ${piece.id} has no verify()`);
       bad++;
     }
+  }
+  // The gpui-report-schema piece's functional core: the validator the
+  // checker wires in must reject a doctored report, or the piece
+  // cannot fail.
+  const doctoredGpui = sampleGpuiReport();
+  doctoredGpui["format"] = "herdr-t3/perf-frame";
+  if (validateGpuiReport(doctoredGpui).length === 0) {
+    console.error("self-test: gpui schema validator accepted a doctored report — check cannot fail");
+    bad++;
   }
   if (bad > 0) return 1;
   console.log(`self-test: rejection paths verified (${PIECES.length} pieces)`);

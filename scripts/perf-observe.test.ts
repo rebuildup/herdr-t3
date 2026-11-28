@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compare, diagnose, main } from "./perf-observe.ts";
+import { sampleGpuiReport } from "./perf-gpui-schema.ts";
 
 /**
  * Rejection-proof tests for the RC evaluation leg (issue #552): the
@@ -85,6 +86,158 @@ describe("perf-observe compare verdicts", () => {
     };
     const b = writeReport("m-cand.json", cand);
     expect(compare(a, b)).toBe(3);
+  });
+});
+
+/** Minimal herdr-t3/perf-gpui v1 report (issue #621) with frame-shaped
+ *  legs — same field names as perf-frame windows plus GPUI-only legs. */
+function gpuiReport(over: Record<string, unknown> = {}): Record<string, unknown> {
+  const r = sampleGpuiReport();
+  r["legs"] = {
+    startup: { startup_ms: 800, startup_to_first_paint_ms: 900 },
+    idle: {
+      seconds: 3,
+      frames: { count: 180, p50: 16.5, p95: 17.2, p99: 18.1, pct_over_16_7: 4 },
+      input_paint: { p50: 12, p95: 30, p99: 55 },
+      longtask_count: 0,
+      longtask_total_ms: 0,
+      task_utilization_pct: 18,
+      cpu_utilization_pct: 12,
+      memory: { rss_mb: 420, heap_mb: 150 },
+    },
+    storm: {
+      seconds: 8,
+      frames: { count: 300, p50: 16.6, p95: 40, p99: 90, pct_over_16_7: 30 },
+      input_paint: { p50: 15, p95: 120, p99: 300 },
+      longtask_count: 3,
+      longtask_total_ms: 210,
+      task_utilization_pct: 55,
+      cpu_utilization_pct: 40,
+    },
+    switch: {
+      frames: { count: 120, p50: 16.7, p95: 45, p99: 100 },
+      switch_latency: { p50: 60, p95: 140, p99: 260 },
+      input_paint: { p50: 14, p95: 90, p99: 200 },
+      task_utilization_pct: 30,
+      cpu_utilization_pct: 22,
+    },
+    terminal_io: {
+      delivery_bytes_total: 4_000_000,
+      delivery_bytes_per_sec: 500_000,
+      attach_count: 4,
+      detach_count: 4,
+      rpc_counts: { resize: 8, scroll: 24 },
+    },
+    longrun: {
+      duration_s: 600,
+      samples: [
+        { t: "2026-01-01T00:00:00Z", rss_mb: 400, heap_mb: 140, cpu_pct: 10 },
+        { t: "2026-01-01T00:10:00Z", rss_mb: 410, heap_mb: 145, cpu_pct: 11 },
+      ],
+      rss_slope_mb_per_min: 0.5,
+      heap_slope_mb_per_min: 0.2,
+      peak_rss_mb: 430,
+      peak_heap_mb: 160,
+    },
+  };
+  return { ...r, ...over };
+}
+
+/** perf-frame-shaped report with idle/storm/switch windows — for
+ *  cross-kind compare against a GPUI report carrying the same legs. */
+function frameReport(): Record<string, unknown> {
+  const win = (p50: number, p95: number) => ({
+    frames: { count: 180, p50, p95, p99: p95 * 2, pct_over_16_7: 4 },
+    input_paint: { p50: 12, p95: 30, p99: 55 },
+    longtask_count: 0,
+    longtask_total_ms: 0,
+    task_utilization_pct: 18,
+    cpu_utilization_pct: 12,
+  });
+  return {
+    format: "herdr-t3/perf-frame",
+    version: 1,
+    git_sha: "abc123",
+    host: { platform: "darwin", arch: "arm64", cpu_model: "M5", cpu_count: 10, mem_total_bytes: 25769803776, loadavg: [1, 1, 1] },
+    condition: { loadavg_1m: 1 },
+    workload: { measure_seconds: 8, scenario: "sample" },
+    idle: win(16.5, 17.2),
+    storm: win(16.6, 40),
+    switch: { ...win(16.7, 45), switch_latency: { p50: 60, p95: 140, p99: 260 } },
+  };
+}
+
+describe("perf-observe compare — GPUI reports (issue #621)", () => {
+  test("identical GPUI reports → pass (exit 0)", () => {
+    const a = writeReport("g-same-a.json", gpuiReport());
+    const b = writeReport("g-same-b.json", gpuiReport());
+    expect(compare(a, b)).toBe(0);
+  });
+
+  test("GPUI leg regression → fail (exit 1)", () => {
+    const a = writeReport("g-base.json", gpuiReport());
+    const regressed = gpuiReport();
+    const legs = regressed["legs"] as Record<string, Record<string, unknown>>;
+    (legs["storm"]!["frames"] as Record<string, number>).p95 = 200; // +400%
+    const b = writeReport("g-cand.json", regressed);
+    expect(compare(a, b)).toBe(1);
+  });
+
+  test("GPUI workload mismatch → inconclusive (exit 3)", () => {
+    const a = writeReport("g-w-base.json", gpuiReport());
+    const other = gpuiReport();
+    (other["workload"] as Record<string, unknown>)["scenario"] = "different";
+    const b = writeReport("g-w-cand.json", other);
+    expect(compare(a, b)).toBe(3);
+  });
+
+  test("GPUI leg missing on one side → inconclusive (exit 3)", () => {
+    const a = writeReport("g-m-base.json", gpuiReport());
+    const cand = gpuiReport();
+    delete (cand["legs"] as Record<string, unknown>)["longrun"];
+    const b = writeReport("g-m-cand.json", cand);
+    expect(compare(a, b)).toBe(3);
+  });
+
+  test("GPUI vs perf-frame report compares shared leg metrics → pass when equal", () => {
+    // Cross-implementation parity leg: frame-window field names are
+    // shared, so identical numbers must not regress; GPUI-only metrics
+    // (memory.*, switch_latency extras) are absent on the frame side
+    // and skipped, not "unmeasured". Legs must match on both sides —
+    // a leg present on only one side is inconclusive (covered above).
+    const frame = frameReport();
+    const gpui = gpuiReport();
+    gpui["legs"] = {
+      idle: { ...(frame["idle"] as Record<string, unknown>), memory: { rss_mb: 420, heap_mb: 150 } },
+      storm: frame["storm"],
+      switch: frame["switch"],
+    };
+    // Same host class + workload shape: frame uses mem_total_bytes,
+    // gpui uses mem_total_mb — both normalize to 24 GiB.
+    gpui["host"] = {
+      platform: "darwin", arch: "arm64", cpu_model: "M5", cpu_count: 10,
+      mem_total_mb: 24576, loadavg: [1, 1, 1],
+    };
+    gpui["workload"] = frame["workload"];
+    gpui["condition"] = frame["condition"];
+    const a = writeReport("x-frame.json", frame);
+    const b = writeReport("x-gpui.json", gpui);
+    expect(compare(a, b)).toBe(0);
+  });
+
+  test("GPUI vs perf-frame with unpaired legs → inconclusive (exit 3)", () => {
+    // The gpuiReport fixture carries startup/terminal_io/longrun legs
+    // the frame report cannot measure — missing scenarios, never pass.
+    const a = writeReport("x-frame2.json", frameReport());
+    const b = writeReport("x-gpui3.json", gpuiReport());
+    expect(compare(a, b)).toBe(3);
+  });
+
+  test("GPUI vs perf-memory report → inconclusive (kind mismatch, exit 3)", () => {
+    const mem = writeReport("x-mem.json", memReport());
+    const gpui = writeReport("x-gpui2.json", gpuiReport());
+    expect(compare(mem, gpui)).toBe(3);
+    expect(compare(gpui, mem)).toBe(3);
   });
 });
 

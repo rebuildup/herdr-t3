@@ -33,6 +33,13 @@ and is not covered.
   (spawns and reaps its own stack); reports to
   `perf-reports/frame-*.json`; `--check` gates provisional absolute
   budgets.
+- `scripts/perf-observe.ts`: unified observation — `diagnose`
+  (memory-history anomaly windows) and `compare` (per-scenario deltas
+  + pass/fail/inconclusive verdicts across perf-memory, perf-frame and
+  `herdr-t3/perf-gpui` report shapes; issue #621).
+- `scripts/perf-gpui-schema.ts` (#621): versioned schema + validator
+  (`validateGpuiReport`) for the future GPUI product-path report —
+  legs, MemoryHost `diagnostics_json` parity, provisional budgets.
 - `scripts/perf-baseline.ts`: runner + gate.
   - `record --iterations N --out PATH` → machine-readable report
     (`perf-reports/baseline-<sha>.json`) with `bench` (decode/frame),
@@ -109,6 +116,7 @@ RC freeze collects both-OS evidence on reference hardware.
 | local history scroll (viewport-only paging, zero RPC/attach/refetch) | ✅ contract test — `server/bridge-core.test.ts` "local history scroll" (#586) + `terminal-io` leg delivery meters (#572) |
 | host scaling (N machines × M visible panes → O(visible) RPC/attach/subscription) | ✅ fake-machine contract test — `server/bridge-core.test.ts` "host scaling" (#586); live multi-host leg deferred (needs SSH machines) |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
+| GPUI product path — startup, input→paint, workspace-switch latency, terminal delivery bytes/attach+RPC counts, CPU, memory (RSS/heap + MemoryHost diagnostics), long-run stability | 🟡 schema + tooling only (#621) — `herdr-t3/perf-gpui` v1 report format validated by `scripts/perf-gpui-schema.ts`, normalized by `perf-observe.ts compare`; **no live GPUI measurements exist yet** — live legs deferred to RC freeze, see GPUI product-path section |
 
 The Rust port must reproduce **equivalent functionality and render
 volume** before numbers are comparable — the gate assumes feature
@@ -561,6 +569,152 @@ bun scripts/perf-memory-bench.ts --check --scenario all --out perf-reports/mem-<
 bun scripts/perf-contract-check.ts && bun scripts/perf-contract-check.ts --self-test
 ```
 
+## GPUI product-path report schema & parity procedure (issue #621)
+
+The Electron legs above measure the TS implementation. The GPUI host
+will emit **one versioned report per run** so the same
+`perf-observe.ts compare` verdict semantics (pass / fail /
+inconclusive, exit 0/1/3) apply to the native product path. This
+section defines the schema and the comparison procedure; **no live
+GPUI measurements exist yet** — the schema and tooling landed first,
+honestly provisional, exactly like the `--check` budgets did before
+RC calibration.
+
+**Format:** `format: "herdr-t3/perf-gpui"`, `version: 1`. The
+validator is `validateGpuiReport` in `scripts/perf-gpui-schema.ts`
+(single source of truth; enforced per-commit by
+`perf-contract-check.ts` piece `gpui-report-schema`). Bump `version`
+on any breaking field change — `compare` consumers must not guess.
+
+**Top level:** `generated_at`, `git_sha`, `host` (`platform`, `arch`,
+`cpu_model`, `cpu_count`, `mem_total_mb` or `mem_total_bytes`,
+`loadavg`), `condition.loadavg_*`, `workload` (open-ended description
+map — `compare` picks the same `WORKLOAD_KEYS` subset as the Electron
+reports), `legs`, optional top-level `memory` snapshot, optional
+`budgets`, optional `notes`.
+
+**Legs** (non-empty subset of the known set; unknown names are
+rejected):
+
+| leg | parity with | required fields |
+|---|---|---|
+| `startup` | packaged-app startup leg (deferred on Electron too) | `startup_ms`; optional `startup_to_first_paint_ms` |
+| `idle` / `storm` / `switch` | `perf-frame-bench.ts` windows | `frames.{p50,p95,p99}`; `switch` also requires `switch_latency.{p50,p95,p99}` |
+| `terminal_io` | `perf-bridge-load.ts` terminal-io leg | `delivery_bytes_total`, `attach_count` |
+| `hidden` | `perf-memory-bench.ts --scenario hidden` | `delivery_bytes_total`, `attach_count` |
+| `longrun` | `memory-history.jsonl` / `perf-observe diagnose` | `duration_s`, `samples[]` (≥2 × `{t, rss_mb}`), `rss_slope_mb_per_min`, `peak_rss_mb` |
+
+Frame legs reuse the **perf-frame field names verbatim** —
+`frames.{p50,p95,p99,count,pct_over_16_7}`, `input_paint.{p50,p95,p99}`,
+`longtask_count`, `longtask_total_ms`, `longtask_max_ms`,
+`task_utilization_pct`, `cpu_utilization_pct`, `cpu_time_ms`,
+`canvas_api_ms`, `navigated` — so a frame↔GPUI `compare` diffs
+identical semantics. On the native side `longtask_*` means *frames
+over the frame budget* (there is no DOM Long Tasks API) and
+`canvas_api_ms` is expected absent. Optional everywhere: `seconds`,
+`memory`.
+
+Delivery legs add `delivery_bytes_initial` / `delivery_bytes_scroll` /
+`delivery_bytes_per_sec`, `detach_count`, and `rpc_counts` (per-RPC
+counts — `resize` and `scroll` are the gated ones, matching the
+bridge-load terminal-io invariants).
+
+**`memory` block** (per leg and optional top level) carries leg-level
+`rss_mb` / `heap_mb` (process RSS and the aggregate session-probe
+high-water mark — the native heap-equivalent) plus `host`, which
+mirrors `MemoryHost::diagnostics_json()` **exactly** — camelCase
+`memory.{level,totalMb,baselineMb,slopeMbPerMin,osAvailPct,hardCapMb}`
+and `budget.{totalBytes,budgetBytes,overBudget,sessions,warning}` —
+the same `memory.*` field set `bridge-status.json` carries on the
+Electron side (issue #499 parity, `crates/terminal-render/src/memory_host.rs`).
+Unavailable probes are `null`, never fabricated.
+
+**`budgets`** (optional): absolute ceilings for a future `--check`
+leg. When present it MUST contain `"provisional": true` and numeric
+values only — the same convention as `perf-frame-bench.ts --check`
+(issue #526). Calibrated budgets are a schema-version decision at RC
+freeze, not a silent flag flip; the validator rejects unmarked
+budgets.
+
+Schema illustration (placeholders, **not a measurement**):
+
+```json
+{
+  "format": "herdr-t3/perf-gpui",
+  "version": 1,
+  "generated_at": "2026-..-..T..:..:..Z",
+  "git_sha": "<sha>",
+  "host": { "platform": "darwin", "arch": "arm64", "cpu_model": "…",
+            "cpu_count": 10, "mem_total_mb": 24576, "loadavg": [1,1,1] },
+  "condition": { "loadavg_1m": 1.0 },
+  "workload": { "measure_seconds": 8, "scenario": "…" },
+  "legs": {
+    "startup": { "startup_ms": 0, "startup_to_first_paint_ms": 0 },
+    "idle": {
+      "frames": {"count": 0, "p50": 0, "p95": 0, "p99": 0},
+      "input_paint": {"p50": 0, "p95": 0, "p99": 0},
+      "task_utilization_pct": 0, "cpu_utilization_pct": 0,
+      "memory": {"rss_mb": 0, "heap_mb": 0,
+        "host": {"memory": {"level":"ok","totalMb":0,"baselineMb":0,
+          "slopeMbPerMin":0,"osAvailPct":1,"hardCapMb":0},
+          "budget": {"totalBytes":0,"budgetBytes":0,
+            "overBudget":false,"sessions":0}}}
+    },
+    "switch": {"frames": {"p50":0,"p95":0,"p99":0},
+      "switch_latency": {"p50":0,"p95":0,"p99":0}},
+    "terminal_io": {"delivery_bytes_total": 0, "attach_count": 0,
+      "rpc_counts": {"resize": 0, "scroll": 0}},
+    "longrun": {"duration_s": 0,
+      "samples": [{"t":"…","rss_mb":0},{"t":"…","rss_mb":0}],
+      "rss_slope_mb_per_min": 0, "peak_rss_mb": 0}
+  },
+  "budgets": {"provisional": true, "input_paint_p95_ms": 0}
+}
+```
+
+**`compare` normalization** (`scripts/perf-observe.ts`): reports are
+classified by shape — `legs`-bearing GPUI reports and per-window
+perf-frame reports are both *window-shaped* and share the frame
+metric set (`GPUI_METRICS` = `FRAME_METRICS` + GPUI-only deltas:
+startup, switch latency, delivery bytes, attach/detach counts,
+resize/scroll RPC counts, RSS/heap, budget-used %, stability
+slopes/peaks). `summary` reports keep `MEMORY_METRICS`. Verdict
+semantics are identical: workload/host/loadavg mismatch, missing
+legs, unmeasured (0-baseline) metrics, or a window↔summary kind
+mismatch → **inconclusive, exit 3**; regression beyond
+`--regression-pct` → **fail, exit 1**; clean → **pass, exit 0**. A
+leg present on only one side is inconclusive — there is no partial
+credit. `host.mem_total_mb` is accepted alongside `totalMemMb` /
+`mem_total_bytes` for host-class matching.
+
+**Electron-parity comparison procedure** (RC freeze, same rules as
+the existing legs — isolated sessions only, `verify-guard`
+enforced, same host class + loadavg band + workload shape):
+
+1. Electron side: run the existing legs unchanged —
+   `perf-frame-bench.ts --check`, `perf-memory-bench.ts --check
+   --scenario all` (incl. `hidden`), `perf-bridge-load.ts record`
+   (incl. `terminal-io`) — producing `herdr-t3/perf-frame` /
+   `herdr-t3/perf-memory` reports.
+2. GPUI side: the native host runs the **same scenario definitions**
+   (idle/storm/switch window mix, hidden-workspace streaming,
+   terminal-io attach+scroll/resize probes, startup, long-run soak)
+   and emits `herdr-t3/perf-gpui` v1 reports; validate each with
+   `validateGpuiReport` before committing under `perf-reports/`.
+3. Compare same-kind pairs with `perf-observe.ts compare` (GPUI↔GPUI
+   across commits/implementations-pre-cutover, frame↔GPUI for the
+   shared frame/input/cpu metrics once leg sets match). Both compares
+   must print `pass`; `inconclusive` is never averaged into a pass.
+4. Memory parity is assessed per-implementation (GPUI `memory.*` +
+   RSS/heap vs Electron jsHeap/Chrome-tree/bridge/herdr) — the metric
+   names differ by design; do not force them into one delta.
+
+**Status:** schema + normalization + contract pieces are in place
+and unit-tested; the GPUI emitter and every live leg above are
+**deferred to RC freeze** alongside the existing live legs. Until a
+real `herdr-t3/perf-gpui` report exists, `compare` treats the format
+as just another report kind — nothing here asserts GPUI performance.
+
 ## Fast gate vs RC gate
 
 - Fast gate (`bun test`, `./scripts/ci.sh`): only deterministic, cheap
@@ -573,10 +727,12 @@ bun scripts/perf-contract-check.ts && bun scripts/perf-contract-check.ts --self-
   `scrollback_bytes`, TS + Rust), the `memoryBudget` shed path, bridge
   `slot.queue` caps, `PaneTerminal` pending caps, the plugin exec
   semaphore, `LruCache` bounds, the #572 demand-driven delivery metrics
-  (`metricAdd`/meters, per-phase delivery bytes, attach/op counters) and
+  (`metricAdd`/meters, per-phase delivery bytes, attach/op counters),
   the non-interference contract (takeover flag, observer isolation,
-  hidden-surface gate) — plus the committed baselines under
-  `perf-reports/`. No wall-clock benchmarks in CI per-commit.
+  hidden-surface gate) and the GPUI report schema
+  (`herdr-t3/perf-gpui` v1 validator + compare normalization, #621) —
+  plus the committed baselines under `perf-reports/`. No wall-clock
+  benchmarks in CI per-commit.
 - RC freeze: full `record` on reference macOS + Windows 11 hardware,
   `check` against committed baselines, packaged-app startup/memory
   suite, both-OS evidence committed under `docs/design/evidence/`.
