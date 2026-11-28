@@ -52,19 +52,25 @@ use crate::attach::{
 use crate::client_link::{MouseAction, MouseButton, ScrollDirection};
 use crate::egress::operator_after_focus_change;
 use crate::io::Connector;
+use crate::machines::{
+    self, classify_ssh_failure, machine_output_ok, spawn_herdr, tail_chars, MachineInfo,
+    MachineKind, MachineStatus, SavedMachine, SshFailureKind,
+};
+use crate::plugins::{LocalPluginHost, PluginCallRequest, PluginHost, PluginHostResolver, PluginService};
 use crate::session::{fetch_snapshot, BridgeSession};
 use crate::{rpc, HerdrError};
 use protocol_codec::{self, ClientFrame};
 use serde_json::{json, Number, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 const LOCAL_MACHINE: &str = "local";
 /// Bound on attach-lifecycle frames queued while a machine connects —
-/// mirrors the pendingFrames queue in machine-manager.ts.
-const PENDING_FRAME_MAX: usize = 64;
+/// mirrors the pendingFrames queue in machine-manager.ts (issue #576).
+const PENDING_FRAME_MAX: usize = 512;
 
 /* ------------------------------ base64 --------------------------------- */
 // The wire carries terminal payloads as base64 (shared/protocol.ts);
@@ -733,6 +739,36 @@ pub type ConnectFactory = Arc<
         + Sync,
 >;
 
+/// `MachineManagerOptions` in machine-manager.ts, minus the session
+/// factory (which is `connect`): every dependency the registry and the
+/// plugin boundary need, injectable for tests.
+#[derive(Default)]
+pub struct SessionHubOptions {
+    /// Per-machine session factory (was `connect` in `SessionHub::new`).
+    pub connect: Option<ConnectFactory>,
+    /// Machine list source — defaults to herdr's `endpoints.json`
+    /// (`machines::load_saved_machines` on the process env).
+    pub list_machines: Option<Arc<dyn Fn() -> Vec<SavedMachine> + Send + Sync>>,
+    /// The `herdr machine …` shell-out — defaults to spawning the local
+    /// `herdr` CLI (`machines::spawn_herdr`).
+    pub run_herdr: Option<Arc<dyn Fn(&[String], Duration) -> String + Send + Sync>>,
+    /// Snapshot fetch used by the reachability probe for machines
+    /// without a session (issue #212). The Rust bridge has no SSH
+    /// transport: the GPUI host supplies remote fetchers; `None` leaves
+    /// sessionless machines at their registry status.
+    pub probe_snapshot: Option<Arc<dyn Fn(&str) -> Result<Value, HerdrError> + Send + Sync>>,
+    /// Remote plugin host resolver (ADR-0011): called for non-local
+    /// machines; `None`/absent → `machine_unavailable`. The local
+    /// machine always gets `LocalPluginHost` on the bridge socket.
+    pub plugin_host: Option<PluginHostResolver>,
+    /// Per-machine bound on concurrently executing plugin processes
+    /// (issue #538). Defaults to `HERDR_T3_PLUGIN_MAX_CONCURRENT` or 4.
+    pub plugin_max_concurrent: Option<usize>,
+    /// Registry refresh period for `start()`; `None` → 60s (TS
+    /// `REFRESH_INTERVAL_MS`).
+    pub refresh_interval: Option<Duration>,
+}
+
 #[derive(Default)]
 struct HubInner {
     sessions: HashMap<String, Arc<ClientSession>>,
@@ -740,78 +776,292 @@ struct HubInner {
     /// `None` until the client declares a selection — every session then
     /// runs summary.
     selected: Option<String>,
-    connecting: std::collections::HashSet<String>,
+    connecting: HashSet<String>,
     /// Attach-lifecycle frames queued while a machine connects — only
     /// subscribe/unsubscribe are safe to defer (machine-manager.ts
-    /// `pendingFrames` parity); input is never replayed after a drop.
+    /// `pendingFrames` parity, issue #576); input is never replayed
+    /// after a drop.
     pending: HashMap<String, Vec<ClientFrame>>,
+    /// Per-machine connect generation: bumped on every connect attempt
+    /// and disconnect so a stale async resolution cannot install a
+    /// session for an old attempt (machine-manager.ts `generations`).
+    generations: HashMap<String, u64>,
+    /// `MachineInfo` per machine id — `local` plus every saved SSH
+    /// machine from the last `refresh()`.
+    infos: HashMap<String, MachineInfo>,
+    /// Insertion order for `machines` frames (local first, then
+    /// registry order) — the TS `Map` preserves insertion order.
+    info_order: Vec<String>,
+    /// Last probe snapshot JSON pushed per machine, for dedupe (#212).
+    last_probe: HashMap<String, String>,
 }
 
-/// Routes client frames to per-machine `ClientSession`s and owns the
-/// summary/detail selection — the session half of `machine-manager.ts`.
-/// Machine registry operations (`machine_add`/`remove`/`update`,
-/// `list_machines`, plugin frames) are not wired here.
-pub struct SessionHub {
+/// Shared hub state — cloned into every worker thread (machine ops,
+/// plugin calls, probes, connect attempts) and every wrapped per-session
+/// send callback.
+struct HubCtx {
     inner: Arc<Mutex<HubInner>>,
     send: Arc<dyn Fn(Value) + Send + Sync>,
     connect: Option<ConnectFactory>,
+    list_source: Arc<dyn Fn() -> Vec<SavedMachine> + Send + Sync>,
+    run_herdr: Arc<dyn Fn(&[String], Duration) -> String + Send + Sync>,
+    probe: Option<Arc<dyn Fn(&str) -> Result<Value, HerdrError> + Send + Sync>>,
+    plugins: Arc<PluginService>,
+    closed: Arc<AtomicBool>,
+    refresh_interval: Duration,
+}
+
+/// Routes client frames to per-machine `ClientSession`s and owns the
+/// machine registry + plugin boundary — the Rust counterpart of
+/// `MachineManager` in machine-manager.ts (issues #619, #585, ADR-0011).
+///
+/// Wire surface parity:
+///
+/// - `list_machines` → `machines` frame; `machine_add`/`machine_remove`/
+///   `machine_update` → `herdr machine …` shell-outs answered on
+///   `rpc_result`, then a registry `refresh()`.
+/// - `machine_connect`/`machine_disconnect`/`machine_select` manage
+///   per-machine sessions; the selected machine's session runs full
+///   detail, every other session stays summary (#585).
+/// - `plugin_list`/`plugin_call` run through `PluginService` on the
+///   machine's own host and answer on `rpc_result` (ADR-0011).
+/// - Machine statuses (`online`/`unreachable`/…) are derived from the
+///   frames each session emits — build sessions with
+///   [`SessionHub::session_send`] so the hub observes
+///   `ready`/`snapshot`/`rpc_result` (the connect factory receives the
+///   wrapped send automatically).
+///
+/// C1–C5 gated fields and `terminal_history` stay unwired: herdr
+/// protocol v22 has no wire expression for them (contract C1–C5).
+#[derive(Clone)]
+pub struct SessionHub {
+    ctx: Arc<HubCtx>,
 }
 
 impl SessionHub {
+    /// Hub with only a session connect factory — registry reads herdr's
+    /// real `endpoints.json`, machine ops spawn the local `herdr` CLI,
+    /// plugins resolve the local host only.
     pub fn new(send: Arc<dyn Fn(Value) + Send + Sync>, connect: Option<ConnectFactory>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(HubInner::default())),
+        Self::with_options(
             send,
-            connect,
+            SessionHubOptions {
+                connect,
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn with_options(send: Arc<dyn Fn(Value) + Send + Sync>, options: SessionHubOptions) -> Self {
+        let inner = Arc::new(Mutex::new(HubInner::default()));
+        {
+            let mut guard = inner.lock().unwrap();
+            // `local` is always present, starting `connecting` until its
+            // session's first `ready`/`snapshot` lands (machine-manager.ts
+            // constructor parity).
+            guard.infos.insert(
+                LOCAL_MACHINE.to_string(),
+                MachineInfo {
+                    id: LOCAL_MACHINE.to_string(),
+                    label: "Local".to_string(),
+                    kind: MachineKind::Local,
+                    target: None,
+                    session: None,
+                    enabled: true,
+                    status: MachineStatus::Connecting,
+                    detail: None,
+                    version: None,
+                    protocol: None,
+                },
+            );
+            guard.info_order.push(LOCAL_MACHINE.to_string());
         }
+
+        let inner_weak = Arc::downgrade(&inner);
+        let remote_hosts = options.plugin_host.clone();
+        // Plugin host resolution (machine-manager.ts `pluginHost`):
+        // `local` always gets the bridge-socket local host; other
+        // machines need a registry `ssh` entry that is enabled, then the
+        // host-injected resolver (the SSH transport lives in the GPUI
+        // host, #618).
+        let resolver: PluginHostResolver = Arc::new(move |machine: &str| {
+            if machine == LOCAL_MACHINE {
+                return Some(Arc::new(LocalPluginHost::for_bridge_socket()) as Arc<dyn PluginHost>);
+            }
+            let allowed = inner_weak
+                .upgrade()
+                .and_then(|inner| {
+                    inner.lock().unwrap().infos.get(machine).map(|i| {
+                        i.kind == MachineKind::Ssh && i.enabled
+                    })
+                })
+                .unwrap_or(false);
+            if !allowed {
+                return None;
+            }
+            remote_hosts.as_ref().and_then(|f| f(machine))
+        });
+        let plugins = Arc::new(PluginService::with_options(
+            resolver,
+            options.plugin_max_concurrent,
+        ));
+
+        Self {
+            ctx: Arc::new(HubCtx {
+                inner,
+                send,
+                connect: options.connect,
+                list_source: options.list_machines.unwrap_or_else(|| {
+                    Arc::new(|| machines::load_saved_machines(&machines::system_env))
+                }),
+                run_herdr: options.run_herdr.unwrap_or_else(|| {
+                    Arc::new(|args: &[String], timeout: Duration| spawn_herdr(args, timeout))
+                }),
+                probe: options.probe_snapshot,
+                plugins,
+                closed: Arc::new(AtomicBool::new(false)),
+                refresh_interval: options
+                    .refresh_interval
+                    .unwrap_or(Duration::from_secs(60)),
+            }),
+        }
+    }
+
+    /// The wrapped send a `ClientSession` for `machine` must use so the
+    /// hub observes its frames for machine-status tracking — the Rust
+    /// counterpart of `wrap(machine)` in machine-manager.ts. Sessions
+    /// built through the connect factory receive this automatically;
+    /// sessions registered via [`SessionHub::add_session`] (e.g. `local`)
+    /// should be constructed with `hub.session_send(machine)` as their
+    /// `send` callback.
+    pub fn session_send(&self, machine: &str) -> Arc<dyn Fn(Value) + Send + Sync> {
+        self.ctx.wrapped_send(machine)
+    }
+
+    /// The plugin boundary service (ADR-0011) — exposed for hosts that
+    /// want direct access; the hub already routes `plugin_list`/
+    /// `plugin_call` frames through it.
+    pub fn plugins(&self) -> &PluginService {
+        &self.ctx.plugins
+    }
+
+    /// Ordered machine list (`list()` in machine-manager.ts).
+    pub fn machines(&self) -> Vec<MachineInfo> {
+        let inner = self.ctx.inner.lock().unwrap();
+        inner
+            .info_order
+            .iter()
+            .filter_map(|id| inner.infos.get(id).cloned())
+            .collect()
     }
 
     /// Register an already-started session (e.g. the local machine's).
     /// The session's detail level is aligned with the current selection.
+    /// Build the session with [`SessionHub::session_send`] so status
+    /// tracking observes its frames.
     pub fn add_session(&self, machine: String, session: ClientSession) {
         let session = Arc::new(session);
-        let detail = {
-            let inner = self.inner.lock().unwrap();
-            match &inner.selected {
-                Some(sel) if sel == &machine => SnapshotDetail::Full,
-                _ => SnapshotDetail::Summary,
-            }
-        };
+        let detail = self.ctx.detail_for(&machine);
         // set_detail may emit a snapshot frame whose send callback can
         // reenter the hub — run it outside the lock.
         session.set_detail(detail);
-        self.inner.lock().unwrap().sessions.insert(machine, session);
+        self.ctx
+            .inner
+            .lock()
+            .unwrap()
+            .sessions
+            .insert(machine, session);
     }
 
     /// The machine whose session runs in full detail, if selected.
     pub fn selected(&self) -> Option<String> {
-        self.inner.lock().unwrap().selected.clone()
+        self.ctx.inner.lock().unwrap().selected.clone()
     }
 
-    /// Route one decoded client frame. Machine-scoped frames (`machine`
-    /// field) go to that machine's session; absent means `local`.
+    /// Periodic registry refresh + initial refresh — `start()` in
+    /// machine-manager.ts. Call once from the host; the timer thread
+    /// exits on [`SessionHub::close`].
+    pub fn start(&self) {
+        self.ctx.refresh();
+        let ctx = self.ctx.clone();
+        let interval = ctx.refresh_interval;
+        std::thread::spawn(move || loop {
+            std::thread::sleep(interval);
+            if ctx.closed.load(Ordering::SeqCst) {
+                break;
+            }
+            ctx.refresh();
+        });
+    }
+
+    /// Stop the refresh cadence and close every session — `close()` in
+    /// machine-manager.ts. Idempotent.
+    pub fn close(&self) {
+        self.ctx.closed.store(true, Ordering::SeqCst);
+        let sessions: Vec<Arc<ClientSession>> = {
+            let mut inner = self.ctx.inner.lock().unwrap();
+            inner.sessions.drain().map(|(_, s)| s).collect()
+        };
+        for session in sessions {
+            session.close();
+        }
+    }
+
+    /// Route one decoded client frame — `handleFrame` in
+    /// machine-manager.ts.
     pub fn handle_frame(&self, frame: &ClientFrame) {
+        self.ctx.handle_frame(frame);
+    }
+}
+
+/* --------------------------- hub internals ----------------------------- */
+
+impl HubCtx {
+    fn handle_frame(&self, frame: &ClientFrame) {
         match frame {
-            ClientFrame::MachineSelect { machine, .. } => {
-                self.select_machine(machine);
-            }
-            ClientFrame::MachineConnect { machine, .. } => {
-                self.ensure_connect(machine);
-            }
+            ClientFrame::ListMachines { .. } => self.push_machines(),
+            ClientFrame::MachineConnect { machine, .. } => self.ensure_connect(machine),
             ClientFrame::MachineDisconnect { machine, .. } => {
                 // The local session is never disconnected (TS parity).
                 if machine.as_str() != LOCAL_MACHINE {
-                    self.disconnect(machine);
+                    self.disconnect(machine, false);
                 }
             }
-            // Registry/plugin boundary frames are not wired in this
-            // layer (machine-manager owns them in the TS bridge).
-            ClientFrame::ListMachines { .. }
-            | ClientFrame::MachineAdd { .. }
-            | ClientFrame::MachineRemove { .. }
-            | ClientFrame::MachineUpdate { .. }
-            | ClientFrame::PluginList { .. }
-            | ClientFrame::PluginCall { .. } => {}
+            ClientFrame::MachineSelect { machine, .. } => self.select_machine(machine),
+            ClientFrame::MachineAdd {
+                id,
+                label,
+                target,
+                session,
+                ..
+            } => self.machine_add(id, label, target, session.as_deref()),
+            ClientFrame::MachineRemove { id, machine, .. } => self.machine_remove(id, machine),
+            ClientFrame::MachineUpdate {
+                id,
+                machine,
+                label,
+                enabled,
+                ..
+            } => self.machine_update(id, machine, label.as_deref(), *enabled),
+            ClientFrame::PluginList { id, machine, .. } => self.plugin_list(id, machine.as_deref()),
+            ClientFrame::PluginCall {
+                id,
+                machine,
+                plugin,
+                command,
+                args,
+                stdin,
+                timeout_ms,
+                ..
+            } => self.plugin_call(
+                id,
+                machine.as_deref(),
+                plugin,
+                command,
+                args.clone(),
+                stdin.clone(),
+                timeout_ms.as_ref().and_then(num_u64),
+            ),
             _ => {
                 let machine = frame_machine(frame).unwrap_or(LOCAL_MACHINE);
                 self.route(machine, frame.clone());
@@ -819,11 +1069,432 @@ impl SessionHub {
         }
     }
 
+    /* ------------------------- machine registry ------------------------ */
+
+    /// `list()` in machine-manager.ts: infos in insertion order.
+    fn machine_list(&self) -> Vec<MachineInfo> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .info_order
+            .iter()
+            .filter_map(|id| inner.infos.get(id).cloned())
+            .collect()
+    }
+
+    /// `pushMachines`: the full machine list to the client.
+    fn push_machines(&self) {
+        let machines: Vec<Value> = self.machine_list().iter().map(MachineInfo::to_json).collect();
+        (self.send)(json!({ "type": "machines", "machines": machines }));
+    }
+
+    /// `pushStatus`: one `machine_status` frame.
+    fn push_status(&self, info: &MachineInfo) {
+        (self.send)(json!({
+            "type": "machine_status",
+            "machine": info.to_json(),
+        }));
+    }
+
+    /// Re-read herdr's registry, drop vanished machines, refresh
+    /// statuses — `refresh()` in machine-manager.ts.
+    fn refresh(&self) {
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
+        let saved = (self.list_source)();
+        let mut to_disconnect: Vec<String> = Vec::new();
+        let mut to_disable: Vec<String> = Vec::new();
+        let mut unseen_infos: Vec<String> = Vec::new();
+        {
+            let mut inner = self.inner.lock().unwrap();
+            let mut seen: HashSet<String> = HashSet::from([LOCAL_MACHINE.to_string()]);
+            for machine in &saved {
+                seen.insert(machine.id.clone());
+                if let Some(info) = inner.infos.get_mut(&machine.id) {
+                    info.label = machine.label.clone();
+                    info.target = Some(machine.target.clone());
+                    info.session = Some(machine.session.clone());
+                    info.enabled = machine.enabled;
+                    if !machine.enabled && inner.sessions.contains_key(&machine.id) {
+                        to_disconnect.push(machine.id.clone());
+                        to_disable.push(machine.id.clone());
+                    }
+                } else {
+                    inner.infos.insert(
+                        machine.id.clone(),
+                        MachineInfo {
+                            id: machine.id.clone(),
+                            label: machine.label.clone(),
+                            kind: MachineKind::Ssh,
+                            target: Some(machine.target.clone()),
+                            session: Some(machine.session.clone()),
+                            enabled: machine.enabled,
+                            status: if machine.enabled {
+                                MachineStatus::Offline
+                            } else {
+                                MachineStatus::Disabled
+                            },
+                            detail: None,
+                            version: None,
+                            protocol: None,
+                        },
+                    );
+                    inner.info_order.push(machine.id.clone());
+                }
+            }
+            for id in inner.sessions.keys() {
+                if !seen.contains(id) {
+                    to_disconnect.push(id.clone());
+                }
+            }
+            for id in inner.infos.keys() {
+                if !seen.contains(id) {
+                    unseen_infos.push(id.clone());
+                }
+            }
+        }
+        // Session teardown and status pushes run outside the lock —
+        // `close()`/send callbacks may reenter the hub.
+        for id in &to_disconnect {
+            self.disconnect(id, false);
+        }
+        // A disabled machine's status lands after the disconnect's
+        // `offline` push, exactly like the TS refresh ordering.
+        {
+            let mut inner = self.inner.lock().unwrap();
+            for id in &to_disable {
+                if let Some(info) = inner.infos.get_mut(id) {
+                    info.status = MachineStatus::Disabled;
+                    info.detail = None;
+                }
+            }
+            for id in &unseen_infos {
+                inner.infos.remove(id);
+                inner.info_order.retain(|o| o != id);
+                inner.last_probe.remove(id);
+            }
+        }
+        self.push_machines();
+        // A missing local session means the last boot attempt failed;
+        // rebuild it so the app recovers once herdr comes back (#99).
+        let has_local = self.inner.lock().unwrap().sessions.contains_key(LOCAL_MACHINE);
+        if !has_local {
+            self.ensure_connect(LOCAL_MACHINE);
+        }
+        // Probe machines that have no live session so the list shows
+        // real reachability, not just "offline" (issue #212).
+        if self.probe.is_some() {
+            for info in self.machine_list() {
+                if info.kind == MachineKind::Ssh
+                    && info.enabled
+                    && info.status != MachineStatus::Disabled
+                    && !self.inner.lock().unwrap().sessions.contains_key(&info.id)
+                {
+                    self.probe_machine(&info.id);
+                }
+            }
+        }
+    }
+
+    /// Lightweight reachability probe for machines without a session —
+    /// `probe()` in machine-manager.ts. Runs on a worker thread; the
+    /// result is applied only if nothing changed while it was in flight.
+    fn probe_machine(&self, machine: &str) {
+        let Some(fetcher) = self.probe.clone() else {
+            return;
+        };
+        let machine = machine.to_string();
+        self.spawn_op(move |ctx| {
+            let eligible = |inner: &HubInner| -> bool {
+                inner
+                    .infos
+                    .get(&machine)
+                    .map(|i| {
+                        i.kind == MachineKind::Ssh
+                            && i.enabled
+                            && !inner.sessions.contains_key(&machine)
+                    })
+                    .unwrap_or(false)
+            };
+            match fetcher(&machine) {
+                Ok(snapshot) => {
+                    // The machine may have been connected, disabled or
+                    // removed while the probe was in flight; only publish
+                    // the result if nothing changed.
+                    let json = serde_json::to_string(&snapshot).unwrap_or_default();
+                    let mut push_snapshot = false;
+                    let mut info_out = None;
+                    {
+                        let mut inner = ctx.inner.lock().unwrap();
+                        if ctx.closed.load(Ordering::SeqCst) || !eligible(&inner) {
+                            return;
+                        }
+                        if inner.last_probe.get(&machine) != Some(&json) {
+                            inner.last_probe.insert(machine.clone(), json);
+                            push_snapshot = true;
+                        }
+                        if let Some(info) = inner.infos.get_mut(&machine) {
+                            let changed = info.status != MachineStatus::Online;
+                            info.status = MachineStatus::Online;
+                            info.version = snapshot
+                                .get("version")
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            info.protocol = snapshot.get("protocol").and_then(num_f64);
+                            info.detail = None;
+                            if changed {
+                                info_out = Some(info.clone());
+                            }
+                        }
+                    }
+                    if push_snapshot {
+                        // Hand the probed snapshot to clients so
+                        // workspace/agent lists show remote state
+                        // without holding a session (#212). Deduped: an
+                        // unchanged session would otherwise re-render
+                        // every client each refresh interval.
+                        (ctx.send)(json!({
+                            "type": "snapshot",
+                            "snapshot": snapshot,
+                            "machine": machine,
+                            "probe": true,
+                        }));
+                    }
+                    if let Some(info) = info_out {
+                        ctx.push_status(&info);
+                    }
+                }
+                Err(e) => {
+                    let text = format!("{}: {}", e.code, e.message);
+                    let (kind, detail) = classify_ssh_failure(&text);
+                    let next = match kind {
+                        SshFailureKind::AuthRequired => MachineStatus::AuthRequired,
+                        SshFailureKind::Unreachable => MachineStatus::Unreachable,
+                        SshFailureKind::Incompatible => MachineStatus::Incompatible,
+                        SshFailureKind::Error => MachineStatus::Error,
+                    };
+                    let detail = if detail.is_empty() { None } else { Some(detail) };
+                    let mut info_out = None;
+                    {
+                        let mut inner = ctx.inner.lock().unwrap();
+                        if ctx.closed.load(Ordering::SeqCst) || !eligible(&inner) {
+                            return;
+                        }
+                        if let Some(info) = inner.infos.get_mut(&machine) {
+                            if info.status != next || info.detail != detail {
+                                info.status = next;
+                                info.detail = detail;
+                                info_out = Some(info.clone());
+                            }
+                        }
+                    }
+                    if let Some(info) = info_out {
+                        ctx.push_status(&info);
+                    }
+                }
+            }
+        });
+    }
+
+    /* ------------------------- machine ops ----------------------------- */
+
+    /// `machineResult`: combined output decides ok/fail — `[exit` /
+    /// `[timed out` markers mean failure unless the caller forced an
+    /// outcome (local removal is refused up front).
+    fn machine_result(&self, id: &str, output: &str, code: &str, forced_ok: Option<bool>) {
+        let ok = forced_ok.unwrap_or_else(|| machine_output_ok(output));
+        let frame = if ok {
+            json!({
+                "type": "rpc_result",
+                "id": id,
+                "ok": true,
+                "result": { "output": output },
+            })
+        } else {
+            json!({
+                "type": "rpc_result",
+                "id": id,
+                "ok": false,
+                "error": { "code": code, "message": tail_chars(output.trim(), 500) },
+            })
+        };
+        (self.send)(frame);
+    }
+
+    fn spawn_op<F>(&self, f: F)
+    where
+        F: FnOnce(&HubCtx) + Send + 'static,
+    {
+        // Rebuild an Arc<HubCtx> handle for the worker thread — every
+        // field is already shared, so this is a cheap clone of Arcs.
+        let ctx = Arc::new(HubCtx {
+            inner: self.inner.clone(),
+            send: self.send.clone(),
+            connect: self.connect.clone(),
+            list_source: self.list_source.clone(),
+            run_herdr: self.run_herdr.clone(),
+            probe: self.probe.clone(),
+            plugins: self.plugins.clone(),
+            closed: self.closed.clone(),
+            refresh_interval: self.refresh_interval,
+        });
+        std::thread::spawn(move || f(&ctx));
+    }
+
+    /// `herdr machine add` shell-out; approval-requiring steps stay
+    /// manual — `addMachine` in machine-manager.ts.
+    fn machine_add(&self, id: &str, label: &str, target: &str, session: Option<&str>) {
+        let id = id.to_string();
+        let label = label.to_string();
+        let target = target.to_string();
+        let session = session.map(str::to_string);
+        self.spawn_op(move |ctx| {
+            let mut args = vec![
+                "machine".to_string(),
+                "add".to_string(),
+                "--label".to_string(),
+                label,
+            ];
+            if let Some(session) = session {
+                args.push("--remote-session".to_string());
+                args.push(session);
+            }
+            args.push(target);
+            let output = (ctx.run_herdr)(&args, Duration::from_secs(120));
+            ctx.machine_result(&id, &output, "machine_add_failed", None);
+            ctx.refresh();
+        });
+    }
+
+    /// `herdr machine remove` shell-out; the registry refresh drops the
+    /// session — `removeMachine` in machine-manager.ts.
+    fn machine_remove(&self, id: &str, machine: &str) {
+        if machine == LOCAL_MACHINE {
+            self.machine_result(
+                id,
+                "the local machine cannot be removed",
+                "machine_remove_failed",
+                Some(false),
+            );
+            return;
+        }
+        let id = id.to_string();
+        let machine = machine.to_string();
+        self.spawn_op(move |ctx| {
+            let args = vec!["machine".to_string(), "remove".to_string(), machine];
+            let output = (ctx.run_herdr)(&args, Duration::from_secs(30));
+            ctx.machine_result(&id, &output, "machine_remove_failed", None);
+            ctx.refresh();
+        });
+    }
+
+    /// `herdr machine rename|enable|disable` shell-outs, run in order —
+    /// `updateMachine` in machine-manager.ts.
+    fn machine_update(&self, id: &str, machine: &str, label: Option<&str>, enabled: Option<bool>) {
+        let mut commands: Vec<Vec<String>> = Vec::new();
+        if let Some(label) = label {
+            commands.push(vec![
+                "machine".to_string(),
+                "rename".to_string(),
+                machine.to_string(),
+                "--label".to_string(),
+                label.to_string(),
+            ]);
+        }
+        if let Some(enabled) = enabled {
+            commands.push(vec![
+                "machine".to_string(),
+                if enabled { "enable" } else { "disable" }.to_string(),
+                machine.to_string(),
+            ]);
+        }
+        let id = id.to_string();
+        self.spawn_op(move |ctx| {
+            let mut output = String::new();
+            for args in commands {
+                output.push_str(&(ctx.run_herdr)(&args, Duration::from_secs(30)));
+                if output.contains("[exit") || output.contains("[timed out") {
+                    break;
+                }
+            }
+            ctx.machine_result(&id, output.trim(), "machine_update_failed", None);
+            ctx.refresh();
+        });
+    }
+
+    /* ------------------------- plugin boundary ------------------------- */
+
+    /// Plugin contract frames (ADR-0011): discovery and contract calls
+    /// run as argv on the machine's own host — independent of whether
+    /// its bridge session is up, but still requiring a resolvable host.
+    /// `handlePluginFrame` in machine-manager.ts.
+    fn plugin_list(&self, id: &str, machine: Option<&str>) {
+        let machine = machine
+            .filter(|m| !m.is_empty())
+            .unwrap_or(LOCAL_MACHINE)
+            .to_string();
+        let id = id.to_string();
+        self.spawn_op(move |ctx| {
+            let frame = match ctx.plugins.list_plugins(&machine) {
+                Ok(result) => json!({
+                    "type": "rpc_result",
+                    "id": id,
+                    "ok": true,
+                    "result": result.to_json(),
+                    "machine": machine,
+                }),
+                Err(e) => plugin_error_frame(&id, &machine, &e),
+            };
+            (ctx.send)(frame);
+        });
+    }
+
+    fn plugin_call(
+        &self,
+        id: &str,
+        machine: Option<&str>,
+        plugin: &str,
+        command: &str,
+        args: Option<Vec<String>>,
+        stdin: Option<String>,
+        timeout_ms: Option<u64>,
+    ) {
+        let machine = machine
+            .filter(|m| !m.is_empty())
+            .unwrap_or(LOCAL_MACHINE)
+            .to_string();
+        let request = PluginCallRequest {
+            plugin: plugin.to_string(),
+            command: command.to_string(),
+            args,
+            stdin,
+            timeout_ms,
+        };
+        let id = id.to_string();
+        self.spawn_op(move |ctx| {
+            let frame = match ctx.plugins.call(&machine, &request) {
+                Ok(result) => json!({
+                    "type": "rpc_result",
+                    "id": id,
+                    "ok": true,
+                    "result": result,
+                    "machine": machine,
+                }),
+                Err(e) => plugin_error_frame(&id, &machine, &e),
+            };
+            (ctx.send)(frame);
+        });
+    }
+
+    /* --------------------------- internals ----------------------------- */
+
     /// `machine_select` (issue #585): the named machine's session runs
-    /// full detail — canvas layouts, scroll state, terminal attaches —
-    /// while every other session drops to summary. Selecting also
-    /// connects the machine on demand.
+    /// full detail while every other session drops to summary.
+    /// Selecting also connects the machine on demand.
     fn select_machine(&self, machine: &str) {
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
         let sessions: Vec<(String, Arc<ClientSession>)> = {
             let mut inner = self.inner.lock().unwrap();
             inner.selected = Some(machine.to_string());
@@ -845,33 +1516,76 @@ impl SessionHub {
         self.ensure_connect(machine);
     }
 
+    /// The detail level a session for `machine` should run at (#585).
+    fn detail_for(&self, machine: &str) -> SnapshotDetail {
+        let inner = self.inner.lock().unwrap();
+        match &inner.selected {
+            Some(sel) if sel == machine => SnapshotDetail::Full,
+            _ => SnapshotDetail::Summary,
+        }
+    }
+
     /// Connect a machine's session on a worker thread (the factory's
     /// initial `session.snapshot` fetch blocks). Only one attempt runs
     /// per machine; the detail level is re-aligned with the selection
     /// when the session lands.
     fn ensure_connect(&self, machine: &str) {
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
         let Some(factory) = self.connect.clone() else {
             return;
         };
-        let should_connect = {
-            let mut inner = self.inner.lock().unwrap();
-            !inner.sessions.contains_key(machine) && inner.connecting.insert(machine.to_string())
+        // `connectInner` parity: only known machines connect — `local`
+        // always, `ssh` entries that are enabled. Unknown/disabled
+        // machines never reach the factory.
+        let allowed = {
+            let inner = self.inner.lock().unwrap();
+            match inner.infos.get(machine) {
+                Some(info) => {
+                    info.kind == MachineKind::Local
+                        || (info.kind == MachineKind::Ssh && info.enabled)
+                }
+                None => false,
+            }
         };
-        if !should_connect {
+        if !allowed {
             return;
         }
+        let generation = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.sessions.contains_key(machine) || !inner.connecting.insert(machine.to_string()) {
+                return;
+            }
+            let generation = inner.generations.entry(machine.to_string()).or_insert(0);
+            *generation += 1;
+            *generation
+        };
         let machine = machine.to_string();
-        let send = self.send.clone();
-        let inner = self.inner.clone();
+        let send = self.wrapped_send(&machine);
+        let inner_arc = self.inner.clone();
+        let closed = self.closed.clone();
         std::thread::spawn(move || {
+            if closed.load(Ordering::SeqCst) {
+                inner_arc.lock().unwrap().connecting.remove(&machine);
+                return;
+            }
             // The factory receives the detail current at connect time;
             // it is re-aligned with the selection once the session lands.
             let detail = SnapshotDetail::Summary;
             match factory(&machine, detail, send) {
                 Ok(session) => {
                     let (pending, session, detail) = {
-                        let mut guard = inner.lock().unwrap();
+                        let mut guard = inner_arc.lock().unwrap();
                         guard.connecting.remove(&machine);
+                        // A disconnect/reconnect bumped the generation
+                        // while this attempt was in flight — drop the
+                        // stale session instead of installing it.
+                        if guard.generations.get(&machine).copied().unwrap_or(0) != generation {
+                            drop(guard);
+                            session.close();
+                            return;
+                        }
                         let detail = match &guard.selected {
                             Some(sel) if sel == &machine => SnapshotDetail::Full,
                             _ => SnapshotDetail::Summary,
@@ -882,30 +1596,50 @@ impl SessionHub {
                         (pending, session, detail)
                     };
                     // Align detail with the selection, then flush queued
-                    // attach-lifecycle frames in order — both outside the
-                    // hub lock (send callbacks may reenter the hub).
+                    // attach-lifecycle frames in order — both outside
+                    // the hub lock (send callbacks may reenter the hub).
                     session.set_detail(detail);
                     for frame in pending {
                         session.handle_frame(&frame);
                     }
                 }
                 Err(_) => {
-                    let mut guard = inner.lock().unwrap();
-                    guard.connecting.remove(&machine);
-                    guard.pending.remove(&machine);
+                    // TS parity: pendingFrames survive a failed connect —
+                    // the next routed frame retries and the queued
+                    // attach-lifecycle frames still flush on success.
+                    inner_arc.lock().unwrap().connecting.remove(&machine);
                 }
             }
         });
     }
 
-    fn disconnect(&self, machine: &str) {
-        let session = self.inner.lock().unwrap().sessions.remove(machine);
-        if let Some(s) = session {
-            s.close();
-        }
-        let mut inner = self.inner.lock().unwrap();
-        inner.connecting.remove(machine);
-        inner.pending.remove(machine);
+    /// Wrapped send for a machine — see [`SessionHub::session_send`].
+    /// Status observation runs first (machine-manager.ts `observe`),
+    /// then the frame is forwarded.
+    fn wrapped_send(&self, machine: &str) -> Arc<dyn Fn(Value) + Send + Sync> {
+        let inner = self.inner.clone();
+        let send = self.send.clone();
+        let plugins = self.plugins.clone();
+        let closed = self.closed.clone();
+        let machine = machine.to_string();
+        Arc::new(move |frame: Value| {
+            if closed.load(Ordering::SeqCst) {
+                return;
+            }
+            observe_and_flush(&inner, &send, &plugins, &closed, &machine, &frame);
+            send(frame);
+        })
+    }
+
+    fn disconnect(&self, machine: &str, keep_status: bool) {
+        disconnect_full(
+            &self.inner,
+            &self.send,
+            &self.plugins,
+            &self.closed,
+            machine,
+            keep_status,
+        );
     }
 
     fn route(&self, machine: &str, frame: ClientFrame) {
@@ -917,10 +1651,18 @@ impl SessionHub {
             session.handle_frame(&frame);
             return;
         }
-        let connectable = self.connect.is_some();
+        // `route` parity: only ssh machines that are enabled may enter
+        // the connecting path; unknown/disabled/local-without-session
+        // refuse rpc frames so the caller is not left waiting.
+        let connectable = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .infos
+                .get(machine)
+                .map(|i| i.kind == MachineKind::Ssh && i.enabled)
+                .unwrap_or(false)
+        };
         if !connectable {
-            // Unknown machine with no connector: refuse rpc frames so
-            // the caller is not left waiting (machine-manager.ts parity).
             if let ClientFrame::Rpc { id, .. } = &frame {
                 (self.send)(json!({
                     "type": "rpc_result",
@@ -935,17 +1677,33 @@ impl SessionHub {
             }
             return;
         }
-        // Connecting (or connectable): only attach-lifecycle frames may
-        // queue; rpc gets an explicit machine_connecting refusal and
-        // input-carrying frames are dropped — nothing typed during an
-        // outage may auto-send after reconnect (AGENTS.md §3).
+        // Only subscribe/unsubscribe are safe to defer: they re-attach
+        // a pane on reconnect. Anything that can carry user input or
+        // mutate state is refused instead of being flushed later —
+        // nothing typed or commanded during an outage may auto-send
+        // (AGENTS.md §3, issue #576).
         match &frame {
-            ClientFrame::SubscribeTerminal { .. } | ClientFrame::UnsubscribeTerminal { .. } => {
+            ClientFrame::SubscribeTerminal { pane_id, .. }
+            | ClientFrame::UnsubscribeTerminal { pane_id, .. } => {
                 let mut inner = self.inner.lock().unwrap();
                 let queue = inner.pending.entry(machine.to_string()).or_default();
-                if queue.len() < PENDING_FRAME_MAX {
-                    queue.push(frame);
+                // Collapse repeats per pane — latest frame wins — and
+                // cap the queue, dropping the oldest (issue #576,
+                // enqueuePendingFrame parity).
+                if let Some(prior) = queue.iter().position(|f| {
+                    matches!(
+                        f,
+                        ClientFrame::SubscribeTerminal { pane_id: p, .. }
+                            | ClientFrame::UnsubscribeTerminal { pane_id: p, .. }
+                        if p == pane_id
+                    )
+                }) {
+                    queue.remove(prior);
                 }
+                if queue.len() >= PENDING_FRAME_MAX {
+                    queue.remove(0);
+                }
+                queue.push(frame);
             }
             ClientFrame::Rpc { id, .. } => {
                 (self.send)(json!({
@@ -965,6 +1723,179 @@ impl SessionHub {
     }
 }
 
+/* --------------------- status observation -------------------------- */
+
+/// `observe` in machine-manager.ts plus the status pushes it triggers:
+/// runs on the wrapped send path before the triggering frame is
+/// forwarded (TS `wrap` ordering — `machine_status` precedes the frame
+/// that caused it).
+fn observe_and_flush(
+    inner: &Arc<Mutex<HubInner>>,
+    send: &Arc<dyn Fn(Value) + Send + Sync>,
+    plugins: &Arc<PluginService>,
+    closed: &Arc<AtomicBool>,
+    machine: &str,
+    frame: &Value,
+) {
+    let ty = frame.get("type").and_then(Value::as_str).unwrap_or("");
+    match ty {
+        "ready" | "snapshot" => {
+            let snapshot = frame.get("snapshot");
+            let version = snapshot
+                .and_then(|s| s.get("version"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let protocol = snapshot.and_then(|s| s.get("protocol")).and_then(num_f64);
+            let mut push = None;
+            {
+                let mut guard = inner.lock().unwrap();
+                if let Some(info) = guard.infos.get_mut(machine) {
+                    let changed = info.status != MachineStatus::Online;
+                    info.status = MachineStatus::Online;
+                    info.version = version;
+                    info.protocol = protocol;
+                    info.detail = None;
+                    if changed {
+                        push = Some(info.clone());
+                    }
+                }
+            }
+            if let Some(info) = push {
+                push_status_json(send, &info);
+            }
+        }
+        "rpc_result" => {
+            let id = frame.get("id").and_then(Value::as_str).unwrap_or("");
+            let ok = frame.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            if !ok && (id == "boot" || id == "bridge-health") {
+                let error = frame.get("error");
+                let code = error
+                    .and_then(|e| e.get("code"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let message = error
+                    .and_then(|e| e.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                mark_failure(inner, send, machine, &format!("{code}: {message}"));
+                if id == "boot" {
+                    // A boot failure means the session never connected;
+                    // drop it so a later connect()/refresh() can rebuild
+                    // it instead of leaving the machine permanently
+                    // disconnected until app restart (#99). keep_status:
+                    // markFailure already set the classified status.
+                    disconnect_full(inner, send, plugins, closed, machine, true);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `markFailure` in machine-manager.ts.
+fn mark_failure(
+    inner: &Arc<Mutex<HubInner>>,
+    send: &Arc<dyn Fn(Value) + Send + Sync>,
+    machine: &str,
+    text: &str,
+) {
+    let (kind, detail) = classify_ssh_failure(text);
+    let detail = if detail.is_empty() {
+        None
+    } else {
+        Some(detail)
+    };
+    let mut push = None;
+    {
+        let mut guard = inner.lock().unwrap();
+        if let Some(info) = guard.infos.get_mut(machine) {
+            // While a session is retrying on its own, keep showing the
+            // last known state as reconnecting rather than flapping to
+            // error on every drop.
+            let next = match kind {
+                SshFailureKind::AuthRequired => MachineStatus::AuthRequired,
+                SshFailureKind::Incompatible => MachineStatus::Incompatible,
+                _ => {
+                    if info.status == MachineStatus::Online {
+                        MachineStatus::Reconnecting
+                    } else if kind == SshFailureKind::Unreachable {
+                        MachineStatus::Unreachable
+                    } else {
+                        MachineStatus::Error
+                    }
+                }
+            };
+            if info.status == next && info.detail == detail {
+                return;
+            }
+            info.status = next;
+            info.detail = detail;
+            push = Some(info.clone());
+        }
+    }
+    if let Some(info) = push {
+        push_status_json(send, &info);
+    }
+}
+
+/// `disconnect` in machine-manager.ts: invalidate any in-flight connect
+/// (generation bump), drop pending frames and plugin state, close the
+/// session, and mark ssh machines `offline` unless `keep_status`.
+fn disconnect_full(
+    inner: &Arc<Mutex<HubInner>>,
+    send: &Arc<dyn Fn(Value) + Send + Sync>,
+    plugins: &Arc<PluginService>,
+    _closed: &Arc<AtomicBool>,
+    machine: &str,
+    keep_status: bool,
+) {
+    let session = {
+        let mut guard = inner.lock().unwrap();
+        *guard.generations.entry(machine.to_string()).or_insert(0) += 1;
+        guard.connecting.remove(machine);
+        guard.pending.remove(machine);
+        guard.sessions.remove(machine)
+    };
+    if let Some(s) = session {
+        s.close();
+    }
+    plugins.invalidate(machine);
+    plugins.drop_host(machine);
+    if !keep_status {
+        let info = inner.lock().unwrap().infos.get(machine).cloned();
+        if let Some(mut info) = info {
+            if info.kind == MachineKind::Ssh {
+                info.status = MachineStatus::Offline;
+                info.detail = Some("disconnected".to_string());
+                push_status_json(send, &info);
+            }
+        }
+    }
+}
+
+fn push_status_json(send: &Arc<dyn Fn(Value) + Send + Sync>, info: &MachineInfo) {
+    send(json!({
+        "type": "machine_status",
+        "machine": info.to_json(),
+    }));
+}
+
+/// `rpc_result` error frame for plugin failures — `handlePluginFrame`'s
+/// catch in machine-manager.ts, including bounded `error.fields`.
+fn plugin_error_frame(id: &str, machine: &str, e: &HerdrError) -> Value {
+    let mut error = json!({ "code": e.code, "message": e.message });
+    if let Some(fields) = &e.fields {
+        error["fields"] = Value::Object(fields.clone());
+    }
+    json!({
+        "type": "rpc_result",
+        "id": id,
+        "ok": false,
+        "error": error,
+        "machine": machine,
+    })
+}
+
 /// `machine` routing field for data frames (absent = local).
 fn frame_machine(frame: &ClientFrame) -> Option<&str> {
     match frame {
@@ -980,4 +1911,9 @@ fn frame_machine(frame: &ClientFrame) -> Option<&str> {
         | ClientFrame::PluginCall { machine, .. } => machine.as_deref(),
         _ => None,
     }
+}
+
+/// Snapshot `protocol` as f64 for `MachineInfo.protocol`.
+fn num_f64(v: &Value) -> Option<f64> {
+    v.as_f64()
 }

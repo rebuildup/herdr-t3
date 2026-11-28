@@ -336,7 +336,9 @@ impl Adapter {
                     })
                 }
                 Err(e) => {
-                    let HerdrError { code, message } = e;
+                    let HerdrError {
+                        code, message, ..
+                    } = e;
                     json!({
                         "type": "rpc_result",
                         "id": id_frame,

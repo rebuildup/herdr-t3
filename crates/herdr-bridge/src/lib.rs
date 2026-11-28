@@ -19,8 +19,10 @@ pub mod client_session;
 pub mod client_link;
 pub mod egress;
 pub mod io;
-pub mod session;
+pub mod machines;
 pub mod mem;
+pub mod plugins;
+pub mod session;
 
 use io::{ConnEvent, Connection, Connector};
 use serde_json::{json, Map, Value};
@@ -49,17 +51,23 @@ fn next_id() -> String {
 /// herdr-side failure with a stable `code` (same vocabulary as the TS
 /// `HerdrError`: `timeout`, `bad_frame`, `closed`, `socket_error`,
 /// `connect_failed`, plus codes herdr itself returns).
-#[derive(Debug)]
+///
+/// `fields` carries the bounded contract extras a plugin error may
+/// forward across the bridge (issue #257, `error.fields` on
+/// `rpc_result`) — populated only by the plugin boundary.
+#[derive(Debug, Clone)]
 pub struct HerdrError {
     pub code: String,
     pub message: String,
+    pub fields: Option<serde_json::Map<String, Value>>,
 }
 
 impl HerdrError {
-    fn new(code: &str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.to_string(),
             message: message.into(),
+            fields: None,
         }
     }
 }
