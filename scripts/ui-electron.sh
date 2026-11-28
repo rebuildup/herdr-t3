@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch the full conformance stack and run UI scenarios against the real
-# Electron app (issue #238):
+# Electron app (issue #238; budgets/lease per the #416 program):
 #
 #   isolated herdr session (seeded fixtures) -> bridge -> vite -> electron
 #
@@ -8,6 +8,14 @@
 # input and observes real app state via the read-only uiObserve bridge.
 # Never point this at the maintainer's live herdr session — the fixture
 # session is dedicated (default name "ht3ui") and is stopped on exit.
+#
+# Real-machine safety (issue #416 program):
+#   - an exclusive lease (harness/ui/lease.json, held by the watchdog
+#     process) serializes real-machine verification across sessions;
+#   - an independent watchdog process enforces the whole-run budget and,
+#     on expiry, writes diagnostics and kills ONLY pids this run spawned
+#     (recorded in the pid file) — never another session's processes;
+#   - every wait below is deadline-bounded; a hang fails, it does not stall.
 #
 # Usage: scripts/ui-electron.sh [extra run.ts args...]
 set -euo pipefail
@@ -18,38 +26,86 @@ SESSION="${UI_SESSION:-ht3ui}"
 SOCK="$HOME/.config/herdr/sessions/$SESSION/herdr.sock"
 CDP_PORT="${CDP_PORT:-9223}"
 BRIDGE_PORT="${UI_BRIDGE_PORT:-4741}"
-VITE_LOG="$(mktemp -t ui-vite)"
-ELECTRON_LOG="$(mktemp -t ui-electron)"
-HERDR_LOG="$(mktemp -t ui-herdr)"
-BRIDGE_LOG="$(mktemp -t ui-bridge)"
+VITE_PORT="${UI_VITE_PORT:-5737}"
+LEASE_FILE="${UI_LEASE_FILE:-$REPO_ROOT/harness/ui/lease.json}"
+DIAG_DIR="$(mktemp -d -t ui-diag)"
+PIDS_FILE="$DIAG_DIR/pids.txt"
+: >"$PIDS_FILE"
+VITE_LOG="$DIAG_DIR/vite.log"
+ELECTRON_LOG="$DIAG_DIR/electron.log"
+HERDR_LOG="$DIAG_DIR/herdr.log"
+BRIDGE_LOG="$DIAG_DIR/bridge.log"
+WATCHDOG_LOG="$DIAG_DIR/watchdog.log"
 
 HERDR_PID=""
 VITE_PID=""
 ELECTRON_PID=""
 BRIDGE_PID=""
+WATCHDOG_PID=""
 # Isolate the machine registry: saved SSH endpoints live under
 # $XDG_STATE_HOME/herdr/client/endpoints.json, and a reachable remote
 # machine would add its panes to goto-picker rows and break the fixed
 # row-count contract. The fixture must see only the local machine.
 ISO_STATE="$(mktemp -d -t ui-state)"
 
+record_pid() { echo "$1 $2" >>"$PIDS_FILE"; }
+
 cleanup() {
-  kill "$ELECTRON_PID" "$VITE_PID" "$BRIDGE_PID" "$HERDR_PID" 2>/dev/null || true
-  wait "$ELECTRON_PID" "$VITE_PID" "$BRIDGE_PID" "$HERDR_PID" 2>/dev/null || true
+  # Only ever signal pids this run recorded — concurrent sessions'
+  # processes are never touched.
+  if [[ -s "$PIDS_FILE" ]]; then
+    while read -r pid _label; do
+      kill "$pid" 2>/dev/null || true
+    done <"$PIDS_FILE"
+    sleep 0.3
+    while read -r pid _label; do
+      kill -9 "$pid" 2>/dev/null || true
+    done <"$PIDS_FILE"
+  fi
+  [[ -n "$WATCHDOG_PID" ]] && kill "$WATCHDOG_PID" 2>/dev/null || true
   rm -rf "$ISO_STATE"
 }
 trap cleanup EXIT
+fail() {
+  echo "ui-electron: $*" >&2
+  echo "diagnostics kept at: $DIAG_DIR" >&2
+  exit 1
+}
+
+# --- exclusive lease + independent watchdog ------------------------------
+# The watchdog process holds the lease for the run's lifetime: its pid is
+# the lease owner, so the lease is valid exactly while verification runs.
+RUN_BUDGET_MS="${UI_BUDGET_RUN:-900000}"
+bun harness/ui/watchdog-cli.ts \
+  --budget-ms "$RUN_BUDGET_MS" \
+  --pids-file "$PIDS_FILE" \
+  --diag-dir "$DIAG_DIR" \
+  --label "ui-electron $SESSION" \
+  --lease-file "$LEASE_FILE" \
+  --owner "${USER:-?}@$(hostname)" \
+  --worktree "$REPO_ROOT" \
+  --session "$SESSION" \
+  --ports "cdp=$CDP_PORT,bridge=$BRIDGE_PORT,vite=$VITE_PORT" \
+  >"$WATCHDOG_LOG" 2>&1 &
+WATCHDOG_PID=$!
+# Lease denial exits 4 quickly; give it a moment then check.
+sleep 0.5
+if ! kill -0 "$WATCHDOG_PID" 2>/dev/null; then
+  cat "$WATCHDOG_LOG" >&2
+  fail "watchdog/lease failed to start (see above)"
+fi
 
 # --- isolated herdr session --------------------------------------------
 if [[ ! -S "$SOCK" ]]; then
   herdr --session "$SESSION" server >"$HERDR_LOG" 2>&1 &
   HERDR_PID=$!
+  record_pid "$HERDR_PID" herdr-server
 fi
 for i in $(seq 1 60); do
   [[ -S "$SOCK" ]] && break
   sleep 0.5
 done
-[[ -S "$SOCK" ]] || { echo "herdr session socket did not appear: $SOCK" >&2; tail -20 "$HERDR_LOG" >&2; exit 1; }
+[[ -S "$SOCK" ]] || fail "herdr session socket did not appear: $SOCK"
 
 # Seed fixtures deterministically: two workspaces, each with a pane that
 # has >300 rows of scrollback and a live foreground process.
@@ -71,24 +127,27 @@ for p in "$pane_a" "$pane_b"; do
     [[ "$max" -gt 300 ]] && break
     sleep 0.5
   done
-  [[ "$max" -gt 300 ]] || { echo "fixture pane $p did not accumulate scrollback (max=$max)" >&2; exit 1; }
+  [[ "$max" -gt 300 ]] || fail "fixture pane $p did not accumulate scrollback (max=$max)"
 done
 echo "seeded session $SESSION: $id_a/$pane_a + $id_b/$pane_b (scrollback ready)"
 
 # --- bridge + vite + electron -------------------------------------------
 PORT="$BRIDGE_PORT" HERDR_T3_PORT="$BRIDGE_PORT" HERDR_SOCKET="$SOCK" \
-  HERDR_T3_ALLOWED_ORIGINS="http://localhost:5737,http://127.0.0.1:5737" \
+  HERDR_T3_ALLOWED_ORIGINS="http://localhost:$VITE_PORT,http://127.0.0.1:$VITE_PORT" \
   XDG_STATE_HOME="$ISO_STATE" \
   bun run server >"$BRIDGE_LOG" 2>&1 &
 BRIDGE_PID=$!
+record_pid "$BRIDGE_PID" bridge
 
-HERDR_T3_PORT="$BRIDGE_PORT" bun --bun vite --port 5737 --strictPort >"$VITE_LOG" 2>&1 &
+HERDR_T3_PORT="$BRIDGE_PORT" bun --bun vite --port "$VITE_PORT" --strictPort >"$VITE_LOG" 2>&1 &
 VITE_PID=$!
+record_pid "$VITE_PID" vite
 
 for i in $(seq 1 60); do
-  curl -sf http://localhost:5737 >/dev/null 2>&1 && break
+  curl -sf "http://localhost:$VITE_PORT" >/dev/null 2>&1 && break
   sleep 0.5
 done
+curl -sf "http://localhost:$VITE_PORT" >/dev/null || fail "vite did not come up on :$VITE_PORT"
 
 # Rebuild the desktop bundle first: desktop/main.cjs is a gitignored build
 # artifact and a stale one silently drops newer ClientFrame types
@@ -98,19 +157,21 @@ bun run desktop:build >/dev/null
 # The desktop main embeds the bridge in-process and resolves the herdr
 # socket from HERDR_SOCKET itself — it must be pointed at the fixture
 # session explicitly or it would attach to the live default session.
-HERDR_T3_DEV_URL=http://localhost:5737 HERDR_T3_PROFILE=dev HERDR_SOCKET="$SOCK" \
+HERDR_T3_DEV_URL="http://localhost:$VITE_PORT" HERDR_T3_PROFILE=dev HERDR_SOCKET="$SOCK" \
   XDG_STATE_HOME="$ISO_STATE" \
   ./node_modules/.bin/electron . --remote-debugging-port="$CDP_PORT" >"$ELECTRON_LOG" 2>&1 &
 ELECTRON_PID=$!
+record_pid "$ELECTRON_PID" electron
 
-for i in $(seq 1 80); do
+# CDP endpoint up is necessary but NOT sufficient — the adapter's
+# operable-state probe (__herdrT3Ui + readyState within UI_BUDGET_READY,
+# default 5s) is the real launch-success gate. A hung launch fails the
+# run and cleanup reaps only this run's recorded pids.
+for i in $(seq 1 40); do
   curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null 2>&1 && break
   sleep 0.5
 done
-curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null || {
-  echo "electron CDP did not come up; log:" >&2
-  tail -30 "$ELECTRON_LOG" >&2
-  exit 1
-}
+curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null || \
+  fail "electron CDP did not come up; log: $ELECTRON_LOG"
 
 bun harness/ui/run.ts --adapter electron --cdp-port "$CDP_PORT" "$@"
