@@ -46,7 +46,24 @@ impl Connection {
             let _ = reader.join();
         }
     }
+
+    /// Split into the pieces a long-lived protocol link needs
+    /// (issue #598): the event stream for the pump thread, the writer
+    /// for the send thread, the transport closer, and the reader join
+    /// handle. `end()`/`join()` semantics are preserved by calling
+    /// `closer` then joining `reader` once the pump sees `Closed`.
+    pub fn into_parts(self) -> LinkParts {
+        (self.events, self.writer, self.closer, self.reader)
+    }
 }
+
+/// The split pieces of a [`Connection`], see [`Connection::into_parts`].
+pub type LinkParts = (
+    Receiver<ConnEvent>,
+    Box<dyn Write + Send>,
+    Box<dyn FnMut() + Send>,
+    Option<JoinHandle<()>>,
+);
 
 /// Opens one transport to a herdr endpoint. Called once per connection —
 /// herdr closes the socket after each answer, so callers connect per call.
