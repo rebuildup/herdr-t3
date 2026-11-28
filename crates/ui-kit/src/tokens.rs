@@ -43,6 +43,14 @@ pub struct Palette {
     pub terminal_foreground: Hsla,
     pub terminal_cursor: Hsla,
     pub terminal_selection_background: Hsla,
+    /// The 16-slot ANSI colour ramp for terminal surfaces (issue #644).
+    /// Ports the non-Ghostty fallback ramps `getTerminalSurfaceColors`
+    /// uses in `src/lib/theme.ts`: `FALLBACK_ANSI` (xterm.js hues,
+    /// dark) for the dark scheme and `FALLBACK_ANSI_LIGHT` (same hues
+    /// re-leveled for a light background, issue #480) for light.
+    /// Index 0-7 normal, 8-15 bright — the order `SurfaceColors.ansi`
+    /// and `paletteColor` expect.
+    pub terminal_ansi: [Hsla; 16],
     pub success: Hsla,
     pub success_foreground: Hsla,
     pub warning: Hsla,
@@ -96,6 +104,13 @@ pub fn light() -> Palette {
         terminal_foreground: hx(0x18181b),
         terminal_cursor: hx(0x26384e),
         terminal_selection_background: gpui::rgba(0x253f63).into(),
+        // `FALLBACK_ANSI_LIGHT` (src/lib/theme.ts, issue #480).
+        terminal_ansi: [
+            hx(0x2e3436), hx(0xcc0000), hx(0x4e9a06), hx(0xa08000),
+            hx(0x3465a4), hx(0x75507b), hx(0x06989a), hx(0x767676),
+            hx(0x888a85), hx(0xef2929), hx(0x3e7c00), hx(0x967000),
+            hx(0x4a7ab5), hx(0x8a5a91), hx(0x0a7d7d), hx(0x555753),
+        ],
         success: hx(0x10b981),          // emerald-500
         success_foreground: hx(0x047857), // emerald-700
         warning: hx(0xf59e0b),          // amber-500
@@ -142,6 +157,13 @@ pub fn dark() -> Palette {
         terminal_foreground: hx(0xf5f5f5),
         terminal_cursor: hx(0xb4cbff),
         terminal_selection_background: gpui::rgba(0xb4cbff).into(),
+        // `FALLBACK_ANSI` (src/lib/theme.ts) — the xterm.js default hues.
+        terminal_ansi: [
+            hx(0x2e3436), hx(0xcc0000), hx(0x4e9a06), hx(0xc4a000),
+            hx(0x3465a4), hx(0x75507b), hx(0x06989a), hx(0xd3d7cf),
+            hx(0x555753), hx(0xef2929), hx(0x8ae234), hx(0xfce94f),
+            hx(0x729fcf), hx(0xad7fa8), hx(0x34e2e2), hx(0xeeeeec),
+        ],
         success: hx(0x10b981),
         success_foreground: hx(0x34d399), // emerald-400
         warning: hx(0xf59e0b),

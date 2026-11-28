@@ -119,8 +119,15 @@ pub struct BridgeHost {
     pub machines: Vec<MachineInfo>,
     /// Per-machine bridge errors (boot/connect/rpc failures).
     pub machine_errors: HashMap<String, String>,
-    /// Pane ids that emitted `terminal_closed` per machine.
-    pub closed_panes: HashMap<String, HashSet<String>>,
+    /// Pane → `terminal_closed` reason per machine. The mark is *not*
+    /// permanent (issue #644): it clears on the same revival triggers
+    /// the TS `PaneTerminal` resubscribes on — a `ready` frame (session
+    /// (re)connect, the `connected` flip), a summary→full detail
+    /// upgrade (`machine_idle` closes), a machine status transition to
+    /// `online` (link recovery), and — view-side — a non-closed detach
+    /// (workspace switch / pane leave, the TS unmount→remount path)
+    /// or an explicit takeover.
+    pub closed_panes: HashMap<String, HashMap<String, String>>,
     /// Terminal-direction frames queued for the view — drained via
     /// [`BridgeHost::drain_terminal_inbound`].
     terminal_inbound: VecDeque<TerminalInbound>,
@@ -295,6 +302,33 @@ impl BridgeHost {
         self.hub.clone()
     }
 
+    /// Clear one pane's `terminal_closed` mark — the view-side half of
+    /// attach revival (issue #644): takeover clicks and non-closed
+    /// detaches (pane left the canvas, so a later return is a fresh
+    /// mount like the TS unmount→remount path) call this so the next
+    /// `sync_terminals` pass re-eligibles the pane.
+    pub fn clear_closed(&mut self, machine: &str, pane_id: &str) {
+        let empty = if let Some(panes) = self.closed_panes.get_mut(machine) {
+            panes.remove(pane_id);
+            panes.is_empty()
+        } else {
+            false
+        };
+        if empty {
+            self.closed_panes.remove(machine);
+        }
+    }
+
+    /// Record a `terminal_closed` mark without a wire frame — the
+    /// view's test/diagnostic injection path (live hosts receive the
+    /// real frame through [`BridgeHost::handle_frame_value`]).
+    pub fn mark_closed(&mut self, machine: &str, pane_id: &str, reason: &str) {
+        self.closed_panes
+            .entry(machine.to_string())
+            .or_default()
+            .insert(pane_id.to_string(), reason.to_string());
+    }
+
     /// Apply one ServerFrame JSON value. Returns whether model state
     /// changed.
     fn handle_frame_value(&mut self, v: &Value) -> bool {
@@ -316,7 +350,14 @@ impl BridgeHost {
                 if v.get("detail").and_then(Value::as_str) == Some("summary") {
                     self.summary_machines.insert(machine.clone());
                 } else {
-                    self.summary_machines.remove(&machine);
+                    // A `ready` frame means a (re)started session — the
+                    // TS `connected` flip that re-runs PaneTerminal's
+                    // subscribe effect. A summary→full upgrade revives
+                    // `machine_idle` closes the same way (issue #644).
+                    let detail_upgrade = self.summary_machines.remove(&machine);
+                    if ty == "ready" || detail_upgrade {
+                        self.closed_panes.remove(&machine);
+                    }
                 }
                 match protocol_codec::parse_session_snapshot(snap_v) {
                     Ok(snap) => {
@@ -356,7 +397,23 @@ impl BridgeHost {
                     v.get("machine").cloned().unwrap_or(Value::Null),
                 ) {
                     if let Some(id) = info.id.clone() {
+                        // Offline→online is the link-recovery signal —
+                        // the same revival the TS subscribe effect gets
+                        // from the `connected` prop flipping (issue #644).
+                        // Steady-state `online` pushes (detail changes,
+                        // refresh) must NOT clear: an `attached client`
+                        // close would resubscribe-loop otherwise.
+                        let was_online = self
+                            .machines
+                            .iter()
+                            .find(|m| m.id.as_deref() == Some(id.as_str()))
+                            .and_then(|m| m.status.as_deref())
+                            == Some("online");
+                        let now_online = info.status.as_deref() == Some("online");
                         upsert_machine(&mut self.machines, info, &id);
+                        if now_online && !was_online {
+                            self.closed_panes.remove(&id);
+                        }
                         return true;
                     }
                 }
@@ -380,18 +437,19 @@ impl BridgeHost {
             "terminal_closed" => {
                 let pane = v.get("paneId").and_then(Value::as_str);
                 if let Some(pane) = pane {
+                    let reason = v
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("closed")
+                        .to_string();
                     self.closed_panes
                         .entry(machine.clone())
                         .or_default()
-                        .insert(pane.to_string());
+                        .insert(pane.to_string(), reason.clone());
                     self.terminal_inbound.push_back(TerminalInbound::Closed {
                         machine: machine.clone(),
                         pane_id: pane.to_string(),
-                        reason: v
-                            .get("reason")
-                            .and_then(Value::as_str)
-                            .unwrap_or("closed")
-                            .to_string(),
+                        reason,
                     });
                     return true;
                 }
@@ -565,5 +623,174 @@ fn upsert_machine(list: &mut Vec<MachineInfo>, info: MachineInfo, id: &str) {
         *slot = info;
     } else {
         list.push(info);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! `terminal_closed` revival triggers (issue #644): the closed mark
+    //! clears on the same events the TS `PaneTerminal` resubscribes on —
+    //! `ready` (connected flip), summary→full detail upgrade
+    //! (`machine_idle`), and an offline→online status transition — but
+    //! never on steady-state traffic, which would resubscribe-loop an
+    //! `attached client` refusal.
+
+    use super::*;
+
+    fn host() -> BridgeHost {
+        let (_tx, frames) = channel::<Value>();
+        let (_itx, inner) = channel::<InnerMsg>();
+        let send: Arc<dyn Fn(Value) + Send + Sync> = Arc::new(|_| {});
+        BridgeHost {
+            hub: Arc::new(SessionHub::new(send, None)),
+            frames,
+            inner,
+            snapshots: HashMap::new(),
+            capabilities: HashMap::new(),
+            machines: vec![local_machine_info()],
+            machine_errors: HashMap::new(),
+            closed_panes: HashMap::new(),
+            terminal_inbound: VecDeque::new(),
+            pane_scroll: HashMap::new(),
+            summary_machines: HashSet::new(),
+        }
+    }
+
+    fn snapshot_frame(detail: Option<&str>) -> Value {
+        let mut frame = json!({
+            "type": "snapshot",
+            "snapshot": {
+                "version": "22", "protocol": 22,
+                "focused_workspace_id": "w1", "focused_tab_id": "w1:t1",
+                "focused_pane_id": "w1:p1",
+                "workspaces": [{
+                    "workspace_id": "w1", "label": "ui-a", "number": 1,
+                    "agent_status": "idle", "focused": true,
+                    "pane_count": 1, "tab_count": 1, "active_tab_id": "w1:t1",
+                    "worktree": null
+                }],
+                "tabs": [{
+                    "tab_id": "w1:t1", "workspace_id": "w1", "label": "",
+                    "number": 1, "agent_status": "idle", "focused": true,
+                    "pane_count": 1
+                }],
+                "panes": [{
+                    "pane_id": "w1:p1", "tab_id": "w1:t1", "workspace_id": "w1",
+                    "agent_status": "idle", "focused": true, "revision": 1,
+                    "terminal_id": "term-1"
+                }],
+                "agents": [],
+                "layouts": []
+            }
+        });
+        if let Some(d) = detail {
+            frame["detail"] = json!(d);
+        }
+        frame
+    }
+
+    fn closed(host: &BridgeHost) -> bool {
+        host.closed_panes
+            .get(LOCAL_MACHINE)
+            .is_some_and(|p| p.contains_key("w1:p1"))
+    }
+
+    #[test]
+    fn terminal_closed_records_reason() {
+        let mut h = host();
+        assert!(h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "attached client"
+        })));
+        assert_eq!(
+            h.closed_panes["local"]["w1:p1"],
+            "attached client".to_string()
+        );
+        // The inbound queue carries the same close for the view.
+        assert!(matches!(
+            h.terminal_inbound.back(),
+            Some(TerminalInbound::Closed { reason, .. }) if reason == "attached client"
+        ));
+    }
+
+    #[test]
+    fn steady_snapshot_does_not_clear_closed() {
+        let mut h = host();
+        h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "attached client"
+        }));
+        // Ordinary snapshot refetches must not revive — that would
+        // resubscribe-loop an attach the server keeps refusing.
+        h.handle_frame_value(&snapshot_frame(None));
+        assert!(closed(&h));
+    }
+
+    #[test]
+    fn ready_frame_clears_closed() {
+        let mut h = host();
+        h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "link failed"
+        }));
+        let mut ready = snapshot_frame(None);
+        ready["type"] = json!("ready");
+        h.handle_frame_value(&ready);
+        assert!(!closed(&h));
+    }
+
+    #[test]
+    fn detail_upgrade_clears_machine_idle_closes() {
+        let mut h = host();
+        // Summary downgrade closes every slot with `machine_idle`.
+        h.handle_frame_value(&snapshot_frame(Some("summary")));
+        h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "machine_idle"
+        }));
+        assert!(closed(&h));
+        // Re-selecting the machine delivers a full-detail snapshot —
+        // the upgrade revives the closed panes.
+        h.handle_frame_value(&snapshot_frame(None));
+        assert!(!closed(&h));
+    }
+
+    #[test]
+    fn online_transition_clears_but_steady_online_does_not() {
+        let mut h = host();
+        h.handle_frame_value(&json!({
+            "type": "machine_status", "machine": {"id": "local", "status": "offline"}
+        }));
+        h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "link failed"
+        }));
+        // offline → online: link recovered, revive.
+        h.handle_frame_value(&json!({
+            "type": "machine_status", "machine": {"id": "local", "status": "online"}
+        }));
+        assert!(!closed(&h));
+        // A second online push (detail change, refresh) must NOT clear.
+        h.handle_frame_value(&json!({
+            "type": "terminal_closed", "machine": "local",
+            "paneId": "w1:p1", "reason": "attached client"
+        }));
+        h.handle_frame_value(&json!({
+            "type": "machine_status", "machine": {"id": "local", "status": "online"}
+        }));
+        assert!(closed(&h));
+    }
+
+    #[test]
+    fn clear_closed_removes_single_pane() {
+        let mut h = host();
+        h.mark_closed("local", "w1:p1", "attached client");
+        h.mark_closed("local", "w1:p2", "pane exited");
+        h.clear_closed("local", "w1:p1");
+        let panes = &h.closed_panes["local"];
+        assert!(!panes.contains_key("w1:p1"));
+        assert!(panes.contains_key("w1:p2"));
+        h.clear_closed("local", "w1:p2");
+        assert!(!h.closed_panes.contains_key("local"));
     }
 }

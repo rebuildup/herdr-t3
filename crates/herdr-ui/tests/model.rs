@@ -4,7 +4,7 @@
 //! frames, selection flags, and capability honesty — no gpui window
 //! required.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use herdr_ui::model::{build_shell_model, status_tone, PaneTerminalState, StatusTone};
 use protocol_codec::parse_session_snapshot;
@@ -77,7 +77,7 @@ fn fixture() -> (
     HashMap<String, protocol_codec::SessionSnapshot>,
     HashMap<String, Vec<String>>,
     HashMap<String, String>,
-    HashMap<String, HashSet<String>>,
+    HashMap<String, HashMap<String, String>>,
 ) {
     let snap = parse_session_snapshot(&snapshot()).unwrap();
     let mut snapshots = HashMap::new();
@@ -268,14 +268,22 @@ fn machine_without_snapshot_is_pending_not_dropped() {
 #[test]
 fn closed_panes_are_marked() {
     let (machines, snapshots, caps, errors, _closed) = fixture();
-    let mut closed: HashMap<String, HashSet<String>> = HashMap::new();
-    closed.insert("local".to_string(), HashSet::from(["w1:p1".to_string()]));
+    let mut closed: HashMap<String, HashMap<String, String>> = HashMap::new();
+    closed.insert(
+        "local".to_string(),
+        HashMap::from([("w1:p1".to_string(), "attached client".to_string())]),
+    );
     let model = build_shell_model(
         &machines, &snapshots, &caps, &errors, &closed, "local", None,
     );
     let canvas = &model.content.unwrap().canvas;
     assert!(canvas[0].closed);
+    assert_eq!(
+        canvas[0].closed_reason.as_deref(),
+        Some("attached client")
+    );
     assert!(!canvas[1].closed);
+    assert_eq!(canvas[1].closed_reason, None);
 }
 
 #[test]

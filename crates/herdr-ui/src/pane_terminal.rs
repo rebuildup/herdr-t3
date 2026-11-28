@@ -92,6 +92,11 @@ pub struct PaneLink {
     /// egress ops reach the ledger immediately instead of buffering
     /// against a promotion that can never land.
     fixture_writable: bool,
+    /// `subscribe_terminal`'s takeover flag (issue #644): set when the
+    /// user takes over a pane whose attach was refused (`attached
+    /// client` close reason) — mirrors the TS `takeover` state in
+    /// `PaneTerminal.tsx`.
+    pub takeover: bool,
     /// Diagnostic frame ledger (bounded).
     pub outbox: Arc<Mutex<Vec<Value>>>,
 }
@@ -108,6 +113,7 @@ impl PaneLink {
             pane_id,
             hub,
             fixture_writable: false,
+            takeover: false,
             outbox,
         }
     }
@@ -120,6 +126,7 @@ impl PaneLink {
             pane_id,
             hub: None,
             fixture_writable: true,
+            takeover: false,
             outbox,
         }
     }
@@ -215,7 +222,7 @@ impl PaneLink {
             "paneId": self.pane_id,
             "cols": cols,
             "rows": rows,
-            "takeover": false,
+            "takeover": self.takeover,
             "writable": writable,
         }));
     }
@@ -331,6 +338,10 @@ pub struct PaneTerminal {
     pub replies: Arc<Mutex<VecDeque<Vec<u8>>>>,
     /// Diagnostic frame ledger shared with [`PaneLink::outbox`].
     pub outbox: Arc<Mutex<Vec<Value>>>,
+    /// The [`SurfaceColors`] last pushed to this surface — the theme
+    /// re-push pass compares against it so an unchanged palette skips
+    /// `set_colors` (issue #644).
+    pub colors: SurfaceColors,
 }
 
 impl PaneTerminal {
@@ -483,16 +494,16 @@ fn surface_handlers(io: &Rc<RefCell<PaneIo>>, link: &PaneLink) -> SurfaceHandler
     handlers
 }
 
-/// `SurfaceColors` from the ui-kit terminal palette roles. The ANSI
-/// ramp is not palette-exposed; the surface default ramp is kept so
-/// colours are never invented per-pane.
-fn surface_colors(p: &Palette) -> SurfaceColors {
+/// `SurfaceColors` from the ui-kit terminal palette roles, including
+/// the full 16-slot ANSI ramp (`Palette::terminal_ansi`, ported from
+/// the TS `FALLBACK_ANSI`/`FALLBACK_ANSI_LIGHT` in `src/lib/theme.ts`).
+pub(crate) fn surface_colors(p: &Palette) -> SurfaceColors {
     SurfaceColors {
         foreground: hsla_hex(p.terminal_foreground),
         background: hsla_hex(p.terminal_background),
         cursor: hsla_hex(p.terminal_cursor),
         cursor_text: None,
-        ansi: vec!["#000000".into(); 16],
+        ansi: p.terminal_ansi.iter().map(|c| hsla_hex(*c)).collect(),
     }
 }
 

@@ -43,6 +43,14 @@ impl<M: TextMetrics> SessionProvider for SceneProvider<M> {
     }
 }
 
+/// Default 16-slot ANSI ramp — `FALLBACK_ANSI` from `src/lib/theme.ts`
+/// (the xterm.js hues the TS surface falls back to without Ghostty
+/// sync). Dark-background tuned, same as the TS default.
+const DEFAULT_ANSI: [&str; 16] = [
+    "#2e3436", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
+    "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
+];
+
 /// Construction parameters — the TS `GhosttySurfaceOptions` minus the
 /// DOM callbacks (those are [`HostAction`]s here).
 #[derive(Debug, Clone)]
@@ -69,7 +77,12 @@ impl Default for SurfaceConfig {
                 background: "#101010".into(),
                 cursor: "#ffcc00".into(),
                 cursor_text: None,
-                ansi: vec!["#000000".into(); 16],
+                // The xterm.js default hues — `FALLBACK_ANSI` in
+                // src/lib/theme.ts — so a host that never sets colors
+                // still gets a real 16-color ramp, not 16 blacks
+                // (issue #644). Palette-driven hosts override via
+                // `SurfaceConfig::colors` / `set_colors`.
+                ansi: DEFAULT_ANSI.iter().map(|c| c.to_string()).collect(),
             },
             font_family: "monospace".into(),
             font_size: 12.0,
