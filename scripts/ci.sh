@@ -12,8 +12,8 @@ bun run test
 
 printf 'Running differential harness (rust adapter)...\n'
 ./scripts/ghostty-vt/ensure-native.sh
-cargo build -p diff-adapter -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface -p terminal-view -p herdr-bridge
-cargo test -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface -p terminal-view -p herdr-bridge
+cargo build -p diff-adapter -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface -p terminal-view -p herdr-bridge -p herdr-ui
+cargo test -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface -p terminal-view -p herdr-bridge -p herdr-ui
 bun harness/run.ts harness/scenarios --adapters rust
 
 printf 'UI lint...\n'
