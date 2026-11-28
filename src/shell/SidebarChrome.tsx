@@ -117,6 +117,21 @@ function HistoryNavigationButton({
   );
 }
 
+/**
+ * Canonical brand wordmark (issue #612, anti-case AC-004). Shared by the
+ * visible `SidebarBrand` button and the invisible width probe in
+ * AppShell so the two can never drift apart.
+ */
+export function BrandWordmark() {
+  return (
+    <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
+      <span className="font-semibold text-foreground">
+        hoxay
+      </span>
+    </span>
+  );
+}
+
 function SidebarBrand() {
   // The mobile sheet is portaled outside the sidebar wrapper, so
   // --workspace-titlebar-content-left (which reserves room for the
@@ -134,11 +149,7 @@ function SidebarBrand() {
         isMobile && "ml-4",
       )}
     >
-      <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
-        <span className="font-semibold text-foreground">
-          hoxay
-        </span>
-      </span>
+      <BrandWordmark />
     </button>
   );
 }
