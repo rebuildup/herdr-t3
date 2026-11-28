@@ -90,11 +90,11 @@ export function WorkspaceRow({
       {/* Workspace-level agent_status uses the same unified glyph as
           agent rows (generic mark — a workspace has no provider). */}
       <AgentIdentityIcon agent={null} status={workspace.agent_status} size="sm" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90 leading-tight">
           {title}
         </span>
-        <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
+        <span className="flex w-full min-w-0 items-center gap-2 text-2xs leading-tight text-sidebar-muted-foreground">
           {branch && title !== branch ? (
             <span className="min-w-0 truncate">{branch}</span>
           ) : null}

@@ -189,11 +189,11 @@ export function AgentRow({
           = centered red "!" disc, done/unknown = corner badge,
           idle = ring only). */}
       <AgentIdentityIcon agent={agent.agent} status={agent.agent_status} />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-2xs text-sidebar-muted-foreground">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-2xs text-sidebar-muted-foreground leading-tight">
           {contextLine}
         </span>
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2 leading-tight">
           {/* Title and meta are separate flex items (issue #204 review):
               concatenating them inside one truncating node sliced mid-
               separator ("update onboarding docs ...") and dropped the
