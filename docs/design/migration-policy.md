@@ -261,3 +261,32 @@ fidelity — is governed by `design-system@1` and §4.5 (issue #412).
 - Performance baseline workloads, thresholds derived from measurement
   (#240; #231 is a starting point, not the verdict).
 - CI/readiness machine check and migration roadmap ordering (#241).
+
+## 8. Electron startup baseline (measured, v0.7.0 RC)
+
+Packaged-app spawn→operable measurements on the RC candidate
+(`1a0e3dd`, macOS, `HERDR_T3_PROFILE=dev` isolated userData, fixture
+herdr session, CDP probe anchored at process spawn):
+
+| host loadavg | operable_ms (runs) | verdict vs 5s |
+| --- | --- | --- |
+| ~54 (pre-#609/#611 fixes) | 49,900 (phase probe observe_ok) | fail |
+| ~40 (post-#610) | 12,423 / 16,543 / 12,350 | fail |
+| ~18–20 (post-#614) | 4,900 median / 4,000 best (2/5 over) | marginal |
+| ~11–12 | 3,358 / 2,393 / 1,530 | pass |
+
+Decomposition at loadavg ~18–20: Electron/Chromium process spawn
+floor ~7s at loadavg ~40 (minimal-Electron baseline ~6.9s),
+`BrowserWindow` ctor + helper-process spawn ~0.6–1.5s,
+renderer bundle eval + bridge connect + first snapshot ~0.8–2s.
+Product-side costs were attacked in #609 (wasm asset emission,
+async memory sampler, observe() snapshot cache) and #611
+(createWindow ordering); the residual is dominated by OS/runtime
+spawn cost that scales with host load.
+
+Migration relevance: the 5s spawn→operable contract is
+load-conditional under Electron. A native GPUI shell removes the
+Chromium multi-process spawn floor entirely; this measurement is
+the baseline the GPUI adapter must beat, and the phase breakdown
+(page target / ws / observe_ok / readyState) is the comparison
+schema for the #238 conformance suite's timing evidence.
