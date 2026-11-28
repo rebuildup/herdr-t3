@@ -102,8 +102,10 @@ RC freeze collects both-OS evidence on reference hardware.
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
 | input-to-paint p50/p95/p99, scroll/resize/streaming | ✅ input→paint p50/p95/p99 (trusted wheel+click → next rAF frame), Chrome-tree CPU%, and longtask container attribution under idle/storm/workspace-switch workloads — `perf-frame-bench.ts` (#526), gated by `--check` with provisional budgets; resize leg and true photon-present latency still deferred |
 | local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |
-| multi-client non-interference (observe vs writable: size/focus/scroll authority) | ✅ contract tests — `server/bridge-core.test.ts` "non-interference" describes (#571/#572, strengthened #586); live two-client leg deferred |
-| operator handoff (writable follows focus; demote/promote mode flips) | ✅ contract test — `server/bridge-core.test.ts` "operator handoff" (#586), pins CURRENT per-slot semantics; #584 may add server-side single-writable arbitration — revisit on landing |
+| multi-client non-interference (observe vs writable: size/focus/scroll authority) | ✅ contract tests — `server/bridge-core.test.ts` "non-interference" describes (#571/#572, strengthened #586); C5 conformance corpus `harness/scenarios/bridge/` + `harness/lib/adapters/bridge.ts` (#600); live two-client leg deferred |
+| operator handoff (writable follows focus; demote/promote mode flips) | ✅ contract test — `server/bridge-core.test.ts` "operator handoff" (#586), pins CURRENT per-slot semantics; `src/lib/windowActivity.test.ts` + `WorkspaceCanvas` gate release/suppress the role while the GUI window is hidden/blurred (#600 verifying #584); #584 may add server-side single-writable arbitration — revisit on landing |
+| window inactive/blur → no operator promotion, resize lock released | ✅ contract test — `src/lib/windowActivity.test.ts` + `WorkspaceCanvas` wiring (#600); live blur leg deferred to RC manual check |
+| unselected-host summary delivery (#585 `machine_select` detail mode) | ✅ contract tests — `server/bridge-core.test.ts` / `server/machine-manager.test.ts` "summary detail mode" + `harness/scenarios/bridge/summary-detail-gates.json` (#600); live second-host leg deferred (needs SSH machines) |
 | local history scroll (viewport-only paging, zero RPC/attach/refetch) | ✅ contract test — `server/bridge-core.test.ts` "local history scroll" (#586) + `terminal-io` leg delivery meters (#572) |
 | host scaling (N machines × M visible panes → O(visible) RPC/attach/subscription) | ✅ fake-machine contract test — `server/bridge-core.test.ts` "host scaling" (#586); live multi-host leg deferred (needs SSH machines) |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
@@ -182,12 +184,28 @@ so a removed contract fails loudly:
   growing the visible set to all 6 panes/machine grows attaches linearly
   while RPC/subscription-reopen counts stay flat.
 
+**C5 conformance corpus & window gate (issue #600, program
+#233/#416/#568)**: `harness/scenarios/bridge/*.json` is the shared
+`terminal-noninterference@3` corpus — seven scenarios driven through the
+new TS bridge adapter (`harness/lib/adapters/bridge.ts`, in-process
+`createBridgeSession` + fake connectors) covering the eight C5 checklist
+points, takeover arbitration, detach grant release, and the #585
+summary/detail `machine_select` gate. `oracle: "spec"`, `adapters:
+["ts"]`; a Rust `herdr-bridge` adapter consumes the same files when it
+lands (see `harness/README.md`). The client-side window-activity gate
+(`src/lib/windowActivity.ts` + `WorkspaceCanvas`) demotes/releases the
+operator role on window hide/blur and refuses promotion while inactive.
+All of these are pinned by `perf-contract-check.ts` pieces
+`c5-conformance-corpus`, `window-activity-operator-gate`,
+`summary-detail-mode`, and `attach-egress-promotion-bounds`.
+
 **RC / live legs** (isolated herdr sessions only — never the live
 session; `verify-guard` enforces):
 
 ```sh
 bun test server/bridge-core.test.ts     # fast gate, deterministic
-bun scripts/perf-contract-check.ts      # contract pieces incl. #586
+bun test harness/                       # C5 corpus + codec/terminal/projection scenarios
+bun scripts/perf-contract-check.ts      # contract pieces incl. #586/#600
 bun scripts/perf-contract-check.ts --self-test
 # RC measurement legs (heavy, run at freeze):
 bun scripts/perf-bridge-load.ts record --session ht3load   # attach-churn + terminal-io legs

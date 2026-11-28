@@ -1,0 +1,179 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.mode-negotiation-ordering",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.7 + #584: observe->writable promotion re-attaches on a new connection with the slot queue intact \u2014 input typed while the promotion resolves flushes in order behind the writable subscribe; writable->observe demotion discards queued writable-epoch ops and drops later input. Ordering is the contract: FIRST before SECOND before the resize.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "s"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 0
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": true
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "FIRST"
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "SECOND"
+      }
+    },
+    {
+      "op": "terminal_resize",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "cols": 100,
+        "rows": 30
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 1
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 2
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "LATE"
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 1,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    1,
+                    1,
+                    3,
+                    4
+                  ],
+                  "inputs": [
+                    "FIRST",
+                    "SECOND"
+                  ],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 2,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": false,
+                  "ended": false
+                }
+              ],
+              "frames": [
+                "ready"
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "session.snapshot": 1,
+              "events.subscribe": 2
+            }
+          },
+          "metrics": {
+            "attach": 3,
+            "op_input": 3,
+            "delivery_bytes": 0
+          }
+        }
+      }
+    }
+  ]
+}

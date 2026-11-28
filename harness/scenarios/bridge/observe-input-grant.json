@@ -1,0 +1,200 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.observe-input-grant",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.1/C5.3/C5.4/C5.7: an ObserveTerminal client carries no input/scroll/mouse path (only resize for its announced grid), never perturbs the writable link, and issues no focus/scroll RPCs. Two GUI clients share one fake herdr; 'tui' observes p1+p2 while 'gui' holds the writable attach on p1.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "gui"
+      }
+    },
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "tui"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "gui",
+        "pane": "p1",
+        "takeover": true
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "tui",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "tui",
+        "pane": "p2",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "gui",
+        "conn": 0
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "tui",
+        "conn": 0
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "tui",
+        "conn": 1
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "tui",
+        "pane": "p1",
+        "text": "OBSERVE-TYPED"
+      }
+    },
+    {
+      "op": "terminal_scroll",
+      "input": {
+        "session": "tui",
+        "pane": "p1",
+        "direction": "up",
+        "lines": 3
+      }
+    },
+    {
+      "op": "terminal_mouse",
+      "input": {
+        "session": "tui",
+        "pane": "p1",
+        "action": "press",
+        "column": 1,
+        "row": 1
+      }
+    },
+    {
+      "op": "terminal_resize",
+      "input": {
+        "session": "tui",
+        "pane": "p1",
+        "cols": 132,
+        "rows": 40
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "gui",
+        "pane": "p1",
+        "text": "GUI-TYPED"
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 250
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "gui": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    1
+                  ],
+                  "inputs": [
+                    "GUI-TYPED"
+                  ],
+                  "takeovers": [
+                    true
+                  ],
+                  "detached": false,
+                  "ended": false
+                }
+              ]
+            },
+            "tui": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7,
+                    3
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": false,
+                  "ended": false
+                },
+                {
+                  "index": 1,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": false,
+                  "ended": false
+                }
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "session.snapshot": 2,
+              "events.subscribe": 4
+            },
+            "scroll_filters_ever": [
+              "p1",
+              "p2"
+            ]
+          },
+          "metrics": {
+            "delivery_bytes": 0,
+            "attach": 3,
+            "op_input": 2,
+            "op_scroll": 1,
+            "op_resize": 1,
+            "op_mouse": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -18,7 +18,7 @@ harness/
   selftest.test.ts        fault-injection proofs for the judge itself
   recorded-manifest.json  reproducibility manifest written by --record
   lib/                    format types, comparator, normalizer, runner,
-                          adapters (codec / terminal / projection / rust)
+                          adapters (codec / terminal / projection / bridge / rust)
   fixtures/               shared JSON inputs referenced via {"$ref": ...}
   scenarios/<area>/*.json versioned scenarios
 crates/diff-adapter/      minimal Rust reference adapter (non-product)
@@ -27,6 +27,21 @@ crates/protocol-codec/    product-intended protocol.codec crate (issue
                           json_* ops — the "rust" adapter name routes ops
                           to whichever binary implements them
 ```
+
+`lib/adapters/bridge.ts` drives `server/bridge-core.ts`
+(`createBridgeSession`) in-process against fake API/client connectors and
+exposes attach-link ops (`client_frame`, `complete_attach`,
+`fail_attach`), API-event injection (`inject_event`), and a `bridge_state`
+probe covering session slots, queued ops, per-API method counts and
+metrics. `scenarios/bridge/*.json` is the C5 non-interference
+conformance corpus for `terminal-noninterference@3` (issue #600, program
+#233/#416/#568): observe/writable mode negotiation, promotion/demotion
+without leakage, detach grant release, takeover arbitration, summary vs
+detail snapshot gating, and the v2.2 capability boundary. They are
+`oracle: "spec"`, `adapters: ["ts"]` today — a Rust `herdr-bridge`
+adapter would route the same ops through the product crate and flip
+scenarios to `differential`; until then the corpus pins the merged TS
+contract and the Rust port must match it.
 
 ## Scenario format v1
 

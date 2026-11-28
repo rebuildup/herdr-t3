@@ -134,6 +134,20 @@ describe("AttachEgress observe gating (issue #584)", () => {
     expect(h.sent[0]).toBe("k10");
     expect(h.sent).toHaveLength(ATTACH_PENDING_MAX_OPS);
   });
+
+  test("pending ops are byte-bounded — oversized payloads evict oldest first", () => {
+    const h = harness();
+    // ~1 MB per op against the 4 MiB byte cap: the buffer holds at most
+    // four, so each new op evicts the oldest (issue #499-style bound,
+    // mirrored from the bridge slot queue).
+    for (let i = 0; i < 6; i++) h.input(`k${i}${"x".repeat(1_000_000)}`);
+    expect(h.egress.pendingCount).toBe(4);
+    h.setWritable(true);
+    h.egress.flush();
+    expect(h.sent).toHaveLength(4);
+    expect(h.sent[0]!.startsWith("k2")).toBe(true);
+    expect(h.sent[3]!.startsWith("k5")).toBe(true);
+  });
 });
 
 describe("observeScrollTarget (issue #584)", () => {

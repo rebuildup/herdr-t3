@@ -266,6 +266,95 @@ const PIECES: ContractPiece[] = [
     ],
   },
   {
+    id: "c5-conformance-corpus",
+    description: "H-NI-6 C5 non-interference conformance corpus: JSON bridge attach scenarios + TS adapter (harness/scenarios/bridge, harness/lib/adapters/bridge.ts) — the shared fixture both TS bridge tests and future Rust herdr-bridge tests consume",
+    verify: () => {
+      const failures = [
+        ...sourceHas("harness/lib/adapters/bridge.ts", [
+          /createBridgeSession/,
+          /deliver_welcome/,
+          /bridge_state/,
+          /close_client_conn/,
+          /inject_event/,
+        ]),
+        ...sourceHas("harness/lib/runner.ts", [/createBridgeAdapter/]),
+        ...fileHas("harness/harness.test.ts", [/scenarioFiles/]),
+      ];
+      // Every corpus scenario must stay a real C5 contract pin: declared
+      // contract, ts adapter, and at least one bridge_state expectation.
+      const dir = join(REPO_ROOT, "harness/scenarios/bridge");
+      if (!existsSync(dir)) {
+        failures.push("harness/scenarios/bridge/ missing — C5 corpus gone");
+        return failures;
+      }
+      const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+      if (files.length < 6) {
+        failures.push(`harness/scenarios/bridge: only ${files.length} scenarios (need >=6 C5 pins)`);
+      }
+      for (const f of files) {
+        try {
+          const sc = JSON.parse(read(join("harness/scenarios/bridge", f))) as {
+            contract?: string;
+            adapters?: string[];
+            steps?: { op?: string; expect?: unknown }[];
+          };
+          if (sc.contract !== "terminal-noninterference@3") {
+            failures.push(`${f}: contract is ${sc.contract}, expected terminal-noninterference@3`);
+          }
+          if (!sc.adapters?.includes("ts")) failures.push(`${f}: missing ts adapter`);
+          if (!sc.steps?.some((s) => s.op === "bridge_state" && s.expect !== undefined)) {
+            failures.push(`${f}: no bridge_state expectation — asserts nothing`);
+          }
+        } catch (error) {
+          failures.push(`${f}: unparseable scenario (${error})`);
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    id: "window-activity-operator-gate",
+    description: "GUI window inactive/blur releases the operator role and suppresses promotion — no writable attach held for an unseen window (#600 verifying #584)",
+    verify: () => [
+      ...sourceHas("src/lib/windowActivity.ts", [
+        /windowActive/,
+        /operatorAfterWindowActivity/,
+        /subscribeWindowActivity/,
+        /visibilitychange/,
+      ]),
+      ...sourceHas("src/shell/WorkspaceCanvas.tsx", [
+        /subscribeWindowActivity/,
+        /operatorAfterWindowActivity/,
+        /windowActive/,
+      ]),
+      ...fileHas("src/lib/windowActivity.test.ts", [/windowActive/, /operatorAfterWindowActivity/, /subscribeWindowActivity/]),
+    ],
+  },
+  {
+    id: "summary-detail-mode",
+    description: "machine_select summary detail mode: unselected hosts get stripped snapshots, no terminal delivery, structure/status flow kept (#585)",
+    verify: () => [
+      ...sourceHas("shared/protocol.ts", [/machine_select/, /detail\?: "summary"/]),
+      ...sourceHas("server/bridge-core.ts", [/summarizeSnapshot/, /applyDetail/, /detail === "summary"/]),
+      ...sourceHas("server/machine-manager.ts", [/detailFor/, /detailMachine/, /selectMachine/]),
+      ...fileHas("server/bridge-core.test.ts", [/summary detail mode/, /machine_idle/]),
+      ...fileHas("server/machine-manager.test.ts", [/machine_select detail mode/]),
+      ...fileHas("harness/scenarios/bridge/summary-detail-gates.json", [/set_detail/, /summary/]),
+    ],
+  },
+  {
+    id: "attach-egress-promotion-bounds",
+    description: "AttachEgress promotion buffer: in-order flush behind the writable subscribe, bounded by ops and bytes (#584)",
+    verify: () => [
+      ...sourceHas("src/lib/paneOperator.ts", [
+        /ATTACH_PENDING_MAX_OPS\s*=/,
+        /ATTACH_PENDING_MAX_BYTES\s*=/,
+        /pendingBytes/,
+      ]),
+      ...fileHas("src/lib/paneOperator.test.ts", [/bounded/, /flush/, /promot/]),
+    ],
+  },
+  {
     id: "committed-baselines",
     description: "committed perf baselines for the RC compare leg (perf-reports/)",
     verify: () => {

@@ -1,0 +1,150 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.promotion-demotion-no-leak",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.4/C5.7 (#584): promote->demote before the writable attach resolves discards the queued writable-epoch input \u2014 it must never flush onto the observe link, and a stale attach resolving late is closed, not installed. 'EPOCH' reaches no wire.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "s"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 0
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": true
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "EPOCH"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 2
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 1
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "LATE"
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 100
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 1,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 2,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": false,
+                  "ended": false
+                }
+              ],
+              "frames": [
+                "ready"
+              ]
+            }
+          },
+          "metrics": {
+            "attach": 3,
+            "op_input": 2,
+            "delivery_bytes": 0
+          }
+        }
+      }
+    }
+  ]
+}

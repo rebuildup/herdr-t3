@@ -602,3 +602,24 @@ herdr-t3 `docs/migration/contracts/terminal-noninterference.md`.
 - `crates/protocol-codec` mirrors the `writable` field validation;
   `shared/protocol-codec.wasm` is rebuilt via
   `scripts/protocol-codec/build-wasm.sh`.
+- `harness/scenarios/bridge/*.json` + `harness/lib/adapters/bridge.ts`
+  (issue #600, H-NI-6 groundwork): the shared C5 conformance corpus —
+  `terminal-noninterference@3` JSON scenarios driving `createBridgeSession`
+  in-process with fake connectors, covering the eight C5 checklist
+  points: no-resize-authority ⇒ no lock (item 1), no focus theft (2),
+  no scroll arbitration on read paths (3), input routing only via
+  granted modes (4), grant lifecycle release on detach/demote (5),
+  takeover semantics (6), per-connection ordering (7), and advertised
+  capability gating at the v2.2 boundary (8) — plus the `machine_select`
+  summary/detail delivery gate (#585). `oracle: "spec"`, `adapters: ["ts"]`; a Rust
+  `herdr-bridge` adapter consumes the same files when it lands.
+- `src/lib/windowActivity.ts` + `src/lib/windowActivity.test.ts` +
+  `WorkspaceCanvas` wiring (issue #600 verifying #584): a hidden or
+  blurred GUI window loses the operator role — `operatorAfterWindowActivity`
+  demotes to observe so the resize lock is released, and `grantOperator`
+  refuses promotion while inactive, so no writable attach is held for an
+  unseen window and no buffered input can flush into panes.
+- `scripts/perf-contract-check.ts` pins all of the above as pieces
+  (`c5-conformance-corpus`, `window-activity-operator-gate`,
+  `summary-detail-mode`, `attach-egress-promotion-bounds`) plus the
+  #571/#586 pieces already present.
