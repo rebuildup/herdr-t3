@@ -233,7 +233,7 @@ function gates(reg: Registry): Gate[] {
         "harness/ui/evidence/",
         "crates/ui-test-host/",
       ],
-      note: "every scenario must have PASS evidence on BOTH the real Electron adapter (CDP-driven app) and the GPUI test host (real gpui window + input dispatch), plus fault-injection runs that correctly FAIL — recorded under harness/ui/evidence/",
+      note: "every scenario must have PASS evidence on every adapter it claims (declared `adapters`, absent = both) — the real Electron adapter (CDP-driven app) and the GPUI test host (real gpui window + input dispatch) — plus fault-injection runs that correctly FAIL; adapter-restricted scenarios are recorded as skipped evidence, never silent passes",
     },
     {
       id: "design-conformance",

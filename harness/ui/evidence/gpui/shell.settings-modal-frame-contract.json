@@ -1,0 +1,18 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "gpui",
+  "scenario": "shell.settings-modal-frame-contract",
+  "capability": "ui.shell",
+  "contract": "settings-modal-frame@1",
+  "fixture": "single-workspace",
+  "pass": null,
+  "skipped": true,
+  "skip_reason": "scenario declares adapters [\"electron\"] which excludes \"gpui\"",
+  "adapters_note": "dialog.settings_frame_contract is a viewport-geometry check (anti-cases AC-001) the semantic GPUI test host cannot measure — it renders settings inline, not as a popup frame; the host also lacks section nav and opens on 'appearance' instead of the app's 'general' default. Gap tracked under issue #631.",
+  "injected_fault": null,
+  "git_sha": "767e427c999b015a9aaace2cbfb52e23d485e9ce",
+  "recorded_at": "2026-11-28T11:44:59.277Z",
+  "steps": [],
+  "error": null
+}

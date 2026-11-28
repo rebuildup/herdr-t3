@@ -55,6 +55,10 @@ const FIXTURES = new Set([
   "default-settings",
 ]);
 const KNOWN_CAPABILITIES = /^(ui\.|settings\.|agent\.|workspace\.|terminal\.|protocol\.|bridge\.|machines\.|plugins\.|distribution\.|os\.)/;
+// Adapters the runner can actually drive (harness/ui/run.ts makeAdapter).
+// A typo here would silently drop the scenario from EVERY adapter —
+// coverage loss the readiness gate cannot see (issue #631).
+const ADAPTERS = new Set(["electron", "gpui"]);
 
 interface Step {
   action?: string;
@@ -72,6 +76,8 @@ interface Scenario {
   contract?: string;
   fixture?: string;
   os?: string[];
+  adapters?: string[];
+  adapters_note?: string;
   steps?: Step[];
 }
 
@@ -118,7 +124,14 @@ for (const file of scenarioFiles(join(UI_DIR, "scenarios"))) {
   if (sc.adapters !== undefined) {
     if (!Array.isArray(sc.adapters) || sc.adapters.length === 0 || sc.adapters.some((a) => typeof a !== "string" || a.length === 0)) {
       fail(`${rel}: adapters must be a non-empty string array when present`);
+    } else {
+      for (const a of sc.adapters) {
+        if (!ADAPTERS.has(a)) fail(`${rel}: unknown adapter "${a}" (known: ${[...ADAPTERS].join(", ")})`);
+      }
     }
+  }
+  if (sc.adapters_note !== undefined && typeof sc.adapters_note !== "string") {
+    fail(`${rel}: adapters_note must be a string when present`);
   }
   if (!Array.isArray(sc.steps) || sc.steps.length === 0) fail(`${rel}: steps required`);
 
