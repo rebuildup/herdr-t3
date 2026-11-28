@@ -1,0 +1,148 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.detach-releases-grants",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.5: unsubscribe/close releases every per-connection grant \u2014 each link gets Detach and ends, scroll-subscription coverage empties, and no slot or link is left behind to leak state to the next client.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "s"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p2"
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 0
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 1
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "unsubscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "unsubscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p2"
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "GHOST"
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 1,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": true,
+                  "ended": true
+                }
+              ],
+              "frames": [
+                "ready"
+              ]
+            }
+          },
+          "api": {
+            "scroll_filters": [],
+            "scroll_filters_ever": [
+              "p1",
+              "p2"
+            ]
+          },
+          "metrics": {
+            "attach": 2,
+            "detach": 2,
+            "delivery_bytes": 0
+          }
+        }
+      }
+    }
+  ]
+}

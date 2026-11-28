@@ -69,7 +69,7 @@
   },
   {
    "id": "terminal-noninterference",
-   "version": 2,
+   "version": 3,
    "title": "Terminal non-interference & attach modes",
    "spec": "docs/migration/contracts/terminal-noninterference.md",
    "oracle": "differential",
@@ -309,7 +309,7 @@
    "boundary": "B1",
    "contracts": [
     "protocol-frames@1",
-    "terminal-noninterference@2"
+    "terminal-noninterference@3"
    ],
    "os": [
     "macos",
@@ -737,7 +737,7 @@
    "boundary": "B2",
    "contracts": [
     "workspace-pane-ops@1",
-    "terminal-noninterference@2"
+    "terminal-noninterference@3"
    ],
    "os": [
     "macos",
@@ -2274,7 +2274,7 @@
    "contracts": [
     "terminal-session@1",
     "protocol-frames@1",
-    "terminal-noninterference@2"
+    "terminal-noninterference@3"
    ],
    "os": [
     "macos",
@@ -2297,12 +2297,17 @@
    ],
    "scenarios": [
     "server/client-link.test.ts",
-    "src/lib/ghostty/session.test.ts"
+    "src/lib/ghostty/session.test.ts",
+    "harness/scenarios/bridge/",
+    "src/lib/windowActivity.test.ts"
    ],
    "evidence": [
     "src/lib/ghostty/session.ts",
     "src/components/PaneTerminal.tsx",
-    "docs/adr/ADR-0010.md"
+    "docs/adr/ADR-0010.md",
+    "src/lib/windowActivity.ts",
+    "harness/lib/adapters/bridge.ts",
+    "harness/scenarios/bridge"
    ],
    "stage": "current-verified",
    "status": {
@@ -2608,7 +2613,7 @@
    "boundary": "B4",
    "contracts": [
     "terminal-session@1",
-    "terminal-noninterference@2"
+    "terminal-noninterference@3"
    ],
    "os": [
     "macos",

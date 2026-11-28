@@ -20,6 +20,10 @@ import {
 } from "~/components/ui/context-menu";
 import { paneCanvasView, type CanvasPaneView } from "~/lib/paneCanvas";
 import { operatorAfterFocusChange } from "~/lib/paneOperator";
+import {
+  operatorAfterWindowActivity,
+  subscribeWindowActivity,
+} from "~/lib/windowActivity";
 import { focusPaneTerminal } from "~/lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
@@ -248,7 +252,22 @@ export function WorkspaceCanvas() {
   // size against the TUI or other clients. Viewing and history scrolling
   // never grant it.
   const [operatorPaneId, setOperatorPaneId] = useState<string | null>(null);
+  // Window activity gate (issue #600, verifying #584): a hidden or blurred
+  // GUI window must not hold the writable attach — its resize lock would
+  // keep pinning pane sizes for a viewer nobody is watching, and buffered
+  // input must not flush into panes while the window is inactive. Losing
+  // activity releases the role (observe demotion returns resize authority
+  // to layout/herdr); regaining it never restores one — real input intent
+  // must re-grant (src/lib/windowActivity.ts).
+  const [windowActive, setWindowActive] = useState(true);
+  useEffect(() => subscribeWindowActivity(setWindowActive), []);
+  useEffect(() => {
+    if (!windowActive) {
+      setOperatorPaneId((op) => operatorAfterWindowActivity(op, false));
+    }
+  }, [windowActive]);
   const grantOperator = (paneId: string) => {
+    if (!windowActive) return;
     setOperatorPaneId((cur) => (cur === paneId ? cur : paneId));
   };
   const prevFocusedPaneRef = useRef<string | null>(null);

@@ -1,0 +1,322 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.summary-detail-gates",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.8 + issue #585: a summary-mode (unselected host) session pushes structure/agent status only \u2014 stripped layouts and pane scroll state, detail:\"summary\" marker \u2014 keeps the events.subscribe stream for status flow, opens zero terminal connections for stray frames, delivers zero terminal bytes and zero extra RPCs, and upgrades to full detail on demand (set_detail / subscribe_terminal).",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "s",
+        "detail": "summary",
+        "snapshot": {
+          "agents": [],
+          "layouts": [
+            {
+              "area": {
+                "x": 0,
+                "y": 0,
+                "width": 80,
+                "height": 24
+              },
+              "focused_pane_id": "p1",
+              "panes": [
+                {
+                  "focused": true,
+                  "pane_id": "p1",
+                  "rect": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 80,
+                    "height": 24
+                  }
+                }
+              ],
+              "splits": [],
+              "tab_id": "t1",
+              "workspace_id": "w1",
+              "zoomed": false
+            }
+          ],
+          "panes": [
+            {
+              "agent_status": "idle",
+              "focused": true,
+              "pane_id": "p1",
+              "revision": 1,
+              "scroll": {
+                "offset_from_bottom": 0,
+                "viewport_rows": 24
+              },
+              "tab_id": "t1",
+              "terminal_id": "term-1",
+              "workspace_id": "w1"
+            },
+            {
+              "agent_status": "idle",
+              "focused": false,
+              "pane_id": "p2",
+              "revision": 1,
+              "tab_id": "t1",
+              "terminal_id": "term-2",
+              "workspace_id": "w1"
+            },
+            {
+              "agent_status": "idle",
+              "focused": false,
+              "pane_id": "p3",
+              "revision": 1,
+              "tab_id": "t1",
+              "terminal_id": "term-3",
+              "workspace_id": "w1"
+            },
+            {
+              "agent_status": "idle",
+              "focused": false,
+              "pane_id": "p4",
+              "revision": 1,
+              "tab_id": "t1",
+              "terminal_id": "term-4",
+              "workspace_id": "w1"
+            }
+          ],
+          "protocol": 22,
+          "tabs": [],
+          "version": "harness",
+          "workspaces": [
+            {
+              "active_tab_id": "t1",
+              "agent_status": "idle",
+              "focused": true,
+              "label": "w",
+              "number": 1,
+              "pane_count": 4,
+              "tab_count": 1,
+              "workspace_id": "w1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [],
+              "push_details": [
+                {
+                  "detail": "summary",
+                  "layouts": 0,
+                  "scroll_panes": 0
+                }
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "session.snapshot": 1,
+              "events.subscribe": 1
+            }
+          },
+          "metrics": {
+            "delivery_bytes": 0,
+            "attach": 0
+          }
+        }
+      }
+    },
+    {
+      "op": "inject_event",
+      "input": {
+        "event": "pane.agent_status_changed"
+      }
+    },
+    {
+      "op": "unsubscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "STRAY"
+      }
+    },
+    {
+      "op": "terminal_resize",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "cols": 100,
+        "rows": 30
+      }
+    },
+    {
+      "op": "terminal_scroll",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "direction": "up"
+      }
+    },
+    {
+      "op": "terminal_mouse",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "action": "press",
+        "column": 1,
+        "row": 1
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [],
+              "push_details": [
+                {
+                  "detail": "summary",
+                  "layouts": 0,
+                  "scroll_panes": 0
+                }
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "session.snapshot": 2,
+              "events.subscribe": 1
+            },
+            "scroll_filters": []
+          },
+          "metrics": {
+            "delivery_bytes": 0,
+            "attach": 0,
+            "op_input": 0,
+            "op_scroll": 0,
+            "op_resize": 0,
+            "op_mouse": 0
+          }
+        }
+      }
+    },
+    {
+      "op": "set_detail",
+      "input": {
+        "session": "s",
+        "detail": "full"
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [],
+              "push_details": [
+                {
+                  "detail": "summary",
+                  "layouts": 0,
+                  "scroll_panes": 0
+                },
+                {
+                  "detail": "full",
+                  "layouts": 1,
+                  "scroll_panes": 1
+                }
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "session.snapshot": 3,
+              "events.subscribe": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 0
+      }
+    },
+    {
+      "op": "sleep",
+      "input": {
+        "ms": 200
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5
+                  ],
+                  "inputs": [],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": false,
+                  "ended": false
+                }
+              ]
+            }
+          },
+          "api": {
+            "counts": {
+              "events.subscribe": 2
+            },
+            "scroll_filters": [
+              "p1"
+            ]
+          },
+          "metrics": {
+            "attach": 1
+          }
+        }
+      }
+    }
+  ]
+}

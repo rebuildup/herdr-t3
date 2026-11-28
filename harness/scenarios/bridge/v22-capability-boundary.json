@@ -1,0 +1,142 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "bridge.v22-capability-boundary",
+  "capability": "terminal.attach",
+  "contract": "terminal-noninterference@3",
+  "oracle": "spec",
+  "adapters": [
+    "ts"
+  ],
+  "note": "C5.8 'advertised, not implied': against a protocol-v22 herdr the client only ever emits the v22 client-message subset \u2014 TerminalHello(0) first on every connection, then only AttachTerminal(5)/ObserveTerminal(7)/Input(1)/Resize(3)/Detach(4)/AttachScroll(6)/AttachMouse(16). No trial sends of unadvertised variants; capability gating is Welcome.version, never probing.",
+  "steps": [
+    {
+      "op": "bridge_new",
+      "input": {
+        "name": "s"
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": false
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 0
+      }
+    },
+    {
+      "op": "subscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "writable": true
+      }
+    },
+    {
+      "op": "deliver_welcome",
+      "input": {
+        "session": "s",
+        "conn": 1
+      }
+    },
+    {
+      "op": "terminal_input",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "text": "KEY"
+      }
+    },
+    {
+      "op": "terminal_scroll",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "direction": "up",
+        "lines": 2
+      }
+    },
+    {
+      "op": "terminal_mouse",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "action": "press",
+        "column": 3,
+        "row": 4
+      }
+    },
+    {
+      "op": "terminal_resize",
+      "input": {
+        "session": "s",
+        "pane": "p1",
+        "cols": 120,
+        "rows": 40
+      }
+    },
+    {
+      "op": "unsubscribe_terminal",
+      "input": {
+        "session": "s",
+        "pane": "p1"
+      }
+    },
+    {
+      "op": "bridge_state",
+      "match": "subset",
+      "expect": {
+        "ok": true,
+        "value": {
+          "sessions": {
+            "s": {
+              "conns": [
+                {
+                  "index": 0,
+                  "mode": "observe",
+                  "variants": [
+                    0,
+                    7,
+                    4
+                  ],
+                  "inputs": [],
+                  "takeovers": [],
+                  "detached": true,
+                  "ended": true
+                },
+                {
+                  "index": 1,
+                  "mode": "writable",
+                  "variants": [
+                    0,
+                    5,
+                    1,
+                    6,
+                    16,
+                    3,
+                    4
+                  ],
+                  "inputs": [
+                    "KEY"
+                  ],
+                  "takeovers": [
+                    false
+                  ],
+                  "detached": true,
+                  "ended": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
