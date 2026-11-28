@@ -66,8 +66,10 @@ export function WorkspaceRow({
       className={cn(
         // Two-line hierarchy per info-architecture.md §7 (herdr spaces token
         // rows): identity on line 1, branch/meta on line 2 — never squeezed
-        // into one truncating row (issue #153).
-        "flex w-full cursor-pointer flex-col gap-0.5 rounded-(--control-radius) py-1.5 text-left outline-none transition-colors",
+        // into one truncating row (issue #153). `items-center` keeps the
+        // identity glyph vertically centered against the whole two-line
+        // block, matching AgentRow (issue #550 review).
+        "flex w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) py-1.5 text-left outline-none transition-colors",
         inFolder
           ? "ps-7 pe-(--sidebar-row-content-inset)"
           : "px-(--sidebar-row-content-inset)",
@@ -85,24 +87,24 @@ export function WorkspaceRow({
           "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
       )}
     >
-      <span className="flex w-full min-w-0 items-center gap-2.5">
-        {/* Workspace-level agent_status uses the same unified glyph as
-            agent rows (generic mark — a workspace has no provider). */}
-        <AgentIdentityIcon agent={null} status={workspace.agent_status} size="sm" />
+      {/* Workspace-level agent_status uses the same unified glyph as
+          agent rows (generic mark — a workspace has no provider). */}
+      <AgentIdentityIcon agent={null} status={workspace.agent_status} size="sm" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
           {title}
         </span>
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-2 ps-6.5 text-2xs text-sidebar-muted-foreground">
-        {branch && title !== branch ? (
-          <span className="min-w-0 truncate">{branch}</span>
-        ) : null}
-        <span className="shrink-0 tabular-nums">
-          {workspace.tab_count}t · {workspace.pane_count}p
+        <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
+          {branch && title !== branch ? (
+            <span className="min-w-0 truncate">{branch}</span>
+          ) : null}
+          <span className="shrink-0 tabular-nums">
+            {workspace.tab_count}t · {workspace.pane_count}p
+          </span>
+          {machineLabel ? (
+            <span className="min-w-0 truncate">{machineLabel}</span>
+          ) : null}
         </span>
-        {machineLabel ? (
-          <span className="min-w-0 truncate">{machineLabel}</span>
-        ) : null}
       </span>
     </button>
   );
