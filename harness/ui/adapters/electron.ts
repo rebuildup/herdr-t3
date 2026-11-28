@@ -9,6 +9,7 @@
  * plus DOM queries — never mocks.
  */
 import type { UiAdapter, UiKind } from "../lib/types.ts";
+import { BudgetExceeded, uiBudgets, waitFor } from "../lib/budget.ts";
 
 interface CdpMessage {
   id?: number;
@@ -57,10 +58,20 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
       else p.resolve(msg.result);
     }
   };
+  // Every CDP call is bounded: a hung renderer must surface as a
+  // BudgetExceeded failure, not a stalled harness (issue #416 program).
+  const cdpBudget = uiBudgets().cdpCallMs;
   const send = (method: string, params: unknown = {}): Promise<unknown> =>
     new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new BudgetExceeded(`cdp ${method}`, cdpBudget));
+      }, cdpBudget);
+      pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       ws.send(JSON.stringify({ id, method, params }));
     });
 
@@ -69,6 +80,21 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   // The dev window is routinely occluded/unfocused on a developer machine;
   // without focus emulation Chromium silently drops dispatched key events.
   await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+
+  // Operable-state gate: a live CDP endpoint or an existing window is NOT
+  // proof the app works. Require the observe bridge + a completed document
+  // within the ready budget; a launch hang fails here inside readyMs.
+  await waitFor(
+    () =>
+      evaluate<boolean>(
+        `!!window.__herdrT3Ui && document.readyState === "complete"`,
+      ).catch(() => false),
+    {
+      timeoutMs: uiBudgets().readyMs,
+      intervalMs: 100,
+      label: "electron app operable state",
+    },
+  );
 
   async function evaluate<T>(expr: string): Promise<T> {
     const r = (await send("Runtime.evaluate", {
@@ -426,15 +452,18 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
         // The reload can interrupt this very evaluate — that's fine, the
         // readiness poll below is the real synchronization point.
         await evaluate(`(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("herdr-t3:")) localStorage.removeItem(k); location.hash="#/"; location.reload(); return true; })()`).catch(() => {});
-        const deadline = Date.now() + 45000;
+        const fixtureMs = uiBudgets().fixtureMs;
+        const deadline = Date.now() + fixtureMs;
         for (;;) {
           await new Promise((r) => setTimeout(r, 400));
           const ready = await evaluate<boolean>(
             `!!window.__herdrT3Ui && document.readyState === "complete"`,
           ).catch(() => false);
-          if (ready || Date.now() > deadline) break;
+          if (ready) return;
+          if (Date.now() > deadline) {
+            throw new BudgetExceeded(`fixture default-settings reload`, fixtureMs);
+          }
         }
-        return;
       }
       if (fixture === "single-workspace" || fixture === "two-workspaces-with-scrollback" || fixture === "goto-picker") {
         // Deterministic shell preconditions: sidebar open, home route.
@@ -443,13 +472,17 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
         await evaluate(`(() => { localStorage.setItem("herdr-t3:sidebar-open","true"); location.hash="#/"; location.reload(); return true; })()`).catch(() => {});
         // Wait until the snapshot has actually rendered workspace rows —
         // a fixed sleep races bridge connect + snapshot + first paint.
-        const deadline = Date.now() + 45000;
+        const fixtureMs = uiBudgets().fixtureMs;
+        const deadline = Date.now() + fixtureMs;
         for (;;) {
           await new Promise((r) => setTimeout(r, 400));
           const n = await evaluate<number>(
             `document.querySelectorAll('[data-sidebar-workspace]').length`,
           ).catch(() => 0);
-          if (n > 0 || Date.now() > deadline) break;
+          if (n > 0) return;
+          if (Date.now() > deadline) {
+            throw new BudgetExceeded(`fixture ${fixture} workspace rows`, fixtureMs);
+          }
         }
       }
     },

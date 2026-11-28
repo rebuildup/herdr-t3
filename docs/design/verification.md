@@ -173,3 +173,36 @@ it is a starting point for diff review, not a fidelity claim.
   spacing, density, hierarchy and affordances against the T3 reference.
   A separate pass checks full-resolution captures for sensitive strings
   before publishing.
+
+### Time budgets, watchdog and real-machine lease (issue #416)
+
+Real-machine UI verification must fail on hangs, not stall on them. The
+contracts live in `harness/ui/lib/budget.ts`, `harness/ui/lib/watchdog.ts`
+and are exercised by `harness/ui/lib/budget.test.ts` (injected hangs must
+be detected inside budget — a checker that cannot fail is rejected by
+`scripts/perf-contract-check.ts` piece `ui-verification-budgets`).
+
+- **Budgets** (`UI_BUDGET_*` env overrides, ms): `CDP_CALL` 10s per CDP
+  call, `READY` 5s from process start to operable state
+  (`__herdrT3Ui` + `readyState`), `STEP_CALL` 15s per adapter
+  act/observe, `FIXTURE` 60s fixture setup, `SCENARIO` 180s per
+  scenario, `RUN` 900s whole orchestration. A missing deadline is a
+  defect; fixed sleeps are only allowed as poll intervals inside a
+  deadline-bounded loop.
+- **Operable state, not process existence**: the electron adapter
+  refuses to proceed until the observe bridge answers and the document
+  is complete. A live CDP port or an existing window is not a pass.
+- **Independent watchdog**: `scripts/ui-electron.sh` starts
+  `harness/ui/watchdog-cli.ts` as a separate process. It never talks to
+  the app, so a hung target cannot stall the timeout mechanism. On
+  budget expiry it writes `diagnostics.md` + `ps` snapshot into the run's
+  diag dir and SIGTERM→SIGKILLs only the pids recorded in its pid file.
+- **Exclusive lease**: the watchdog process holds
+  `harness/ui/lease.json` (owner pid, user@host, worktree, session,
+  ports) for the run's lifetime. A second real-machine run fails fast
+  with the current owner's identity instead of fighting over ports and
+  processes. Cleanup signals only pids the run itself recorded — never
+  another session's processes.
+- **Diagnostics**: on failure the diag dir (`mktemp -d -t ui-diag`)
+  keeps vite/electron/herdr/bridge/watchdog logs plus the watchdog
+  snapshot; the path is printed on every `fail`.

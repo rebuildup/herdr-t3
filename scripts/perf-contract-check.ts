@@ -244,6 +244,51 @@ const PIECES: ContractPiece[] = [
     ],
   },
   {
+    id: "ui-verification-budgets",
+    description: "UI verification time budgets + independent watchdog + real-machine lease (#416): every wait bounded, hangs fail inside budget, cleanup only touches recorded pids",
+    verify: () => [
+      ...sourceHas("harness/ui/lib/budget.ts", [
+        /class BudgetExceeded/,
+        /withTimeout/,
+        /waitFor/,
+        /readyMs/,
+        /scenarioMs/,
+        /stepCallMs/,
+        /fixtureMs/,
+        /runMs/,
+      ]),
+      ...sourceHas("harness/ui/lib/watchdog.ts", [
+        /startWatchdog/,
+        /acquireLease/,
+        /writeDiagnostics/,
+        /readPids/,
+      ]),
+      ...sourceHas("harness/ui/lib/runner.ts", [
+        /withTimeout/,
+        /scenarioDeadline/,
+        /BudgetExceeded/,
+      ]),
+      ...sourceHas("harness/ui/adapters/electron.ts", [
+        /cdpCallMs/,
+        /readyMs/,
+        /BudgetExceeded\(`cdp /,
+        /fixtureMs/,
+      ]),
+      ...sourceHas("scripts/ui-electron.sh", [
+        /watchdog-cli\.ts/,
+        /lease-file/,
+        /pids-file/,
+        /record_pid/,
+      ]),
+      ...fileHas("harness/ui/lib/budget.test.ts", [
+        /BudgetExceeded/,
+        /startWatchdog/,
+        /acquireLease/,
+        /hung/,
+      ]),
+    ],
+  },
+  {
     id: "committed-baselines",
     description: "committed perf baselines for the RC compare leg (perf-reports/)",
     verify: () => {
