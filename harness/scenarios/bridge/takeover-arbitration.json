@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.6 + operator transfer between clients: two writable attaches on one pane coexist only until herdr refuses the second \u2014 the refused client gets terminal_closed and NEVER silently retries or holds a phantom writable; authority moves only via an explicit takeover subscribe. Client 'a' keeps its link untouched throughout.",
   "steps": [

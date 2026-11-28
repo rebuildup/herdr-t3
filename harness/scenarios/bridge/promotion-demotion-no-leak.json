@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.4/C5.7 (#584): promote->demote before the writable attach resolves discards the queued writable-epoch input \u2014 it must never flush onto the observe link, and a stale attach resolving late is closed, not installed. 'EPOCH' reaches no wire.",
   "steps": [

@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.8 'advertised, not implied': against a protocol-v22 herdr the client only ever emits the v22 client-message subset \u2014 TerminalHello(0) first on every connection, then only AttachTerminal(5)/ObserveTerminal(7)/Input(1)/Resize(3)/Detach(4)/AttachScroll(6)/AttachMouse(16). No trial sends of unadvertised variants; capability gating is Welcome.version, never probing.",
   "steps": [
