@@ -16,3 +16,11 @@ members = [
 [workspace.package]
 edition = "2021"
 rust-version = "1.85"
+
+# xattr 0.2.3 (via gpui -> gpui_http_client -> zed-async-tar) references
+# libc::ENOATTR, removed on Linux/Android in libc >= 0.2.190
+# (rust-lang/libc#1356, zed-industries/zed#67211). Vendored copy resolves
+# ENOATTR to ENODATA on those targets only; remove when the gpui
+# dependency chain moves to a maintained xattr (issue #634).
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
