@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { compareVersions, isClientFrame, isRpcMethod, pluginHerdrSkew, type ServerFrame } from "./protocol";
+import {
+  compareVersions,
+  isClientFrame,
+  isRpcMethod,
+  pluginHerdrSkew,
+  TERMINAL_NONINTERFERENCE_CAPABILITIES,
+  type HistoryAnchor,
+  type ServerFrame,
+} from "./protocol";
 
 describe("RPC_METHODS allow-list (issue #113)", () => {
   test("exposes the parity methods the client actually calls", () => {
@@ -102,6 +110,104 @@ describe("rpc_result error fields (issue #257)", () => {
       error: { code: "usage", message: "bad args" },
     };
     expect(legacy.type).toBe("rpc_result");
+  });
+});
+
+describe("non-interference capability frames (issue #597, C1–C5)", () => {
+  test("subscribe_terminal accepts the additive C1/C2b/C3/C4 options", () => {
+    expect(
+      isClientFrame({
+        type: "subscribe_terminal",
+        paneId: "w1:p1",
+        writable: false,
+        manageSize: false,
+        inputGrant: { keys: true, mouse: false, scroll: true },
+        scrollScope: "viewport",
+        history: { anchor: { kind: "absolute_line", line: 42 }, rows: 200, format: "ansi" },
+      }),
+    ).toBe(true);
+    // Every option is independently optional.
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", manageSize: false })).toBe(true);
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", inputGrant: {} })).toBe(true);
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", scrollScope: "shared" })).toBe(true);
+    expect(isClientFrame({ type: "subscribe_terminal", paneId: "p", history: {} })).toBe(true);
+  });
+
+  test("subscribe_terminal rejects malformed non-interference options", () => {
+    const base = { type: "subscribe_terminal", paneId: "p" };
+    expect(isClientFrame({ ...base, manageSize: "no" })).toBe(false);
+    expect(isClientFrame({ ...base, inputGrant: "all" })).toBe(false);
+    expect(isClientFrame({ ...base, inputGrant: { keys: "yes" } })).toBe(false);
+    expect(isClientFrame({ ...base, inputGrant: ["keys"] })).toBe(false);
+    expect(isClientFrame({ ...base, scrollScope: "global" })).toBe(false);
+    expect(isClientFrame({ ...base, history: "bottom" })).toBe(false);
+    expect(isClientFrame({ ...base, history: { anchor: { kind: "bogus" } } })).toBe(false);
+    expect(isClientFrame({ ...base, history: { rows: -1 } })).toBe(false);
+    expect(isClientFrame({ ...base, history: { rows: 1.5 } })).toBe(false);
+    expect(isClientFrame({ ...base, history: { format: "html" } })).toBe(false);
+  });
+
+  test("terminal_history validates paneId, anchor, rows and format (C3)", () => {
+    const base = { type: "terminal_history", paneId: "p", anchor: { kind: "offset_from_bottom", offset: 0 } };
+    expect(isClientFrame(base)).toBe(true);
+    expect(
+      isClientFrame({
+        ...base,
+        machine: "wsl",
+        anchor: { kind: "absolute_line", line: Number.MAX_SAFE_INTEGER },
+        rows: 500,
+        format: "text",
+      }),
+    ).toBe(true);
+    expect(isClientFrame({ type: "terminal_history", paneId: "p" })).toBe(false); // anchor required
+    expect(isClientFrame({ ...base, paneId: "" })).toBe(false);
+    expect(isClientFrame({ ...base, anchor: "bottom" })).toBe(false);
+    expect(isClientFrame({ ...base, anchor: { kind: "offset_from_bottom" } })).toBe(false);
+    expect(isClientFrame({ ...base, anchor: { kind: "absolute_line", line: -1 } })).toBe(false);
+    expect(isClientFrame({ ...base, anchor: { kind: "absolute_line", line: 1.5 } })).toBe(false);
+    // u64 magnitudes stay inside the JS safe-integer subset.
+    expect(isClientFrame({ ...base, anchor: { kind: "absolute_line", line: 2 ** 53 } })).toBe(false);
+    expect(isClientFrame({ ...base, rows: -2 })).toBe(false);
+    expect(isClientFrame({ ...base, rows: 2.5 })).toBe(false);
+    expect(isClientFrame({ ...base, format: "html" })).toBe(false);
+  });
+
+  test("terminal_scroll accepts the C4 scope tag", () => {
+    const base = { type: "terminal_scroll", paneId: "p", direction: "up" };
+    expect(isClientFrame({ ...base, scope: "viewport" })).toBe(true);
+    expect(isClientFrame({ ...base, scope: "shared" })).toBe(true);
+    expect(isClientFrame({ ...base, scope: "client" })).toBe(false);
+    expect(isClientFrame({ ...base, scope: 1 })).toBe(false);
+  });
+
+  test("HistoryAnchor and page shapes line up with the spec", () => {
+    const anchors: HistoryAnchor[] = [
+      { kind: "offset_from_bottom", offset: 3 },
+      { kind: "absolute_line", line: 10 },
+    ];
+    for (const anchor of anchors) {
+      expect(isClientFrame({ type: "terminal_history", paneId: "p", anchor })).toBe(true);
+    }
+    const page: ServerFrame = {
+      type: "terminal_history_page",
+      paneId: "w1:p1",
+      machine: "local",
+      terminalId: "t1",
+      contentRevision: 42,
+      anchor: { kind: "absolute_line", line: 10 },
+      rows: ["line one", "line two"],
+      hasMoreAbove: true,
+      hasMoreBelow: false,
+      nextAnchor: { kind: "absolute_line", line: 8 },
+    };
+    expect(page.type).toBe("terminal_history_page");
+    const ready: ServerFrame = {
+      type: "ready",
+      snapshot: { version: "22", protocol: 22, agents: [], layouts: [], panes: [], tabs: [], workspaces: [] },
+      machine: "local",
+      capabilities: [TERMINAL_NONINTERFERENCE_CAPABILITIES.historyPaging],
+    };
+    expect(ready.type).toBe("ready");
   });
 });
 
