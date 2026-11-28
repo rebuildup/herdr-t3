@@ -70,6 +70,38 @@ herdr-t3 `release-0-4-0` 時点の実装。
 | `integration.*` / `plugin.*` | ❌ | herdr プラグイン基盤。クライアント機能ではない |
 | `events.subscribe` | ✅ | bridge が全 subscription set で管理 (AGENTS.md §3) |
 
+### 1.1 herdr 0.9.5 で未分類だった method の確定 (2026-11-28, #640)
+
+herdr 0.9.5 の JSON API は 102 method を持つ。上の表は v0.4.0 時点で
+書かれており、herdr の追加に追随できていなかった。#640 の herdr TUI
+直接比較 (正本: `quality/tui-parity/tui/inventory.json`、生成:
+`quality/tui-parity/tui/derive_inventory.py`) で、**全 method が実装済み
+か判定済みのどちらかに属すること**を機械チェックするため、未分類だった
+method の判定をここで確定する。判定は「hoxay が herdr を日常利用の
+ベースラインとして置き換えるか」という観点からの意図であり、method
+自体は追加実装しない。
+
+| method | 判定 | 備考 |
+| --- | --- | --- |
+| `ping` | ❌ | 他クライアント用の liveness probe。bridge は接続監視を自前で行う |
+| `server.stop` | ❌ | server ライフサイクル。クライアント機能ではない |
+| `server.live_handoff` | ❌ | herdr update の live handoff。TUI 側の更新フローで、hoxay は herdr の更新を管理しない |
+| `server.ssh_agent.register` | ❌ | server 側 SSH agent 登録。hoxay は `machine.*` / SSH transport 側で接続する (server に register しない) |
+| `server.agent_manifests` | ⏸ | agent manifest の再読込。hoxay は herdr config を触らない設計 (上記 `server.reload_config` と同旨) |
+| `product_announcement.dismiss` / `release_notes.dismiss` | ⏸ | herdr 自身の告知 UI。生産性機能ではない |
+| `client.window_title.set` / `client.window_title.clear` | ⏸ | TUI が端末の window title を設定する。hoxay はネイティブ window chrome を持つため対応物を持たない |
+| `client_shell.surface.set` | ❌ | client-shell (TUI) の pane surface 概念。GUI に対応物なし (`popup.close` と同旨) |
+| `workspace.list` / `workspace.get` / `tab.list` / `tab.get` / `pane.list` / `pane.get` / `pane.current` | ⏸ | 個別取得 API。hoxay は `session.snapshot` で一括取得する (snapshot が正本) |
+| `pane.copy_motion` / `pane.copy_search` | ⏸ | TUI の copy mode (scrollback 内検索・yank)。GUI は Ghostty engine の検索 (Cmd+F / Ctrl+Shift+F) と DOM selection で代替 (terminal-io.md §7) |
+| `pane.report_agent` / `pane.report_agent_session` / `pane.report_metadata` / `pane.clear_agent_authority` / `pane.release_agent` | ❌ | herdr 内部のエージェント権限・報告。クライアントが呼べる_INTERFACEではない (上表の `agent.report_*` と同旨) |
+| `events.wait` | ⏸ | 1 回待ちのイベント取得。hoxay は `events.subscribe` の stream を使う |
+| `pane.send_input` | ✅ | bracketed paste / 生入力の配送経路 (#434/#478)。bridge whitelist に包含済み |
+
+この分類により、`quality/tui-parity/lib/capability.ts` の
+「bridge method は herdr に実在する」「実装済み method は表に分類がある」
+「herdr の全 method が実装済みか分類済み」の 3 系統が機械チェック
+可能な状態になる。判定-symbol の意味は上表に準じる。
+
 ## 2. client-shell (TUI) 機能の対応表
 
 herdr TUI (`src/client/shell/`) が提供する操作・情報と、herdr-t3 での

@@ -1,0 +1,489 @@
+{
+  "derived_from": {
+    "herdr_bin": "herdr",
+    "herdr_version": "herdr 0.9.5",
+    "commands": [
+      "herdr --version",
+      "herdr --default-config",
+      "herdr api schema --json",
+      "herdr completion zsh",
+      "herdr <group> --help (for every CLI group)"
+    ]
+  },
+  "modes": {
+    "prefix": {
+      "enter_key": "ctrl+b",
+      "exit_key": "esc",
+      "bindings": {
+        "help": "prefix+?",
+        "settings": "prefix+s",
+        "detach": "prefix+q",
+        "reload_config": "prefix+shift+r",
+        "open_notification_target": "prefix+o",
+        "workspace_picker": "prefix+w",
+        "goto": "prefix+g",
+        "new_workspace": "prefix+shift+n",
+        "new_worktree": "prefix+shift+g",
+        "rename_workspace": "prefix+shift+w",
+        "close_workspace": "prefix+shift+d",
+        "remote_image_paste": "ctrl+v",
+        "new_tab": "prefix+c",
+        "rename_tab": "prefix+shift+t",
+        "previous_tab": "prefix+p",
+        "next_tab": "prefix+n",
+        "switch_tab": "prefix+1..9",
+        "close_tab": "prefix+shift+x",
+        "rename_pane": "prefix+shift+p",
+        "edit_scrollback": "prefix+e",
+        "focus_pane_left": "prefix+h",
+        "focus_pane_down": "prefix+j",
+        "focus_pane_up": "prefix+k",
+        "focus_pane_right": "prefix+l",
+        "cycle_pane_next": "prefix+tab",
+        "cycle_pane_previous": "prefix+shift+tab",
+        "split_vertical": "prefix+v",
+        "split_horizontal": "prefix+minus",
+        "close_pane": "prefix+x",
+        "zoom": "prefix+z",
+        "resize_mode": "prefix+r",
+        "toggle_sidebar": "prefix+b"
+      },
+      "documented_but_unset_by_default": [
+        "clear_pane",
+        "focus_agent",
+        "last_pane",
+        "move_tab_next",
+        "move_tab_previous",
+        "next_agent",
+        "next_workspace",
+        "open_worktree",
+        "previous_agent",
+        "previous_workspace",
+        "remove_worktree",
+        "switch_workspace"
+      ]
+    },
+    "navigate": {
+      "bindings": {
+        "navigate_workspace_up": "up",
+        "navigate_workspace_down": "down",
+        "navigate_pane_left": "h",
+        "navigate_pane_down": "j",
+        "navigate_pane_up": "k",
+        "navigate_pane_right": "l"
+      },
+      "note": "local shortcuts win while navigate mode is open; left/right arrows always focus the adjacent pane"
+    },
+    "resize": {
+      "direct_bindings": {
+        "resize_pane_left": "",
+        "resize_pane_down": "",
+        "resize_pane_up": "",
+        "resize_pane_right": ""
+      },
+      "note": "prefix+r enters resize mode; the four resize_pane_* bindings are optional and unset by default"
+    },
+    "copy_mode": {
+      "default_binding": "prefix+e (edit_scrollback)",
+      "note": "the binary keybind action enum also contains 'copy_mode'"
+    },
+    "overlay": {
+      "note": "popup/help/settings overlays are opened via prefix-mode actions (help=prefix+?, settings=prefix+s)"
+    }
+  },
+  "protocol": {
+    "protocol": 22,
+    "schema_version": 1
+  },
+  "rpc_methods": [
+    "agent.explain",
+    "agent.focus",
+    "agent.get",
+    "agent.list",
+    "agent.prompt",
+    "agent.read",
+    "agent.rename",
+    "agent.send_keys",
+    "agent.start",
+    "agent.view.clear",
+    "agent.view.set",
+    "agent.wait",
+    "client.window_title.clear",
+    "client.window_title.set",
+    "client_shell.surface.set",
+    "command.invoke",
+    "events.subscribe",
+    "events.wait",
+    "integration.install",
+    "integration.list",
+    "integration.uninstall",
+    "layout.apply",
+    "layout.export",
+    "layout.set_split_ratio",
+    "notification.show",
+    "pane.clear",
+    "pane.clear_agent_authority",
+    "pane.close",
+    "pane.copy_motion",
+    "pane.copy_search",
+    "pane.current",
+    "pane.edges",
+    "pane.edit_scrollback",
+    "pane.focus",
+    "pane.focus_direction",
+    "pane.get",
+    "pane.input.set",
+    "pane.layout",
+    "pane.link.activate",
+    "pane.link.resolve",
+    "pane.list",
+    "pane.move",
+    "pane.neighbor",
+    "pane.process_info",
+    "pane.read",
+    "pane.release_agent",
+    "pane.rename",
+    "pane.report_agent",
+    "pane.report_agent_session",
+    "pane.report_metadata",
+    "pane.resize",
+    "pane.scroll",
+    "pane.selection.read",
+    "pane.send_input",
+    "pane.send_keys",
+    "pane.send_text",
+    "pane.split",
+    "pane.swap",
+    "pane.wait_for_output",
+    "pane.zoom",
+    "ping",
+    "plugin.action.invoke",
+    "plugin.action.list",
+    "plugin.disable",
+    "plugin.enable",
+    "plugin.link",
+    "plugin.list",
+    "plugin.log.list",
+    "plugin.pane.close",
+    "plugin.pane.focus",
+    "plugin.pane.open",
+    "plugin.unlink",
+    "popup.close",
+    "product_announcement.dismiss",
+    "release_notes.dismiss",
+    "server.agent_manifests",
+    "server.live_handoff",
+    "server.reload_agent_manifests",
+    "server.reload_config",
+    "server.ssh_agent.register",
+    "server.stop",
+    "session.snapshot",
+    "tab.close",
+    "tab.create",
+    "tab.focus",
+    "tab.get",
+    "tab.list",
+    "tab.move",
+    "tab.rename",
+    "workspace.close",
+    "workspace.create",
+    "workspace.focus",
+    "workspace.get",
+    "workspace.list",
+    "workspace.move",
+    "workspace.move_block",
+    "workspace.rename",
+    "workspace.report_metadata",
+    "worktree.create",
+    "worktree.list",
+    "worktree.open",
+    "worktree.remove"
+  ],
+  "rpc_method_count": 102,
+  "rpc_methods_by_group": {
+    "agent": [
+      "agent.explain",
+      "agent.focus",
+      "agent.get",
+      "agent.list",
+      "agent.prompt",
+      "agent.read",
+      "agent.rename",
+      "agent.send_keys",
+      "agent.start",
+      "agent.view.clear",
+      "agent.view.set",
+      "agent.wait"
+    ],
+    "client": [
+      "client.window_title.clear",
+      "client.window_title.set"
+    ],
+    "client_shell": [
+      "client_shell.surface.set"
+    ],
+    "command": [
+      "command.invoke"
+    ],
+    "events": [
+      "events.subscribe",
+      "events.wait"
+    ],
+    "integration": [
+      "integration.install",
+      "integration.list",
+      "integration.uninstall"
+    ],
+    "layout": [
+      "layout.apply",
+      "layout.export",
+      "layout.set_split_ratio"
+    ],
+    "notification": [
+      "notification.show"
+    ],
+    "pane": [
+      "pane.clear",
+      "pane.clear_agent_authority",
+      "pane.close",
+      "pane.copy_motion",
+      "pane.copy_search",
+      "pane.current",
+      "pane.edges",
+      "pane.edit_scrollback",
+      "pane.focus",
+      "pane.focus_direction",
+      "pane.get",
+      "pane.input.set",
+      "pane.layout",
+      "pane.link.activate",
+      "pane.link.resolve",
+      "pane.list",
+      "pane.move",
+      "pane.neighbor",
+      "pane.process_info",
+      "pane.read",
+      "pane.release_agent",
+      "pane.rename",
+      "pane.report_agent",
+      "pane.report_agent_session",
+      "pane.report_metadata",
+      "pane.resize",
+      "pane.scroll",
+      "pane.selection.read",
+      "pane.send_input",
+      "pane.send_keys",
+      "pane.send_text",
+      "pane.split",
+      "pane.swap",
+      "pane.wait_for_output",
+      "pane.zoom"
+    ],
+    "ping": [
+      "ping"
+    ],
+    "plugin": [
+      "plugin.action.invoke",
+      "plugin.action.list",
+      "plugin.disable",
+      "plugin.enable",
+      "plugin.link",
+      "plugin.list",
+      "plugin.log.list",
+      "plugin.pane.close",
+      "plugin.pane.focus",
+      "plugin.pane.open",
+      "plugin.unlink"
+    ],
+    "popup": [
+      "popup.close"
+    ],
+    "product_announcement": [
+      "product_announcement.dismiss"
+    ],
+    "release_notes": [
+      "release_notes.dismiss"
+    ],
+    "server": [
+      "server.agent_manifests",
+      "server.live_handoff",
+      "server.reload_agent_manifests",
+      "server.reload_config",
+      "server.ssh_agent.register",
+      "server.stop"
+    ],
+    "session": [
+      "session.snapshot"
+    ],
+    "tab": [
+      "tab.close",
+      "tab.create",
+      "tab.focus",
+      "tab.get",
+      "tab.list",
+      "tab.move",
+      "tab.rename"
+    ],
+    "workspace": [
+      "workspace.close",
+      "workspace.create",
+      "workspace.focus",
+      "workspace.get",
+      "workspace.list",
+      "workspace.move",
+      "workspace.move_block",
+      "workspace.rename",
+      "workspace.report_metadata"
+    ],
+    "worktree": [
+      "worktree.create",
+      "worktree.list",
+      "worktree.open",
+      "worktree.remove"
+    ]
+  },
+  "cli_groups": {
+    "server": [
+      "agent-manifests",
+      "reload-agent-manifests",
+      "reload-config",
+      "stop",
+      "update-agent-manifests"
+    ],
+    "machine": [
+      "add",
+      "disable",
+      "enable",
+      "list",
+      "reconnect",
+      "remove",
+      "rename",
+      "status"
+    ],
+    "session": [
+      "attach",
+      "delete",
+      "list",
+      "stop"
+    ],
+    "workspace": [
+      "close",
+      "create",
+      "focus",
+      "get",
+      "list",
+      "rename",
+      "report-metadata"
+    ],
+    "worktree": [
+      "create",
+      "list",
+      "open",
+      "remove"
+    ],
+    "tab": [
+      "close",
+      "create",
+      "focus",
+      "get",
+      "list",
+      "rename"
+    ],
+    "notification": [
+      "show"
+    ],
+    "agent": [
+      "attach",
+      "explain",
+      "focus",
+      "get",
+      "list",
+      "prompt",
+      "read",
+      "rename",
+      "send-keys",
+      "start",
+      "wait"
+    ],
+    "pane": [
+      "close",
+      "current",
+      "edges",
+      "focus",
+      "get",
+      "input",
+      "layout",
+      "list",
+      "move",
+      "neighbor",
+      "process-info",
+      "read",
+      "release-agent",
+      "rename",
+      "report-agent",
+      "report-agent-session",
+      "report-metadata",
+      "resize",
+      "run",
+      "send-keys",
+      "send-text",
+      "split",
+      "swap",
+      "wait-output",
+      "zoom"
+    ],
+    "integration": [
+      "install",
+      "status",
+      "uninstall"
+    ],
+    "config": [
+      "check",
+      "reset-keys"
+    ],
+    "channel": [
+      "set",
+      "show"
+    ],
+    "completion": [],
+    "api": [
+      "schema",
+      "snapshot"
+    ],
+    "plugin": [
+      "action",
+      "config-dir",
+      "disable",
+      "enable",
+      "install",
+      "link",
+      "list",
+      "log",
+      "pane",
+      "uninstall",
+      "unlink",
+      "update"
+    ],
+    "terminal": [
+      "attach",
+      "session",
+      "title"
+    ],
+    "status": [
+      "client",
+      "server"
+    ],
+    "update": []
+  },
+  "cli_groups_hidden_from_help": [],
+  "socket_and_session": {
+    "default_session_socket": "~/.config/herdr/herdr.sock",
+    "named_session_socket": "~/.config/herdr/sessions/<name>/herdr.sock",
+    "config_path": "~/.config/herdr/config.toml",
+    "env_overrides": [
+      "HERDR_CONFIG_PATH",
+      "HERDR_SOCKET_PATH",
+      "HERDR_SESSION"
+    ]
+  }
+}

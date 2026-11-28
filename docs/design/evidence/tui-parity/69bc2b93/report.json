@@ -1,0 +1,432 @@
+{
+  "format": "hoxay/tui-parity-report",
+  "version": 1,
+  "git_sha": "69bc2b936a9a39e403f6cd877c4243a782b45c62",
+  "recorded_at": "2026-11-28T15:39:46.345Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "loadavg": [
+      91.97705078125,
+      88.11279296875,
+      70.00048828125
+    ],
+    "cpus": 10
+  },
+  "herdr_version": "herdr 0.9.5",
+  "phases": [
+    {
+      "phase": "capability",
+      "pass": true,
+      "failures": [],
+      "details": {
+        "herdrVersion": "herdr 0.9.5",
+        "herdrMethods": 102,
+        "hoxayMethods": 39,
+        "checks": [
+          {
+            "id": "bridge-methods-exist-in-herdr",
+            "pass": true,
+            "failures": []
+          },
+          {
+            "id": "implemented-methods-are-classified",
+            "pass": true,
+            "failures": []
+          },
+          {
+            "id": "herdr-methods-are-classified-or-implemented",
+            "pass": true,
+            "failures": []
+          },
+          {
+            "id": "tui-features-are-mapped",
+            "pass": true,
+            "failures": []
+          }
+        ]
+      }
+    },
+    {
+      "phase": "efficiency",
+      "pass": true,
+      "failures": [],
+      "details": {
+        "tasks": [
+          {
+            "id": "switch-workspace",
+            "task": "switch to another workspace",
+            "tuiActions": 3,
+            "hoxayActions": 1,
+            "delta": 2,
+            "pass": true
+          },
+          {
+            "id": "create-workspace",
+            "task": "create a workspace",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "rename-workspace",
+            "task": "rename a workspace",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "close-workspace",
+            "task": "close a workspace",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "new-tab",
+            "task": "open a new tab",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "switch-tab",
+            "task": "switch to another tab",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "split-pane",
+            "task": "split the focused pane",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "close-pane",
+            "task": "close the focused pane",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "zoom-pane",
+            "task": "zoom / unzoom the focused pane",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "focus-pane",
+            "task": "move focus to the neighbouring pane",
+            "tuiActions": 2,
+            "hoxayActions": 1,
+            "delta": 1,
+            "pass": true
+          },
+          {
+            "id": "resize-pane",
+            "task": "resize a pane",
+            "tuiActions": 3,
+            "hoxayActions": 1,
+            "delta": 2,
+            "pass": true
+          },
+          {
+            "id": "goto-search",
+            "task": "jump to a workspace, tab or pane by name",
+            "tuiActions": 4,
+            "hoxayActions": 4,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "new-worktree",
+            "task": "create a worktree-backed workspace",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "search-scrollback",
+            "task": "search inside the focused pane's scrollback",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          },
+          {
+            "id": "help-overlay",
+            "task": "look up the available keybindings",
+            "tuiActions": 2,
+            "hoxayActions": 2,
+            "delta": 0,
+            "pass": true
+          }
+        ]
+      }
+    },
+    {
+      "phase": "tui",
+      "pass": true,
+      "failures": [],
+      "details": {
+        "session": "ht3paritytui",
+        "panes": 2,
+        "samples": [
+          {
+            "label": "startup.first-frame",
+            "ms": 327.61
+          },
+          {
+            "label": "workspace.switch via prefix+w → Down → Enter",
+            "ms": 489
+          },
+          {
+            "label": "terminal.input-delivery",
+            "ms": 775
+          },
+          {
+            "label": "scroll via prefix+[ (copy mode) → PageUp",
+            "ms": 502
+          }
+        ]
+      }
+    },
+    {
+      "phase": "gui",
+      "pass": false,
+      "failures": [
+        "startup.operable: stuck at observe-unavailable — spawn→operable exceeded 5000ms",
+        "workspace.switch(ui-a→ui-b): workspace.switch(wM): no state change within 2000ms",
+        "workspace.switch(ui-b→ui-a): workspace.switch(wK): no state change within 2000ms",
+        "terminal.scroll: terminal.scroll(10): no state change within 2000ms",
+        "terminal.input-delivery: terminal.input-delivery: no state change within 3000ms"
+      ],
+      "details": {
+        "cdpPort": 61278,
+        "session": "ht3paritygui",
+        "samples": []
+      }
+    },
+    {
+      "phase": "stability.tui-soak",
+      "pass": true,
+      "failures": [],
+      "details": {
+        "durationMs": 600000,
+        "intervalMs": 5000,
+        "probes": 109
+      }
+    },
+    {
+      "phase": "stability.gui-soak",
+      "pass": false,
+      "failures": [
+        "soak probe at +250965ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +265980ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +296275ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +326445ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +373098ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +420100ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +437297ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +455334ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +472353ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +488680ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +505624ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +522289ms: workspace.switch(wH): no state change within 10000ms",
+        "soak probe at +539003ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +574932ms: workspace.switch(wJ): no state change within 10000ms",
+        "soak probe at +601440ms: workspace.switch(wH): no state change within 10000ms"
+      ],
+      "details": {
+        "durationMs": 600000,
+        "intervalMs": 5000,
+        "probes": 55,
+        "heapMb": {
+          "first": 17,
+          "last": 17,
+          "max": 17
+        }
+      }
+    },
+    {
+      "phase": "floor",
+      "pass": true,
+      "failures": [],
+      "details": {
+        "socketPath": "/Users/rebui/.config/herdr/sessions/ht3paritytui/herdr.sock",
+        "results": [
+          {
+            "method": "session.snapshot",
+            "iterations": 20,
+            "p50": 303.37,
+            "p95": 351.3,
+            "max": 414.17,
+            "errors": 0
+          },
+          {
+            "method": "workspace.focus",
+            "iterations": 20,
+            "p50": 339.2,
+            "p95": 474.71,
+            "max": 827.26,
+            "errors": 0
+          }
+        ]
+      }
+    }
+  ],
+  "catalog": [
+    {
+      "id": "capability.rpc-surface",
+      "dimension": "capability",
+      "evidence": "measured"
+    },
+    {
+      "id": "capability.tui-only-features",
+      "dimension": "capability",
+      "evidence": "measured"
+    },
+    {
+      "id": "startup.packaged-5s",
+      "dimension": "startup",
+      "evidence": "measured",
+      "reference": "#601/#603 established the measurement path; #640 re-runs it on the current candidate"
+    },
+    {
+      "id": "response.workspace-switch",
+      "dimension": "response-performance",
+      "evidence": "measured"
+    },
+    {
+      "id": "response.scroll",
+      "dimension": "response-performance",
+      "evidence": "measured"
+    },
+    {
+      "id": "terminal.input-delivery",
+      "dimension": "terminal-input",
+      "evidence": "measured",
+      "reference": "#434/#478 covered bracketed-paste delivery on the GUI side; #640 adds the TUI side of the same check"
+    },
+    {
+      "id": "terminal.paste-multiline",
+      "dimension": "terminal-input",
+      "evidence": "contract",
+      "reference": "#434/#478 (GUI side, PASS); the TUI side is covered by the same contract in the upstream client"
+    },
+    {
+      "id": "terminal.ime-composition",
+      "dimension": "terminal-input",
+      "evidence": "contract",
+      "reference": "src/lib/ghostty/inputPolicy.test.ts (deterministic half) + docs/design/verification.md row 1 (real IME leg)"
+    },
+    {
+      "id": "mouse.capture-reporting",
+      "dimension": "mouse",
+      "evidence": "contract",
+      "reference": "docs/design/verification.md rows 4–6 (real-machine checklist)"
+    },
+    {
+      "id": "mouse.shift-drag-select",
+      "dimension": "mouse",
+      "evidence": "contract",
+      "reference": "docs/design/verification.md row 5; #427 (inverse drag), #433 (edge auto-scroll), #436 (scroll follow), #440/#441 (copy-on-select, overlay motion)"
+    },
+    {
+      "id": "scroll.selection-and-copy",
+      "dimension": "scroll",
+      "evidence": "contract",
+      "reference": "#427/#433/#436/#440/#441 (GUI side, PASS); the TUI's copy mode is the baseline behaviour"
+    },
+    {
+      "id": "pane-ops.equivalence",
+      "dimension": "pane-ops",
+      "evidence": "not-run"
+    },
+    {
+      "id": "agent.management",
+      "dimension": "agent-management",
+      "evidence": "contract",
+      "reference": "#151 (agent shelves), #113 (agent actions), docs/design/verification.md row 7"
+    },
+    {
+      "id": "reconnect.draft-preserved",
+      "dimension": "reconnect",
+      "evidence": "contract",
+      "reference": "#5 / scripts/verify-reconnect-draft.ts (GUI side, PASS on both OS)"
+    },
+    {
+      "id": "reconnect.resume-session",
+      "dimension": "reconnect",
+      "evidence": "contract",
+      "reference": "#5 (session survival), AGENTS.md §3"
+    },
+    {
+      "id": "efficiency.actions-per-task",
+      "dimension": "operational-efficiency",
+      "evidence": "measured"
+    },
+    {
+      "id": "stability.long-run",
+      "dimension": "long-run-stability",
+      "evidence": "measured"
+    },
+    {
+      "id": "workflow.continuous-development",
+      "dimension": "response-performance",
+      "evidence": "manual"
+    }
+  ],
+  "open_items": [
+    {
+      "id": "startup.packaged-5s",
+      "dimension": "startup",
+      "evidence": "measured"
+    },
+    {
+      "id": "response.workspace-switch",
+      "dimension": "response-performance",
+      "evidence": "measured",
+      "note": "the shared herdr round trip is measured separately (engine floor) so the comparison is client overhead, not wire time"
+    },
+    {
+      "id": "response.scroll",
+      "dimension": "response-performance",
+      "evidence": "measured"
+    },
+    {
+      "id": "terminal.input-delivery",
+      "dimension": "terminal-input",
+      "evidence": "measured"
+    },
+    {
+      "id": "pane-ops.equivalence",
+      "dimension": "pane-ops",
+      "evidence": "not-run",
+      "note": "GUI pane ops are covered piecemeal by the #413 RC evidence and docs/design/verification.md, but an automated identical-layout-tree comparison against the TUI does not exist yet — left open rather than claimed"
+    },
+    {
+      "id": "stability.long-run",
+      "dimension": "long-run-stability",
+      "evidence": "measured",
+      "note": "the soak legs keep each client attached under fixture output and probe on a fixed cadence; the memory-budget half is measured separately by scripts/perf-memory-bench.ts (#499)"
+    },
+    {
+      "id": "workflow.continuous-development",
+      "dimension": "response-performance",
+      "evidence": "manual"
+    }
+  ]
+}
