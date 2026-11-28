@@ -226,7 +226,7 @@ function ToastMeta({ data }: { data: ToastNoticeData | undefined }) {
   if (parts.length === 0) return null;
   return (
     <div
-      className="mt-1 truncate text-2xs text-muted-foreground/80"
+      className="mt-0.5 truncate text-2xs text-muted-foreground/80"
       data-slot="toast-meta"
     >
       {parts.join(" · ")}
@@ -375,10 +375,10 @@ function Toasts({ position }: { position: ToastPosition }) {
                 className={cn(
                   // overflow-x:clip preserves visible vertical overflow; hidden would force overflow-y:auto
                   // and clip detail panels.
-                  "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
+                  "pointer-events-auto min-h-0 overflow-y-visible pl-3 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
                   stackedActionLayout
                     ? "flex flex-col gap-2 py-2.5 pr-3.5"
-                    : cn("py-3", "flex items-center justify-between gap-1.5", inlineContentEndPad),
+                    : cn("py-2", "flex items-center justify-between gap-1.5", inlineContentEndPad),
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}
@@ -392,7 +392,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                     out (the systemic no-breakage guarantee). */}
                 <div
                   className={cn(
-                    "flex min-h-0 min-w-0 flex-1 items-center gap-3",
+                    "flex min-h-0 min-w-0 flex-1 items-center gap-2.5",
                     stackedActionLayout
                       ? "pr-5"
                       : !hasAction && "pr-6",
@@ -415,13 +415,13 @@ function Toasts({ position }: { position: ToastPosition }) {
                       <Icon className="size-6 in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning" />
                     </div>
                   ) : null}
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0">
                     <Toast.Title
-                      className="min-w-0 wrap-break-word font-medium"
+                      className="min-w-0 wrap-break-word font-medium leading-tight"
                       data-slot="toast-title"
                     />
                     <Toast.Description
-                      className="min-w-0 select-text wrap-break-word text-muted-foreground"
+                      className="min-w-0 select-text wrap-break-word text-muted-foreground leading-tight"
                       data-slot="toast-description"
                     />
                     <ToastMeta data={toast.data} />
