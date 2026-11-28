@@ -13,6 +13,7 @@
  * never touch herdr.
  */
 import { useSyncExternalStore } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { toastManager } from "~/components/ui/toast";
 
@@ -21,6 +22,8 @@ export type NoticeKind = "attention" | "info" | "error";
 export interface NoticeAction {
   label: string;
   run: () => void;
+  /** Optional leading glyph for the toast action button (issue #550). */
+  icon?: LucideIcon | undefined;
 }
 
 export interface Notice {
@@ -103,6 +106,7 @@ export function pushNotice(
       // status ring + marker) instead of a bare type icon (issue #550).
       agentStatus: full.kind === "attention" ? full.status : undefined,
       agent: full.agent,
+      actionIcon: full.action?.icon,
     },
   });
   return id;

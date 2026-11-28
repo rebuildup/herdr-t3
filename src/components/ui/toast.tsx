@@ -18,6 +18,7 @@ import {
   InfoIcon,
   TriangleAlertIcon,
   XIcon,
+  type LucideIcon,
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
@@ -55,6 +56,8 @@ export interface ToastNoticeData {
   agentStatus?: AgentStatus | undefined;
   /** Provider kind for the attention glyph's brand mark. */
   agent?: string | undefined;
+  /** Optional leading glyph inside the action button (issue #550). */
+  actionIcon?: LucideIcon | undefined;
   onClose?: (() => void) | undefined;
 }
 
@@ -289,6 +292,7 @@ function Toasts({ position }: { position: ToastPosition }) {
           const Icon = toast.type
             ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
             : null;
+          const ActionIcon = toast.data?.actionIcon;
           const hasAction = hasVisibleToastAction(toast.actionProps);
           const stackedActionLayout =
             hasAction && toast.data?.actionLayout === "stacked-end";
@@ -436,11 +440,16 @@ function Toasts({ position }: { position: ToastPosition }) {
                   >
                     <Toast.Action
                       className={cn(
-                        buttonVariants({ size: "xs", variant: "default" }),
+                        // Issue #550: compact chip, not a primary CTA —
+                        // `micro` (20px) + `secondary` keeps the action
+                        // subordinate to the notice content; the
+                        // optional actionIcon rides inside as a glyph.
+                        buttonVariants({ size: "micro", variant: "secondary" }),
                         "shrink-0",
                       )}
                       data-slot="toast-action"
                     >
+                      {ActionIcon ? <ActionIcon /> : null}
                       {toast.actionProps?.children}
                     </Toast.Action>
                   </div>

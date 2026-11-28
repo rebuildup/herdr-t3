@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { ArrowRightIcon, ArrowUpRightIcon, RotateCcwIcon } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "~/components/ui/button";
@@ -32,6 +33,7 @@ export const Playground: Story = {
               title: "Agent needs input",
               body: "claude · refactor auth flow",
               context: "my-app · mbp · main",
+              action: { label: "Open", icon: ArrowUpRightIcon, run: () => {} },
             })
           }
         >
@@ -48,6 +50,7 @@ export const Playground: Story = {
               title: "Agent finished",
               body: "codex · fix flaky test",
               context: "my-app · mbp · main",
+              action: { label: "Open", icon: ArrowUpRightIcon, run: () => {} },
             })
           }
         >
@@ -88,7 +91,7 @@ export const Playground: Story = {
               kind: "info",
               title: "Tab closed",
               body: "scratch",
-              action: { label: "Undo", run: () => {} },
+              action: { label: "Undo", icon: RotateCcwIcon, run: () => {} },
             })
           }
         >
@@ -137,7 +140,7 @@ export const Playground: Story = {
               kind: "info",
               title: "A title with no spaces whatsoeverinitshouldstillwrapcleanly",
               body: "Supercalifragilisticexpialidocious".repeat(6),
-              action: { label: "A very long action label", run: () => {} },
+              action: { label: "A very long action label", icon: ArrowRightIcon, run: () => {} },
             })
           }
         >
@@ -188,7 +191,7 @@ export const LongContentStress: Story = {
         title: "A title with no spaces whatsoeverinitshouldstillwrapcleanly",
         body: "Supercalifragilisticexpialidocious".repeat(6),
         context: "ctx",
-        action: { label: "A very long action label", run: () => {} },
+        action: { label: "A very long action label", icon: ArrowRightIcon, run: () => {} },
       });
       pushNotice({
         kind: "error",
