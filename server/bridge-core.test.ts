@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RpcMethod, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
-import { createBridgeSession, type BridgeEndpoint } from "./bridge-core.ts";
+import { createBridgeSession, type BridgeEndpoint, type SnapshotDetail } from "./bridge-core.ts";
 import { decodeVarint } from "./client-link.ts";
 import { metricsSnapshot } from "./metrics.ts";
 import type { ByteStream, Connector, SocketHandlers } from "./socket.ts";
@@ -357,7 +357,7 @@ function pane(pane_id: string, terminal_id: string): SessionSnapshot["panes"][nu
 
 const SNAPSHOT_CHANGED: SessionSnapshot = { ...SNAPSHOT, version: "test-2" };
 
-function makePolicySession(snapshots: SessionSnapshot[]) {
+function makePolicySession(snapshots: SessionSnapshot[], detail: SnapshotDetail = "full") {
   const apiConns: PolicyApiConn[] = [];
   const clientConns: ClientConn[] = [];
   const frames: ServerFrame[] = [];
@@ -366,7 +366,7 @@ function makePolicySession(snapshots: SessionSnapshot[]) {
     client: clientConnector(clientConns),
     label: "fake",
   };
-  const session = createBridgeSession((frame) => frames.push(frame), endpoint, "m");
+  const session = createBridgeSession((frame) => frames.push(frame), endpoint, "m", detail);
   const snapshotFetches = () =>
     apiConns.reduce((n, c) => n + c.requests.filter(isSnapshotFetch).length, 0);
   const subscribeRequests = () =>
@@ -999,6 +999,152 @@ describe("observe/writable attach modes (issue #571)", () => {
     expect(frameVariants(clientConns[0]!.stream.bytes())).toEqual([0, 5]);
     session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("OK") });
     await waitFor(() => Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1").includes("OK"), "writable input");
+    session.close();
+  });
+});
+
+/* ------------- summary detail mode (issue #585) ------------------------ */
+
+/** Snapshot carrying the canvas-only detail summary mode strips. */
+const DETAILED: SessionSnapshot = {
+  ...SNAPSHOT,
+  layouts: [
+    {
+      area: { x: 0, y: 0, width: 80, height: 24 },
+      focused_pane_id: "p1",
+      panes: [{ focused: true, pane_id: "p1", rect: { x: 0, y: 0, width: 80, height: 24 } }],
+      splits: [],
+      tab_id: "t1",
+      workspace_id: "w1",
+      zoomed: false,
+    },
+  ],
+  panes: [
+    {
+      ...SNAPSHOT.panes[0]!,
+      scroll: { offset_from_bottom: 0, viewport_rows: 24 },
+    },
+  ],
+};
+
+const DETAILED_CHANGED: SessionSnapshot = { ...DETAILED, version: "test-2" };
+
+describe("summary detail mode (issue #585)", () => {
+  test("a summary session strips canvas detail but keeps structure, agents and status flow", async () => {
+    const { session, frames, pushEvent, snapshotFetches } =
+      makePolicySession([DETAILED, DETAILED_CHANGED], "summary");
+    await session.start();
+
+    const ready = frames.find((f) => f.type === "ready");
+    expect(ready?.type).toBe("ready");
+    if (ready?.type !== "ready") return;
+    expect(ready.detail).toBe("summary");
+    // Canvas-only detail is stripped; everything the sidebar consumes stays.
+    expect(ready.snapshot.layouts).toEqual([]);
+    expect(ready.snapshot.panes[0]?.scroll).toBeUndefined();
+    expect(ready.snapshot.panes[0]?.pane_id).toBe("p1");
+    expect(ready.snapshot.workspaces).toHaveLength(1);
+    expect(ready.snapshot.agents).toEqual(SNAPSHOT.agents);
+
+    // The events.subscribe stream is untouched in summary mode: a
+    // structure/status event still refetches and pushes — marked summary.
+    pushEvent("pane.agent_status_changed");
+    await sleep(300);
+    expect(snapshotFetches()).toBe(2);
+    const push = frames.filter((f) => f.type === "snapshot").at(-1);
+    expect(push?.type).toBe("snapshot");
+    if (push?.type !== "snapshot") return;
+    expect(push.detail).toBe("summary");
+    expect(push.snapshot.layouts).toEqual([]);
+    expect(push.snapshot.panes[0]?.scroll).toBeUndefined();
+    session.close();
+  });
+
+  test("setDetail(summary) detaches terminals and strips pushes; setDetail(full) restores detail", async () => {
+    const { session, frames, clientConns, apiConns, pushEvent, snapshotFetches, subscribeRequests } =
+      makePolicySession([DETAILED, DETAILED_CHANGED, DETAILED], "full");
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "attach");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+    // Let the debounced scroll-subscription reopen land first: the live
+    // events.subscribe then carries the pane.scroll_changed filter that
+    // summary mode must drop.
+    await waitFor(() => subscribeRequests() >= 2, "scroll-filtered reopen");
+
+    const scrollFilters = () =>
+      apiConns
+        .flatMap((c) => c.requests)
+        .filter((r) => r.method === "events.subscribe")
+        .at(-1)
+        ?.params?.["subscriptions"] as { type?: string }[] | undefined;
+    expect((scrollFilters() ?? []).some((s) => s.type === "pane.scroll_changed")).toBe(true);
+
+    session.setDetail("summary");
+    // Terminal delivery stops: the slot closes with a machine_idle reason
+    // and the link is torn down.
+    await waitFor(
+      () => frames.some((f) => f.type === "terminal_closed" && f.reason === "machine_idle"),
+      "machine_idle terminal_closed",
+    );
+    await waitFor(() => clientConns[0]!.stream.ended, "attach link closed");
+    // The held snapshot is re-delivered in stripped form.
+    const summaryPush = frames.filter((f) => f.type === "snapshot").at(-1);
+    expect(summaryPush?.type).toBe("snapshot");
+    if (summaryPush?.type !== "snapshot") return;
+    expect(summaryPush.detail).toBe("summary");
+    expect(summaryPush.snapshot.layouts).toEqual([]);
+    expect(summaryPush.snapshot.panes[0]?.scroll).toBeUndefined();
+
+    // The scroll-subscription reopen drops the now-empty scroll filters —
+    // the live subscription is structure + agent status only.
+    await waitFor(() => subscribeRequests() >= 3, "summary-mode reopen");
+    await sleep(50);
+    expect((scrollFilters() ?? []).filter((s) => s.type === "pane.scroll_changed")).toEqual([]);
+
+    // Events still flow in summary mode (attention/status retention).
+    pushEvent("pane.updated");
+    await sleep(300);
+    expect(snapshotFetches()).toBeGreaterThanOrEqual(2);
+
+    // Re-selection upgrades: a fresh fetch runs and the full snapshot —
+    // layouts and scroll state included — is pushed unmarked.
+    const fetchesBefore = snapshotFetches();
+    session.setDetail("full");
+    await waitFor(
+      () =>
+        frames.some(
+          (f) =>
+            f.type === "snapshot" &&
+            f.detail === undefined &&
+            f.snapshot.layouts.length === 1 &&
+            f.snapshot.panes[0]?.scroll !== undefined,
+        ),
+      "full-detail snapshot push",
+    );
+    expect(snapshotFetches()).toBeGreaterThan(fetchesBefore);
+    session.close();
+  });
+
+  test("a terminal subscribe on a summary session upgrades to full detail and attaches", async () => {
+    const { session, frames, clientConns } = makePolicySession([DETAILED], "summary");
+    await session.start();
+    expect(clientConns).toHaveLength(0);
+
+    // subscribe_terminal is itself proof the pane is on screen: the
+    // session upgrades, re-delivers full detail, then attaches.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "attach after upgrade");
+    await waitFor(
+      () =>
+        frames.some(
+          (f) => f.type === "snapshot" && f.detail === undefined && f.snapshot.layouts.length === 1,
+        ),
+      "full-detail snapshot after upgrade",
+    );
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
     session.close();
   });
 });

@@ -327,6 +327,15 @@ export type ClientFrame =
   | { type: "list_machines" }
   | { type: "machine_connect"; machine: string }
   | { type: "machine_disconnect"; machine: string }
+  /**
+   * Declares which machine's session detail the client is viewing
+   * (issue #585, program #568). The named machine's bridge session runs
+   * in full detail mode — canvas layouts, pane scroll state and terminal
+   * attach eligibility; every other connected machine drops to summary
+   * mode: structure + agent status only, stripped snapshot payload, no
+   * terminal delivery. Idempotent; selecting a machine also connects it.
+   */
+  | { type: "machine_select"; machine: string }
   | { type: "machine_add"; id: string; label: string; target: string; session?: string }
   /** `id` correlates the rpc_result; `machine` is herdr's saved-machine profile id. */
   | { type: "machine_remove"; id: string; machine: string }
@@ -361,14 +370,18 @@ export type ClientFrame =
 
 /** Server -> client WebSocket frames. `machine` tags endpoint-scoped data. */
 export type ServerFrame =
-  | { type: "ready"; snapshot: SessionSnapshot; machine: string }
+  | { type: "ready"; snapshot: SessionSnapshot; machine: string; detail?: "summary" }
   /**
    * `probe: true` marks a snapshot fetched by the reachability probe for a
    * machine with no live bridge session (issue #212): real session data,
    * but up to the probe interval old and not backed by a subscription.
    * Clients may display it but must not treat it as a live session.
+   * `detail: "summary"` marks a snapshot pushed by a session in summary
+   * mode (issue #585): structure + agent status for the sidebar, with
+   * canvas detail (layouts, pane scroll state) stripped. Absent means a
+   * full-detail snapshot.
    */
-  | { type: "snapshot"; snapshot: SessionSnapshot; machine: string; probe?: boolean }
+  | { type: "snapshot"; snapshot: SessionSnapshot; machine: string; probe?: boolean; detail?: "summary" }
   | { type: "event"; event: unknown; machine: string }
   | {
       type: "rpc_result";
@@ -629,6 +642,7 @@ export function isClientFrame(value: unknown): value is ClientFrame {
       return true;
     case "machine_connect":
     case "machine_disconnect":
+    case "machine_select":
       return typeof frame["machine"] === "string" && frame["machine"].length > 0;
     case "machine_add":
       return (

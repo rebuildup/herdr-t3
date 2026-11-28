@@ -75,15 +75,18 @@ function desktopBridge(): DesktopBridge | null {
   return candidate ?? null;
 }
 
-/** Resolve with the next snapshot pushed for `machine` (30s ceiling). */
+/** Resolve with the next full-detail snapshot pushed for `machine` (30s ceiling). */
 function waitForPushedSnapshot(machine: string): Promise<SessionSnapshot> {
   return new Promise<SessionSnapshot>((resolve, reject) => {
     const timer = setTimeout(() => {
       off();
       reject(new ApiError("timeout", `no snapshot for machine ${machine}`));
     }, 30_000);
-    const off = onSnapshot((snapshot, m, probe) => {
-      if (m !== machine || probe) return;
+    const off = onSnapshot((snapshot, m, probe, detail) => {
+      // Probe pushes are list data and summary pushes (issue #585) are
+      // stripped — neither satisfies a caller that asked for a live,
+      // full-detail session.
+      if (m !== machine || probe || detail === "summary") return;
       clearTimeout(timer);
       off();
       resolve(snapshot);
@@ -122,7 +125,13 @@ export async function fetchSession(machine: string = LOCAL_MACHINE): Promise<Ses
   return waitForPushedSnapshot(machine);
 }
 
-export type SnapshotListener = (snapshot: SessionSnapshot, machine: string, probe?: boolean) => void;
+export type SnapshotListener = (
+  snapshot: SessionSnapshot,
+  machine: string,
+  probe?: boolean,
+  /** `"summary"` when the session pushed a stripped snapshot (issue #585). */
+  detail?: "summary",
+) => void;
 export type StatusListener = (state: "connecting" | "open" | "closed") => void;
 export type TerminalDataListener = (machine: string, paneId: string, dataBase64: string) => void;
 export type TerminalClosedListener = (machine: string, paneId: string, reason: string | undefined) => void;
@@ -162,7 +171,8 @@ function handleFrame(frame: ServerFrame): void {
       // live session; fetchSession callers waiting for a real session must
       // not resolve on them.
       const probe = frame.type === "snapshot" && frame.probe === true;
-      for (const listener of wsListeners) listener(frame.snapshot, machine, probe || undefined);
+      const detail = frame.detail === "summary" ? ("summary" as const) : undefined;
+      for (const listener of wsListeners) listener(frame.snapshot, machine, probe || undefined, detail);
       return;
     }
     case "rpc_result": {
@@ -432,6 +442,16 @@ export function machineConnect(machine: string): void {
 
 export function machineDisconnect(machine: string): void {
   sendFrame({ type: "machine_disconnect", machine });
+}
+
+/**
+ * Declare the machine whose session detail the client is viewing
+ * (issue #585): it upgrades to full detail (layouts, scroll state,
+ * terminal attach) while every other connected machine drops to summary
+ * mode. Sent on workspace-route changes; idempotent server-side.
+ */
+export function machineSelect(machine: string): void {
+  sendFrame({ type: "machine_select", machine });
 }
 
 /** Machine-registry mutations correlate through the same rpc_result channel. */

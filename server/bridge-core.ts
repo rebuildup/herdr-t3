@@ -34,6 +34,18 @@ export interface BridgeEndpoint {
   label: string;
 }
 
+/**
+ * Session detail level (issue #585, program #568). `full` delivers the
+ * whole snapshot — canvas layouts and pane scroll state included — and
+ * allows terminal attaches. `summary` is the demand-driven idle mode for
+ * machines the client is not viewing: the pushed snapshot keeps the
+ * structure + agent status the sidebar needs (workspaces, tabs, agents,
+ * panes minus viewport scroll state, no layouts) and terminal attaches
+ * are not expected; a subscribe_terminal still upgrades the session to
+ * `full` on the spot because it is itself proof the pane is on screen.
+ */
+export type SnapshotDetail = "full" | "summary";
+
 export function localEndpoint(): BridgeEndpoint {
   return {
     api: socketConnector(socketAddress(herdrSocketPath())),
@@ -181,7 +193,72 @@ interface SessionState {
   snapshot: SessionSnapshot | null;
   /** JSON of the last snapshot actually sent to this client (issue #423 dedup). */
   lastPushedSnapshotJson: string | null;
+  /** Detail level for pushed snapshots and terminal delivery (issue #585). */
+  detail: SnapshotDetail;
   terminals: Map<string, TerminalSlot>;
+}
+
+/**
+ * The snapshot a summary-mode session pushes (issue #585): everything the
+ * sidebar/agent shelves consume — workspaces, tabs, agents and pane
+ * identity/status — minus canvas-only detail. `layouts` drive only the
+ * selected machine's split view and `panes[].scroll` is viewport state
+ * for attached terminals; neither is rendered for an unselected machine.
+ * The internal `state.snapshot` always keeps the full fetch — attach
+ * resolution and detail upgrades never depend on what was last pushed.
+ */
+function summarizeSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  return {
+    ...snapshot,
+    layouts: [],
+    panes: snapshot.panes.map((pane) => {
+      if (pane.scroll === undefined) return pane;
+      const { scroll: _scroll, ...rest } = pane;
+      return rest;
+    }),
+  };
+}
+
+/**
+ * The wire form of `snapshot` for the session's current detail level,
+ * plus the `detail` marker carried on ready/snapshot frames.
+ */
+function wireSnapshot(state: SessionState, snapshot: SessionSnapshot): SessionSnapshot {
+  return state.detail === "summary" ? summarizeSnapshot(snapshot) : snapshot;
+}
+
+function wireDetail(state: SessionState): { detail?: "summary" } {
+  return state.detail === "summary" ? { detail: "summary" as const } : {};
+}
+
+/**
+ * Switch a session's detail level (issue #585). Downgrading to summary
+ * detaches every terminal slot — an unselected machine must not keep
+ * terminal delivery — re-delivers the held snapshot stripped, and the
+ * scroll-subscription sync drops the now-empty scroll filters. Upgrading
+ * to full re-delivers the held snapshot unstripped and refetches so
+ * canvas detail (layouts, scroll offsets) is fresh for the viewer.
+ */
+function applyDetail(state: SessionState, detail: SnapshotDetail): void {
+  if (state.detail === detail) return;
+  state.detail = detail;
+  metricInc("bridge.detail.set", { detail });
+  if (detail === "summary") {
+    for (const [paneId, slot] of [...state.terminals]) {
+      // dropTerminal alone leaves the attach link open (it only marks the
+      // slot gone); close it like releaseTerminal does so an unselected
+      // machine really stops terminal delivery.
+      dropTerminal(state, paneId, slot, "machine_idle");
+      slot.link?.close();
+    }
+    syncScrollSubscriptions(state);
+  } else {
+    // Detail demand (selection or a terminal subscribe): refresh so the
+    // pushed snapshot carries fresh layouts/scroll state, not just the
+    // possibly-stale held copy.
+    pushSnapshot(state);
+  }
+  if (state.snapshot) deliverSnapshot(state, state.snapshot);
 }
 
 /**
@@ -191,14 +268,15 @@ interface SessionState {
  */
 function deliverSnapshot(state: SessionState, snapshot: SessionSnapshot): void {
   state.snapshot = snapshot;
-  const json = JSON.stringify(snapshot);
+  const wire = wireSnapshot(state, snapshot);
+  const json = JSON.stringify(wire);
   if (json === state.lastPushedSnapshotJson) {
     metricInc("bridge.snapshot.push.unchanged");
     return;
   }
   state.lastPushedSnapshotJson = json;
   metricInc("bridge.snapshot.push");
-  state.send({ type: "snapshot", snapshot, machine: state.machine });
+  state.send({ type: "snapshot", snapshot: wire, machine: state.machine, ...wireDetail(state) });
 }
 
 function pushSnapshot(state: SessionState): void {
@@ -528,6 +606,11 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
       // input/resize frames queue until the attach resolves. `writable`
       // false requests the read-only ObserveTerminal stream (issue #571);
       // absent means writable, the pre-#571 behavior.
+      // A subscribe on a summary-mode session is itself proof the pane is
+      // on screen (issue #585): upgrade to full detail before attaching —
+      // this also covers the route race where subscribe_terminal reaches
+      // the session a frame before machine_select.
+      if (state.detail === "summary") applyDetail(state, "full");
       ensureTerminal(state, frame.paneId, frame.cols ?? 80, frame.rows ?? 24, frame.takeover === true, frame.writable !== false);
       return;
     case "unsubscribe_terminal":
@@ -592,6 +675,7 @@ function handleClientFrame(state: SessionState, frame: ClientFrame): void {
     case "list_machines":
     case "machine_connect":
     case "machine_disconnect":
+    case "machine_select":
     case "machine_add":
     case "machine_remove":
     case "machine_update":
@@ -606,6 +690,12 @@ export interface BridgeSession {
   start(): Promise<void>;
   /** Most recent snapshot this session produced, or null before the first one. */
   latestSnapshot(): SessionSnapshot | null;
+  /**
+   * Switch the session's detail level (issue #585). `summary` strips
+   * canvas detail from pushed snapshots and detaches terminals;
+   * `full` restores complete pushes and refetches. Idempotent.
+   */
+  setDetail(detail: SnapshotDetail): void;
   /** Release subscriptions and every terminal link. */
   close(): void;
 }
@@ -618,6 +708,7 @@ export function createBridgeSession(
   send: (frame: ServerFrame) => void,
   endpoint: BridgeEndpoint = localEndpoint(),
   machine = "local",
+  detail: SnapshotDetail = "full",
 ): BridgeSession {
   const state: SessionState = {
     send,
@@ -633,6 +724,7 @@ export function createBridgeSession(
     snapshotQueued: false,
     snapshot: null,
     lastPushedSnapshotJson: null,
+    detail,
     terminals: new Map(),
   };
   return {
@@ -643,8 +735,9 @@ export function createBridgeSession(
           state.snapshot = snapshot;
           // `ready` already carried this snapshot to the client; seed the
           // dedup key so an identical first refetch is not re-pushed (#423).
-          state.lastPushedSnapshotJson = JSON.stringify(snapshot);
-          state.send({ type: "ready", snapshot, machine });
+          const wire = wireSnapshot(state, snapshot);
+          state.lastPushedSnapshotJson = JSON.stringify(wire);
+          state.send({ type: "ready", snapshot: wire, machine, ...wireDetail(state) });
           state.subscription = openSubscription(state, snapshot);
         })
         .catch((error: unknown) => {
@@ -652,6 +745,7 @@ export function createBridgeSession(
           state.send({ type: "rpc_result", id: "boot", ok: false, error: { code: err.code, message: err.message }, machine });
         }),
     latestSnapshot: () => state.snapshot,
+    setDetail: (level) => applyDetail(state, level),
     close: () => {
       state.subscription?.close();
       if (state.snapshotTimer) clearTimeout(state.snapshotTimer);

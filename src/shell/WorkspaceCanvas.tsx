@@ -204,7 +204,7 @@ function PaneSurface({
 }
 
 export function WorkspaceCanvas() {
-  const { machine, machineInfo, snapshot, view, probe } = useRouteWorkspace();
+  const { machine, machineInfo, snapshot, view, probe, summary } = useRouteWorkspace();
   const bridge = useBridgeState();
   const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
   // Attach attempts are gated on the client bridge only: the server queues
@@ -269,7 +269,10 @@ export function WorkspaceCanvas() {
   // evidence behind each branch.
   const session = resolveCanvasSession({
     snapshot,
-    probeSnapshot: probe,
+    // Summary snapshots (issue #585) are stripped sidebar data: the canvas
+    // waits in `connecting` for the full-detail push the selection
+    // upgrade triggers, same as a probe-only machine.
+    probeSnapshot: probe || summary,
     machineInfo,
     bridgeConnection: bridge.connection,
     machineError: bridge.errors[machine],

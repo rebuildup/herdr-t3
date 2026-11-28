@@ -14,6 +14,7 @@ import {
   useBridgeState,
   type ShellBridgeState,
 } from "./bridge";
+import { machineSelect } from "../lib/api";
 import { useRoute } from "./router";
 
 export interface RouteWorkspace {
@@ -36,6 +37,13 @@ export interface RouteWorkspace {
    * Surfaces that need a session (canvas panes) must not render it as live.
    */
   probe: boolean;
+  /**
+   * True when the held snapshot came from a summary-mode session
+   * (issue #585): sidebar-grade structure + agent status with canvas
+   * detail stripped. Surfaces that need detail must wait for the full
+   * snapshot the selection upgrade pushes.
+   */
+  summary: boolean;
 }
 
 /** Statuses where held data cannot be current (session unreachable/closed). */
@@ -77,18 +85,28 @@ export function useRouteWorkspace(): RouteWorkspace {
   const view = deriveWorkspace(snapshot, routedWorkspace);
   const machineInfo = bridge.machines[machine];
 
-  // A routed machine without a live snapshot gets connected + fetched on
-  // demand. Probe snapshots (issue #212) render the lists but are not a
-  // session — an explicit route still brings the machine up.
+  // A routed machine without a live full-detail snapshot gets connected +
+  // fetched on demand. Probe snapshots (issue #212) render the lists but
+  // are not a session, and summary snapshots (issue #585) are stripped —
+  // an explicit route still brings the machine up. Selection itself is
+  // declared once by useMachineSelection (App root), not per hook caller.
+  const summarySnapshot = bridge.summarySnapshots[machine] === true;
   useEffect(() => {
+    if (!isWorkspaceRoute) return;
     if (
-      isWorkspaceRoute &&
-      routedMachine &&
-      (!bridge.snapshots[routedMachine] || bridge.probeSnapshots[routedMachine])
+      !bridge.snapshots[machine] ||
+      bridge.probeSnapshots[machine] ||
+      bridge.summarySnapshots[machine]
     ) {
-      void ensureMachine(routedMachine);
+      void ensureMachine(machine);
     }
-  }, [isWorkspaceRoute, routedMachine, bridge.snapshots, bridge.probeSnapshots]);
+  }, [
+    isWorkspaceRoute,
+    machine,
+    bridge.snapshots,
+    bridge.probeSnapshots,
+    bridge.summarySnapshots,
+  ]);
 
   return {
     machine,
@@ -98,5 +116,29 @@ export function useRouteWorkspace(): RouteWorkspace {
     explicit: routedWorkspace !== null,
     stale: snapshot !== null && machineStale(machineInfo),
     probe: snapshot !== null && bridge.probeSnapshots[machine] === true,
+    summary: snapshot !== null && summarySnapshot,
   };
+}
+
+/**
+ * Declare the detail machine to the bridge exactly once (issue #585).
+ * Called from the App root — useRouteWorkspace has many callers and a
+ * per-caller machine_select would spam the wire. The resolved machine is
+ * the routed one, or the default machine on the default workspace route;
+ * non-workspace routes (settings) keep the last selection. The
+ * `bridge.connection` dep re-declares after a reconnect: a fresh
+ * MachineManager knows no selection and would otherwise leave every
+ * session — including local — in summary mode.
+ */
+export function useMachineSelection(): void {
+  const route = useRoute();
+  const bridge = useBridgeState();
+  const isWorkspaceRoute = route.name === "workspace";
+  const routedMachine = isWorkspaceRoute ? route.machine : null;
+  const machine = isWorkspaceRoute
+    ? (routedMachine ?? defaultMachine(bridge))
+    : null;
+  useEffect(() => {
+    if (machine !== null) machineSelect(machine);
+  }, [machine, bridge.connection]);
 }
