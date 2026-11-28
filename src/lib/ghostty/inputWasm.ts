@@ -11,6 +11,7 @@
  * `terminal_input_result_ptr`/`terminal_input_eval`'s return length.
  */
 import wasmUrl from "./terminal-input.wasm?url";
+import { wasmAssetBytes } from "../wasmAsset.ts";
 
 export interface TerminalInputExports {
   memory: WebAssembly.Memory;
@@ -32,24 +33,9 @@ export interface TerminalInputInstance {
   ): { ok: boolean; value?: unknown; error?: string };
 }
 
-/** `data:<mime>;base64,<payload>` -> bytes; throws on any other data: shape */
-function decodeDataUri(url: string): Uint8Array {
-  const comma = url.indexOf(",");
-  const meta = url.slice(5, comma);
-  const payload = url.slice(comma + 1);
-  if (!meta.endsWith(";base64")) throw new Error(`terminal-input: unsupported data URI (${meta})`);
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 /** Fetch/decode the artifact bytes — same shapes as session.ts's loader. */
 export async function terminalInputBytes(): Promise<Uint8Array> {
-  if (wasmUrl.startsWith("data:")) return decodeDataUri(wasmUrl);
-  const response = await fetch(wasmUrl);
-  if (!response.ok) throw new Error(`terminal-input: ${wasmUrl} answered ${response.status}`);
-  return new Uint8Array(await response.arrayBuffer());
+  return wasmAssetBytes(wasmUrl);
 }
 
 export async function instantiateTerminalInput(

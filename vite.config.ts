@@ -38,9 +38,11 @@ export default defineConfig(({ command }) => ({
   build: {
     outDir: "dist",
     sourcemap: true,
-    // The packaged app loads dist/ over file://, where fetch() of a file URL is
-    // refused; inlining the terminal engine's wasm as a data URI keeps it
-    // loadable there (and everywhere else). It is the only asset this large.
-    assetsInlineLimit: (filePath) => (filePath.endsWith(".wasm") ? true : undefined),
+    // WASM artifacts stay real asset files, not inlined data URIs: the
+    // packaged app loads dist/ over file:// where fetch() is refused, so
+    // src/lib/wasmAsset.ts reads them through the Electron IPC asset
+    // channel instead. Inlining them used to add ~1.7 MB of base64 to the
+    // entry chunk — parse time the spawn->operable contract pays for.
+    assetsInlineLimit: (filePath) => (filePath.endsWith(".wasm") ? false : undefined),
   },
 }));
