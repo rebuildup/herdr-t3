@@ -22,8 +22,11 @@ export type NoticeKind = "attention" | "info" | "error";
 export interface NoticeAction {
   label: string;
   run: () => void;
-  /** Optional leading glyph for the toast action button (issue #550). */
-  icon?: LucideIcon | undefined;
+  /**
+   * Leading glyph for the toast action button — required (issue #550):
+   * a notice action is a control, and controls never render text-only.
+   */
+  icon: LucideIcon;
 }
 
 export interface Notice {

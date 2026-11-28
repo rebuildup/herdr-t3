@@ -54,7 +54,7 @@ export interface ToastNoticeData {
   agentStatus?: AgentStatus | undefined;
   /** Provider kind for the attention glyph's brand mark. */
   agent?: string | undefined;
-  /** Optional leading glyph inside the action button (issue #550). */
+  /** Leading glyph inside the action button — required upstream (issue #550). */
   actionIcon?: LucideIcon | undefined;
   onClose?: (() => void) | undefined;
 }
