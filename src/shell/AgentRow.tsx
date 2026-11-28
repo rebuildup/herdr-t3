@@ -75,14 +75,13 @@ function formatSnoozeUntil(iso: string): string | null {
 }
 
 /**
- * One agent row in the Agents shelves. Two lines per T3
- * `SidebarThreadRow`'s hierarchy (issue #200,
- * info-architecture.md §6.1): line 1 is context at secondary weight
- * (identity/status glyph, workspace/tab/machine) — the resolved state
- * name is icon/section/hover-card/aria only, never printed text (issue
- * #381) —
- * line 2 leads with the work target — the live pane's terminal title —
- * with agent identity, pane disambiguator and auxiliary labels as meta.
+ * One agent row in the Agents shelves. Two lines matching
+ * WorkspaceRow's grammar (issue #550 review): line 1 leads with the
+ * work target — the live pane's terminal title — behind the unified
+ * identity glyph; line 2 is muted meta (workspace/tab/machine context,
+ * agent identity, pane disambiguator, auxiliary labels). The resolved
+ * state name is icon/section/hover-card/aria only, never printed text
+ * (issue #381).
  * Clicking jumps to the agent's workspace and focuses its pane
  * (`pane.focus` resolves across tabs and workspaces in herdr), mirroring
  * the TUI agent sidebar's click-to-focus.
@@ -140,6 +139,16 @@ export function AgentRow({
         })()
       : null,
   ].filter((part): part is string => part !== null);
+  // Meta line content: where-the-agent-lives context first (workspace ·
+  // tab · machine — the old muted first line, demoted per issue #550
+  // review so the identity glyph leads the work target, not the label),
+  // then identity/disambiguation parts, then auxiliary state labels.
+  const contextParts = [
+    entry.workspaceTitle,
+    entry.tabLabel,
+    multiMachine ? machine.label : null,
+  ].filter((part): part is string => part !== null);
+  const metaLine = [...contextParts, ...metaParts];
   const focusAgent = () => {
     requestFocusHandoff({
       machine: machine.id,
@@ -166,50 +175,26 @@ export function AgentRow({
           "bg-sidebar-row-active font-medium text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70",
       )}
     >
-      <span className="flex w-full min-w-0 items-center gap-2 text-2xs text-sidebar-muted-foreground">
-        {/* Issue #419, restyled #550: the row's left edge is the shared
-            identity/status glyph — brand provider mark led, agent_status
-            carried by the perimeter ring plus a marker where the state
-            asks for attention (working = rotating arc, blocked =
-            centered red "!" disc, done/unknown = corner badge,
-            idle = ring only).
-            The resolved state
-            name stays icon-adjacent only via hover card / shelf / aria,
-            never printed text (issue #381). */}
+      {/* Issue #550 review: the identity glyph leads the work target —
+          the row's actual content — matching WorkspaceRow's grammar
+          (glyph + primary title on line 1, muted meta on line 2). The
+          workspace/tab/machine context demotes to the meta line; the
+          resolved state name stays icon-adjacent only via hover card /
+          shelf / aria, never printed text (issue #381). */}
+      <span className="flex w-full min-w-0 items-center gap-2">
         <AgentIdentityIcon agent={agent.agent} status={agent.agent_status} />
-        <span className="min-w-0 flex-1 truncate">
-          {entry.workspaceTitle}
-          {entry.tabLabel ? ` · ${entry.tabLabel}` : null}
-          {multiMachine ? ` · ${machine.label}` : null}
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
+          {rowTitle}
         </span>
-        {/* The state name lives in the hover card and in the accessible
-            name only (issue #381): the icon's color/animation and the
-            section shelf already carry it, so printing "working" beside
-            the Working shelf triple-reports the same fact (T3
-            SidebarThreadRow shows the status slot only when it adds
-            information the row does not already have). */}
         <span className="sr-only">{stateLabel}</span>
       </span>
       {/* ps-7 aligns line 2 with line 1's text: size-5 identity glyph
           (20px) + gap-2 (8px) = 28px (issue #419; supersedes the #204
           ps-6 note, which tracked the old size-4 status icon). */}
-      <span className="flex w-full min-w-0 items-center gap-2 ps-7">
-        {/* Title and meta are separate flex items (issue #204 review):
-            concatenating them inside one truncating node sliced mid-
-            separator ("update onboarding docs ...") and dropped the
-            agent name entirely on long titles. The title truncates;
-            the meta keeps its own bounded width. */}
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground/90">
-          {rowTitle}
+      <span className="flex w-full min-w-0 items-center gap-2 ps-7 text-2xs text-sidebar-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">
+          {metaLine.join(" · ")}
         </span>
-        {metaParts.length > 0 ? (
-          // T3 SidebarThreadRow meta line: text-secondary-label text-xs —
-          // text-2xs read as low-contrast gray on Windows light theme
-          // (issue #417 Windows leg).
-          <span className="max-w-40 shrink-0 truncate text-xs text-secondary-label">
-            {metaParts.join(" · ")}
-          </span>
-        ) : null}
         {auxLabels.length > 0 ? (
           <span className="max-w-32 shrink-0 truncate text-xs text-secondary-label">
             {auxLabels.join(" · ")}
