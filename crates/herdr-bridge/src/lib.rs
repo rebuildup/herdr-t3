@@ -15,6 +15,7 @@
 //!   16 MiB otherwise.
 
 pub mod attach;
+pub mod client_session;
 pub mod client_link;
 pub mod egress;
 pub mod io;

@@ -73,6 +73,24 @@ pub fn is_rpc_method(method: &str) -> bool {
     RPC_METHODS.contains(&method)
 }
 
+/// Mirror of `READ_ONLY_RPC_METHODS` in shared/protocol.ts (issue #423):
+/// methods that cannot mutate session state — a successful call never
+/// schedules a snapshot refetch. Unknown/future methods default to
+/// refreshing (conservative), matching the TS predicate.
+pub const READ_ONLY_RPC_METHODS: [&str; 7] = [
+    "session.snapshot",
+    "agent.get",
+    "agent.read",
+    "agent.explain",
+    "pane.process_info",
+    "pane.link.resolve",
+    "worktree.list",
+];
+
+pub fn is_read_only_rpc_method(method: &str) -> bool {
+    READ_ONLY_RPC_METHODS.contains(&method)
+}
+
 /* ------------------------- isClientFrame mirror ------------------------ */
 
 /// JavaScript `string.length`: UTF-16 code units, not bytes or scalar
