@@ -1003,6 +1003,71 @@ describe("observe/writable attach modes (issue #571)", () => {
   });
 });
 
+/* ------------- operator role vs pane focus (issue #584) ----------------- */
+
+/**
+ * The GUI now grants the writable attach by input intent, not by focus
+ * (docs/migration/contracts/terminal-noninterference.md). These tests pin
+ * the bridge half of that contract: in-flight input flushes ahead of a
+ * demotion re-attach, and an observe slot never carries input — so the
+ * resize lock returns to layout/herdr control without losing a keystroke.
+ */
+describe("operator role separation (issue #584)", () => {
+  test("in-flight input flushes on the writable link ahead of the observe demotion", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "writable connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Focus moved away: the client sends input and the demotion subscribe
+    // back-to-back. Frame order is the contract — the input must land on
+    // the still-writable link before the observe re-attach detaches it.
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("IN-FLIGHT") });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 2, "observe re-attach connection");
+    clientConns[1]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    const writableLatin = Buffer.from(clientConns[0]!.stream.bytes()).toString("latin1");
+    expect(writableLatin).toContain("IN-FLIGHT");
+    // The demotion detached the writable link and opened an observe one.
+    expect(clientConns[0]!.stream.ended).toBe(true);
+    expect(frameVariants(clientConns[1]!.stream.bytes())).toEqual([0, 7]);
+    // Post-demotion input is dropped bridge-side, exactly like #571.
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("TOO-LATE") });
+    await sleep(20);
+    expect(Buffer.from(clientConns[1]!.stream.bytes()).toString("latin1")).not.toContain("TOO-LATE");
+    session.close();
+  });
+
+  test("promotion then immediate demotion never leaks input into the observe link", async () => {
+    const { session, clientConns } = makeSession();
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 1, "observe connection");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    // Promote and demote before the writable attach resolves: the queued
+    // input belongs to the writable epoch and must flush there — or be
+    // superseded — never onto the observe link.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: true });
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("EPOCH") });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 3, "final observe connection");
+    clientConns[2]!.handlers.data(welcomeFrame());
+    await sleep(20);
+
+    const allObserve = Buffer.from(clientConns[2]!.stream.bytes()).toString("latin1");
+    expect(allObserve).not.toContain("EPOCH");
+    // The middle (writable) epoch may or may not have resolved in time;
+    // what matters is the surviving observe link stayed clean.
+    session.close();
+  });
+});
+
 /* ------------- assurance coverage (issue #586, program #416/#425/#568) -- */
 
 describe("non-interference contract: observe cannot move the writable link (#586)", () => {
@@ -1073,9 +1138,9 @@ describe("operator handoff: writable follows focus across panes (#586)", () => {
     await session.start();
     // Both panes mounted writable. CURRENT merged semantics: the bridge
     // does not arbitrate a single writable pane per machine — the renderer
-    // sends `writable` only for the focused pane (writable={focused}).
-    // Issue #584 may add server-side arbitration; these tests pin the
-    // per-slot mode contract and must be revisited if it lands.
+    // sends `writable` only for the operator pane (issue #584: input
+    // intent, not mere focus). These tests pin the per-slot mode
+    // contract, which #584 did not change.
     session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
     session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
     await waitFor(() => clientConns.length === 2, "two writable attaches");

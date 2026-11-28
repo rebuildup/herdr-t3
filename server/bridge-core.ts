@@ -392,6 +392,17 @@ function ensureTerminal(
       // Supersede the old link before closing it: its detach/close
       // callbacks must already read as stale (issue #571).
       existing.epoch += 1;
+      if (!writable) {
+        // Demotion to observe (issue #584): ops queued for the writable
+        // epoch can never be delivered — ClientInput/AttachScroll/
+        // AttachMouse are illegal on an ObserveTerminal link and herdr
+        // drops them anyway. Discard them here instead of letting them
+        // flush onto the observe connection (a stale keystroke delivered
+        // minutes later would be worse than a dropped one; the pane's
+        // client-side egress keeps anything not yet sent).
+        existing.queue.length = 0;
+        existing.queueBytes = 0;
+      }
       existing.link?.close();
       existing.link = null;
       attachSlot(state, existing, paneId, cols, rows, takeover);
