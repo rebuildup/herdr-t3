@@ -16,36 +16,57 @@ behavior, not the DOM.
   workspaces/tabs/panes with status-token filter.
 - Sidebar: workspace tree (machine folders, two-line rows,
   drag-reorder), agent shelves w/ hover card, context menus, notices.
+  Sidebar row composition (issue #550): every two-line row is a flex
+  pair — the status glyph on the left, vertically centered against the
+  whole two-line content block, never bound to a single line. Agent
+  rows: line 1 is muted context (`workspace · tab · machine`), line 2
+  leads with the work target (live pane terminal title) plus identity/
+  disambiguation meta; workspace rows: line 1 is the workspace title,
+  line 2 is `branch · Nt · Np · machine`. Both lines use tight leading
+  so the block reads as one unit.
   Agent row identity/status glyph (issue #419): a single shared
   component leads each agent row — brand provider mark (resolution
   order in `shared/agent-icons.json`: T3 artwork → bundled official
-  SVG → generic glyph) at a 20px slot with the brand art at 12px,
-  plus a perimeter status ring carrying `agent_status` and, where the
-  state asks for attention, a marker — a centered overlay disc for
-  blocked, corner badges for done/unknown (issue #550). Ring grammar: working = rotating primary
-  arc around the *static* brand mark (started/stopped only by the
-  shared visibility control — on-screen + document visible + motion
-  allowed; static full ring under reduced-motion), blocked =
-  destructive ring at a heavier stroke + centered red "!" disc that
-  covers the brand mark, done = success ring + small success check
-  badge on the bottom-right corner, idle = quiet solid muted ring with
-  no marker, unknown/unrecognized = dashed muted ring + small muted
-  "?" badge on the bottom-right corner. Motion grammar: every marker
-  enters with an overshoot pop and exits with a quick fade+shrink;
-  blocked's "!" disc then runs a periodic attention shake while its
-  ring breathes, done/unknown badges keep a soft pulse, and hovering
-  the glyph or its row lifts the glyph and swells the ring stroke —
-  all collapsed to instant under reduced-motion. Every agent
-  work-status indicator — sidebar agent rows, workspace rows, tab
-  pills, goto pane rows, hover/context card rows, status badges —
-  renders this one component; `sm` (16px) is the same grammar at
-  dense-chrome density and `lg` (24px) is the promo density for
-  notification toasts, never a bare icon-glyph substitute. State
-  name is never
-  printed on the row; it lives
-  in the shelf, hover card and accessible name. GPUI must reproduce
-  the same asset resolution, state→ring+overlay mapping and 20px footprint —
-  not a renderer-specific variant.
+  SVG → generic glyph), plus a perimeter status ring carrying
+  `agent_status` and, where the state asks for attention, a marker —
+  a centered overlay disc for blocked, corner badges for done/unknown
+  (issue #550). Three densities of one grammar: `md` = 20px slot /
+  12px brand art for agent rows (the shared dimension contract),
+  `sm` = 16px for dense chrome (tab pills, goto rows, detail rows,
+  workspace rows), `lg` = 24px for notification toasts. Ring grammar:
+  working = rotating primary arc around the *static* brand mark
+  (started/stopped only by the shared visibility control — on-screen +
+  document visible + motion allowed; static full ring under
+  reduced-motion), blocked = destructive ring at a heavier stroke +
+  centered red "!" disc that covers the brand mark, done = success
+  ring + small success check badge on the bottom-right corner, idle =
+  quiet solid muted ring with no marker, unknown/unrecognized = dashed
+  muted ring + small muted "?" badge on the bottom-right corner.
+  Motion grammar: every marker enters with an overshoot pop and exits
+  with a quick fade+shrink; blocked's "!" disc then runs a periodic
+  horizontal-only attention shake while its ring breathes, done/unknown
+  badges keep a soft pulse, and hovering the glyph or its row lifts
+  the glyph and swells the ring stroke — all collapsed to instant
+  under reduced-motion. Every agent work-status indicator — sidebar
+  agent rows, workspace rows, tab pills, goto pane rows, hover/context
+  card rows, status badges, attention toasts — renders this one
+  component, never a bare icon-glyph substitute. State name is never
+  printed on the row; it lives in the shelf, hover card and accessible
+  name. GPUI must reproduce the same asset resolution,
+  state→ring+overlay mapping and per-density footprints — not a
+  renderer-specific variant.
+- Notices/toasts (issue #550): app-global transient notices rendered
+  by the shared toast primitive. Attention notices (agent blocked/
+  done) lead with the `lg` identity glyph carrying the provider kind;
+  other kinds lead with a 24px type-tinted icon. Layout: icon column
+  on the left vertically centered against the text block; the action
+  — when present — sits at the right end of the meta footer row
+  (`context · age`), never beside the body text. The meta line
+  truncates, the action is a compact secondary chip, and the action
+  contract requires a leading icon (`NoticeAction.icon` is required —
+  controls never render text-only). Long content must never break the
+  layout: icon column `shrink-0`, text column `min-w-0` with
+  wrap-break-word title/description and a truncating meta line.
 - Tab strip: select/close/rename/move/drag, hover affordances,
   overflow scroll, per-tab agent status.
 - Pane grid: split/zoom/swap, split-ratio drag, focus dimming,
@@ -53,7 +74,7 @@ behavior, not the DOM.
 - Dialogs: rename, machine add/edit, pane details/message, git,
   worktrees, theme mode tiles, settings modal.
 - Global: light/dark/system theme, `prefers-reduced-motion`, shortcuts,
-  toasts.
+  toasts (see Notices/toasts above for the #550 layout contract).
 
 ## Ordering and semantics
 
@@ -102,4 +123,8 @@ behavior, not the DOM.
 `docs/design/verification.md` state matrix + RC checklist,
 `scripts/capture-evidence.ts` + `docs/design/evidence/`,
 `docs/design/rules.md` lint contract, `src/shell/*.test.ts`,
-`src/lib/*.test.ts`. Scenario harness: #238.
+`src/lib/*.test.ts`, `src/components/ui/toast.test.ts`. Visual review
+harness: Storybook (`.storybook/`, `bun run storybook`, stories under
+`src/**/*.stories.tsx`) — the issue #550 reference surface for the
+glyph grammar, sidebar rows, tab strip and notice toasts, including
+long-content stress stories. Scenario harness: #238.

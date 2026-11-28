@@ -220,7 +220,7 @@ function ToastVisibleAutoDismiss({
   return null;
 }
 
-function toastMetaParts(data: ToastNoticeData | undefined): string[] {
+export function toastMetaParts(data: ToastNoticeData | undefined): string[] {
   return [data?.context, data?.createdAt !== undefined ? toastAgeLabel(data.createdAt) : null]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));

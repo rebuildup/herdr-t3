@@ -103,6 +103,17 @@ describe("AgentIdentityIcon", () => {
     expect(html).not.toContain("size-5");
   });
 
+  test("size=lg renders the 24px promo variant used by toasts", () => {
+    const html = renderToStaticMarkup(
+      <AgentIdentityIcon agent="claude" status="blocked" size="lg" />,
+    );
+    expect(html).toContain("size-6");
+    expect(html).toContain("size-3.5");
+    // Same ring + marker grammar as md — only density differs.
+    expect(html).toContain("text-destructive");
+    expect(html).toContain(">!</span>");
+  });
+
   test("brand resolution is unchanged: t3 spec, bundled svg, generic fallback", () => {
     // t3 artwork → inline svg paths, no <img>.
     const t3 = render("claude", "idle");
