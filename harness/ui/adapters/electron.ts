@@ -84,6 +84,7 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   // Operable-state gate: a live CDP endpoint or an existing window is NOT
   // proof the app works. Require the observe bridge + a completed document
   // within the ready budget; a launch hang fails here inside readyMs.
+  const readyStart = Date.now();
   await waitFor(
     () =>
       evaluate<boolean>(
@@ -95,6 +96,7 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
       label: "electron app operable state",
     },
   );
+  console.error(`[electron] operable state reached in ${Date.now() - readyStart}ms`);
 
   async function evaluate<T>(expr: string): Promise<T> {
     const r = (await send("Runtime.evaluate", {

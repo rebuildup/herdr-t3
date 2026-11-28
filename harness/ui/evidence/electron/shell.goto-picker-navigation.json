@@ -8,159 +8,185 @@
   "fixture": "goto-picker",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "9b59d38185d26f84e6a25a83d10b01c2642b1a45",
-  "recorded_at": "2026-11-27T18:46:35.051Z",
+  "git_sha": "bed4528e143c93cbd8a5f0b6037f45537ed2edbd",
+  "recorded_at": "2026-11-28T03:18:31.112Z",
   "steps": [
     {
       "index": 0,
       "kind": "assert",
       "name": "state.goto_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 332
     },
     {
       "index": 1,
       "kind": "action",
       "name": "activate nav.goto",
-      "ok": true
+      "ok": true,
+      "duration_ms": 5413
     },
     {
       "index": 2,
       "kind": "wait",
       "name": "wait state.goto_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 223
     },
     {
       "index": 3,
       "kind": "assert",
       "name": "goto.query",
-      "ok": true
+      "ok": true,
+      "duration_ms": 152
     },
     {
       "index": 4,
       "kind": "assert",
       "name": "goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 217
     },
     {
       "index": 5,
       "kind": "action",
       "name": "type goto.input",
-      "ok": true
+      "ok": true,
+      "duration_ms": 243
     },
     {
       "index": 6,
       "kind": "wait",
       "name": "wait goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 244
     },
     {
       "index": 7,
       "kind": "assert",
       "name": "goto.query",
-      "ok": true
+      "ok": true,
+      "duration_ms": 200
     },
     {
       "index": 8,
       "kind": "assert",
       "name": "goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 195
     },
     {
       "index": 9,
       "kind": "action",
       "name": "select goto.row",
-      "ok": true
+      "ok": true,
+      "duration_ms": 718
     },
     {
       "index": 10,
       "kind": "wait",
       "name": "wait state.goto_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 484
     },
     {
       "index": 11,
       "kind": "wait",
       "name": "wait state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 208
     },
     {
       "index": 12,
       "kind": "assert",
       "name": "state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 194
     },
     {
       "index": 13,
       "kind": "wait",
       "name": "wait state.focused_pane",
-      "ok": true
+      "ok": true,
+      "duration_ms": 193
     },
     {
       "index": 14,
       "kind": "assert",
       "name": "state.focused_pane",
-      "ok": true
+      "ok": true,
+      "duration_ms": 505
     },
     {
       "index": 15,
       "kind": "action",
       "name": "activate nav.goto",
-      "ok": true
+      "ok": true,
+      "duration_ms": 2603
     },
     {
       "index": 16,
       "kind": "wait",
       "name": "wait state.goto_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 258
     },
     {
       "index": 17,
       "kind": "assert",
       "name": "goto.query",
-      "ok": true
+      "ok": true,
+      "duration_ms": 219
     },
     {
       "index": 18,
       "kind": "assert",
       "name": "goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 215
     },
     {
       "index": 19,
       "kind": "action",
       "name": "type goto.input",
-      "ok": true
+      "ok": true,
+      "duration_ms": 207
     },
     {
       "index": 20,
       "kind": "wait",
       "name": "wait goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 209
     },
     {
       "index": 21,
       "kind": "assert",
       "name": "goto.row_count",
-      "ok": true
+      "ok": true,
+      "duration_ms": 193
     },
     {
       "index": 22,
       "kind": "action",
       "name": "dismiss goto.dialog",
-      "ok": true
+      "ok": true,
+      "duration_ms": 206
     },
     {
       "index": 23,
       "kind": "wait",
       "name": "wait state.goto_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 113
     },
     {
       "index": 24,
       "kind": "assert",
       "name": "state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 3
     }
   ],
-  "error": null
+  "error": null,
+  "duration_ms": 21702
 }
