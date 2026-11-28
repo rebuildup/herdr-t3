@@ -102,6 +102,10 @@ RC freeze collects both-OS evidence on reference hardware.
 | multi-pane / large output | partially — engine bench is single-grid; extend workload at RC |
 | input-to-paint p50/p95/p99, scroll/resize/streaming | ✅ input→paint p50/p95/p99 (trusted wheel+click → next rAF frame), Chrome-tree CPU%, and longtask container attribution under idle/storm/workspace-switch workloads — `perf-frame-bench.ts` (#526), gated by `--check` with provisional budgets; resize leg and true photon-present latency still deferred |
 | local/SSH/reconnect, plugin calls | ✅ bridge data-plane leg — `scripts/perf-bridge-load.ts` (#425/#416); SSH transport still deferred |
+| multi-client non-interference (observe vs writable: size/focus/scroll authority) | ✅ contract tests — `server/bridge-core.test.ts` "non-interference" describes (#571/#572, strengthened #586); live two-client leg deferred |
+| operator handoff (writable follows focus; demote/promote mode flips) | ✅ contract test — `server/bridge-core.test.ts` "operator handoff" (#586), pins CURRENT per-slot semantics; #584 may add server-side single-writable arbitration — revisit on landing |
+| local history scroll (viewport-only paging, zero RPC/attach/refetch) | ✅ contract test — `server/bridge-core.test.ts` "local history scroll" (#586) + `terminal-io` leg delivery meters (#572) |
+| host scaling (N machines × M visible panes → O(visible) RPC/attach/subscription) | ✅ fake-machine contract test — `server/bridge-core.test.ts` "host scaling" (#586); live multi-host leg deferred (needs SSH machines) |
 | distribution artifact size | covered by release evidence manifests (`docs/design/evidence/rc-*`) |
 
 The Rust port must reproduce **equivalent functionality and render
@@ -142,6 +146,57 @@ GPUI path):
 - **Measurement**: `perf-memory-bench.ts --check` gates absolute budgets
   plus convergence (tail slope, storm2/switch2 reuse). The same
   scenarios must run against the GPUI host before parity is claimed.
+
+### Assurance coverage (issue #586, program #416/#425/#568)
+
+Cheap deterministic contract tests pin the four assurance properties the
+RC legs measure live. They run in `bun test server/bridge-core.test.ts`
+(part of `bun run test` / `./scripts/ci.sh`) and are also asserted by
+`scripts/perf-contract-check.ts` (piece `assurance-noninterference-handoff`)
+so a removed contract fails loudly:
+
+- **Non-interference** — "non-interference contract: observe cannot move
+  the writable link": an observe client (`writable:false`) plus a second
+  observe subscribe cannot add Resize/Detach/Input/AttachScroll frames or
+  a re-attach to the writable link; dropped observer ops are still counted
+  in `bridge.terminal.op`; the writable path stays functional afterwards.
+- **Operator handoff** — "operator handoff: writable follows focus":
+  demote flips the slot to `ObserveTerminal` on a new connection (old
+  link gets Detach = resize authority released), observe-mode input is
+  dropped and counted, re-promote restores the writable AttachTerminal
+  with in-flight input flushed in order. Written against CURRENT merged
+  semantics (`writable` is per-slot; the renderer sends it only for the
+  focused pane): if #584 lands server-side single-writable arbitration
+  these tests must be revisited.
+- **Local history scroll** — "local history scroll is viewport-only":
+  12 alternating scroll ticks + a stray scroll on an unsubscribed pane
+  produce zero new herdr requests (no `session.snapshot` refetch, no
+  `events.subscribe` reopen, no RPC, no re-attach), exactly one
+  `AttachScroll` (variant 6) per issued scroll, `pane.scroll_changed`
+  stays event-only, and post-scroll bytes meter as
+  `terminal.delivery.bytes{phase=scroll}`.
+- **Host scaling** — "host scaling: cost tracks visible panes": 3 fake
+  machines × 6 panes each; mounting 2 visible panes per machine yields
+  exactly 6 attach connections, scroll subscriptions covering only the
+  visible ids, 1 snapshot fetch + ≤2 `events.subscribe` per machine;
+  growing the visible set to all 6 panes/machine grows attaches linearly
+  while RPC/subscription-reopen counts stay flat.
+
+**RC / live legs** (isolated herdr sessions only — never the live
+session; `verify-guard` enforces):
+
+```sh
+bun test server/bridge-core.test.ts     # fast gate, deterministic
+bun scripts/perf-contract-check.ts      # contract pieces incl. #586
+bun scripts/perf-contract-check.ts --self-test
+# RC measurement legs (heavy, run at freeze):
+bun scripts/perf-bridge-load.ts record --session ht3load   # attach-churn + terminal-io legs
+bun scripts/perf-memory-bench.ts --session ht3mem --scenario hidden  # hidden-workspace non-delivery gate
+bun scripts/perf-observe.ts compare <before.json> <after.json>
+```
+
+The live legs still own wall-clock/volume evidence (delivery MiB/s,
+attach rates under real herdr); the contract tests own the invariants.
 
 ## RC section-l re-measurement (issue #354, 2026-11-26)
 

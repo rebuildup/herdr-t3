@@ -1068,6 +1068,398 @@ describe("operator role separation (issue #584)", () => {
   });
 });
 
+/* ------------- assurance coverage (issue #586, program #416/#425/#568) -- */
+
+describe("non-interference contract: observe cannot move the writable link (#586)", () => {
+  test("observer ops leave the writable link's size, focus and scroll authority untouched", async () => {
+    const { sessions, clientConns, frames } = makeTaggedSessions(["gui", "tui"], MULTI);
+    const [gui, tui] = sessions;
+    await gui!.start();
+    await tui!.start();
+
+    // The GUI holds the writable attach (takeover); the TUI observes the
+    // same pane read-only (issue #571 writable:false).
+    gui!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, takeover: true });
+    tui!.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 2, "two attaches");
+    const [wConn, oConn] = clientConns;
+    wConn!.handlers.data(welcomeFrame());
+    oConn!.handlers.data(welcomeFrame());
+    await waitFor(
+      () => frameVariants(wConn!.stream.bytes()).join() === "0,5" &&
+        frameVariants(oConn!.stream.bytes()).join() === "0,7",
+      "attach modes settled",
+    );
+
+    const scrollOpsBefore = metricsSnapshot().counters["bridge.terminal.op{op=scroll}"] ?? 0;
+
+    // Everything an observer can send — input, scroll, mouse, resize — plus
+    // a second observe subscribe on another pane. None may reach the
+    // writable link or change its announced size/focus/scroll authority.
+    tui!.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("GUI-STEAL") });
+    tui!.handleFrame({ type: "terminal_scroll", paneId: "p1", direction: "up", lines: 4 });
+    tui!.handleFrame({ type: "terminal_mouse", paneId: "p1", action: "press", column: 1, row: 1 });
+    tui!.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 132, rows: 40 });
+    tui!.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 3, "second observe attach");
+    clientConns[2]!.handlers.data(welcomeFrame());
+    await sleep(30);
+
+    // The writable wire still carries exactly hello+attach: no Resize (3),
+    // no Detach (4), no Input (1), no AttachScroll (6), no re-attach.
+    expect(new Set(frameVariants(wConn!.stream.bytes()))).toEqual(new Set([0, 5]));
+    expect(Buffer.from(wConn!.stream.bytes()).toString("latin1")).not.toContain("GUI-STEAL");
+
+    // The observer's dropped scroll op was still counted at receipt — the
+    // op meter sees attempted ops even when the writable gate drops them.
+    const scrollOpsAfter = metricsSnapshot().counters["bridge.terminal.op{op=scroll}"] ?? 0;
+    expect(scrollOpsAfter - scrollOpsBefore).toBe(1);
+
+    // The writable path is fully functional afterwards: input reaches the
+    // pty and delivered bytes still reach this client's frames.
+    gui!.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("GUI-TYPED") });
+    await waitFor(
+      () => Buffer.from(wConn!.stream.bytes()).toString("latin1").includes("GUI-TYPED"),
+      "writable input after observer ops",
+    );
+    wConn!.handlers.data(terminalFrame(encoder.encode("still-live"), 7));
+    await waitFor(
+      () => frames[0]!.some((f) => f.type === "terminal_data" && f.paneId === "p1"),
+      "terminal_data still forwarded",
+    );
+    gui!.close();
+    tui!.close();
+  });
+});
+
+describe("operator handoff: writable follows focus across panes (#586)", () => {
+  test("demote flips the slot to ObserveTerminal, observe-mode input is dropped and counted, re-promote restores writable", async () => {
+    const { session, clientConns } = makePolicySession([MULTI]);
+    await session.start();
+    // Both panes mounted writable. CURRENT merged semantics: the bridge
+    // does not arbitrate a single writable pane per machine — the renderer
+    // sends `writable` only for the operator pane (issue #584: input
+    // intent, not mere focus). These tests pin the per-slot mode
+    // contract, which #584 did not change.
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p2", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 2, "two writable attaches");
+    const [p1a, p2] = clientConns;
+    p1a!.handlers.data(welcomeFrame());
+    p2!.handlers.data(welcomeFrame());
+    await waitFor(
+      () => frameVariants(p1a!.stream.bytes()).join() === "0,5" &&
+        frameVariants(p2!.stream.bytes()).join() === "0,5",
+      "writable attaches",
+    );
+
+    // Focus moves p1 -> p2: the client re-negotiates p1 to observe (#571
+    // mode switch = new connection; the slot, refcount and op queue
+    // survive the flip).
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24, writable: false });
+    await waitFor(() => clientConns.length === 3, "demote re-attach");
+    const p1b = clientConns[2]!;
+    p1b.handlers.data(welcomeFrame());
+    await sleep(30);
+
+    // Demote releases the writable link: the superseded AttachTerminal got
+    // Detach (variant 4) and closed; the new link is ObserveTerminal (7).
+    // Resize authority over p1 is returned to the pane/herdr side.
+    expect(frameVariants(p1a!.stream.bytes())).toContain(4);
+    expect(p1a!.stream.ended).toBe(true);
+    expect(new Set(frameVariants(p1b.stream.bytes()))).toEqual(new Set([0, 7]));
+
+    // p2's writable link is untouched by the handoff.
+    expect(p2!.stream.ended).toBe(false);
+    expect(new Set(frameVariants(p2!.stream.bytes()))).toEqual(new Set([0, 5]));
+
+    // Input typed while p1 observes is dropped at the bridge — counted at
+    // receipt, never written to any wire. Resize still flows because an
+    // observe client renders into the size it announces.
+    const inputOpsBefore = metricsSnapshot().counters["bridge.terminal.op{op=input}"] ?? 0;
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("TO-OBSERVE") });
+    session.handleFrame({ type: "terminal_resize", paneId: "p1", cols: 100, rows: 30 });
+    await waitFor(() => frameVariants(p1b.stream.bytes()).includes(3), "observe resize flows");
+    await sleep(20);
+    expect(Buffer.from(p1b.stream.bytes()).toString("latin1")).not.toContain("TO-OBSERVE");
+    expect((metricsSnapshot().counters["bridge.terminal.op{op=input}"] ?? 0) - inputOpsBefore).toBe(1);
+
+    // Focus returns to p1: writable re-negotiation restores the input path.
+    // Input sent while the promotion attach resolves queues and flushes to
+    // the new link in order — nothing typed is lost (AGENTS.md §3).
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 4, "re-promote attach");
+    const p1c = clientConns[3]!;
+    session.handleFrame({ type: "terminal_input", paneId: "p1", data: b64("BACK") });
+    p1c.handlers.data(welcomeFrame());
+    await waitFor(
+      () => Buffer.from(p1c.stream.bytes()).toString("latin1").includes("BACK"),
+      "promoted input flush",
+    );
+    expect(new Set(frameVariants(p1c.stream.bytes()))).toEqual(new Set([0, 5, 1]));
+    // The observe link was superseded and detached, not leaked.
+    expect(p1b.stream.ended).toBe(true);
+    expect(frameVariants(p1b.stream.bytes())).toContain(4);
+    session.close();
+  });
+});
+
+describe("local history scroll is viewport-only (#586)", () => {
+  test("scroll paging issues no RPC, no re-attach and no snapshot refetch", async () => {
+    const { session, apiConns, clientConns, frames, snapshotFetches, subscribeRequests, pushEvent, snapshotPushes } =
+      makePolicySession([MULTI]);
+    await session.start();
+    session.handleFrame({ type: "subscribe_terminal", paneId: "p1", cols: 80, rows: 24 });
+    await waitFor(() => clientConns.length === 1, "attach");
+    clientConns[0]!.handlers.data(welcomeFrame());
+    await waitFor(() => attachTakeovers(clientConns[0]!).length === 1, "attach resolved");
+    await sleep(400); // scroll-subscription resync settles
+
+    const requestCount = () => apiConns.reduce((n, c) => n + c.requests.length, 0);
+    const rpcCount = () =>
+      apiConns.reduce((n, c) => n + c.requests.filter((r) => r.method !== "events.subscribe").length, 0);
+    const deliveryBefore =
+      metricsSnapshot().meters["terminal.delivery.bytes{phase=scroll}"]?.total ?? 0;
+    const before = {
+      requests: requestCount(),
+      rpcs: rpcCount(),
+      snapshots: snapshotFetches(),
+      subscribes: subscribeRequests(),
+      pushes: snapshotPushes().length,
+      attaches: metricsSnapshot().counters["bridge.terminal.attach"] ?? 0,
+      conns: clientConns.length,
+    };
+
+    // Page through history and back to the live screen, plus a stray scroll
+    // on a never-subscribed pane. Every tick must stay on the existing
+    // attach link: viewport paging is AttachScroll wire traffic, nothing
+    // more (herdr protocol v22 has no separate history-fetch message).
+    for (let i = 0; i < 12; i++) {
+      session.handleFrame({
+        type: "terminal_scroll",
+        paneId: "p1",
+        direction: i % 2 === 0 ? "up" : "down",
+        lines: 5,
+      });
+    }
+    session.handleFrame({ type: "terminal_scroll", paneId: "p-hidden", direction: "up" });
+    await sleep(400);
+
+    // Zero new herdr traffic of any kind: no session.snapshot refetch, no
+    // events.subscribe reopen, no RPC, no second attach connection.
+    expect(requestCount()).toBe(before.requests);
+    expect(rpcCount()).toBe(before.rpcs);
+    expect(snapshotFetches()).toBe(before.snapshots);
+    expect(subscribeRequests()).toBe(before.subscribes);
+    expect(snapshotPushes()).toHaveLength(before.pushes);
+    expect(clientConns).toHaveLength(before.conns);
+    expect(metricsSnapshot().counters["bridge.terminal.attach"] ?? 0).toBe(before.attaches);
+
+    // Each scroll became exactly one AttachScroll (variant 6) on the wire —
+    // 12 issued, 12 forwarded, nothing amplified or dropped.
+    const scrollFrames = clientPayloads(clientConns[0]!.stream).filter((p) => frameVariant(p) === 6);
+    expect(scrollFrames).toHaveLength(12);
+
+    // A pane.scroll_changed event stays event-only: forwarded to the client
+    // but it must not refetch the snapshot (issues #416/#527, #569).
+    pushEvent("pane.scroll_changed");
+    await sleep(300);
+    expect(frames.some((f) => f.type === "event")).toBe(true);
+    expect(requestCount()).toBe(before.requests);
+    expect(snapshotFetches()).toBe(before.snapshots);
+
+    // Bytes herdr delivers after the scroll count toward the post-scroll
+    // delivery phase — the demand-driven signal the RC legs gate on (#572).
+    clientConns[0]!.handlers.data(terminalFrame(encoder.encode("history-page"), 9));
+    await waitFor(
+      () => frames.some((f) => f.type === "terminal_data" && f.paneId === "p1"),
+      "terminal_data forward",
+    );
+    await sleep(20);
+    const deliveryAfter =
+      metricsSnapshot().meters["terminal.delivery.bytes{phase=scroll}"]?.total ?? 0;
+    expect(deliveryAfter - deliveryBefore).toBe(encoder.encode("history-page").length);
+    session.close();
+  });
+});
+
+describe("host scaling: cost tracks visible panes, not total panes (#586)", () => {
+  const MACHINES = 3;
+  const PANES_PER_MACHINE = 6;
+  const VISIBLE_PER_MACHINE = 2;
+
+  interface ScaledApiConn extends ApiConn {
+    requests: { id?: string; method?: string; params?: Record<string, unknown> }[];
+  }
+
+  /** snapshotApiConnector + request recording (per-machine snapshot). */
+  function scaledApiConnector(conns: ScaledApiConn[], snapshot: SessionSnapshot): Connector {
+    return (handlers) => {
+      const conn: ScaledApiConn = { handlers, stream: new FakeStream(), requests: [] };
+      conns.push(conn);
+      const rawWrite = conn.stream.write.bind(conn.stream);
+      conn.stream.write = (data) => {
+        rawWrite(data);
+        const line = typeof data === "string" ? data : decoder.decode(data);
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) return;
+        let request: { id?: string; method?: string; params?: Record<string, unknown> };
+        try {
+          request = JSON.parse(trimmed);
+        } catch {
+          return;
+        }
+        conn.requests.push(request);
+        const id = request.id ?? "";
+        const result =
+          request.method === "session.snapshot"
+            ? { snapshot }
+            : request.method === "events.subscribe"
+              ? { type: "subscription_started" }
+              : {};
+        handlers.data(encoder.encode(`${JSON.stringify({ id, result })}\n`));
+      };
+      return Promise.resolve(conn.stream);
+    };
+  }
+
+  /** N fake machines, each with its own snapshot of K panes. */
+  function scaledSessions() {
+    return Array.from({ length: MACHINES }, (_, m) => {
+      const machine = `host-${m}`;
+      const paneIds = Array.from({ length: PANES_PER_MACHINE }, (_, i) => `${machine}-p${i}`);
+      const snapshot: SessionSnapshot = {
+        ...SNAPSHOT,
+        panes: paneIds.map((id) => pane(id, `term-${id}`)),
+      };
+      const apiConns: ScaledApiConn[] = [];
+      const clientConns: ClientConn[] = [];
+      const frames: ServerFrame[] = [];
+      const endpoint: BridgeEndpoint = {
+        api: scaledApiConnector(apiConns, snapshot),
+        client: clientConnector(clientConns),
+        label: "fake",
+      };
+      const session = createBridgeSession((f) => frames.push(f), endpoint, machine);
+      return { machine, paneIds, session, apiConns, clientConns, frames };
+    });
+  }
+
+  const allRequests = (m: { apiConns: ScaledApiConn[] }) => m.apiConns.flatMap((c) => c.requests);
+  const snapshotFetches = (m: { apiConns: ScaledApiConn[] }) =>
+    allRequests(m).filter((r) => r.method === "session.snapshot").length;
+  const subscribeRequests = (m: { apiConns: ScaledApiConn[] }) =>
+    allRequests(m).filter((r) => r.method === "events.subscribe");
+  /** pane_ids in the most recently opened subscription of this machine. */
+  const liveScrollCoverage = (m: { apiConns: ScaledApiConn[] }) => {
+    const subs = subscribeRequests(m).at(-1)?.params?.["subscriptions"] as
+      | { type?: string; pane_id?: string }[]
+      | undefined;
+    return (subs ?? [])
+      .filter((s) => s.type === "pane.scroll_changed")
+      .map((s) => s.pane_id)
+      .sort();
+  };
+  /** pane_ids that ever appeared in any scroll subscription on this machine. */
+  const everScrollCovered = (m: { apiConns: ScaledApiConn[] }) =>
+    new Set(
+      subscribeRequests(m).flatMap(
+        (r) =>
+          ((r.params?.["subscriptions"] as { type?: string; pane_id?: string }[] | undefined) ?? [])
+            .filter((s) => s.type === "pane.scroll_changed")
+            .map((s) => s.pane_id),
+      ),
+    );
+
+  test("N machines x M visible panes: attach/RPC/subscription cost is O(visible), hidden panes cost nothing", async () => {
+    const hosts = scaledSessions();
+    const visible = hosts.map((h) => h.paneIds.slice(0, VISIBLE_PER_MACHINE));
+    const hidden = hosts.map((h) => h.paneIds.slice(VISIBLE_PER_MACHINE));
+    for (const h of hosts) await h.session.start();
+
+    // Baseline: one boot snapshot fetch + one events.subscribe per machine —
+    // cost scales with machines, never with pane count (18 panes exist).
+    for (const h of hosts) {
+      expect(snapshotFetches(h)).toBe(1);
+      expect(subscribeRequests(h)).toHaveLength(1);
+      expect(h.clientConns).toHaveLength(0);
+    }
+
+    // Each client mounts only its VISIBLE panes per machine.
+    for (const [i, h] of hosts.entries()) {
+      for (const paneId of visible[i]!) {
+        h.session.handleFrame({ type: "subscribe_terminal", paneId, cols: 80, rows: 24 });
+      }
+    }
+    await sleep(500); // attach batch + debounced scroll-resync settle
+    for (const h of hosts) {
+      for (const conn of h.clientConns) conn.handlers.data(welcomeFrame());
+    }
+    await sleep(30);
+
+    // Exactly M attach connections per machine — the other K-M panes per
+    // machine (and all panes on machines with no visible surface) opened
+    // nothing.
+    const totalAttaches = hosts.reduce((n, h) => n + h.clientConns.length, 0);
+    expect(totalAttaches).toBe(MACHINES * VISIBLE_PER_MACHINE);
+    for (const h of hosts) expect(h.clientConns).toHaveLength(VISIBLE_PER_MACHINE);
+
+    // Scroll subscriptions cover exactly the visible panes; hidden panes
+    // never appear in any subscription set.
+    for (const [i, h] of hosts.entries()) {
+      expect(liveScrollCoverage(h)).toEqual([...visible[i]!].sort());
+      for (const paneId of hidden[i]!) expect(everScrollCovered(h).has(paneId)).toBe(false);
+    }
+
+    // RPC traffic is still one snapshot fetch per machine: attaches resolve
+    // terminal ids from the boot snapshot, so pane count adds zero RPCs.
+    for (const h of hosts) {
+      expect(snapshotFetches(h)).toBe(1);
+      expect(allRequests(h).filter((r) => r.method !== "events.subscribe")).toHaveLength(1);
+    }
+
+    // Subscription reopens coalesce per attach batch: 1 boot + 1 resync per
+    // machine so far — O(batches), not O(panes).
+    for (const h of hosts) expect(subscribeRequests(h)).toHaveLength(2);
+
+    // Growing the visible set grows cost linearly with what is mounted:
+    // subscribing the remaining panes adds exactly K-M attaches and one
+    // more coalesced reopen per machine.
+    for (const [i, h] of hosts.entries()) {
+      for (const paneId of hidden[i]!) {
+        h.session.handleFrame({ type: "subscribe_terminal", paneId, cols: 80, rows: 24 });
+      }
+    }
+    await sleep(500);
+    for (const h of hosts) {
+      for (const conn of h.clientConns.slice(-PANES_PER_MACHINE + VISIBLE_PER_MACHINE)) {
+        conn.handlers.data(welcomeFrame());
+      }
+    }
+    await sleep(30);
+    for (const h of hosts) {
+      expect(h.clientConns).toHaveLength(PANES_PER_MACHINE);
+      expect(liveScrollCoverage(h)).toEqual([...h.paneIds].sort());
+      expect(subscribeRequests(h)).toHaveLength(3);
+      expect(snapshotFetches(h)).toBe(1);
+    }
+
+    // Detaching everything closes every link and empties the scroll set —
+    // hidden state again costs nothing.
+    for (const h of hosts) {
+      for (const paneId of h.paneIds) {
+        h.session.handleFrame({ type: "unsubscribe_terminal", paneId });
+      }
+    }
+    await sleep(500);
+    for (const h of hosts) {
+      expect(liveScrollCoverage(h)).toEqual([]);
+      for (const conn of h.clientConns) expect(conn.stream.ended).toBe(true);
+      h.session.close();
+    }
+  });
+});
+
 /** Variant discriminants (first payload byte) of every complete bincode frame. */
 function frameVariants(bytes: Uint8Array): number[] {
   const out: number[] = [];
