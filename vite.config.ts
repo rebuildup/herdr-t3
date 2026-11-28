@@ -19,6 +19,17 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5737,
+    // Pre-transform the client entry graph at server start: the UI
+    // verification harness (scripts/ui-electron.sh) requires the app to
+    // reach operable state within a strict budget, and on-demand
+    // transform of the module graph otherwise dominates cold start.
+    warmup: {
+      // Warm the whole client graph, not just the entry: lazy routes and
+      // deep imports still transform on demand otherwise, and the UI
+      // verification harness's spawn->operable deadline is measured
+      // against the real page load.
+      clientFiles: ["./src/main.tsx", "./src/**/*.ts", "./src/**/*.tsx"],
+    },
     proxy: {
       "/api": `http://127.0.0.1:${bridgePort}`,
       "/ws": { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
@@ -27,9 +38,11 @@ export default defineConfig(({ command }) => ({
   build: {
     outDir: "dist",
     sourcemap: true,
-    // The packaged app loads dist/ over file://, where fetch() of a file URL is
-    // refused; inlining the terminal engine's wasm as a data URI keeps it
-    // loadable there (and everywhere else). It is the only asset this large.
-    assetsInlineLimit: (filePath) => (filePath.endsWith(".wasm") ? true : undefined),
+    // WASM artifacts stay real asset files, not inlined data URIs: the
+    // packaged app loads dist/ over file:// where fetch() is refused, so
+    // src/lib/wasmAsset.ts reads them through the Electron IPC asset
+    // channel instead. Inlining them used to add ~1.7 MB of base64 to the
+    // entry chunk — parse time the spawn->operable contract pays for.
+    assetsInlineLimit: (filePath) => (filePath.endsWith(".wasm") ? false : undefined),
   },
 }));

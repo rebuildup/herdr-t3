@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -9,22 +8,10 @@ import {
   DialogPanel,
   DialogTitle,
 } from "./ui/dialog";
-import { rpc } from "../lib/api";
-import { focusPaneTerminal } from "../lib/paneFocus";
+import { focusPaneTerminal } from "../lib/focusHandoff";
+import { usePaneDiagnostics } from "../lib/paneDiagnostics";
 import { agentStatusLabel, isKnownAgentStatus } from "./AgentStatusBadge";
-import type {
-  PaneInfo,
-  PaneProcessInfo,
-  PaneProcessInfoProcess,
-} from "../../shared/protocol";
-
-interface ExplainResult {
-  explain?: Record<string, unknown>;
-}
-
-interface ReadResult {
-  read?: { text?: string; truncated?: boolean };
-}
+import type { PaneInfo, PaneProcessInfoProcess } from "../../shared/protocol";
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === "") return null;
@@ -74,58 +61,10 @@ export function PaneDetailsDialog({
     onClose();
     setTimeout(() => focusPaneTerminal(), 0);
   };
-  const [processInfo, setProcessInfo] = useState<PaneProcessInfo | null>(null);
-  const [processError, setProcessError] = useState<string | null>(null);
-  const [explain, setExplain] = useState<Record<string, unknown> | null>(null);
-  const [recentOutput, setRecentOutput] = useState<string | null>(null);
-  const [outputTruncated, setOutputTruncated] = useState(false);
   const paneId = pane?.pane_id ?? null;
   const isAgent = Boolean(pane?.agent);
-
-  useEffect(() => {
-    setProcessInfo(null);
-    setProcessError(null);
-    setExplain(null);
-    setRecentOutput(null);
-    setOutputTruncated(false);
-    if (!paneId) return;
-    let cancelled = false;
-    void rpc<{ process_info?: PaneProcessInfo }>(
-      "pane.process_info",
-      { pane_id: paneId },
-      machine,
-    )
-      .then((res) => {
-        if (!cancelled) setProcessInfo(res?.process_info ?? null);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setProcessError(error instanceof Error ? error.message : String(error));
-        }
-      });
-    if (isAgent) {
-      void rpc<ExplainResult>("agent.explain", { target: paneId }, machine)
-        .then((res) => {
-          if (!cancelled && res?.explain) setExplain(res.explain);
-        })
-        .catch(() => {});
-      void rpc<ReadResult>(
-        "agent.read",
-        { target: paneId, lines: 30, format: "text", strip_ansi: true },
-        machine,
-      )
-        .then((res) => {
-          if (!cancelled && res?.read?.text !== undefined) {
-            setRecentOutput(res.read.text);
-            setOutputTruncated(res.read.truncated === true);
-          }
-        })
-        .catch(() => {});
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [paneId, machine, isAgent]);
+  const { processInfo, processError, explain, recentOutput, outputTruncated } =
+    usePaneDiagnostics(paneId, machine, isAgent);
 
   const explainEntries = explain
     ? Object.entries(explain).filter(

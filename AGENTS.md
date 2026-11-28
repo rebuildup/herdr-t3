@@ -2,7 +2,7 @@
 
 This is the always-on contract for AI agents working on `herdr-t3`.
 
-The repository follows the `rebuildup/project-init` release-driven operating
+The repository follows the `rebuildup/aude-skills` release-driven operating
 model. Keep this root contract project-specific; do not copy the complete
 upstream initialization prompt here.
 
@@ -87,7 +87,7 @@ execution, thread/checkpoint lifecycle ownership, mobile apps, cloud sync,
 changes to dotfiles/herdr/Agent Router/Worktrunk. T3 Code features that do
 not conflict with the herdr boundary are in scope per ADR-0009 and the
 parity inventory in `docs/design/t3-parity.md` (issue #188). Consuming
-published `herdr-plugins` contracts through the ADR-0011 boundary
+published `hoxay-plugins` contracts through the ADR-0011 boundary
 (`plugin_list`/`plugin_call`) is in scope; direct CLI implementations must
 not duplicate plugin-owned capabilities.
 
@@ -120,8 +120,26 @@ Follow `organization/profiles/release-driven-solo.md`:
 
 ## 8. Project-local skills
 
-Skills reconciled from `rebuildup/project-init` live in `.agents/skills/`
+Skills reconciled from `rebuildup/aude-skills` live in `.agents/skills/`
 (`.claude/skills/` symlinks them for Claude Code) with `skills-lock.json` as
 freshness metadata. Do not hand-edit upstream-managed Skill bodies; record
 project-specific refinements in this file, ADRs, or `docs/`. Update via
 `bunx skills update -p -y`.
+
+Design-domain skills come from `rebuildup/design-skills` (pinned in
+`docs/upstream.md`); do not install the pack wholesale. Adopted capabilities:
+
+- `design-discipline` — upstream design foundation before creating or
+  substantially restructuring a 2D visual artifact or UI (meaning
+  reconstruction, media selection, spatial composition).
+- `design-intent` — fixing visual direction / brief when it is genuinely
+  unresolved or must stay consistent across the project.
+- `composition-review` — auditing a finished screen/page as a whole against
+  general composition principles (hierarchy, grouping, whitespace, balance).
+- `visual-review` — screenshot-driven review of rendered UI (regression,
+  coherence, first encounter). Currently a **trial** adoption pending the
+  upstream `watch` status; use it for UI-change visual verification and feed
+  results back before treating it as the default reviewer.
+
+`functional-aesthetics-review` and `motion-system` remain upstream `watch`
+candidates and are intentionally not installed.

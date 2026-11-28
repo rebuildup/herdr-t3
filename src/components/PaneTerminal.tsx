@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  onHerdrEvent,
   onTerminalClosed,
   onTerminalData,
   onTerminalMouseCapture,
@@ -26,9 +27,13 @@ import {
   onTerminalThemeChange,
 } from "../lib/theme";
 import { getTerminalSettings, onTerminalSettingsChange } from "../lib/settings";
+import { createSelectionCopy } from "../lib/selectionCopy";
+import { registerPaneSurface, unregisterPaneSurface } from "../lib/paneSurfaces";
 import { registerTerminalScrollProbe } from "../lib/uiObserve";
 import { GhosttySession } from "../lib/ghostty/session.ts";
+import { deliverPanePaste } from "../lib/panePaste.ts";
 import { GhosttySurface } from "../lib/ghostty/surface.ts";
+import { registerMemoryProbe, registerMemoryShedder } from "../lib/memoryBudget.ts";
 
 /** the configured font family, or the --font-mono stack when unset */
 function terminalFontFamily(): string {
@@ -52,6 +57,15 @@ function decodeBase64(data: string): Uint8Array {
 }
 
 /**
+ * Bounds on attach bytes queued before the WASM surface exists (issue #499).
+ * WASM compile is sub-second on a healthy machine; anything past these caps
+ * means the surface will never arrive, so the attach is dropped rather than
+ * letting the queue grow for the life of the pane.
+ */
+const PENDING_MAX_BYTES = 8 * 1024 * 1024;
+const PENDING_MAX_FRAMES = 1024;
+
+/**
  * One attached herdr pane as a libghostty-vt terminal (ADR-0007). The attach
  * stream from the bridge is the truth; the engine keeps its own scrollback of
  * what streamed by, so a bridge reconnect loses nothing the user can still see
@@ -66,6 +80,7 @@ export function PaneTerminal({
   connected,
   className,
   label,
+  writable = true,
 }: {
   machine: string;
   paneId: string;
@@ -73,18 +88,35 @@ export function PaneTerminal({
   className?: string;
   /** pane title used for the terminal input's accessible name (issue #115) */
   label?: string;
+  /**
+   * Whether this pane currently holds the writable AttachTerminal mode
+   * (issue #571): only the pane the user is operating gets resize authority
+   * and input; every other visible pane streams through read-only
+   * ObserveTerminal so merely having the GUI open cannot pin pane sizes or
+   * steal input/scroll arbitration from other clients. Focus changes
+   * negotiate the mode on the live subscription — no detach gap.
+   */
+  writable?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttySurface | null>(null);
   const mouseCaptureRef = useRef<boolean | null>(null);
   const sizeRef = useRef({ cols: 80, rows: 24 });
   // ResizeObserver fires per frame during a window drag; the engine grid
-  // follows immediately but the committed grid (which drives re-subscribe)
-  // and the pty resize are only updated on a short trailing delay
-  // (issue #213) — without it every drag frame tore down and re-attached
-  // the terminal. The last size always sends.
+  // follows immediately, the pty resize rides the live link on the next
+  // frame, and the committed grid (which drives re-subscribe) is only
+  // updated on a short trailing delay (issue #213) — without it every
+  // drag frame tore down and re-attached the terminal. The last size
+  // always sends.
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
+  // The pty resize rides the live attach link, so it only needs frame
+  // coalescing — not the 120ms re-subscribe debounce. Sending it with the
+  // debounce left the engine wrapping at the new width while the program
+  // still laid out for the old one (mid-token wraps, staggered row
+  // backgrounds on split/dock drags — issue #417 Windows leg).
+  const resizeFrame = useRef(0);
+  const pendingPtyResize = useRef<{ cols: number; rows: number } | null>(null);
   const gridCommitted = useRef(false);
   // Wheel events coalesce to one AttachScroll per animation frame with the
   // net line count (issue #213); inertial scrolling emits far more events
@@ -96,6 +128,17 @@ export function PaneTerminal({
     modifiers: number;
   } | null>(null);
   const wheelFrame = useRef(0);
+  // Server-authoritative scroll offset for this pane (issues #433/#436):
+  // `pane.scroll_changed` events and `pane.scroll` replies keep it fresh;
+  // selection edge auto-scroll turns `scroll_request` into absolute
+  // `offset_from_bottom` targets through it.
+  const scrollInfo = useRef({ offset: 0, max: 0 });
+  const gridRef = useRef({ cols: 0, rows: 0 });
+  // Mirrors `writable` for the surface callbacks (created once per pane);
+  // the subscribe effect reads it so a focus flip never rebuilds the engine.
+  const writableRef = useRef(writable);
+  const lastSentWritable = useRef<boolean | null>(null);
+  const subscribedRef = useRef(false);
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -115,14 +158,38 @@ export function PaneTerminal({
     let surface: GhosttySurface | null = null;
     let session: GhosttySession | null = null;
     let unregisterProbe: (() => void) | null = null;
+    // App-wide WASM memory budget (issue #499): this pane's engine memory
+    // counts toward the renderer budget; the surface's rebuildable caches
+    // are shed under pressure.
+    let offMemoryProbe: (() => void) | null = null;
+    let offMemoryShedder: (() => void) | null = null;
     // Attach bytes that arrive while the WASM module compiles queue here and
     // flush in order once the surface exists — the stream is never dropped.
+    // The queue is bounded (issue #499): if the surface never comes up
+    // (compile failure, dead engine) the attach is dropped instead of
+    // accumulating the whole stream in memory.
     const pending: Uint8Array[] = [];
+    let pendingBytes = 0;
+    let streamOverflow = false;
     const send = (bytes: Uint8Array) => {
       // encoded keys/mouse/paste, IME text and the engine's replies to the
       // program's queries are all stream bytes for the pane's pty
       if (bytes.length > 0) terminalInput(machine, paneId, bytes);
     };
+    // Copy on select (issue #440): the surface reports selection *commits*
+    // only; the setting is read live per commit so toggles apply to this
+    // open pane without a rebuild, and writes are serialized so a delayed
+    // write cannot clobber a newer copy.
+    const copySelection = createSelectionCopy({
+      enabled: () => getTerminalSettings().copyOnSelect,
+      writeText: (text) => {
+        const clipboard = navigator.clipboard;
+        return clipboard ? clipboard.writeText(text) : Promise.resolve();
+      },
+      // issue #441: only a resolved write earns the copy-success tick on
+      // the selection overlay — failures stay silent
+      onCopied: () => surface?.notifySelectionCopied(),
+    });
 
     void GhosttySession.create({
       cols: sizeRef.current.cols,
@@ -147,6 +214,16 @@ export function PaneTerminal({
           return;
         }
         session = created;
+        // Copy-report dialog (issue #429): expose a read-only handle to the
+        // live engine's kept history so candidates come from the same text
+        // the user sees. Unregistered on dispose — never a dead engine.
+        registerPaneSurface(machine, paneId, {
+          cols: () => sizeRef.current.cols,
+          rows: () => sizeRef.current.rows,
+          history: () => created.history(),
+          textOf: (range) => created.textOf(range),
+        });
+        offMemoryProbe = registerMemoryProbe(`pane:${machine}:${paneId}`, () => created.memoryBytes());
         // Conformance observation (#238): rows scrolled above the bottom.
         unregisterProbe = registerTerminalScrollProbe(`${machine}\n${paneId}`, () => {
           const h = created.history();
@@ -162,8 +239,25 @@ export function PaneTerminal({
             ? { lineHeight: terminalSettings.lineHeight }
             : {}),
           onInput: send,
+          onSelectionCommit: copySelection,
+          onPasteText: (text) => {
+            // pane.send_input routes the body through herdr's
+            // encode_api_text, which wraps \x1b[200~…\x1b[201~ iff the pane
+            // enabled bracketed paste — the attach stream carries no mode
+            // state, so the local engine could never bracket (issue #434,
+            // herdr#6215). See deliverPanePaste for the full contract.
+            deliverPanePaste(rpc, machine, paneId, text);
+          },
           onMouse: (event) => terminalMouse(machine, paneId, event),
           onWheel: (event) => {
+            // A wheel gesture on a read-only (observe) pane is operating
+            // intent: focus the pane first — the snapshot flip promotes it
+            // to writable — and drop this tick rather than send AttachScroll
+            // to a link that cannot carry it (issue #571).
+            if (!writableRef.current) {
+              void rpc("pane.focus", { pane_id: paneId }, machine).catch(() => {});
+              return;
+            }
             const signed = event.direction === "down" ? event.lines : -event.lines;
             const acc = wheelAccum.current ?? {
               lines: 0,
@@ -193,8 +287,34 @@ export function PaneTerminal({
               });
             }
           },
+          onScrollRequest: (direction, lines) => {
+            // Selection edge auto-scroll (issue #433): move the server's
+            // authoritative viewport via `pane.scroll` — never the wheel
+            // path, which the server would arbitrate into TUI mouse reports.
+            const info = scrollInfo.current;
+            const delta = direction === "up" ? lines : -lines;
+            const target = Math.max(0, info.offset + delta);
+            if (target === info.offset) return;
+            void rpc<{ pane?: { scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null } }>(
+              "pane.scroll",
+              { pane_id: paneId, offset_from_bottom: target },
+              machine,
+            )
+              .then((res) => {
+                const scroll = res?.pane?.scroll;
+                if (!scroll) return;
+                if (typeof scroll.offset_from_bottom === "number") {
+                  scrollInfo.current.offset = scroll.offset_from_bottom;
+                }
+                if (typeof scroll.max_offset_from_bottom === "number") {
+                  scrollInfo.current.max = scroll.max_offset_from_bottom;
+                }
+              })
+              .catch(() => {});
+          },
           onResize: (cols, rows) => {
             sizeRef.current = { cols, rows };
+            gridRef.current = { cols, rows };
             if (!gridCommitted.current) {
               // First measurement: commit at once so the initial subscribe
               // carries the real size — no resize RPC is needed yet.
@@ -212,8 +332,18 @@ export function PaneTerminal({
               setGrid((prev) =>
                 prev && prev.cols === size.cols && prev.rows === size.rows ? prev : size,
               );
-              terminalResize(machine, paneId, size.cols, size.rows);
             }, 120);
+            // Resize the pty on the next frame through the existing attach
+            // link; the re-attach above still waits out the debounce.
+            pendingPtyResize.current = { cols, rows };
+            if (resizeFrame.current === 0) {
+              resizeFrame.current = requestAnimationFrame(() => {
+                resizeFrame.current = 0;
+                const size = pendingPtyResize.current;
+                pendingPtyResize.current = null;
+                if (size) terminalResize(machine, paneId, size.cols, size.rows);
+              });
+            }
           },
           onDead: (error) => {
             setEngineError(error instanceof Error ? error.message : String(error));
@@ -221,10 +351,12 @@ export function PaneTerminal({
           ...(label ? { ariaLabel: `terminal ${label}` } : {}),
         });
         surfaceRef.current = surface;
+        offMemoryShedder = registerMemoryShedder(`surface:${machine}:${paneId}`, () => surface?.shedCaches());
         if (mouseCaptureRef.current !== null) {
           surface.setMouseCapture(mouseCaptureRef.current);
         }
         surface.attach();
+        pendingBytes = 0;
         for (const bytes of pending.splice(0)) surface.write(bytes);
         // applyTheme is defined below in this effect; the .then callback runs
         // after the synchronous body, so the binding is initialized.
@@ -235,10 +367,22 @@ export function PaneTerminal({
       });
 
     const dataOff = onTerminalData((m, id, data) => {
-      if (m !== machine || id !== paneId) return;
+      if (m !== machine || id !== paneId || streamOverflow) return;
       const bytes = decodeBase64(data);
-      if (surfaceRef.current) surfaceRef.current.write(bytes);
-      else pending.push(bytes);
+      if (surfaceRef.current) {
+        surfaceRef.current.write(bytes);
+        return;
+      }
+      pendingBytes += bytes.length;
+      if (pendingBytes > PENDING_MAX_BYTES || pending.length >= PENDING_MAX_FRAMES) {
+        streamOverflow = true;
+        pending.length = 0;
+        pendingBytes = 0;
+        unsubscribeTerminal(machine, paneId);
+        setEngineError("terminal stream overflow: surface unavailable");
+        return;
+      }
+      pending.push(bytes);
     });
     // herdr MouseCapture (issue #169): the pane's program asked for mouse
     // reporting. Events can arrive before the WASM surface exists, so the
@@ -252,6 +396,52 @@ export function PaneTerminal({
       if (m !== machine || id !== paneId) return;
       setClosedReason(reason ?? "closed");
     });
+    // `pane.scroll_changed` (issue #436): the server's viewport moved —
+    // wheel, `pane.scroll`, or another client — so the surface re-projects
+    // selection/search highlights onto the rows the blit actually shows.
+    const scrollEventOff = onHerdrEvent((frame, m) => {
+      if (m !== machine || frame.event !== "pane.scroll_changed") return;
+      const data = frame.data as
+        | { pane_id?: string; scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number; viewport_rows?: number } }
+        | undefined;
+      if (data?.pane_id !== paneId || !data.scroll) return;
+      const scroll = data.scroll;
+      if (typeof scroll.offset_from_bottom === "number") {
+        scrollInfo.current.offset = scroll.offset_from_bottom;
+      }
+      if (typeof scroll.max_offset_from_bottom === "number") {
+        scrollInfo.current.max = scroll.max_offset_from_bottom;
+      }
+      const viewportRows =
+        typeof scroll.viewport_rows === "number" ? scroll.viewport_rows : gridRef.current.rows;
+      // viewportRows is part of the invalidation contract — never feed a
+      // guess of 0, that would drop selection on every event.
+      if (viewportRows <= 0) return;
+      surfaceRef.current?.hostScrollChanged({
+        offsetFromBottom: scroll.offset_from_bottom ?? scrollInfo.current.offset,
+        maxOffsetFromBottom: scroll.max_offset_from_bottom ?? scrollInfo.current.max,
+        viewportRows,
+      });
+    });
+    // Seed the scroll offset once so the first auto-scroll request targets
+    // the real position instead of assuming the bottom.
+    void rpc<{ snapshot?: { panes?: { pane_id: string; scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } | null }[] } }>(
+      "session.snapshot",
+      {},
+      machine,
+    )
+      .then((res) => {
+        const pane = res?.snapshot?.panes?.find((p) => p.pane_id === paneId);
+        const scroll = pane?.scroll;
+        if (!scroll) return;
+        if (typeof scroll.offset_from_bottom === "number") {
+          scrollInfo.current.offset = scroll.offset_from_bottom;
+        }
+        if (typeof scroll.max_offset_from_bottom === "number") {
+          scrollInfo.current.max = scroll.max_offset_from_bottom;
+        }
+      })
+      .catch(() => {});
     // Theme changes (appearance mode, Ghostty config edits, OS light/dark)
     // update the live terminal in place — scrollback and input state survive.
     const applyTheme = () => {
@@ -407,6 +597,7 @@ export function PaneTerminal({
       dataOff();
       mouseCaptureOff();
       closedOff();
+      scrollEventOff();
       themeOff();
       settingsOff();
       host.removeEventListener("keydown", onFindKey, true);
@@ -418,9 +609,14 @@ export function PaneTerminal({
       surfaceRef.current?.setLinkHover(false);
       if (bellTimer.current) clearTimeout(bellTimer.current);
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      if (resizeFrame.current !== 0) cancelAnimationFrame(resizeFrame.current);
+      pendingPtyResize.current = null;
       if (wheelFrame.current !== 0) cancelAnimationFrame(wheelFrame.current);
       surfaceRef.current = null;
+      unregisterPaneSurface(machine, paneId);
       unregisterProbe?.();
+      offMemoryProbe?.();
+      offMemoryShedder?.();
       surface?.dispose();
       session?.dispose();
     };
@@ -432,15 +628,40 @@ export function PaneTerminal({
     surfaceRef.current?.setAriaLabel(label ? `terminal ${label}` : "terminal input");
   }, [label]);
 
+  // Keep writableRef current before any effect that reads it (declared
+  // above the subscribe effect so it runs first on every commit).
+  useEffect(() => {
+    writableRef.current = writable;
+  }, [writable]);
+
   // (Re)subscribe once the surface has measured its grid and whenever the
   // bridge connection is up. The server queues input/resize until the attach
-  // resolves and replays a full redraw.
+  // resolves and replays a full redraw. `writable` is deliberately NOT a
+  // dependency: a focus flip is negotiated by the effect below instead of
+  // tearing the subscription down.
   useEffect(() => {
     if (!connected || !grid) return;
-    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover);
+    subscribeTerminal(machine, paneId, grid.cols, grid.rows, takeover, writableRef.current);
+    lastSentWritable.current = writableRef.current;
+    subscribedRef.current = true;
     setClosedReason(null);
-    return () => unsubscribeTerminal(machine, paneId);
+    return () => {
+      subscribedRef.current = false;
+      unsubscribeTerminal(machine, paneId);
+    };
   }, [machine, paneId, connected, takeover, grid]);
+
+  // Attach-mode negotiation (issue #571): the bridge re-subscribes the live
+  // slot with the new `writable` flag, which re-opens the client-protocol
+  // link as AttachTerminal or ObserveTerminal while preserving the slot,
+  // its refcount and its op queue — input typed during the switch still
+  // reaches the pane in order. Skipped until a subscription exists and only
+  // sent on an actual mode change, so no redundant reference is taken.
+  useEffect(() => {
+    if (!subscribedRef.current || lastSentWritable.current === writable) return;
+    subscribeTerminal(machine, paneId, gridRef.current.cols, gridRef.current.rows, takeover, writable);
+    lastSentWritable.current = writable;
+  }, [machine, paneId, takeover, writable]);
 
   const closeSearch = () => {
     setSearchOpen(false);
@@ -450,7 +671,12 @@ export function PaneTerminal({
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      <div ref={hostRef} className="absolute inset-0" data-ui-terminal={`${machine}\n${paneId}`} />
+      <div
+        ref={hostRef}
+        className="absolute inset-0"
+        data-ui-terminal={`${machine}\n${paneId}`}
+        data-pane-id={paneId}
+      />
       {searchOpen && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md">
           <Input

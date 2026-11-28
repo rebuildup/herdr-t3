@@ -16,7 +16,9 @@ import {
   GhosttyScene,
   type PaintOp,
   type SceneBackgroundImage,
+  type SelectionFx,
 } from "./scene.ts";
+import { GhosttyImageCache } from "./imageCache.ts";
 
 export interface GhosttyRendererOptions {
   fontFamily: string;
@@ -25,6 +27,8 @@ export interface GhosttyRendererOptions {
   foreground: string;
   background: string;
   cursor: string;
+  /** `cursor-text` for the block cursor (issue #382); unset = background */
+  cursorText?: string | undefined;
   /** selection and search-match washes, as CSS colours with alpha */
   selection?: string;
   search?: string;
@@ -49,7 +53,10 @@ export class GhosttyRenderer {
   private readonly top: HTMLCanvasElement;
   private readonly bctx: CanvasRenderingContext2D;
   private readonly tctx: CanvasRenderingContext2D;
-  private readonly imageCache = new Map<number, { generation: number; canvas: HTMLCanvasElement }>();
+  // 64 MiB decoded-image budget per surface (issue #499): matches the WASM
+  // engine's per-pane image storage cap so renderer copies stay proportional
+  // to what the engine can still serve instead of growing per unique id.
+  private readonly imageCache = new GhosttyImageCache(64 * 1024 * 1024);
   private bgImage: GhosttyBackgroundImageSpec | null = null;
   private disposed = false;
 
@@ -103,8 +110,32 @@ export class GhosttyRenderer {
     this.scene.setSelection(range);
   }
 
+  /**
+   * The transient selection response (issue #441): the host drives
+   * `progress` per frame and clears with `null` on finish.
+   */
+  setSelectionFx(fx: SelectionFx | null): void {
+    this.scene.setSelectionFx(fx);
+  }
+
+  /**
+   * Repaint only the overlay canvas (selection/search/cursor) — used by
+   * the selection fx animator so text rows are not repainted between
+   * frames (issue #441).
+   */
+  renderOverlay(): void {
+    if (this.disposed) return;
+    const ops = this.scene.renderOverlay();
+    this.paintOverlay(ops);
+  }
+
   setHighlights(ranges: Parameters<GhosttyScene["setHighlights"]>[0]): void {
     this.scene.setHighlights(ranges);
+  }
+
+  /** rows the host viewport sits above the engine's bottom-anchored view (server-side scroll) */
+  setViewportShift(shift: number): void {
+    this.scene.setViewportShift(shift);
   }
 
   setCursorVisible(visible: boolean): void {
@@ -112,7 +143,7 @@ export class GhosttyRenderer {
   }
 
   /** the theme changed: the defaults unnamed runs and the cursor are drawn with, and the washes */
-  setColors(colors: Partial<Pick<GhosttyRendererOptions, "foreground" | "background" | "cursor" | "selection" | "search">>): void {
+  setColors(colors: Partial<Pick<GhosttyRendererOptions, "foreground" | "background" | "cursor" | "cursorText" | "selection" | "search">>): void {
     this.scene.setColors(colors);
   }
 
@@ -223,10 +254,16 @@ export class GhosttyRenderer {
         }
       }
     } else {
-      const pixels = this.session.imagePixels(op.image.id);
-      if (pixels) {
-        let entry = this.imageCache.get(op.image.id);
-        if (!entry || entry.generation !== op.image.generation) {
+      // Check the cache before touching the engine: imagePixels copies the
+      // whole image out of WASM, which per frame per placed row was the
+      // allocation storm behind issue #499.
+      let entry = this.imageCache.get(op.image.id);
+      if (entry !== undefined && entry.generation !== op.image.generation) {
+        entry = undefined; // stale generation — set() below replaces it
+      }
+      if (entry === undefined) {
+        const pixels = this.session.imagePixels(op.image.id);
+        if (pixels) {
           const canvas = document.createElement("canvas");
           canvas.width = pixels.width;
           canvas.height = pixels.height;
@@ -234,7 +271,9 @@ export class GhosttyRenderer {
           entry = { generation: op.image.generation, canvas };
           this.imageCache.set(op.image.id, entry);
         }
-        const src = op.src ?? { x: 0, y: 0, w: pixels.width, h: pixels.height };
+      }
+      if (entry) {
+        const src = op.src ?? { x: 0, y: 0, w: entry.canvas.width, h: entry.canvas.height };
         ctx.drawImage(entry.canvas, src.x, src.y, src.w, src.h, op.dst.x, op.dst.y, op.dst.w, op.dst.h);
       }
     }
@@ -276,6 +315,12 @@ export class GhosttyRenderer {
       ascent: box.actualBoundingBoxAscent || fontSize * 0.8,
       descent: box.actualBoundingBoxDescent || fontSize * 0.25,
     };
+  }
+
+  /** lossless cache eviction under memory pressure (issue #499): pixels and advance widths rebuild on next paint */
+  shedCaches(): void {
+    this.imageCache.clear();
+    this.scene.shedAdvanceCache();
   }
 
   dispose(): void {

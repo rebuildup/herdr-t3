@@ -75,6 +75,71 @@ Reused material:
   `src/lib/ghostty/` and adapted for full xterm.js replacement: the xterm
   overlay/capture adapter is not carried.
 
+## Agent brand icons
+
+Kind → icon-source mapping and provenance pins live in
+`shared/agent-icons.json` (single source of truth; the GPUI renderer
+consumes the same file). Rendered by `src/components/agentKind.ts` and
+`src/components/agentIcons.tsx` (issues #311, #335).
+
+### ACP Registry — agent brand icons
+
+- Upstream: <https://github.com/agentclientprotocol/registry>
+- Pinned commit: `b150ba592b85f8ee5f9f3457ce080197e3a1922e`
+  (`<agent>/icon.svg` per agent directory; licenses per `agent.json`).
+
+Reused material — `src/components/agent-icons/*.svg`, official
+monochrome glyphs (`currentColor` paths) vendored verbatim:
+
+| File | Registry entry | Agent | License (per `agent.json`) |
+| --- | --- | --- | --- |
+| `gemini.svg` | `gemini` | Gemini CLI | Apache-2.0 |
+| `devin.svg` | `devin` | Devin | proprietary |
+| `agy.svg` | `antigravity-acp` | Google Antigravity | proprietary |
+| `cline.svg` | `cline` | Cline | Apache-2.0 |
+| `copilot.svg` | `github-copilot` | GitHub Copilot | proprietary |
+| `kimi.svg` | `kimi-code` | Kimi Code | MIT |
+| `droid.svg` | `factory-droid` | Factory Droid | proprietary |
+| `amp.svg` | `amp-acp` | Amp | Apache-2.0 |
+| `kilo.svg` | `kilo` | Kilo | MIT |
+| `qodercli.svg` | `qoder` | Qoder CLI | proprietary |
+| `qwen.svg` | `qwen-code` | Qwen Code | Apache-2.0 |
+
+The marks remain the property of their respective owners.
+
+### oh-my-pi — OMP agent icon
+
+- Upstream: <https://github.com/can1357/oh-my-pi>
+- Pinned commit: `2be354322dee0cdd95bc42fc61c72ef9767b653b`
+- `src/components/agent-icons/omp.svg` — `assets/icon.svg` vendored
+  verbatim (the project's official app icon: pi symbol with plugin
+  connector). Repository license: MIT. The mark is rendered through the
+  same currentColor recolor filter as the registry glyphs, which
+  flattens its fixed palette to a monochrome silhouette.
+
+### Mastra — Mastra Code agent icon
+
+- Upstream: <https://github.com/mastra-ai/mastra>
+- Pinned commit: `7707dd7fe9cdd24f693ceed7b9732e00365ea574`
+- `src/components/agent-icons/mastracode.svg` — the `LogoWithoutText`
+  mark from
+  `packages/playground-ui/src/ds/components/Logo/MastraLogo.tsx`, the
+  same glyph the Mastra Code TUI renders in its header. Repository
+  license: Apache-2.0 with `ee/` enterprise carve-outs (this asset is
+  outside `ee/`).
+
+### Investigated, no suitable vector asset — generic glyph
+
+These herdr kinds keep the generic `Bot` fallback because no official
+vector agent mark exists (checked 2026-11, issue #335):
+
+- `hermes` — NousResearch/hermes-agent (`010f119d`): only raster app
+  icons (`nous-girl.png`, 1024px `mono.png`); no SVG agent glyph.
+- `letta` — letta-ai/letta-code (`ed518ca0`): the TUI logo is ASCII-art
+  animation frames (`AnimatedLogo.tsx`); no vector mark.
+- `maki` — tontinton/maki (`2b6aaeeb`): site ships PNG favicons only;
+  no vector mark.
+
 ## herdr
 
 - herdr is the terminal multiplexer this client bridges to. Its API schema

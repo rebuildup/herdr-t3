@@ -63,13 +63,15 @@ in order; the Rust port emits the identical list.
 
 `input{hex}` · `mouse_report{action,button,column,row,modifiers}` ·
 `wheel{direction,lines,column?,row?,modifiers}` ·
-`selection_change{text}` · `scroll{rows}` · `resize{cols,rows}` ·
+`selection_change{text}` · `selection_commit{text}` · `scroll{rows}` ·
+`resize{cols,rows}` ·
 `dead{message}` · `schedule` · `blink_arm{delay_ms}` ·
 `blink_disarm` · `render_set_selection{range}` ·
+`render_selection_fx{kind,range?}` ·
 `render_set_highlights{ranges}` · `render_set_cursor_visible{visible}` ·
 `render_invalidate` · `render_set_metrics{metrics}` ·
 `render_set_font{fontFamily?,fontSize?}` ·
-`render_set_colors{foreground,background,cursor}` ·
+`render_set_colors{foreground,background,cursor,cursorText?}` ·
 `render_set_background_opacity{alpha}` · `render_collect` ·
 `render_frame` · `ime_anchor{rect|null}` · `ime_view{...}` ·
 `ime_view_hide` · `focus` · `pointer_capture` · `prevent_default`.
@@ -94,6 +96,27 @@ callback effects carry the decision content.
   and `lastViewportTop` advanced — user scrolls never carry.
 - Click widening: `count` resets after 500 ms or beyond 3; `wordAt`
   then `lineAt`; widened selection emits `selection_change` with text.
+- Selection commit vs notification (issue #440): `selection_change` is a
+  state notification — it also fires for clears (`text: null`) and
+  invalidations, and `searchStep` selections change the highlight without
+  any notification. `selection_commit{text}` is the user-commit signal:
+  emitted exactly once per `pointerUp` that leaves a non-empty local
+  selection (drag release incl. reverse drags and edge auto-scroll, and
+  word/line widening), immediately after the matching
+  `selection_change`, and never for moves, ticks, scrolls, output,
+  search-result selections, `pointerCancel`, empty clicks or
+  `clearSelection`. The effect carries the exact `textOf` text; any
+  clipboard side effect (copy-on-select) is the host's decision.
+- Selection fx (issue #441): `render_selection_fx{kind,range?}` asks the
+  host to play a transient overlay response — `enter` when a select
+  drag's painted range first becomes non-empty (and again when a reverse
+  drag re-grows it), `commit` alongside each `selection_commit`, `clear`
+  with the just-cleared range for the fade-out (also when a new gesture
+  replaces a painted selection), `cancel` when stored coordinates lose
+  their identity (`hostScrollChanged` reflow/prune). Selection geometry
+  is never delayed: `render_set_selection` still tracks the pointer
+  immediately; the fx only drives paint-side emphasis on the host's
+  clock.
 - IME: `compositionupdate` text is a pure DOM mirror (no effect); the
   anchor/composition-view geometry is effect-driven.
 

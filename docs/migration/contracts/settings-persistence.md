@@ -11,7 +11,7 @@ file formats may evolve only through the #239 compatibility rules.
 - Settings sections (each one typed store, one storage key — no second
   source of truth):
   - `herdr-t3:settings:terminal` — fontFamily, fontSize, lineHeight,
-    scrollbackLines (`src/lib/settings.ts`).
+    scrollbackLines, copyOnSelect (`src/lib/settings.ts`).
   - `herdr-t3:settings:general` — confirmCloseWorkspace.
   - Appearance mode lives in `src/lib/theme.ts` (also drives the OS
     theme bridge); launch-at-login lives in the OS, read/written only

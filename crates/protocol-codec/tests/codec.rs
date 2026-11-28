@@ -27,6 +27,7 @@ fn rpc_method_allow_list_matches_ts() {
         "worktree.open",
         "worktree.remove",
         "session.snapshot",
+        "pane.send_input",
     ] {
         assert!(is_rpc_method(m), "{m} should be allowed");
     }
@@ -42,7 +43,7 @@ fn rpc_method_allow_list_matches_ts() {
     ] {
         assert!(!is_rpc_method(m), "{m} must stay refused");
     }
-    assert_eq!(protocol_codec::RPC_METHODS.len(), 38);
+    assert_eq!(protocol_codec::RPC_METHODS.len(), 39);
 }
 
 /* ------------------------- is_client_frame parity ---------------------- */
@@ -57,15 +58,21 @@ fn plugin_frames_match_ts_cases() {
     assert!(frame(base.clone()));
     assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.inbox","command":"list","args":["w1:p1","--until","+1h"]})));
     assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.inbox","command":"list","timeout_ms":30000})));
+    // Issue #458: bounded stdin payload + the 600s ceiling for
+    // agent-path generation (textgen-v1 review_guide defaultTimeoutMs).
+    assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"rebuildup.textgen","command":"generate","stdin":"{}"})));
+    assert!(frame(json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":600000})));
     for bad in [
         json!({"type":"plugin_call","id":"1","plugin":"","command":"list"}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":""}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":"x"}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":["ok",1]}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":100}),
-        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":200000}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":700000}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","timeout_ms":500.5}),
         json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","args":["a\u{0}b"]}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","stdin":42}),
+        json!({"type":"plugin_call","id":"1","plugin":"p","command":"c","stdin":"x".repeat(262145)}),
     ] {
         assert!(!frame(bad.clone()), "should reject {bad}");
     }
@@ -81,6 +88,9 @@ fn guard_quirks_match_ts() {
     assert!(frame(json!({"type":"list_machines","whatever":[1,{"a":2}]})));
     // subscribe_terminal does not validate cols/rows.
     assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","cols":"wide","rows":null})));
+    // subscribe_terminal validates takeover/writable as optional booleans (#571).
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","writable":false})));
+    assert!(!frame(json!({"type":"subscribe_terminal","paneId":"p","writable":"yes"})));
     // machine_ok applies the 128 UTF-16-unit cap on rpc frames.
     assert!(!frame(json!({"type":"rpc","id":"1","method":"session.snapshot","machine":"a".repeat(129)})));
     assert!(frame(json!({"type":"rpc","id":"1","method":"session.snapshot","machine":"a".repeat(128)})));

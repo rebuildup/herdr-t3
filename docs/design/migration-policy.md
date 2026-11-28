@@ -64,7 +64,7 @@ State ownership today:
 | Domain | Owner | Persistence |
 | --- | --- | --- |
 | pty, scrollback, agent state | herdr (remote or local) | herdr session |
-| plugin feature state (inbox, git, …) | herdr-plugins on the herdr host | plugin state files (never read by herdr-t3) |
+| plugin feature state (inbox, git, …) | hoxay-plugins on the herdr host | plugin state files (never read by herdr-t3) |
 | workspace/tab/pane projection, drafts, UI state | renderer stores (`src/shell/*`) | session snapshot from bridge; drafts in memory |
 | user settings, machines, keys | renderer + Electron `userData` | localStorage / profile files (see #239 inventory) |
 | organize-state legacy overlay | `src/shell/agentOrganizeStore.ts` localStorage | one-time migration to plugin state (#173 → ADR-0011) |
@@ -132,7 +132,10 @@ A capability may enter implementation only when:
    judgments — see #237);
 2. performance non-regression holds on the measured baseline (#240);
 3. persistence/OS compatibility contracts hold (#239) where applicable;
-4. both implementations coexist only inside the window; the registry
+4. UI-facing capabilities additionally satisfy `design-system@1`
+   (issue #412, §4.5): inherited token/primitive/composition rules and
+   T3-reference visual comparison evidence;
+5. both implementations coexist only inside the window; the registry
    records which is authoritative.
 
 ### 4.3 Old-implementation removal
@@ -153,6 +156,37 @@ suite, herdr/plugin ownership is unchanged, and the dependency tree /
 distribution artifact contains no Electron and no unnecessary
 Node/Bun runtime. This gate is independent and is **not** part of this
 program's delivery.
+
+### 4.5 Design-system conformance (issue #412)
+
+The T3 Code design-system machinery established by #407
+(`docs/design/conformance-audit.md`) and the #409–#411 surface
+re-implementations is a **capability-level requirement**, not a
+one-time port: every UI-rendering capability inherits it on the
+GPUI/Rust target through contract `design-system@1`
+(`docs/migration/contracts/design-system.md`), which all B6
+capabilities must pin (registry-enforced).
+
+- **Canonical sources are inherited, not re-derived.** Tokens
+  (`src/index.css` roles), primitives (`src/components/ui/*` and the
+  `surfaceLayout` composition layer), composition rules, the type
+  hierarchy, and the state-primitive requirements (`Empty*`/`Skeleton`/
+  `Alert`/toast) are the spec; GPUI equivalents reproduce the
+  semantics, not the DOM. Deliberate non-ports recorded in the audit
+  (e.g. `ui/table.tsx` — T3's UsagePage uses raw table markup) are part
+  of the spec.
+- **Acceptance requires visual-diff evidence.** Cutover/equivalence for
+  UI-facing capabilities includes the `docs/design/verification.md`
+  pipeline: captures on an isolated herdr session at fixed
+  viewport/theme/font/DPI, side-by-side T3 Code reference comparison,
+  and recorded verdicts. Semantic ui-conformance scenarios and visual
+  fidelity are separate judgments; neither substitutes for the other.
+  Pixel-perfect equality is not required — deviations must be
+  deliberate and justified.
+- **Lint-equivalent on Rust/GPUI** is layered: semantic contract tests
+  for token roles and state mapping, the ui-conformance scenario suite
+  on both adapters, visual-diff review, and manual composition/density
+  review at RC — there is no Rust port of oxlint, and none is implied.
 
 ## 5. Toolchain and code policy (for the Rust side)
 
@@ -213,7 +247,9 @@ allowed before product porting per #233):
 Design-semantics mapping: T3 tokens/primitives behavior are the spec;
 GPUI's Tailwind-like styling API is an implementation detail. The UI
 conformance harness (#238) asserts semantic scenarios, so a GPUI adapter
-and the current Electron adapter run the same suite.
+and the current Electron adapter run the same suite. Design-system
+conformance beyond semantics — tokens, primitives, composition, visual
+fidelity — is governed by `design-system@1` and §4.5 (issue #412).
 
 ## 7. Open items carried to later tickets
 
@@ -225,3 +261,32 @@ and the current Electron adapter run the same suite.
 - Performance baseline workloads, thresholds derived from measurement
   (#240; #231 is a starting point, not the verdict).
 - CI/readiness machine check and migration roadmap ordering (#241).
+
+## 8. Electron startup baseline (measured, v0.7.0 RC)
+
+Packaged-app spawn→operable measurements on the RC candidate
+(`1a0e3dd`, macOS, `HERDR_T3_PROFILE=dev` isolated userData, fixture
+herdr session, CDP probe anchored at process spawn):
+
+| host loadavg | operable_ms (runs) | verdict vs 5s |
+| --- | --- | --- |
+| ~54 (pre-#609/#611 fixes) | 49,900 (phase probe observe_ok) | fail |
+| ~40 (post-#610) | 12,423 / 16,543 / 12,350 | fail |
+| ~18–20 (post-#614) | 4,900 median / 4,000 best (2/5 over) | marginal |
+| ~11–12 | 3,358 / 2,393 / 1,530 | pass |
+
+Decomposition at loadavg ~18–20: Electron/Chromium process spawn
+floor ~7s at loadavg ~40 (minimal-Electron baseline ~6.9s),
+`BrowserWindow` ctor + helper-process spawn ~0.6–1.5s,
+renderer bundle eval + bridge connect + first snapshot ~0.8–2s.
+Product-side costs were attacked in #609 (wasm asset emission,
+async memory sampler, observe() snapshot cache) and #611
+(createWindow ordering); the residual is dominated by OS/runtime
+spawn cost that scales with host load.
+
+Migration relevance: the 5s spawn→operable contract is
+load-conditional under Electron. A native GPUI shell removes the
+Chromium multi-process spawn floor entirely; this measurement is
+the baseline the GPUI adapter must beat, and the phase breakdown
+(page target / ws / observe_ok / readyState) is the comparison
+schema for the #238 conformance suite's timing evidence.

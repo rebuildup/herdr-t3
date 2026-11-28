@@ -1,0 +1,1430 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "terminal.surface",
+  "capability": "terminal.surface",
+  "contract": "terminal-surface@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "surface_new",
+      "input": {
+        "cols": 20,
+        "rows": 6,
+        "cell_w": 10,
+        "cell_h": 20,
+        "scrollback_lines": 50,
+        "colors": {
+          "foreground": "#eeeeee",
+          "background": "#101010",
+          "cursor": "#ffcc00",
+          "ansi": [
+            "#000000",
+            "#cc0000",
+            "#00cc00",
+            "#cccc00",
+            "#0000cc",
+            "#cc00cc",
+            "#00cccc",
+            "#cccccc",
+            "#666666",
+            "#ff6666",
+            "#66ff66",
+            "#ffff66",
+            "#6666ff",
+            "#ff66ff",
+            "#66ffff",
+            "#ffffff"
+          ]
+        },
+        "font_family": "monospace",
+        "font_size": 10,
+        "has_on_mouse": true,
+        "has_on_wheel": true
+      },
+      "note": "20x6 pane, 50 lines scrollback, structured mouse/wheel reports enabled",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_measure",
+      "input": {
+        "host_width": 200,
+        "host_height": 120,
+        "advance": 10,
+        "probe_line_height": 20,
+        "dpr": 1
+      },
+      "note": "probed metrics -> 20x6 grid, render_set_metrics + resize effects",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_metrics",
+              "metrics": {
+                "cols": 20,
+                "rows": 6,
+                "cellW": 10,
+                "cellH": 20,
+                "dpr": 1
+              }
+            },
+            {
+              "type": "resize",
+              "cols": 20,
+              "rows": 6
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_write",
+      "input": {
+        "text": "l0\r\nl1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7\r\nl8\r\nl9"
+      },
+      "note": "10 lines into a 6-row screen -> scrollback + schedule",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_write",
+      "input": {
+        "text": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1004h\u001b[?2004h"
+      },
+      "note": "app enables mouse tracking (1000/1002/1006), focus report (1004), bracketed paste (2004)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_cell_at",
+      "input": {
+        "client_x": 15,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0
+      },
+      "note": "client point -> visible cell {col:1,row:1}",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": {
+            "col": 1,
+            "row": 1
+          }
+        }
+      }
+    },
+    {
+      "op": "surface_cell_at",
+      "input": {
+        "client_x": 250,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0
+      },
+      "note": "outside the grid -> null",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_search",
+      "input": {
+        "needle": "l3"
+      },
+      "note": "find all occurrences of l3",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_highlights",
+              "ranges": [
+                {
+                  "start": {
+                    "x": 0,
+                    "y": 3
+                  },
+                  "end": {
+                    "x": 1,
+                    "y": 3
+                  }
+                }
+              ]
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": [
+            {
+              "start": {
+                "x": 0,
+                "y": 3
+              },
+              "end": {
+                "x": 1,
+                "y": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "surface_search_step",
+      "input": {
+        "toward": "older"
+      },
+      "note": "step selection toward older match",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 3
+                },
+                "end": {
+                  "x": 1,
+                  "y": 3
+                }
+              }
+            },
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": {
+            "start": {
+              "x": 0,
+              "y": 3
+            },
+            "end": {
+              "x": 1,
+              "y": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "surface_search_step",
+      "input": {
+        "toward": "newer"
+      },
+      "note": "step back toward newer match",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 3
+                },
+                "end": {
+                  "x": 1,
+                  "y": 3
+                }
+              }
+            },
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": {
+            "start": {
+              "x": 0,
+              "y": 3
+            },
+            "end": {
+              "x": 1,
+              "y": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "surface_scroll_to",
+      "input": {
+        "rows": 3
+      },
+      "note": "jump 3 rows above bottom -> scroll + invalidate + scroll callback",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "scroll",
+              "rows": 3
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_search",
+      "input": {
+        "needle": "l0"
+      },
+      "note": "search while scrolled",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_highlights",
+              "ranges": [
+                {
+                  "start": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "end": {
+                    "x": 1,
+                    "y": 0
+                  }
+                }
+              ]
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": [
+            {
+              "start": {
+                "x": 0,
+                "y": 0
+              },
+              "end": {
+                "x": 1,
+                "y": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "surface_scroll_by",
+      "input": {
+        "lines": -10
+      },
+      "note": "scrollBy clamps at 0 (bottom)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "scroll",
+              "rows": 0
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_scroll_to",
+      "input": {
+        "rows": 999
+      },
+      "note": "scrollTo clamps at scrollback max",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "scroll",
+              "rows": 4
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_scroll_to_bottom",
+      "input": {},
+      "note": "return to newest rows",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_invalidate"
+            },
+            {
+              "type": "scroll",
+              "rows": 0
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 1000
+      },
+      "note": "left press inside mouse-tracking app -> press mouse_report, no selection",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "mouse_report",
+              "action": "press",
+              "button": "left",
+              "column": 0,
+              "row": 1,
+              "modifiers": 0
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 8,
+        "client_y": 45,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 1050
+      },
+      "note": "drag motion -> pending drag-motion coalescing (flushed on tick/up)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 8,
+        "client_y": 45,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 1100
+      },
+      "note": "release flushes pending motion before release report (ordering guarantee)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "mouse_report",
+              "action": "motion",
+              "button": "left",
+              "column": 0,
+              "row": 2,
+              "modifiers": 0
+            },
+            {
+              "type": "mouse_report",
+              "action": "release",
+              "button": "left",
+              "column": 0,
+              "row": 2,
+              "modifiers": 0
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2000
+      },
+      "note": "shift+press bypasses mouse tracking -> local selection drag",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 3
+                },
+                "end": {
+                  "x": 1,
+                  "y": 3
+                }
+              }
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_move",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 10,
+        "client_y": 65,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2050
+      },
+      "note": "shift-drag extends selection",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 7
+                }
+              }
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "enter"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 10,
+        "client_y": 65,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2100
+      },
+      "note": "selection committed -> render_set_selection + selection_change",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "selection_change",
+              "text": "l5\nl6\nl7"
+            },
+            {
+              "type": "selection_commit",
+              "text": "l5\nl6\nl7"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_get_selection_text",
+      "input": {},
+      "note": "selected text value",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": "l5\nl6\nl7"
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_down",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2200
+      },
+      "note": "second click near first within 500ms window -> click-widening candidate",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "focus"
+            },
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 7
+                }
+              }
+            },
+            {
+              "type": "pointer_capture"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_up",
+      "input": {
+        "button": 0,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 2,
+        "client_y": 25,
+        "rect_left": 0,
+        "rect_top": 0,
+        "at": 2250
+      },
+      "note": "double-click -> word selection",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 5
+                }
+              }
+            },
+            {
+              "type": "selection_change",
+              "text": "l5"
+            },
+            {
+              "type": "selection_commit",
+              "text": "l5"
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "commit"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_get_selection_text",
+      "input": {},
+      "note": "word-widened selection text",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": "l5"
+        }
+      }
+    },
+    {
+      "op": "surface_clear_selection",
+      "input": {},
+      "note": "clear -> render_set_selection null + selection_change null",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_selection",
+              "range": null
+            },
+            {
+              "type": "selection_change",
+              "text": null
+            },
+            {
+              "type": "render_selection_fx",
+              "kind": "clear",
+              "range": {
+                "start": {
+                  "x": 0,
+                  "y": 5
+                },
+                "end": {
+                  "x": 1,
+                  "y": 5
+                }
+              }
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_wheel",
+      "input": {
+        "delta_x": 0,
+        "delta_y": 120,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 50,
+        "client_y": 60,
+        "rect_left": 0,
+        "rect_top": 0
+      },
+      "note": "wheel inside mouse-tracking app -> SGR wheel report (buttons 64/65)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "input",
+              "hex": "1b5b3c36353b363b344d"
+            },
+            {
+              "type": "input",
+              "hex": "1b5b3c36353b363b346d"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_wheel",
+      "input": {
+        "delta_x": 0,
+        "delta_y": -40,
+        "shift": true,
+        "ctrl": false,
+        "alt": false,
+        "client_x": 50,
+        "client_y": 60,
+        "rect_left": 0,
+        "rect_top": 0
+      },
+      "note": "shift+wheel -> horizontal/scroll path or modified report",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "input",
+              "hex": "1b5b3c36383b363b344d"
+            },
+            {
+              "type": "input",
+              "hex": "1b5b3c36383b363b346d"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_key_down",
+      "input": {
+        "code": "Enter",
+        "key": "Enter",
+        "key_code": 13,
+        "repeat": false,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "Enter -> CR input",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "prevent_default"
+            },
+            {
+              "type": "input",
+              "hex": "0d"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_key_up",
+      "input": {
+        "code": "Enter",
+        "key": "Enter",
+        "key_code": 13,
+        "repeat": false,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "key up -> release report or nothing",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_key_down",
+      "input": {
+        "code": "KeyC",
+        "key": "c",
+        "key_code": 67,
+        "repeat": false,
+        "shift": false,
+        "ctrl": true,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "ctrl+c -> 0x03 input",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "prevent_default"
+            },
+            {
+              "type": "input",
+              "hex": "03"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_key_down",
+      "input": {
+        "code": "KeyA",
+        "key": "a",
+        "key_code": 65,
+        "repeat": false,
+        "shift": false,
+        "ctrl": false,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "printable bypasses encoder (beforeinput delivers text)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_report_focus",
+      "input": {
+        "focused": true
+      },
+      "note": "focus gained -> DECSET 1004 focus-in report",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "input",
+              "hex": "1b5b49"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_report_focus",
+      "input": {
+        "focused": false
+      },
+      "note": "focus lost -> focus-out report",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "input",
+              "hex": "1b5b4f"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_composition_start",
+      "input": {},
+      "note": "IME composition begins -> ime_anchor effect",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "ime_anchor",
+              "rect": {
+                "left": 0,
+                "top": 100,
+                "width": 160,
+                "height": 40
+              }
+            },
+            {
+              "type": "ime_view",
+              "text": "",
+              "left": 0,
+              "top": 100,
+              "font": "10px monospace",
+              "color": "#eeeeee"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_before_input",
+      "input": {
+        "data": "に",
+        "is_composing": true
+      },
+      "note": "composing insert -> ime_view, no input bytes",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_composition_end",
+      "input": {
+        "data": "に"
+      },
+      "note": "commit -> UTF-8 input bytes + ime_view_hide",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "ime_view_hide"
+            },
+            {
+              "type": "ime_anchor",
+              "rect": null
+            },
+            {
+              "type": "input",
+              "hex": "e381ab"
+            }
+          ],
+          "value": "に"
+        }
+      }
+    },
+    {
+      "op": "surface_tick",
+      "input": {},
+      "note": "frame tick -> cursor blink phase + flush pending hover/drag motion",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_cursor_visible",
+              "visible": true
+            },
+            {
+              "type": "render_collect"
+            },
+            {
+              "type": "render_frame"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_blink_toggle",
+      "input": {},
+      "note": "manual blink phase flip -> render_set_cursor_visible",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_colors",
+      "input": {
+        "colors": {
+          "foreground": "#ddeeff",
+          "background": "#001122",
+          "cursor": "#00ff00",
+          "ansi": [
+            "#000000",
+            "#cc0000",
+            "#00cc00",
+            "#cccc00",
+            "#0000cc",
+            "#cc00cc",
+            "#00cccc",
+            "#cccccc",
+            "#666666",
+            "#ff6666",
+            "#66ff66",
+            "#ffff66",
+            "#6666ff",
+            "#ff66ff",
+            "#66ffff",
+            "#ffffff"
+          ]
+        }
+      },
+      "note": "theme change -> engine setColors + render_set_colors + schedule",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_colors",
+              "foreground": "#ddeeff",
+              "background": "#001122",
+              "cursor": "#00ff00"
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_background_opacity",
+      "input": {
+        "alpha": 0.5
+      },
+      "note": "transparency -> render_set_background_opacity",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_background_opacity",
+              "alpha": 0.5
+            },
+            {
+              "type": "schedule"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_font",
+      "input": {
+        "font_size": 12,
+        "line_height": 1.5
+      },
+      "note": "font change -> metrics re-probe scheduled",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_font",
+              "fontFamily": "monospace",
+              "fontSize": 12
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_font",
+      "input": {
+        "line_height": null
+      },
+      "note": "line_height null clears override",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "render_set_font",
+              "fontFamily": "monospace",
+              "fontSize": 12
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_read_only",
+      "input": {
+        "read_only": true
+      },
+      "note": "read-only pane: input-producing ops suppressed",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_key_down",
+      "input": {
+        "code": "KeyB",
+        "key": "b",
+        "key_code": 66,
+        "repeat": false,
+        "shift": false,
+        "ctrl": true,
+        "alt": false,
+        "meta": false,
+        "is_composing": false
+      },
+      "note": "read-only: ctrl+b emits nothing",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "prevent_default"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_paste",
+      "input": {
+        "text": "pasted text"
+      },
+      "note": "read-only: bracketed paste suppressed",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_read_only",
+      "input": {
+        "read_only": false
+      },
+      "note": "back to editable",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_paste",
+      "input": {
+        "text": "pasted text"
+      },
+      "note": "paste -> bracketed-paste-wrapped input (2004 enabled)",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [
+            {
+              "type": "input",
+              "hex": "1b5b3230307e70617374656420746578741b5b3230317e"
+            }
+          ],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_set_mouse_capture",
+      "input": {
+        "capture": true
+      },
+      "note": "host reports pane has pointer capture",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_leave",
+      "input": {},
+      "note": "pointer leaves -> hover state cleared",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_pointer_cancel",
+      "input": {},
+      "note": "pointer cancel -> drag aborted",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_dispose",
+      "input": {},
+      "note": "dispose -> no effects; later ops are inert",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_tick",
+      "input": {},
+      "note": "tick after dispose -> empty",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_scroll_to_bottom",
+      "input": {},
+      "note": "scroll after dispose -> empty",
+      "expect": {
+        "ok": true,
+        "value": {
+          "effects": [],
+          "value": null
+        }
+      }
+    },
+    {
+      "op": "surface_new",
+      "input": {
+        "cols": 5,
+        "rows": 2,
+        "colors": {
+          "foreground": "#fff",
+          "background": "#000",
+          "cursor": "#fff",
+          "ansi": []
+        }
+      },
+      "note": "surface_new while a disposed core still holds the slot -> error parity",
+      "expect_error": "surface already exists"
+    }
+  ]
+}

@@ -42,7 +42,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
   return (
     <div
       className={cn(
-        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 pr-3",
+        "relative flex h-(--workspace-topbar-height) shrink-0 flex-row items-center gap-2 pr-3",
         isElectron && "drag-region",
       )}
     >
@@ -73,6 +73,7 @@ export const SidebarChromeHeader = function SidebarChromeHeader({
             {/* outline (white fill + border in light) keeps the pill visible
                 on the zinc-50 sidebar where secondary blends into the canvas
                 (issue #128). */}
+            {/* oxlint-disable-next-line herdr-t3/no-raw-badge -- persistent environment identifier is classification, not status metadata (AC-003) */}
             <Badge data-environment-identification="pill" size="sm" variant="outline">
               {machineInfo?.label}
             </Badge>
@@ -116,6 +117,21 @@ function HistoryNavigationButton({
   );
 }
 
+/**
+ * Canonical brand wordmark (issue #612, anti-case AC-004). Shared by the
+ * visible `SidebarBrand` button and the invisible width probe in
+ * AppShell so the two can never drift apart.
+ */
+export function BrandWordmark() {
+  return (
+    <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
+      <span className="font-semibold text-foreground">
+        hoxay
+      </span>
+    </span>
+  );
+}
+
 function SidebarBrand() {
   // The mobile sheet is portaled outside the sidebar wrapper, so
   // --workspace-titlebar-content-left (which reserves room for the
@@ -126,23 +142,14 @@ function SidebarBrand() {
     // oxlint-disable-next-line herdr-t3/no-raw-control -- ported T3 brand mark; custom geometry, not a Button variant
     <button
       type="button"
-      aria-label="herdr-t3 home"
+      aria-label="hoxay home"
       onClick={() => navigate("#/")}
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
+        "relative z-10 ml-(--workspace-titlebar-content-left) flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset",
         isMobile && "ml-4",
       )}
     >
-      <span className="inline-flex min-w-0 items-baseline text-sm tracking-tight">
-        <span className="font-semibold text-foreground">
-          herdr
-        </span>
-        <span
-          className="font-medium text-muted-foreground"
-        >
-          -t3
-        </span>
-      </span>
+      <BrandWordmark />
     </button>
   );
 }
@@ -230,7 +237,7 @@ const AttentionUtilityItem = function AttentionUtilityItem() {
           <span className="relative flex items-center justify-center">
             <CircleXIcon className="size-4 text-warning" />
             {blocked.length > 1 ? (
-              <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-[9px] font-semibold leading-none text-background">
+              <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 text-4xs font-semibold leading-none text-background">
                 {blocked.length}
               </span>
             ) : null}

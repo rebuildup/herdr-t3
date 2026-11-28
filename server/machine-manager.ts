@@ -18,9 +18,11 @@ import { createBridgeSession, fetchSnapshot, localEndpoint, type BridgeEndpoint,
 import { HerdrError } from "./herdr.ts";
 import { loadMachineMetadata, loadSavedMachines, type SavedMachine } from "./machines.ts";
 import { localPluginHost, PluginService, type PluginHost } from "./plugins.ts";
+import { metricInc } from "./metrics.ts";
 import {
   classifySshFailure,
   endpointFromMachine,
+  resolveRemoteBun,
   resolveRemoteHerdr,
   sshApiConnector,
   sshClientConnector,
@@ -32,6 +34,24 @@ const LOCAL_ID = "local";
 const REFRESH_INTERVAL_MS = 60_000;
 const MACHINE_ADD_TIMEOUT_MS = 120_000;
 const MACHINE_OP_TIMEOUT_MS = 30_000;
+/** Cap on attach-lifecycle frames queued per machine during connect (issue #576). */
+const PENDING_FRAME_CAP = 512;
+
+/**
+ * Enqueue an attach-lifecycle frame for a connecting machine (issue #576).
+ * subscribe/unsubscribe are idempotent per pane, so the latest frame for
+ * a pane wins — collapse repeats, and past the cap drop the oldest frame
+ * rather than letting a long connect grow the queue without limit.
+ */
+export function enqueuePendingFrame(queue: ClientFrame[], frame: ClientFrame): void {
+  const paneId = "paneId" in frame ? frame.paneId : undefined;
+  if (paneId !== undefined) {
+    const prior = queue.findIndex((f) => "paneId" in f && f.paneId === paneId);
+    if (prior >= 0) queue.splice(prior, 1);
+  }
+  if (queue.length >= PENDING_FRAME_CAP) queue.shift();
+  queue.push(frame);
+}
 
 interface ManagedSession {
   session: BridgeSession;
@@ -103,6 +123,7 @@ export class MachineManager {
 
   /** Re-read herdr's registry, drop vanished machines, refresh statuses. */
   async refresh(): Promise<void> {
+    metricInc("machine.refresh");
     if (this.closed) return;
     const saved = this.listSource();
     const seen = new Set<string>([LOCAL_ID]);
@@ -158,6 +179,7 @@ export class MachineManager {
 
   /** Route one client frame; returns true when it was machine-scoped. */
   handleFrame(frame: ClientFrame): boolean {
+    metricInc("client.frame", { type: frame.type });
     switch (frame.type) {
       case "list_machines":
         this.pushMachines();
@@ -303,7 +325,7 @@ export class MachineManager {
     // never land in a pane after reconnect (draft semantics, issue #5).
     if (frame.type === "subscribe_terminal" || frame.type === "unsubscribe_terminal") {
       const queue = this.pendingFrames.get(machine) ?? [];
-      queue.push(frame);
+      enqueuePendingFrame(queue, frame);
       this.pendingFrames.set(machine, queue);
     } else if (frame.type === "rpc") {
       this.send({
@@ -385,6 +407,7 @@ export class MachineManager {
     }
     if (!this.generationCurrent(machine, generation)) return;
 
+    await this.resolvePluginRuntime(endpoint);
     this.pluginHosts.set(machine, sshPluginHost(endpoint, saved.session));
     const bridgeEndpoint: BridgeEndpoint = {
       api: sshApiConnector(endpoint),
@@ -438,6 +461,7 @@ export class MachineManager {
 
   /** Lightweight reachability probe for machines without a session. */
   private async probe(machine: string): Promise<void> {
+    metricInc("machine.probe");
     const info = this.infos.get(machine);
     if (!info || info.kind !== "ssh" || this.sessions.has(machine)) return;
     const saved = this.listSource().find((m) => m.id === machine);
@@ -578,6 +602,7 @@ export class MachineManager {
               plugin: frame.plugin,
               command: frame.command,
               args: frame.args,
+              stdin: frame.stdin,
               timeoutMs: frame.timeout_ms,
             });
       this.send({ type: "rpc_result", id: frame.id, ok: true, result, machine });
@@ -597,6 +622,23 @@ export class MachineManager {
     }
   }
 
+  /**
+   * Best-effort remote bun resolution for plugin CLIs (issue #339).
+   * Non-login ssh PATH often lacks user-level bun installs; a resolved
+   * absolute path is attached to the endpoint so `sshPluginHost` execs do
+   * not depend on PATH. Probe failures leave `remoteBun` unset — plugin
+   * calls then fail with the remote's own error instead of breaking
+   * connect/plugin-host creation.
+   */
+  private async resolvePluginRuntime(endpoint: SshEndpoint): Promise<void> {
+    try {
+      const bun = await resolveRemoteBun(endpoint);
+      if (bun !== null) endpoint.remoteBun = bun;
+    } catch {
+      // Probe transport errors are non-fatal; see resolveRemoteBun.
+    }
+  }
+
   /** PluginHost for one machine: local spawn, or ssh argv on the endpoint. */
   private async pluginHost(machine: string): Promise<PluginHost | null> {
     if (machine === LOCAL_ID) return localPluginHost();
@@ -610,6 +652,7 @@ export class MachineManager {
       const metadata = loadMachineMetadata(machine);
       const remoteHerdr = await resolveRemoteHerdr(saved, metadata);
       const endpoint = endpointFromMachine(saved, remoteHerdr, metadata?.os);
+      await this.resolvePluginRuntime(endpoint);
       const host = sshPluginHost(endpoint, saved.session);
       this.pluginHosts.set(machine, host);
       return host;

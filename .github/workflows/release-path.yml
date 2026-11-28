@@ -1,0 +1,97 @@
+name: release-path
+
+# Mechanical enforcement of the release-driven integration model
+# (organization/profiles/release-driven-solo.md, issue #312):
+#
+#   - PRs into `main`            -> head must be `release-*` (the release PR;
+#                                   its merge still requires explicit user
+#                                   authorization — this check only validates
+#                                   the *shape* of the path, not approval)
+#   - PRs into `release-*`       -> head must be a ticket/feature branch,
+#                                   never another `release-*`
+#   - PRs into `release-0-6-0`   -> frozen RC (issue #464): ticket PRs
+#   - PRs into `release-0-7-0`   -> frozen RC (issue #413): ticket PRs
+#                                   additionally require the `rc-fix`
+#                                   label, applied only by the RC owner
+#                                   for acceptance-required defect fixes
+#   - PRs into anything else     -> rejected; there is no third trunk
+#
+# The `integration-path` job below is the required status check on `main`
+# (repo ruleset). A ticket PR aimed at `main` fails here and cannot merge.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-path:
+    name: integration-path
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration path
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          echo "base=$BASE head=$HEAD"
+          case "$BASE" in
+            main)
+              case "$HEAD" in
+                release-*)
+                  echo "OK: release PR ($HEAD -> main); merge still needs explicit authorization"
+                  ;;
+                *)
+                  echo "FAIL: only release-* branches may target main; ticket work must go through the current release branch"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            release-*)
+              case "$HEAD" in
+                release-*)
+                  # Release-train sync (issue #386): an older train may
+                  # merge into a newer one so v-x-y-z fixes propagate
+                  # forward. Version order is compared numerically;
+                  # newer->older, equal, and non-release heads are
+                  # rejected. `release-* -> main` still requires explicit
+                  # authorization and ticket->release is unchanged.
+                  bv=$(echo "$BASE" | sed -E 's/^release-//' | tr '-' ' ')
+                  hv=$(echo "$HEAD" | sed -E 's/^release-//' | tr '-' ' ')
+                  if [ "$hv" != "$bv" ] && [ "$(printf '%s\n%s\n' "$hv" "$bv" | sort -V | head -1)" = "$hv" ]; then
+                    echo "OK: release-train sync ($HEAD -> $BASE)"
+                  else
+                    echo "FAIL: only an older release-* may sync into a newer release-*; got $HEAD -> $BASE"
+                    exit 1
+                  fi
+                  ;;
+                *)
+                  frozen_issue=""
+                  case "$BASE" in
+                    release-0-6-0) frozen_issue=464 ;;
+                    release-0-7-0) frozen_issue=413 ;;
+                  esac
+                  if [ -n "$frozen_issue" ]; then
+                    case ",$LABELS," in
+                      *,rc-fix,*)
+                        echo "OK: rc-fix ticket PR ($HEAD -> $BASE)"
+                        ;;
+                      *)
+                        echo "FAIL: $BASE is frozen (issue #$frozen_issue); only RC defect fixes carrying the rc-fix label may merge."
+                        exit 1
+                        ;;
+                    esac
+                  else
+                    echo "OK: ticket PR ($HEAD -> $BASE)"
+                  fi
+                  ;;
+              esac
+              ;;
+            *)
+              echo "FAIL: unsupported base branch '$BASE'; ticket PRs target the current release-* branch, release PRs target main"
+              exit 1
+              ;;
+          esac

@@ -83,6 +83,34 @@ From `apps/desktop/src/window/DesktopWindow.ts`:
 - `-webkit-app-region: drag` on header/sidebar-header rows;
   `no-drag` on interactive controls inside them.
 
+**Titlebar ownership (issue #408, T3 `ownsDesktopTitleBar`).** Exactly
+one top-right region may own the desktop titlebar row on Windows; the
+mechanisms are inert elsewhere because every reservation is behind the
+`.wco` class (toggled only while `navigator.windowControlsOverlay` is
+visible) or `isElectron` drag regions, which macOS already uses inside
+its 52px `hiddenInset` topbar:
+
+- The **workspace header** is the default owner: on Electron it is a
+  `drag-region` and reserves `wco:pr-(--workspace-native-controls-inset)`
+  so its right-edge controls clear the caption buttons.
+- When the **inline (wide) right panel** is open it takes ownership
+  (`ownsDesktopTitleBar = isElectron && !narrow`): its tab bar becomes
+  the `drag-region`, reserves the same `wco:` inset, switches the tab
+  `ScrollArea` to `no-drag` while overflowing, marks each tab
+  `no-drag`, and mounts the fixed `w-28` controls strip at
+  `top/right-(--workspace-controls-*)`. While it owns the titlebar the
+  workspace header drops `wco:pr-(--workspace-native-controls-inset)`
+  (T3 `reserveNativeControls={!rightPanelOpen}`) — the caption strip
+  sits over the panel's top-right corner, not the header's right edge.
+- The **narrow right-panel sheet** never owns the titlebar; it only
+  clears the caption strip vertically via
+  `wco:mt/h/max-h-(--workspace-topbar-height)` (T3 `RightPanelSheet`).
+- Dialogs, sheets, the command palette/Goto dialog, the settings modal
+  and top-positioned toasts are `no-drag` overlays that already clear
+  the caption strip (`--command-titlebar-height` /
+  `useNativeTitlebarHeight`, `--app-modal-*-inset`,
+  `--toast-header-offset: var(--workspace-topbar-height)`).
+
 ## 2. Herdr domain mapping
 
 | herdr concept | T3 analogue | Placement |
@@ -120,7 +148,9 @@ Rules:
 Mirror `SettingsSidebarNav` + `settingsLayout.tsx`: left section nav,
 right grouped settings pages. herdr-t3 sections:
 
-- **General** — app behavior, launch options
+- **General** — app behavior, launch options, in-app notification
+  position (issue #428; four corners + edge centers, persisted under
+  `herdr-t3:settings:notifications`, default top-right)
 - **Appearance** — theme mode (system/dark/light), Ghostty theme sync,
   UI density where applicable
 - **Connections** — machines: add/edit/remove SSH endpoints, status,

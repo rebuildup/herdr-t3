@@ -2,11 +2,14 @@
 resolver = "2"
 members = [
     "crates/diff-adapter",
+    "crates/herdr-bridge",
     "crates/protocol-codec",
     "crates/state-projections",
     "crates/terminal-core",
     "crates/terminal-input",
     "crates/terminal-render",
+    "crates/terminal-surface",
+    "crates/ui-kit",
     "crates/ui-test-host",
 ]
 

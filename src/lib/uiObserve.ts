@@ -5,6 +5,7 @@
  * without DOM scraping product internals. No behavior lives here.
  */
 import { currentRoute } from "~/shell/router";
+import { getBridgeState } from "~/shell/bridge";
 import { getAppearanceMode } from "./theme";
 import { LOCAL_MACHINE, rpc } from "./api";
 import type { SessionSnapshot } from "../../shared/protocol";
@@ -17,6 +18,9 @@ export interface UiState {
   theme_resolved: "dark" | "light";
   /** paneKey (`${machine}\n${paneId}`) -> rows scrolled above bottom */
   terminals: Record<string, number>;
+  /** snapshot-focused ids (local machine) — goto/tab/pane jump evidence */
+  focused_tab_id: string | null;
+  focused_pane_id: string | null;
 }
 
 type ScrollProbe = () => number | null;
@@ -44,22 +48,38 @@ function sidebarOpen(): boolean | null {
 export async function observeUi(): Promise<UiState> {
   const route = currentRoute();
   const terminals: Record<string, number> = {};
+  let focusedTabId: string | null = null;
+  let focusedPaneId: string | null = null;
   // Scroll offsets are server-authoritative: herdr owns scrollback and
   // AttachScroll moves the pane viewport, while the local ghostty engine
-  // on an attach client never scrolls its own viewport. Read the live
-  // snapshot's pane.scroll.offset_from_bottom; fall back to local probes
-  // only when the RPC is unavailable.
-  try {
-    const res = (await rpc("session.snapshot", {}, LOCAL_MACHINE)) as
-      | { snapshot?: SessionSnapshot }
-      | SessionSnapshot;
-    const snap = (res as { snapshot?: SessionSnapshot }).snapshot ?? (res as SessionSnapshot);
+  // on an attach client never scrolls its own viewport. Prefer the
+  // snapshot the bridge store already holds — it is the same data the UI
+  // renders, and reading it avoids a herdr RPC round-trip on the
+  // spawn->operable critical path (issue #416 follow-up). Fall back to a
+  // live RPC only when no local snapshot has arrived yet.
+  const held = getBridgeState();
+  const heldSnapshot =
+    held.snapshots[LOCAL_MACHINE] && !held.probeSnapshots[LOCAL_MACHINE]
+      ? held.snapshots[LOCAL_MACHINE]
+      : null;
+  let snap: SessionSnapshot | null = heldSnapshot ?? null;
+  if (!snap) {
+    try {
+      const res = (await rpc("session.snapshot", {}, LOCAL_MACHINE)) as
+        | { snapshot?: SessionSnapshot }
+        | SessionSnapshot;
+      snap = (res as { snapshot?: SessionSnapshot }).snapshot ?? (res as SessionSnapshot);
+    } catch {
+      /* bridge offline */
+    }
+  }
+  {
+    focusedTabId = snap?.focused_tab_id ?? null;
+    focusedPaneId = snap?.focused_pane_id ?? null;
     for (const pane of snap?.panes ?? []) {
       const offset = pane.scroll?.offset_from_bottom;
       if (typeof offset === "number") terminals[`${LOCAL_MACHINE}\n${pane.pane_id}`] = offset;
     }
-  } catch {
-    /* bridge offline */
   }
   for (const [key, probe] of scrollProbes) {
     if (terminals[key] === undefined) {
@@ -80,6 +100,8 @@ export async function observeUi(): Promise<UiState> {
     appearance_mode: getAppearanceMode(),
     theme_resolved: document.documentElement.classList.contains("dark") ? "dark" : "light",
     terminals,
+    focused_tab_id: focusedTabId,
+    focused_pane_id: focusedPaneId,
   };
 }
 

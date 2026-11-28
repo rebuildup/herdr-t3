@@ -1,0 +1,4 @@
+4 plugins installed:
+write failed 5: I/O error
+- rebuildup.projects (Projects) enabled [github:rebuildup/herdr-plugins/plugins/projects@2dcb2abfa57b0adcf5d1109f76087e19b3dfae07]
+  config: C:\Users\rebui\AppData\Roaming\herdr\plugins\config\rebuildup.projects

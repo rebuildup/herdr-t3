@@ -26,7 +26,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, 
 
 import { cn } from "~/lib/utils";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
-import { Badge } from "~/components/ui/badge";
+import { StatusBadge, type StatusBadgeStatus } from "~/components/ui/status-badge";
 import { Button } from "~/components/ui/button";
 import { DialogBackdrop } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
@@ -69,19 +69,28 @@ import {
 } from "~/lib/theme";
 import {
   GENERAL_DEFAULTS,
+  NOTIFICATION_POSITIONS,
   TERMINAL_DEFAULTS,
   getGeneralSettings,
+  getNotificationsSettings,
   getTerminalSettings,
   onGeneralSettingsChange,
+  onNotificationsSettingsChange,
   onTerminalSettingsChange,
   setGeneralSettings,
+  setNotificationsSettings,
   setTerminalSettings,
+  type NotificationPosition,
   type TerminalSettings,
 } from "~/lib/settings";
 import {
   ghosttyEngineStatus,
   onGhosttyEngineStatus,
 } from "~/lib/ghostty/session.ts";
+import {
+  formatVisibleAnimationDiagnostics,
+  visibleAnimationDiagnostics,
+} from "~/lib/visibleAnimation";
 import { MachineDialog, type MachineDialogState } from "~/components/MachineDialog";
 import { ThemeModeTiles } from "~/components/ThemeModeTiles";
 import { machineListOf, useBridgeState } from "./bridge";
@@ -104,6 +113,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms: string }[] = [
   { anchor: "setting-launch-at-login", label: "Launch at login", section: "general", terms: "startup boot open at login" },
   { anchor: "setting-confirm-close", label: "Confirm before closing workspace", section: "general", terms: "close ask confirm panes" },
+  { anchor: "setting-notification-position", label: "Notification position", section: "general", terms: "toast notice corner position top right bottom left center" },
   { anchor: "setting-theme-mode", label: "Appearance", section: "appearance", terms: "theme mode light dark system color scheme" },
   { anchor: "setting-ghostty-sync", label: "Ghostty theme sync", section: "appearance", terms: "ghostty terminal colors palette sync" },
   { anchor: "setting-add-machine", label: "Add machine", section: "connections", terms: "ssh remote endpoint add machine" },
@@ -111,11 +121,13 @@ const SETTING_SEARCH: { anchor: string; label: string; section: SectionId; terms
   { anchor: "setting-font-size", label: "Font size", section: "terminal", terms: "px size terminal" },
   { anchor: "setting-line-height", label: "Line height", section: "terminal", terms: "spacing rows height" },
   { anchor: "setting-scrollback", label: "Scrollback lines", section: "terminal", terms: "history buffer scroll" },
+  { anchor: "setting-copy-on-select", label: "Copy on select", section: "terminal", terms: "selection clipboard copy automatic" },
   { anchor: "setting-bridge", label: "Bridge", section: "diagnostics", terms: "rpc connection websocket status" },
   { anchor: "setting-herdr", label: "Herdr", section: "diagnostics", terms: "version protocol socket reachable" },
   { anchor: "setting-ghostty-engine", label: "Ghostty engine", section: "diagnostics", terms: "wasm libghostty status" },
   { anchor: "setting-app-version", label: "App version", section: "diagnostics", terms: "build version commit" },
-  { anchor: "setting-about-app", label: "herdr-t3", section: "about", terms: "version about" },
+  { anchor: "setting-motion-gate", label: "Motion visibility gate", section: "diagnostics", terms: "animation spinner working motion visibility reduced report" },
+  { anchor: "setting-about-app", label: "hoxay", section: "about", terms: "version about" },
   { anchor: "setting-license", label: "License", section: "about", terms: "mit license notices" },
 ];
 
@@ -187,8 +199,25 @@ function useAppearanceMode(): AppearanceMode {
   );
 }
 
+const POSITION_LABELS: Record<NotificationPosition, string> = {
+  "top-left": "Top left",
+  "top-center": "Top center",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-center": "Bottom center",
+  "bottom-right": "Bottom right",
+};
+
 function useTerminalSettings(): TerminalSettings {
   return useSyncExternalStore(onTerminalSettingsChange, getTerminalSettings, getTerminalSettings);
+}
+
+function useNotificationsSettings() {
+  return useSyncExternalStore(
+    onNotificationsSettingsChange,
+    getNotificationsSettings,
+    getNotificationsSettings,
+  );
 }
 
 function useGhosttyEngine() {
@@ -217,9 +246,9 @@ function useHealth() {
   return { health, error, refresh: () => setNonce((n) => n + 1) };
 }
 
-function statusBadgeVariant(status: MachineInfo["status"]) {
+function machineStatusBadge(status: MachineInfo["status"]): StatusBadgeStatus {
   return status === "online"
-    ? "success"
+    ? "ok"
     : status === "offline" || status === "unreachable" || status === "error"
       ? "error"
       : "warning";
@@ -255,10 +284,10 @@ function MachineRow({
           : [machine.target, machine.session].filter(Boolean).join(" · ") || "SSH endpoint")
       }
     >
-      <Badge variant={statusBadgeVariant(machine.status)} size="sm">
+      <StatusBadge status={machineStatusBadge(machine.status)} size="sm">
         {machine.status}
         {machine.version ? ` · herdr ${machine.version}` : ""}
-      </Badge>
+      </StatusBadge>
       {action ? (
         <Button size="sm" variant="outline" onClick={action.run}>
           {action.label}
@@ -299,12 +328,14 @@ function SectionPage({ section }: { section: SectionId }) {
     getGeneralSettings,
     getGeneralSettings,
   );
+  const notifications = useNotificationsSettings();
   const [loginItem, setLoginItemState] = useState<LoginItemState | null>(null);
   const [machineDialog, setMachineDialog] = useState<MachineDialogState | null>(null);
   const bridge = useBridgeState();
   const machines = machineListOf(bridge);
   const { health, error: healthError, refresh: refreshHealth } = useHealth();
   const ghosttyEngine = useGhosttyEngine();
+  const [motionDiagCopied, setMotionDiagCopied] = useState(false);
   useEffect(() => {
     let alive = true;
     void getLoginItem().then((state) => {
@@ -327,7 +358,7 @@ function SectionPage({ section }: { section: SectionId }) {
                 loginItem === null
                   ? "Available in the desktop app."
                   : loginItem.supported
-                    ? "Start herdr-t3 when you sign in."
+                    ? "Start hoxay when you sign in."
                     : "Not supported on this platform."
               }
             >
@@ -354,6 +385,31 @@ function SectionPage({ section }: { section: SectionId }) {
                   setGeneralSettings({ confirmCloseWorkspace: checked === true })
                 }
               />
+            </SettingsRow>
+          </SettingsSection>
+          <SettingsSection title="Notifications">
+            <SettingsRow
+              anchor="setting-notification-position"
+              label="Notification position"
+              description="Where in-app notices stack. Top positions stay clear of the window titlebar."
+            >
+              <Select
+                value={notifications.position}
+                onValueChange={(v) =>
+                  setNotificationsSettings({ position: v as NotificationPosition })
+                }
+              >
+                <SelectTrigger className="w-36" aria-label="Notification position">
+                  <SelectValue>{POSITION_LABELS[notifications.position]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {NOTIFICATION_POSITIONS.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {POSITION_LABELS[p]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -425,7 +481,7 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <p className="px-3 pb-2 pt-3 text-xs text-muted-foreground sm:px-4">
-              SSH endpoints and the local session herdr-t3 can attach to.
+              SSH endpoints and the local session hoxay can attach to.
             </p>
             {machines.map((m) => (
               <MachineRow key={m.id} machine={m} onDialog={setMachineDialog} />
@@ -512,6 +568,19 @@ function SectionPage({ section }: { section: SectionId }) {
                 }}
               />
             </SettingsRow>
+            <SettingsRow
+              anchor="setting-copy-on-select"
+              label="Copy on select"
+              description="Copy a finished text selection to the clipboard automatically. Applies to open panes immediately."
+            >
+              <Switch
+                aria-label="Copy on select"
+                checked={terminal.copyOnSelect}
+                onCheckedChange={(checked) =>
+                  setTerminalSettings({ copyOnSelect: checked === true })
+                }
+              />
+            </SettingsRow>
           </SettingsSection>
         </div>
       );
@@ -528,9 +597,9 @@ function SectionPage({ section }: { section: SectionId }) {
             }
           >
             <SettingsRow anchor="setting-bridge" label="Bridge" description="herdr RPC connection state.">
-              <Badge
-                variant={
-                  bridge.connection === "open" ? "success" : bridge.connection === "closed" ? "error" : "warning"
+              <StatusBadge
+                status={
+                  bridge.connection === "open" ? "ok" : bridge.connection === "closed" ? "error" : "warning"
                 }
                 size="sm"
               >
@@ -539,7 +608,7 @@ function SectionPage({ section }: { section: SectionId }) {
                   : bridge.connection === "connecting"
                     ? "Connecting"
                     : "Disconnected"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-herdr"
@@ -552,8 +621,8 @@ function SectionPage({ section }: { section: SectionId }) {
                     : healthError ?? "Checking…"
               }
             >
-              <Badge
-                variant={health ? (health.herdr.reachable ? "success" : "error") : "secondary"}
+              <StatusBadge
+                status={health ? (health.herdr.reachable ? "ok" : "error") : "neutral"}
                 size="sm"
               >
                 {health
@@ -563,16 +632,16 @@ function SectionPage({ section }: { section: SectionId }) {
                   : healthError
                     ? "Error"
                     : "Checking…"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow
               anchor="setting-ghostty-engine"
               label="Ghostty engine"
               description="libghostty-vt WASM terminal core."
             >
-              <Badge
-                variant={
-                  ghosttyEngine === "ready" ? "success" : ghosttyEngine === "error" ? "error" : "secondary"
+              <StatusBadge
+                status={
+                  ghosttyEngine === "ready" ? "ok" : ghosttyEngine === "error" ? "error" : "neutral"
                 }
                 size="sm"
               >
@@ -583,12 +652,33 @@ function SectionPage({ section }: { section: SectionId }) {
                     : ghosttyEngine === "ready"
                       ? "Ready"
                       : "Error"}
-              </Badge>
+              </StatusBadge>
             </SettingsRow>
             <SettingsRow anchor="setting-app-version" label="App version" description="Build identity for support.">
               <span className="font-mono text-xs text-muted-foreground">
                 {health ? `${health.version} (${health.commit.slice(0, 8)})` : healthError ? "Unavailable" : "…"}
               </span>
+            </SettingsRow>
+            <SettingsRow
+              anchor="setting-motion-gate"
+              label="Motion visibility gate"
+              description="Captures the inputs that gate Working/connect spinners (issue #420): reduced-motion, document visibility, observer state and computed animation values. Paste the report into the issue when animations look frozen."
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(formatVisibleAnimationDiagnostics(visibleAnimationDiagnostics()))
+                    .then(() => {
+                      setMotionDiagCopied(true);
+                      setTimeout(() => setMotionDiagCopied(false), 2000);
+                    })
+                    .catch(() => {});
+                }}
+              >
+                {motionDiagCopied ? "Copied" : "Copy report"}
+              </Button>
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -597,7 +687,7 @@ function SectionPage({ section }: { section: SectionId }) {
       return (
         <div className="flex flex-col gap-8">
           <SettingsSection title="About">
-            <SettingsRow anchor="setting-about-app" label="herdr-t3" description="A personal GUI client for herdr.">
+            <SettingsRow anchor="setting-about-app" label="hoxay" description="A personal GUI client for herdr.">
               <span className="font-mono text-xs text-muted-foreground">
                 {health ? `${health.version} (${health.commit.slice(0, 8)})` : "…"}
               </span>
@@ -606,26 +696,20 @@ function SectionPage({ section }: { section: SectionId }) {
               label="Design system"
               description="UI primitives and tokens from T3 Code (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                T3 Code
-              </Badge>
+              <span className="text-sm text-muted-foreground">T3 Code</span>
             </SettingsRow>
             <SettingsRow
               label="Terminal engine"
               description="libghostty-vt compiled to WASM (MIT)."
             >
-              <Badge variant="secondary" size="sm">
-                Ghostty
-              </Badge>
+              <span className="text-sm text-muted-foreground">Ghostty</span>
             </SettingsRow>
             <SettingsRow
               anchor="setting-license"
               label="License"
-              description="herdr-t3 is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
+              description="hoxay is MIT licensed; third-party notices are in THIRD_PARTY_NOTICES.md."
             >
-              <Badge variant="secondary" size="sm">
-                MIT
-              </Badge>
+              <span className="text-sm text-muted-foreground">MIT</span>
             </SettingsRow>
           </SettingsSection>
         </div>
@@ -694,6 +778,7 @@ export function SettingsModal() {
         t.fontSize !== TERMINAL_DEFAULTS.fontSize ||
         t.lineHeight !== TERMINAL_DEFAULTS.lineHeight ||
         t.scrollbackLines !== TERMINAL_DEFAULTS.scrollbackLines ||
+        t.copyOnSelect !== TERMINAL_DEFAULTS.copyOnSelect ||
         g.confirmCloseWorkspace !== GENERAL_DEFAULTS.confirmCloseWorkspace ||
         getAppearanceMode() !== "system"
       );
@@ -737,7 +822,7 @@ export function SettingsModal() {
             initialFocus={popupRef}
             aria-label="Settings"
             data-app-modal=""
-            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:max-h-[60rem] sm:max-w-[80rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
+            className="relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-background max-sm:pt-(--app-modal-top-inset) max-sm:pb-safe text-foreground outline-none [-webkit-app-region:no-drag] max-sm:rounded-none sm:max-h-[60rem] sm:max-w-[72rem] sm:rounded-2xl sm:border sm:shadow-2xl/40"
           >
             <div
               aria-hidden
@@ -796,7 +881,7 @@ export function SettingsModal() {
                         data-settings-section={s.id}
                         onClick={() => navigate(settingsHash(s.id))}
                         className={cn(
-                          "flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",
+                          "flex h-8 items-center gap-2 rounded-(--control-radius) py-1.5 ps-2.5 pe-2 text-left text-sm outline-none transition-colors",
                           isActive
                             ? "bg-sidebar-row-selected font-medium text-sidebar-foreground"
                             : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -809,7 +894,7 @@ export function SettingsModal() {
                   })}
                   {settingResults.length > 0 ? (
                     <>
-                      <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium text-sidebar-muted-foreground/70">
+                      <p className="px-2 pb-0.5 pt-2 text-2xs font-medium text-sidebar-muted-foreground/70">
                         Settings
                       </p>
                       {settingResults.map((r) => {
@@ -820,11 +905,11 @@ export function SettingsModal() {
                             key={r.anchor}
                             type="button"
                             onClick={() => openSetting(r)}
-                            className="flex h-8 items-center gap-2 rounded-[var(--control-radius)] py-1.5 ps-2.5 pe-2 text-left text-sm text-sidebar-muted-foreground/80 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                            className="flex h-8 items-center gap-2 rounded-(--control-radius) py-1.5 ps-2.5 pe-2 text-left text-sm text-sidebar-muted-foreground/80 outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                           >
                             <Settings2Icon className="size-4 shrink-0" />
                             <span className="min-w-0 flex-1 truncate">{r.label}</span>
-                            <span className="shrink-0 text-xs text-sidebar-muted-foreground/60">
+                            <span className="shrink-0 text-xs text-sidebar-muted-foreground/70">
                               {sectionLabel}
                             </span>
                           </button>

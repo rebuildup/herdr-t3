@@ -5,18 +5,63 @@
  * run it against an isolated HERDR_SOCKET (e.g. ht3probe).
  *
  * Usage: bun run capture-evidence.ts [outDir] [baseUrl]
+ *
+ * Isolation (issue #356): the harness refuses to run unless the target is
+ * explicitly isolated — set HERDR_SOCKET (or HERDR_VERIFY_SESSION/
+ * HERDR_SESSION, or pass --session/--socket) to the same isolated session
+ * the dev bridge was started with. /api/health is checked so a mismatch
+ * between this env and the server's env cannot silently capture the live
+ * session.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertBridgeTargetIsolated } from "./verify-guard";
 
-const OUT = process.argv[2] ?? "docs/design/evidence/56";
-const BASE = process.argv[3] ?? "http://localhost:5737/";
+// Positional args are outDir/baseUrl; --session/--socket consume a value.
+const VALUE_FLAGS = new Set(["--session", "--socket"]);
+const positional: string[] = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  if (VALUE_FLAGS.has(arg)) {
+    i += 1;
+    continue;
+  }
+  if (arg?.startsWith("--")) continue;
+  positional.push(arg);
+}
+const OUT = positional[0] ?? "docs/design/evidence/56";
+const BASE = positional[1] ?? "http://localhost:5737/";
 const CHROME =
   process.env.CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Deadline-bounded poll for UI state (issue #626): fixed sleeps raced
+// paint under load and produced blank evidence captures. Every wait-for-
+// condition below goes through this; UI_BUDGET_CAPTURE_MS overrides the
+// per-wait deadline (default 60s, generous for cold vite transforms).
+const CAPTURE_TIMEOUT_MS = Number(process.env.UI_BUDGET_CAPTURE_MS ?? 60_000);
+
+async function waitFor(
+  expr: string,
+  label: string,
+  timeoutMs = CAPTURE_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if ((await evaluate(expr)) === true) return;
+    } catch {
+      // Navigation/context loss mid-poll is "not yet", not a failure.
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out waiting for ${label} (${timeoutMs}ms)`);
+    }
+    await sleep(250);
+  }
+}
 
 async function launchChrome() {
   const proc = Bun.spawn(
@@ -81,10 +126,23 @@ async function key(keyName: string, code: string, vk: number, modifiers = 0) {
 }
 
 async function shot(name: string) {
+  // Let the compositor present at least two frames before reading pixels —
+  // captureScreenshot can otherwise return the pre-paint surface (blank).
+  await evaluate(
+    `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`,
+  );
   const res = (await send("Page.captureScreenshot", { format: "png" })) as {
     data: string;
   };
-  writeFileSync(join(OUT, `${name}.png`), Buffer.from(res.data, "base64"));
+  const buf = Buffer.from(res.data, "base64");
+  // A uniform-color 2880x1800 PNG compresses to a few KB; any real UI state
+  // is far larger. Treat tiny captures as the blank-frame defect, not data.
+  if (buf.length < 15_000) {
+    throw new Error(
+      `blank capture rejected: ${name}.png is only ${buf.length} bytes`,
+    );
+  }
+  writeFileSync(join(OUT, `${name}.png`), buf);
   console.log(`captured ${name}.png`);
 }
 
@@ -112,7 +170,11 @@ const contextMenuRow = (text: string) =>
 // Open the palette and click the item whose label contains `text`.
 const paletteRun = async (text: string) => {
   await key("k", "KeyK", 75, 4);
-  await sleep(600);
+  await waitFor(
+    `document.querySelector('[data-slot="command-dialog-popup"]') !== null`,
+    "command palette open",
+    15_000,
+  );
   const ok = await evaluate(`(() => {
     const el = [...document.querySelectorAll('[data-slot="command-item"], [data-slot="autocomplete-item"]')]
       .find((b) => b.textContent.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}));
@@ -121,18 +183,44 @@ const paletteRun = async (text: string) => {
     return true;
   })()`);
   if (ok !== true) console.log(`palette item "${text}" not found:`, JSON.stringify(ok));
-  await sleep(1400);
+  await waitFor(
+    `document.querySelector('[data-slot="command-dialog-popup"]') === null`,
+    "command palette closed",
+    15_000,
+  );
 };
 
+// App-level readiness after navigate/reload: the sidebar has rendered
+// real content (workspace rows, the resolved empty state, or a live
+// terminal surface) — not the pre-snapshot "connecting" shell.
+const waitForAppReady = () =>
+  waitFor(
+    `document.querySelectorAll('[data-sidebar-row]').length > 0 ||
+     document.body.textContent.includes('No workspaces yet') ||
+     document.querySelector('.ghostty-surface') !== null`,
+    "app ready (sidebar snapshot rendered)",
+  );
+
 // Fail loudly when a capture would show a state the UI never reached.
+// Polls until the deadline — a fixed sleep here raced slow renders.
 const assertDom = async (expr: string, label: string) => {
-  const ok = await evaluate(expr);
-  console.log(`${label}: ${ok ? "OK" : "FAILED"}`);
-  if (!ok) throw new Error(`DOM assertion failed: ${label}`);
+  try {
+    await waitFor(expr, label, 15_000);
+    console.log(`${label}: OK`);
+  } catch {
+    console.log(`${label}: FAILED`);
+    throw new Error(`DOM assertion failed: ${label}`);
+  }
 };
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
+  try {
+    await assertBridgeTargetIsolated(BASE, { argv: process.argv.slice(2) });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
   const chrome = await launchChrome();
   try {
     const targets = (await (
@@ -162,10 +250,18 @@ async function main() {
     });
 
     await send("Page.navigate", { url: BASE });
-    await sleep(6000);
+    await waitForAppReady();
     await shot("01-sidebar-populated");
 
-    // Collapse the sidebar via the topbar trigger.
+    // Collapse the sidebar via the topbar trigger. The CDP profile persists
+    // localStorage (`herdr-t3:sidebar-open`), so normalize to expanded first —
+    // a previous run may have left the sidebar collapsed.
+    const sidebarState = () =>
+      evaluate(`document.querySelector('[data-slot="sidebar"]')?.dataset.state`);
+    if ((await sidebarState()) === "collapsed") {
+      await click('[data-slot="sidebar-trigger"]');
+      await sleep(600);
+    }
     await click('[data-slot="sidebar-trigger"]');
     await sleep(600);
     await assertDom(
@@ -216,16 +312,28 @@ async function main() {
     const paneMenuRun = async (itemText: string, expect: (f: any) => boolean, label: string) => {
       const before = await sessionFacts();
       await evaluate(`document.querySelector('[aria-label="Pane actions"]')?.click()`);
-      await sleep(600);
+      await waitFor(
+        `document.querySelectorAll('[data-slot="menu-item"]').length > 0`,
+        "pane actions menu open",
+        10_000,
+      );
       const clicked = await evaluate(`(() => {
         const el = [...document.querySelectorAll('[data-slot="menu-item"]')]
           .find((b) => b.textContent.trim().startsWith(${JSON.stringify(itemText)}));
         el?.click();
         return !!el;
       })()`);
-      await sleep(1600);
-      const after = await sessionFacts();
-      const ok = clicked === true && expect(after) && JSON.stringify(after) !== JSON.stringify(before);
+      // Poll the session until the mutation lands — a fixed sleep raced
+      // herdr round-trips under load.
+      const deadline = Date.now() + 15_000;
+      let after: any = null;
+      let ok = false;
+      while (Date.now() < deadline) {
+        after = await sessionFacts();
+        ok = clicked === true && expect(after) && JSON.stringify(after) !== JSON.stringify(before);
+        if (ok) break;
+        await sleep(300);
+      }
       console.log(`${label}: ${ok ? "OK" : "FAILED"}`, JSON.stringify(after));
       if (!ok) throw new Error(`state assertion failed for ${label}`);
     };
@@ -238,13 +346,18 @@ async function main() {
     // Dark / light appearance via the persisted setting + reload.
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "dark")`);
     await send("Page.navigate", { url: BASE });
-    await sleep(4500);
+    await waitForAppReady();
     await assertDom(`document.documentElement.classList.contains("dark")`, "dark theme applied");
     await shot("09-dark");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "light")`);
     await send("Page.navigate", { url: BASE });
-    await sleep(4500);
-    await assertDom(`!document.documentElement.classList.contains("dark")`, "light theme applied");
+    // index.html ships class="dark" pre-hydration; theme.ts removes it only
+    // after JS loads — poll for the class removal.
+    await waitForAppReady();
+    await assertDom(
+      `!document.documentElement.classList.contains("dark")`,
+      "light theme applied",
+    );
     await shot("10-light");
     await evaluate(`localStorage.setItem("herdr-t3:appearance", "system")`);
 
@@ -255,13 +368,12 @@ async function main() {
       deviceScaleFactor: 2,
       mobile: true,
     });
-    await sleep(1200);
+    await waitFor(`window.innerWidth === 480`, "narrow viewport applied", 10_000);
     await shot("11-narrow");
     // On mobile the sidebar trigger lives in AppShell's SidebarControl
     // (data-slot is tooltip-trigger, not sidebar-trigger), and the sheet
     // stays mounted while closed — assert it is actually open.
     await click('[data-sidebar-control] button[aria-label="Toggle main sidebar"]');
-    await sleep(800);
     await assertDom(
       `(() => { const s = document.querySelector('[data-mobile="true"]'); return !!s && !s.hasAttribute('data-closed') && !s.hidden; })()`,
       "mobile sheet open",

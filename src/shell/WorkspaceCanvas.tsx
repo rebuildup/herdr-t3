@@ -4,11 +4,13 @@
  * PaneLayoutSnapshot) with Ghostty PaneTerminal surfaces; focus and zoom
  * come from the snapshot, never local guesses. M1's fixture grid is gone.
  */
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { cn } from "~/lib/utils";
 import { isEditableTarget, isMacPlatform } from "~/lib/shortcuts";
 import { PaneTerminal } from "~/components/PaneTerminal";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
+import { PaneMessageDialog } from "~/components/PaneMessageDialog";
+import { PaneCopyDialog } from "~/components/PaneCopyDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -16,41 +18,58 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import { paneTitle } from "~/lib/workspace";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { paneCanvasView, type CanvasPaneView } from "~/lib/paneCanvas";
+import { focusPaneTerminal } from "~/lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 import { useRouteWorkspace } from "./view";
-import { callRpc, useBridgeState } from "./bridge";
+import { resolveCanvasSession } from "./canvasState";
+import {
+  callRpc,
+  ensureMachine,
+  machineListOf,
+  newWorkspace,
+  useBridgeState,
+} from "./bridge";
+import { navigate, settingsHash } from "./router";
+import { useWorkspaceBranch } from "./worktrees";
+import { WorkspaceContextCard } from "./PaneContextCard";
 import {
   Columns2,
+  Copy,
   Info,
   Maximize2,
   MousePointerClick,
+  Plus,
+  RefreshCw,
   Rows2,
   X,
 } from "lucide-react";
+import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "~/components/ui/empty";
 
 function PaneSurface({
   machine,
-  pane,
+  view,
   connected,
-  rect,
-  area,
-  focused,
   zoomed,
   onFocus,
   onDetails,
+  onCopy,
   dnd,
 }: {
   machine: string;
-  pane: PaneInfo;
+  view: CanvasPaneView;
   connected: boolean;
-  rect: { x: number; y: number; width: number; height: number } | undefined;
-  area: { width: number; height: number };
-  focused: boolean;
   zoomed: boolean;
   onFocus: () => void;
   onDetails: () => void;
+  onCopy: () => void;
   /** Drag-swap wiring (issue #111); undefined disables dragging. */
   dnd?:
     | {
@@ -62,25 +81,32 @@ function PaneSurface({
       }
     | undefined;
 }) {
-  const style = zoomed
-    ? { left: 0, top: 0, width: "100%", height: "100%" }
-    : rect
-      ? {
-          left: `${(rect.x / Math.max(area.width, 1)) * 100}%`,
-          top: `${(rect.y / Math.max(area.height, 1)) * 100}%`,
-          width: `${(rect.width / Math.max(area.width, 1)) * 100}%`,
-          height: `${(rect.height / Math.max(area.height, 1)) * 100}%`,
-        }
-      : undefined;
+  const { pane, title, focused, frame, emphasis } = view;
+  // Frame fractions are 0..1 of the layout area; zoomed panes get a
+  // full-bleed frame from the model, matching the previous inline math.
+  const style = frame
+    ? {
+        left: `${frame.x * 100}%`,
+        top: `${frame.y * 100}%`,
+        width: `${frame.width * 100}%`,
+        height: `${frame.height * 100}%`,
+      }
+    : undefined;
   return (
     <ContextMenu>
       <ContextMenuTrigger className="contents">
         <div
           className={cn(
-            "absolute overflow-hidden border transition-colors",
-            // Focus treatment follows interaction.md: neutral emphasis, never a
-            // full blue frame (issue #112).
-            focused ? "border-foreground/25 dark:border-foreground/45" : "border-border/50",
+            "absolute overflow-hidden transition-colors",
+            // Split boundaries read as a hairline divider, not a card frame
+            // (interaction.md §1, issue #432): single-pane and zoomed layouts
+            // get no border at all; focused panes get a slightly stronger
+            // hairline, never a full blue frame (issue #112).
+            emphasis === "none"
+              ? "border-0"
+              : emphasis === "focused"
+                ? "border border-foreground/15 dark:border-foreground/30"
+                : "border border-border/40",
             dnd?.dropTarget && "ring-2 ring-inset ring-primary",
           )}
           style={style}
@@ -92,7 +118,7 @@ function PaneSurface({
           onDrop={dnd?.onDrop}
           onDragEnd={dnd?.onDragEnd}
           // oxlint-disable-next-line herdr-t3/no-native-title-tooltip -- pane identity tooltip over the terminal surface; a styled Tooltip popup would obstruct terminal hover
-          title={paneTitle(pane)}
+          title={title}
           onMouseDown={() => {
             if (!focused) onFocus();
           }}
@@ -101,7 +127,11 @@ function PaneSurface({
             machine={machine}
             paneId={pane.pane_id}
             connected={connected}
-            label={paneTitle(pane)}
+            label={title}
+            // Only the pane the user is operating holds the writable
+            // attach (resize authority + input); the rest stream read-only
+            // so the GUI's presence cannot pin their sizes (issue #571).
+            writable={focused}
           />
         </div>
       </ContextMenuTrigger>
@@ -156,6 +186,11 @@ function PaneSurface({
         <ContextMenuItem onSelect={onDetails}>
           <Info /> Details…
         </ContextMenuItem>
+        {/* Structured copy (issue #429): labeled range candidates —
+            transcript/scrollback — instead of drag-selecting the TUI. */}
+        <ContextMenuItem onSelect={onCopy}>
+          <Copy /> Copy output…
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           destructive
@@ -169,10 +204,9 @@ function PaneSurface({
 }
 
 export function WorkspaceCanvas() {
-  const { machine, machineInfo, snapshot, view, stale } = useRouteWorkspace();
+  const { machine, machineInfo, snapshot, view, probe } = useRouteWorkspace();
   const bridge = useBridgeState();
   const { workspace, activeTab, tabPanes, layout, focusedPane } = view;
-  const zoomed = layout?.zoomed === true;
   // Attach attempts are gated on the client bridge only: the server queues
   // subscribes and reconnects ssh machines on demand, and machine reachability
   // is already surfaced by the sidebar status.
@@ -182,6 +216,13 @@ export function WorkspaceCanvas() {
   const [paneDragId, setPaneDragId] = useState<string | null>(null);
   const [paneDropId, setPaneDropId] = useState<string | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
+  const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
+  const [copyPane, setCopyPane] = useState<PaneInfo | null>(null);
+  // Context card (issue #390): the inline card positions inside this
+  // container; the popover fallback anchors to the header trigger.
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
+  const machines = machineListOf(bridge);
   const focusedPaneId = focusedPane?.pane_id ?? layout?.focused_pane_id ?? null;
 
   // Keyboard pane navigation (issue #113): ⌘+Arrow on macOS,
@@ -221,48 +262,154 @@ export function WorkspaceCanvas() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [machine, focusedPaneId]);
 
-  if (stale) {
+  // Session-state contract (issue #421): loading, probe-only, stale,
+  // down, disabled, error and genuinely-empty are distinct states with
+  // distinct presentations — never one "no workspaces" catch-all. The
+  // resolver is pure; see canvasState.ts for the upstream lifecycle
+  // evidence behind each branch.
+  const session = resolveCanvasSession({
+    snapshot,
+    probeSnapshot: probe,
+    machineInfo,
+    bridgeConnection: bridge.connection,
+    machineError: bridge.errors[machine],
+    machinePending: bridge.pendingMachines[machine] === true,
+  });
+  const machineLabel = machineInfo?.label ?? machine;
+
+  if (session.kind === "bridge") {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        {machineInfo?.label ?? machine} is {machineInfo?.status}
-        {machineInfo?.detail ? ` — ${machineInfo.detail}` : ""}. Reconnect from the sidebar to view live panes.
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
+        {session.connection === "connecting"
+          ? "Connecting to herdr…"
+          : "Bridge disconnected — retrying…"}
       </div>
     );
   }
-  if (!snapshot) {
+  if (session.kind === "connecting" || session.kind === "loading") {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        {bridge.connection === "open"
-          ? "Loading session…"
-          : bridge.connection === "connecting"
-            ? "Connecting to herdr…"
-            : "Bridge disconnected — retrying…"}
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
+        {session.kind === "connecting"
+          ? `Connecting to ${machineLabel}…`
+          : "Loading session…"}
       </div>
     );
   }
+  if (session.kind === "stale" || session.kind === "down") {
+    const status = machineInfo?.status ?? "offline";
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>
+            {machineLabel} is {status.replace(/_/g, " ")}
+          </EmptyTitle>
+          <EmptyDescription>
+            {machineInfo?.detail ?? "Reconnect to view live panes."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void ensureMachine(machine)}
+          >
+            <RefreshCw /> Reconnect
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  if (session.kind === "disabled") {
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>{machineLabel} is disabled</EmptyTitle>
+          <EmptyDescription>
+            Enable this machine in Settings → Connections to view its panes.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(settingsHash("connections"))}
+          >
+            Open Connections
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  if (session.kind === "error") {
+    return (
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>Could not reach {machineLabel}</EmptyTitle>
+          <EmptyDescription>{session.message}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void ensureMachine(machine)}
+          >
+            <RefreshCw /> Retry
+          </Button>
+        </EmptyContent>
+      </Empty>
+    );
+  }
+  // session.kind === "live": a real session snapshot is held. An empty
+  // workspace list is a genuine herdr state (the session survives its
+  // last workspace — upstream close_workspaces keeps the server alive),
+  // so it gets the restrained empty treatment with a recovery action.
   if (!workspace) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        No workspaces on this machine.
-      </div>
+      <Empty size="compact" className="min-h-0">
+        <EmptyHeader>
+          <EmptyTitle>No workspaces</EmptyTitle>
+          <EmptyDescription>
+            {machineLabel} has no workspaces in this herdr session.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button size="sm" onClick={() => void newWorkspace(machine)}>
+            <Plus /> New workspace
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
   if (!activeTab || tabPanes.length === 0) {
+    // herdr never persists a pane-less tab or a tab-less workspace
+    // (close_pane/close_active_tab cascade upward), so this is an
+    // anomalous or mid-transition snapshot — report it plainly and let
+    // the next pushed snapshot resolve it.
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+      <div
+        role="status"
+        className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground"
+      >
         No panes in this tab.
       </div>
     );
   }
 
-  // herdr's zoom shows only the focused pane, full-bleed (issue #75).
-  const visiblePanes = zoomed && focusedPane ? [focusedPane] : tabPanes;
-  const area = layout?.area ?? { width: 1, height: 1 };
+  // Pane-frame model (issue #324): visible panes, normalized geometry,
+  // focus and hairline emphasis — shared with the GPUI port via
+  // state-projections; the React layer only maps it to DOM.
+  const canvas = paneCanvasView(tabPanes, layout, focusedPane ?? null);
+  const { zoomed, canDragPanes } = canvas;
 
   // Pane drag-swap (issue #111): dragging one pane onto another issues
   // herdr `pane.swap {source_pane_id, target_pane_id}`, exchanging their
   // layout positions. Disabled while zoomed (single visible pane).
-  const canDragPanes = !zoomed && visiblePanes.length > 1;
   const paneDnd = (pane: PaneInfo) =>
     canDragPanes
       ? {
@@ -296,33 +443,60 @@ export function WorkspaceCanvas() {
         }
       : undefined;
 
+  const focusedAgent = focusedPane
+    ? snapshot?.agents.find((a) => a.pane_id === focusedPane.pane_id)
+    : undefined;
+
   return (
-    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
-      <div className="relative h-full w-full">
-        {visiblePanes.map((pane) => (
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-2">
+      <div ref={canvasAreaRef} className="relative h-full w-full">
+        {canvas.panes.map((paneView) => (
           <PaneSurface
-            key={pane.pane_id}
+            key={paneView.pane.pane_id}
             machine={machine}
-            pane={pane}
+            view={paneView}
             connected={machineOnline}
-            rect={layout?.panes.find((p) => p.pane_id === pane.pane_id)?.rect}
-            area={area}
-            focused={
-              layout
-                ? pane.pane_id === layout.focused_pane_id
-                : pane.focused
-            }
             zoomed={zoomed}
-            onFocus={() => void callRpc(machine, "pane.focus", { pane_id: pane.pane_id })}
-            onDetails={() => setDetailsPane(pane)}
-            dnd={paneDnd(pane)}
+            onFocus={() =>
+              void callRpc(machine, "pane.focus", { pane_id: paneView.pane.pane_id })
+            }
+            onDetails={() => setDetailsPane(paneView.pane)}
+            onCopy={() => setCopyPane(paneView.pane)}
+            dnd={paneDnd(paneView.pane)}
           />
         ))}
+        {focusedPane ? (
+          <WorkspaceContextCard
+            machine={machine}
+            machineLabel={machineInfo?.label ?? machine}
+            showMachine={machines.length > 1}
+            pane={focusedPane}
+            agent={focusedAgent}
+            workspace={workspace}
+            branch={branch}
+            agents={snapshot?.agents ?? []}
+            containerRef={canvasAreaRef}
+            onPrompt={
+              focusedPane.agent ? () => setMessagePane(focusedPane) : undefined
+            }
+            onDetails={() => setDetailsPane(focusedPane)}
+          />
+        ) : null}
       </div>
       <PaneDetailsDialog
         pane={detailsPane}
         machine={machine}
         onClose={() => setDetailsPane(null)}
+      />
+      <PaneMessageDialog
+        pane={messagePane}
+        machine={machine}
+        onClose={() => setMessagePane(null)}
+      />
+      <PaneCopyDialog
+        pane={copyPane}
+        machine={machine}
+        onClose={() => setCopyPane(null)}
       />
     </div>
   );

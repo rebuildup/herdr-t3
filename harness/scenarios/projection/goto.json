@@ -1,0 +1,1142 @@
+{
+  "format": "herdr-t3/diff-scenario",
+  "version": 1,
+  "id": "projection.goto",
+  "capability": "ui.goto-picker",
+  "contract": "workspace-pane-ops@1",
+  "oracle": "differential",
+  "adapters": [
+    "ts",
+    "rust"
+  ],
+  "steps": [
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w1",
+              "focused_tab_id": "w1:t1",
+              "focused_pane_id": "w1:p1",
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2,
+                  "tab_count": 2,
+                  "active_tab_id": "w1:t1",
+                  "worktree": {
+                    "checkout_path": "/repo/app",
+                    "is_linked_worktree": false,
+                    "repo_key": "repo/app",
+                    "repo_name": "app",
+                    "repo_root": "/repo/app"
+                  }
+                },
+                {
+                  "workspace_id": "w2",
+                  "label": "docs",
+                  "number": 2,
+                  "agent_status": "idle",
+                  "focused": false,
+                  "pane_count": 1,
+                  "tab_count": 1,
+                  "active_tab_id": "w2:t1",
+                  "worktree": null
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2
+                },
+                {
+                  "tab_id": "w1:t2",
+                  "workspace_id": "w1",
+                  "label": "logs",
+                  "number": 2,
+                  "agent_status": "idle",
+                  "focused": false,
+                  "pane_count": 1
+                },
+                {
+                  "tab_id": "w2:t1",
+                  "workspace_id": "w2",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "idle",
+                  "focused": false,
+                  "pane_count": 1
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "blocked",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1",
+                  "label": "editor",
+                  "cwd": "/repo/app",
+                  "foreground_cwd": "/repo/app/src/lib"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "working",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term2",
+                  "cwd": "/repo/app"
+                },
+                {
+                  "pane_id": "w1:p3",
+                  "tab_id": "w1:t2",
+                  "workspace_id": "w1",
+                  "agent_status": "idle",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term3",
+                  "title": "tail -f app.log"
+                },
+                {
+                  "pane_id": "w2:p1",
+                  "tab_id": "w2:t1",
+                  "workspace_id": "w2",
+                  "agent_status": "unknown",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term4"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "claude",
+                  "display_agent": "Claude Code",
+                  "name": "fix-tests",
+                  "agent_status": "blocked",
+                  "title": "Fixing flaky tests",
+                  "cwd": "/repo/app",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "codex",
+                  "name": "refactor",
+                  "agent_status": "working",
+                  "revision": 1,
+                  "terminal_id": "term2"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "local\nw1": "feature/goto"
+            }
+          }
+        ],
+        "query": ""
+      },
+      "note": "single machine: workspace/tab/pane rows, branch-derived title, agent metadata, focused flags",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": null,
+            "words": []
+          },
+          "rows": [
+            {
+              "id": "ws:local:w1",
+              "kind": "workspace",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "label": "feature/goto",
+              "meta": "feature/goto",
+              "detail": "/repo/app",
+              "searchText": "feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            },
+            {
+              "id": "tab:local:w1:t1",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "label": "Tab 1",
+              "detail": "feature/goto / Tab 1",
+              "searchText": "tab 1 feature/goto app feature/goto app /repo/app w1 this mac w1:t1",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p1",
+              "label": "editor · 1",
+              "meta": "/repo/app/src/lib",
+              "detail": "feature/goto / Tab 1 / w1:p1",
+              "agentKind": "claude",
+              "status": "blocked",
+              "searchText": "editor · 1 editor fixing flaky tests /repo/app/src/lib /repo/app claude claude code fix-tests w1:p1 tab 1 feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p2",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p2",
+              "label": "refactor · 2",
+              "meta": "/repo/app",
+              "detail": "feature/goto / Tab 1 / w1:p2",
+              "agentKind": "codex",
+              "status": "working",
+              "searchText": "refactor · 2 refactor /repo/app /repo/app codex refactor w1:p2 tab 1 feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": false
+            },
+            {
+              "id": "tab:local:w1:t2",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t2",
+              "label": "logs",
+              "detail": "feature/goto / logs",
+              "searchText": "logs feature/goto app feature/goto app /repo/app w1 this mac w1:t2",
+              "current": false
+            },
+            {
+              "id": "pane:local:w1:p3",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t2",
+              "paneId": "w1:p3",
+              "label": "tail -f app.log",
+              "detail": "feature/goto / logs / w1:p3",
+              "status": "unknown",
+              "searchText": "tail -f app.log tail -f app.log tail -f app.log w1:p3 logs feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": false
+            },
+            {
+              "id": "ws:local:w2",
+              "kind": "workspace",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w2",
+              "label": "docs",
+              "detail": "w2",
+              "searchText": "docs docs w2 this mac",
+              "current": false
+            },
+            {
+              "id": "tab:local:w2:t1",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w2",
+              "tabId": "w2:t1",
+              "label": "Tab 1",
+              "detail": "docs / Tab 1",
+              "searchText": "tab 1 docs docs w2 this mac w2:t1",
+              "current": false
+            },
+            {
+              "id": "pane:local:w2:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w2",
+              "tabId": "w2:t1",
+              "paneId": "w2:p1",
+              "label": "terminal",
+              "detail": "docs / Tab 1 / w2:p1",
+              "status": "unknown",
+              "searchText": "terminal terminal w2:p1 tab 1 docs docs w2 this mac",
+              "current": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w1",
+              "focused_tab_id": "w1:t1",
+              "focused_pane_id": "w1:p1",
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2,
+                  "tab_count": 2,
+                  "active_tab_id": "w1:t1",
+                  "worktree": {
+                    "checkout_path": "/repo/app",
+                    "is_linked_worktree": false,
+                    "repo_key": "repo/app",
+                    "repo_name": "app",
+                    "repo_root": "/repo/app"
+                  }
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 7,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "blocked",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1",
+                  "label": "editor",
+                  "cwd": "/repo/app",
+                  "foreground_cwd": "/repo/app/src/lib"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "working",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term2",
+                  "cwd": "/repo/app"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "claude",
+                  "display_agent": "Claude Code",
+                  "name": "fix-tests",
+                  "agent_status": "blocked",
+                  "title": "Fixing flaky tests",
+                  "cwd": "/repo/app",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "codex",
+                  "name": "refactor",
+                  "agent_status": "working",
+                  "revision": 1,
+                  "terminal_id": "term2"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "local\nw1": "feature/goto"
+            }
+          },
+          {
+            "machine": {
+              "id": "remote",
+              "label": "Build Server",
+              "kind": "remote",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w9",
+              "workspaces": [
+                {
+                  "workspace_id": "w9",
+                  "label": "remote-ws",
+                  "number": 1,
+                  "agent_status": "idle",
+                  "focused": true,
+                  "pane_count": 1,
+                  "tab_count": 1,
+                  "active_tab_id": "w9:t1",
+                  "worktree": null
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w9:t1",
+                  "workspace_id": "w9",
+                  "label": "build",
+                  "number": 1,
+                  "agent_status": "idle",
+                  "focused": false,
+                  "pane_count": 1
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w9:p1",
+                  "tab_id": "w9:t1",
+                  "workspace_id": "w9",
+                  "agent_status": "idle",
+                  "focused": true,
+                  "revision": 1,
+                  "terminal_id": "term9",
+                  "cwd": "/build"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w9:p1",
+                  "tab_id": "w9:t1",
+                  "workspace_id": "w9",
+                  "agent": "claude",
+                  "name": "remote-agent",
+                  "agent_status": "idle",
+                  "revision": 1,
+                  "terminal_id": "term9"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "remote\nw9": "release/0.6"
+            }
+          }
+        ],
+        "query": ""
+      },
+      "note": "multi-machine: machineLabel in detail, Tab N fallback for empty label, index-suffixed pane names",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": null,
+            "words": []
+          },
+          "rows": [
+            {
+              "id": "ws:local:w1",
+              "kind": "workspace",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "label": "feature/goto",
+              "meta": "feature/goto",
+              "detail": "This Mac · /repo/app",
+              "searchText": "feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            },
+            {
+              "id": "tab:local:w1:t1",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "label": "Tab 7",
+              "detail": "feature/goto / Tab 7",
+              "searchText": "tab 7 feature/goto app feature/goto app /repo/app w1 this mac w1:t1",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p1",
+              "label": "editor · 1",
+              "meta": "/repo/app/src/lib",
+              "detail": "feature/goto / Tab 7 / w1:p1",
+              "agentKind": "claude",
+              "status": "blocked",
+              "searchText": "editor · 1 editor fixing flaky tests /repo/app/src/lib /repo/app claude claude code fix-tests w1:p1 tab 7 feature/goto app feature/goto app /repo/app w1 this mac this mac",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p2",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p2",
+              "label": "refactor · 2",
+              "meta": "/repo/app",
+              "detail": "feature/goto / Tab 7 / w1:p2",
+              "agentKind": "codex",
+              "status": "working",
+              "searchText": "refactor · 2 refactor /repo/app /repo/app codex refactor w1:p2 tab 7 feature/goto app feature/goto app /repo/app w1 this mac this mac",
+              "current": false
+            },
+            {
+              "id": "ws:remote:w9",
+              "kind": "workspace",
+              "machine": "remote",
+              "machineLabel": "Build Server",
+              "workspaceId": "w9",
+              "label": "remote-ws",
+              "meta": "release/0.6",
+              "detail": "Build Server · w9",
+              "searchText": "remote-ws remote-ws release/0.6 w9 build server",
+              "current": true
+            },
+            {
+              "id": "tab:remote:w9:t1",
+              "kind": "tab",
+              "machine": "remote",
+              "machineLabel": "Build Server",
+              "workspaceId": "w9",
+              "tabId": "w9:t1",
+              "label": "build",
+              "detail": "remote-ws / build",
+              "searchText": "build remote-ws remote-ws release/0.6 w9 build server w9:t1",
+              "current": false
+            },
+            {
+              "id": "pane:remote:w9:p1",
+              "kind": "pane",
+              "machine": "remote",
+              "machineLabel": "Build Server",
+              "workspaceId": "w9",
+              "tabId": "w9:t1",
+              "paneId": "w9:p1",
+              "label": "remote-agent",
+              "meta": "/build",
+              "detail": "remote-ws / build / w9:p1",
+              "agentKind": "claude",
+              "status": "idle",
+              "searchText": "remote-agent remote-agent /build /build claude remote-agent w9:p1 build remote-ws remote-ws release/0.6 w9 build server build server",
+              "current": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w1",
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2,
+                  "tab_count": 1,
+                  "active_tab_id": "w1:t1",
+                  "worktree": {
+                    "checkout_path": "/repo/app",
+                    "repo_name": "app",
+                    "repo_root": "/repo/app"
+                  }
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "blocked",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1",
+                  "label": "editor",
+                  "cwd": "/repo/app",
+                  "foreground_cwd": "/repo/app/src/lib"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "working",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term2",
+                  "cwd": "/repo/app"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "claude",
+                  "display_agent": "Claude Code",
+                  "name": "fix-tests",
+                  "agent_status": "blocked",
+                  "title": "Fixing flaky tests",
+                  "cwd": "/repo/app",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "codex",
+                  "name": "refactor",
+                  "agent_status": "working",
+                  "revision": 1,
+                  "terminal_id": "term2"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "local\nw1": "feature/goto"
+            }
+          }
+        ],
+        "query": "blocked"
+      },
+      "note": "status filter: only blocked pane + workspace/tab ancestors survive",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": "blocked",
+            "words": []
+          },
+          "rows": [
+            {
+              "id": "ws:local:w1",
+              "kind": "workspace",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "label": "feature/goto",
+              "meta": "feature/goto",
+              "detail": "/repo/app",
+              "searchText": "feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            },
+            {
+              "id": "tab:local:w1:t1",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "label": "Tab 1",
+              "detail": "feature/goto / Tab 1",
+              "searchText": "tab 1 feature/goto app feature/goto app /repo/app w1 this mac w1:t1",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p1",
+              "label": "editor · 1",
+              "meta": "/repo/app/src/lib",
+              "detail": "feature/goto / Tab 1 / w1:p1",
+              "agentKind": "claude",
+              "status": "blocked",
+              "searchText": "editor · 1 editor fixing flaky tests /repo/app/src/lib /repo/app claude claude code fix-tests w1:p1 tab 1 feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w1",
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2,
+                  "tab_count": 1,
+                  "active_tab_id": "w1:t1",
+                  "worktree": {
+                    "checkout_path": "/repo/app",
+                    "repo_name": "app",
+                    "repo_root": "/repo/app"
+                  }
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "blocked",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1",
+                  "label": "editor",
+                  "cwd": "/repo/app",
+                  "foreground_cwd": "/repo/app/src/lib"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "working",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term2",
+                  "cwd": "/repo/app"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "claude",
+                  "display_agent": "Claude Code",
+                  "name": "fix-tests",
+                  "agent_status": "blocked",
+                  "title": "Fixing flaky tests",
+                  "cwd": "/repo/app",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "codex",
+                  "name": "refactor",
+                  "agent_status": "working",
+                  "revision": 1,
+                  "terminal_id": "term2"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "local\nw1": "feature/goto"
+            }
+          }
+        ],
+        "query": "b CLAUDE src"
+      },
+      "note": "single-letter status prefix + case-insensitive AND words",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": "blocked",
+            "words": [
+              "claude",
+              "src"
+            ]
+          },
+          "rows": [
+            {
+              "id": "ws:local:w1",
+              "kind": "workspace",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "label": "feature/goto",
+              "meta": "feature/goto",
+              "detail": "/repo/app",
+              "searchText": "feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            },
+            {
+              "id": "tab:local:w1:t1",
+              "kind": "tab",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "label": "Tab 1",
+              "detail": "feature/goto / Tab 1",
+              "searchText": "tab 1 feature/goto app feature/goto app /repo/app w1 this mac w1:t1",
+              "current": true
+            },
+            {
+              "id": "pane:local:w1:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p1",
+              "label": "editor · 1",
+              "meta": "/repo/app/src/lib",
+              "detail": "feature/goto / Tab 1 / w1:p1",
+              "agentKind": "claude",
+              "status": "blocked",
+              "searchText": "editor · 1 editor fixing flaky tests /repo/app/src/lib /repo/app claude claude code fix-tests w1:p1 tab 1 feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "focused_workspace_id": "w1",
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2,
+                  "tab_count": 1,
+                  "active_tab_id": "w1:t1",
+                  "worktree": {
+                    "checkout_path": "/repo/app",
+                    "repo_name": "app",
+                    "repo_root": "/repo/app"
+                  }
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": true,
+                  "pane_count": 2
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "blocked",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1",
+                  "label": "editor",
+                  "cwd": "/repo/app",
+                  "foreground_cwd": "/repo/app/src/lib"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "working",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term2",
+                  "cwd": "/repo/app"
+                }
+              ],
+              "agents": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "claude",
+                  "display_agent": "Claude Code",
+                  "name": "fix-tests",
+                  "agent_status": "blocked",
+                  "title": "Fixing flaky tests",
+                  "cwd": "/repo/app",
+                  "focused": true,
+                  "revision": 3,
+                  "terminal_id": "term1"
+                },
+                {
+                  "pane_id": "w1:p2",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent": "codex",
+                  "name": "refactor",
+                  "agent_status": "working",
+                  "revision": 1,
+                  "terminal_id": "term2"
+                }
+              ],
+              "layouts": []
+            },
+            "branch_index": {
+              "local\nw1": "feature/goto"
+            }
+          }
+        ],
+        "query": "feature editor"
+      },
+      "note": "text AND across ws search blob + pane label",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": null,
+            "words": [
+              "feature",
+              "editor"
+            ]
+          },
+          "rows": [
+            {
+              "id": "pane:local:w1:p1",
+              "kind": "pane",
+              "machine": "local",
+              "machineLabel": "This Mac",
+              "workspaceId": "w1",
+              "tabId": "w1:t1",
+              "paneId": "w1:p1",
+              "label": "editor · 1",
+              "meta": "/repo/app/src/lib",
+              "detail": "feature/goto / Tab 1 / w1:p1",
+              "agentKind": "claude",
+              "status": "blocked",
+              "searchText": "editor · 1 editor fixing flaky tests /repo/app/src/lib /repo/app claude claude code fix-tests w1:p1 tab 1 feature/goto app feature/goto app /repo/app w1 this mac",
+              "current": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "workspaces": [
+                {
+                  "workspace_id": "w1",
+                  "label": "app",
+                  "number": 1,
+                  "agent_status": "working",
+                  "focused": false,
+                  "pane_count": 1,
+                  "tab_count": 1,
+                  "worktree": null
+                }
+              ],
+              "tabs": [
+                {
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "label": "",
+                  "number": 1,
+                  "agent_status": "unknown",
+                  "focused": false,
+                  "pane_count": 1
+                }
+              ],
+              "panes": [
+                {
+                  "pane_id": "w1:p1",
+                  "tab_id": "w1:t1",
+                  "workspace_id": "w1",
+                  "agent_status": "unknown",
+                  "focused": false,
+                  "revision": 1,
+                  "terminal_id": "term1"
+                }
+              ],
+              "agents": [],
+              "layouts": []
+            },
+            "branch_index": {}
+          }
+        ],
+        "query": "d"
+      },
+      "note": "status filter with zero matches -> empty row set",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": "done",
+            "words": []
+          },
+          "rows": []
+        }
+      }
+    },
+    {
+      "op": "goto_eval",
+      "input": {
+        "entries": [
+          {
+            "machine": {
+              "id": "local",
+              "label": "This Mac",
+              "kind": "local",
+              "enabled": true,
+              "status": "online"
+            },
+            "snapshot": {
+              "version": "22",
+              "protocol": 22,
+              "workspaces": [],
+              "tabs": [],
+              "panes": [],
+              "agents": [],
+              "layouts": []
+            },
+            "branch_index": {}
+          }
+        ],
+        "query": "anything"
+      },
+      "note": "empty snapshot -> empty rows",
+      "expect": {
+        "ok": true,
+        "value": {
+          "query": {
+            "status": null,
+            "words": [
+              "anything"
+            ]
+          },
+          "rows": []
+        }
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 export const UI_SCENARIO_FORMAT = "herdr-t3/ui-scenario";
 export const UI_SCENARIO_VERSION = 1;
 
-export type UiKind = "workspace" | "pane" | "target" | "mode";
+export type UiKind = "workspace" | "pane" | "target" | "mode" | "goto.row";
 
 export interface UiStep {
   action?: string;
@@ -24,11 +24,15 @@ export interface UiScenario {
   contract?: string;
   fixture?: string;
   os?: string[];
+  /** adapters this scenario claims; absent means every adapter (electron + gpui) */
+  adapters?: string[];
   steps: UiStep[];
 }
 
 export interface UiAdapter {
   readonly name: string;
+  /** measured target-process launch -> operable-state latency (ms), when known */
+  readyMs?: number;
   /** concrete members of a symbolic collection, in stable UI order */
   enumerate(kind: UiKind): Promise<string[]>;
   /** map a symbolic ref ("$first"/"$second"/"$last") or pass through a concrete id */

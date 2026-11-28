@@ -28,6 +28,7 @@ the maintainer's live session). Required states:
 | Pane grid | single pane, split panes, focused/unfocused (dimmed unfocused per `interaction.md`), zoomed, split-ratio drag, pane drag/swap affordance |
 | Pane chrome | agent kind + status indicator, title fallback chain, details/diagnostics access |
 | Status/utility area | bridge connecting/reconnecting, attention aggregate (blocked count), transient notice |
+| Canvas session states (issue #421, `info-architecture.md` §10) | cold-start loading, probe→live transition, machine fetch error + Retry, machine down + Reconnect, disabled machine, genuine empty session (`workspaces: []`) + New workspace, anomalous pane-less tab |
 | Terminal | idle shell, running agent, blocked prompt, scrollback, background image (fit/position/opacity variants), IME composition |
 | Global | light, dark (`html.dark`), connecting, reconnecting, offline, error, `prefers-reduced-motion` |
 
@@ -87,9 +88,28 @@ real TUI can prove.
 | 10 | アニメーション: 一覧の追加/移動/消失 FLIP・shelf 開閉・menu/tooltip 出現・agent 状態遷移の色変化 | ☐ | ☐ | |
 | 11 | `prefers-reduced-motion`: 上記すべてが即時切替 (アニメーションなし) | ☐ | ☐ | OS 設定で reduce を有効化 |
 | 12 | ホバー詳細: agent 行ホバーカード・workspace/tab の tooltip | ☐ | ☐ | |
-| 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant |
+| 13 | 包括 E2E: attach→入力→切断→再接続で入力が draft に残り自動送信されない | ☐ | ☐ | bridge invariant。`bun scripts/verify-reconnect-draft.ts --session <isolated>` (CDP、bridge kill→再起動で draft 残存・outage 入力の不達・明示 Enter での送信を検証)。Windows レグ自動化 PASS (6/6): `docs/design/evidence/rc-v060/section-n-windows.md` |
 | 14 | 配布物: packaged build がクリーン環境で起動・接続・上記主要操作 | ☐ | ☐ | rebuildup/pc-setup 成果物 |
 | 15 | ターミナル応答性能 (#213): 大量出力 pane (`yes`/`cat` 大ファイル) でのスクロール・タイピング体感、ウィンドウリサイズ中のカクつき (resubscribe/resize RPC がドラッグ中に集中しないこと)、mouse capture app でのドラッグ・ホイール追従 | ☐ | ☐ | 体感確認のみ。before/after の主観比較を Notes に記録 |
+| 16 | Canvas session 状態 (#421, info-architecture.md §10): cold start の Loading 表示中に "No workspaces" が出ないこと、最後の workspace/pane を閉じた後の真の空状態 + New workspace 回復、machine 切断時の Reconnect、fetch 失敗時の Retry、disabled machine の Open Connections | ☐ | ☐ | 隔離 session で `workspace.close`/`pane.close` を実行して確認 |
+| 17 | ブロックカーソル描画 (#382, terminal-render.md §Cursor): 通常文字・ANSI 色・inverse・全角・結合文字・空セル・選択範囲上で cursor セルが不透明 fill + cursor-text 色の文字再描画になること (半透明 wash でない)。`cursor-color`/`cursor-text` (色・`cell-foreground`/`cell-background` キーワード) が Ghostty config から反映されること。bar/underline カーソル形状・点滅・非フォーカス時の退行がないこと | ☐ | ☐ | 実機の視覚評価は #413 RC に集約。contract/harness は `terminal.scene-cursor` scenario が固定 |
+| 18 | Agents 棚 (#418): Working 初期4件・段階開示 (Show more)・固定トグルと一覧スクロールの分離・複数棚展開・狭幅/低高さでトグルが行スクロールに巻き込まれない | ☐ | ☐ | |
+| 19 | Agent identity/status (#419): 左端ブランドアイコン + 外周ステータスリングの統合表示、全状態/テーマ/密度で重複表示なし | ☐ | ☐ | |
+| 20 | Windows アニメーション (#420): motion 許可・前景可視で Working/進行中アニメーションが実際に動く (時系列で確認、静止画不可)。画面外・折りたたみ・非表示・reduced-motion で停止/復帰 | ☐ | ☐ | Windows leg 必須。Settings → Diagnostics の 'Motion visibility gate' Copy report を証跡に添付 |
+| 21 | 通知 UX (#428): 右上既定・配置設定・WCO/traffic-light 回避・複数通知の積み上げ・情報階層・アクション・テーマ・狭幅 | ☐ | ☐ | Windows leg で WCO 領域との非干渉を確認 |
+| 22 | 構造化コピー (#429): 報告メッセージ/範囲候補から選択してコピー、TUI 整形ノイズ (余白) なし・構造保持。対象不明/不完全時の挙動 | ☐ | ☐ | `docs/design/report-copy.md` の契約と照合 |
+| 23 | Terminal canvas 外観 (#432): ペイン境界の視覚的強調抑制・外周余白、単一/分割/zoom・フォーカス・両OS/テーマ/背景/狭幅・split 操作 | ☐ | ☐ | |
+| 24 | 選択ドラッグの自動スクロール (#433): 上下端でドラッグ保持→複数画面 scrollback を連続選択、逆方向・停止・実コピー内容一致 | ☐ | ☐ | |
+| 25 | ペースト配送 (#434/#478): 対応 TUI (bracketed paste mode on) で複数行が一括入力、mode off/on 切替・再接続・LF/CRLF・Unicode・末尾改行の保持・意図しない行ごと確定なし | ☐ | ☐ | `pane.send_input` 経路。実 pane の受信バイト列を証跡に |
+| 26 | 入力フォーカス handoff (#435): GUI で workspace/tab 選択・新規作成・切替後、再クリックなしで対象 focused pane に入力可能。連続切替・複数 pane/machine・rename/search/dialog で誤入力/フォーカス奪取なし | ☐ | ☐ | |
+| 27 | 選択ハイライトのスクロール追従 (#436): 選択文字列を上下スクロールで画面内→外→内へ移動し、ハイライトとコピーが対象文字に一致 (実 herdr attach 経路) | ☐ | ☐ | |
+| 28 | copy-on-select (#440): 設定 ON/OFF・永続化・選択確定時のみ正確な OS clipboard 書込み・通常コピーとの共存 | ☐ | ☐ | |
+| 29 | 選択オーバーレイ motion (#441): 選択開始/伸縮/確定/解除・コピー成功時の短い overlay motion、scroll 追従・reduced-motion・非表示時停止 | ☐ | ☐ | 動的証跡 (録画/連続キャプチャ) で評価。静止画で代替しない |
+
+Rows 18–29 are the #407 program tickets (#418–#441); the authoritative
+acceptance wording lives in issue #413 and each ticket issue. Evidence
+for the 0.7.0 train goes to `docs/design/evidence/` under the RC
+candidate's own directory — do not reuse 0.6.0 captures.
 
 ### Human acceptance procedures
 
@@ -153,3 +173,67 @@ it is a starting point for diff review, not a fidelity claim.
   spacing, density, hierarchy and affordances against the T3 reference.
   A separate pass checks full-resolution captures for sensitive strings
   before publishing.
+
+### Time budgets, watchdog and real-machine lease (issue #416)
+
+Real-machine UI verification must fail on hangs, not stall on them. The
+contracts live in `harness/ui/lib/budget.ts`, `harness/ui/lib/watchdog.ts`
+and are exercised by `harness/ui/lib/budget.test.ts` (injected hangs must
+be detected inside budget — a checker that cannot fail is rejected by
+`scripts/perf-contract-check.ts` piece `ui-verification-budgets`).
+
+- **Budgets** (`UI_BUDGET_*` env overrides, ms): `CDP_CALL` 10s per CDP
+  call, `READY` 5s as a *single* deadline from Electron process spawn to
+  operable state — CDP discovery, websocket connect, domain init, page
+  load and the operable probe all share it (`UI_ELECTRON_SPAWN_MS`
+  anchors the deadline at spawn; nothing runs outside the budget),
+  `STEP_CALL` 15s per adapter act/observe, `FIXTURE` 60s fixture setup,
+  `SCENARIO` 180s per scenario, `RUN` 900s whole orchestration. A
+  missing deadline is a defect; fixed sleeps are only allowed as poll
+  intervals inside a deadline-bounded loop.
+  `READY` is the *product* contract, verified on packaged builds.
+  `scripts/ui-electron.sh` runs against the vite dev server, where
+  measured spawn->operable is ~8s idle and ~20s under multi-worktree
+  load (Electron cold start to CDP ~8s + dev page load ~10s); it
+  therefore exports `UI_BUDGET_READY=45000` for the dev harness only —
+  a measured environment budget, not a relaxed product contract. Hang
+  detection still fails inside it.
+- **Operable state, not process existence**: the electron adapter
+  refuses to proceed until `observe()` returns real UI state AND
+  `/api/health` answers through the page's own origin (UI bundle +
+  bridge RPC path both responsive). A live CDP port, an existing window
+  or a loaded document is not a pass.
+- **Independent watchdog**: `scripts/ui-electron.sh` starts
+  `harness/ui/watchdog-cli.ts` as a separate process. It never talks to
+  the app, so a hung target cannot stall the timeout mechanism. On
+  budget expiry it writes `diagnostics.md` + a process-table snapshot
+  into the run's diag dir and reaps the recorded pids *plus their
+  descendants* (Electron GPU/renderer/utility helpers) via
+  `reapRecorded` — SIGTERM, grace, SIGKILL. The process table is `ps`
+  on POSIX and CIM/PowerShell on Windows, so the contract is
+  OS-agnostic even though the POSIX shell orchestration is not.
+- **Exclusive lease**: the watchdog process holds a machine-global
+  lease (`$XDG_STATE_HOME/herdr-t3/ui-verify.lease.json`, or
+  `%LOCALAPPDATA%\herdr-t3\ui-verify.lease.json` on Windows — shared by
+  every worktree of this repo on the machine) with owner pid,
+  user@host, worktree, session and ports, for the run's lifetime.
+  Acquisition is atomic (O_EXCL create): a second real-machine run —
+  from any worktree — fails fast with the current owner's identity
+  instead of racing. Stale leases (dead owner pid) are taken over.
+  Cleanup signals only pids the run itself recorded and their
+  descendants — never another session's processes.
+- **Port isolation**: `scripts/ui-electron.sh` auto-allocates free
+  ports for the bridge/vite/CDP endpoints by default, so leftovers or
+  concurrent dev servers cannot collide. Explicit `CDP_PORT` /
+  `UI_BRIDGE_PORT` / `UI_VITE_PORT` overrides are honored but
+  pre-flight checked: an occupied port fails fast naming the holder —
+  the harness never kills a process it does not own (a stale bridge on
+  the old fixed port previously surfaced only as an operable-gate
+  timeout).
+- **Product vs harness time**: evidence records `ready_ms` (target
+  spawn -> operable, product launch latency), per-step `duration_ms`
+  (product-observed UI timings) and `harness_ms` (runner bookkeeping).
+  Budgets apply to both but are never relaxed to hide product latency.
+- **Diagnostics**: on failure the diag dir (`mktemp -d -t ui-diag`)
+  keeps vite/electron/herdr/bridge/watchdog logs plus the watchdog
+  snapshot; the path is printed on every `fail`.

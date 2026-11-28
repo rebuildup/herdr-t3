@@ -9,7 +9,7 @@ herdr-t3 の各 surface が「何を」「なぜ」表示するかの正本。�
 | Surface | 役割 | 置く情報 | 置かない情報 |
 | --- | --- | --- | --- |
 | Sidebar (workspace list) | 「どの workspace に注意/作業があるか」の一覧・選択・並び替え | workspace の人間向け識別名 (label/branch/repo)、集約 agent_status、tab/pane 数、接続状態 (machine offline 等) | pane/tab の詳細、内部 ID の常時表示 |
-| Sidebar (agents 一覧, v0.5.0) | 「どこで・何の作業が・どの状態か」の動的一覧 (§6) | agent_status セクション、帰属 (machine/workspace/tab)、状態ラベル、作業対象 (terminal_title/agent 種別) | エージェントツール名を最上位にしない、内部 ID |
+| Sidebar (agents 一覧, v0.5.0) | 「どこで・何の作業が・どの状態か」の動的一覧 (§6) | agent_status セクション、帰属 (machine/workspace/tab)、作業対象 (terminal_title/agent 種別)。状態名は icon/棚/hover/aria で表現し、行へは印字しない (§4) | エージェントツール名を最上位にしない、内部 ID |
 | Workspace header (breadcrumb + tab strip) | 「今どの workspace/tab を見ているか」と tab 操作 | machine › workspace 名、tab 一覧 (label + status + zoom)、pane 操作 (split/zoom/swap/close) | 内部 ID、診断詳細 |
 | Pane chrome (canvas 内) | 「この pane は何で・どの状態か」の最小表示 | 必要時のみ: pane title/agent 種別/status の控えめな表示、focus 表現、split 境界 | 常時のラベル行で canvas を削ること、過剰な枠線 |
 | Status/utility 領域 | 「システム全体の状態と操作」(endpoint 状態、通知、モードヒント相当) | bridge/connection 状態、集約 attention (blocked agent 数)、update/診断への導線 | — |
@@ -79,17 +79,27 @@ machine ごとの worktree 一覧を cache して workspace→branch を解決�
 参照可能にする。表示は herdr の `AgentStatus` 5値
 (idle/working/blocked/done/unknown) に限定し、独自の状態を捏造しない。
 
+**状態名の重複禁止 (issue #381, T3 `SidebarThreadRow` 準拠)**: 同じ
+状態を icon・色・アニメーション・セクション棚名・hover 詳細・aria の
+複数チャネルで既に表現している場合、行へ状態名テキストを重ねて印字
+しない。状態名が情報を足す場所 (focused pane badge のように棚を持た
+ない文脈、hover card、支援技術向け accessible name) にのみ置く。
+種別名・作業タイトル・警告・固有の状態説明など、他チャネルが運ば
+ない情報は削らない。
+
 ## 5. 内部情報の置き場
 
 `workspace_id`/`pane_id`/`tab_id`/`terminal_id`/`cwd`/`foreground_cwd`/
 `agent_session`/`scroll`/`layout` JSON/`revision` は:
 
-- pane context menu または header overflow の「Details」で表示
+- pane context menu・header overflow の「Details」、または context
+  card (§9) の明示的な Copy 操作で参照・コピー
 - command palette の検索対象 (ID でも引ける)
 - diagnostics/settings 画面
 
-既定 UI に ID を出さない。例外: connection error 等で ID が診断に必要な
-場合のみ status 領域に併記する。
+既定 UI に ID を出さない。context card の行にも ID は印字しない
+(cwd は hover card と同じ on-demand surface として許容)。例外:
+connection error 等で ID が診断に必要な場合のみ status 領域に併記する。
 
 ## 6. Agents ワークサーフェス (v0.5.0 正本, Issue #151)
 
@@ -111,8 +121,8 @@ herdr-t3 の agent 行はこの2行構造を採用する (機械的な token 設
 
 | 行 | 内容 | 優先順位 |
 | --- | --- | --- |
-| 1 | status icon + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ) + 状態テキスト (state_labels 解決値、行末) | 「どこで・どの状態か」— T3 card variant の context 行 + status slot に相当し、secondary weight |
-| 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label + provider/harness アイコン | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない |
+| 1 | identity/status glyph (ブランド provider アイコン主体 + `agent_status` を担う外周リング、issue #419 — working は静止ブランドの外周弧のみ回転、reduced-motion では静止リングに縮退) + workspace 識別名 (§2 の解決規則) + tab label (workspace が複数 tab を持つ時のみ) + machine (複数台時のみ)。状態名テキストは印字せず、リング + 棚名 + hover card + aria が担う (issue #381)。リング文法の正本は `src/components/agentIdentityIcon.tsx` と ui-shell.md contract | 「どこで・どの状態か」— T3 card variant の context 行に相当し、secondary weight |
+| 2 | 作業対象 (live pane の `terminal_title_stripped` > `terminal_title` > agent record の同項目 > `title`、無ければ agent 表示名が lead) + agent 種別/表示名 (display_agent > name > agent > title、title と重複しない時のみ) + pane 短縮 ID (描画結果が同一の兄弟行がある時のみ) + 補助 state label | 「何の作業か」— T3 の title 行に相当し primary weight。herdr 固有情報 (machine/pane id/aux labels) は失わない。ブランドアイコンは行1の identity glyph に統合済み (issue #419) で、行末への重複表示はしない |
 
 ### 6.2 状態セクション — T3 settle/inbox の写像
 
@@ -156,6 +166,27 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
 - 全棚の折りたたみ状態は localStorage へ永続化する (issue #211 で
   Attention/Done/Idle も棚化)。既定は Attention のみ展開、他は
   折りたたみ。空セクションは header ごと表示しない。
+- **段階的開示 (issue #389, T3 `Sidebar.tsx` settled tail +
+  `routeThreadOnly` + `ThreadDetailsMoreButton` 準拠)**: 棚を折り
+  たたんでも、route 選択中の agent 行 (route workspace の active
+  tab で focus されている pane の agent) だけは描画し続ける —
+  T3 が折りたたみ shelf に route thread を残すのと同じ。展開した
+  棚は Attention を除き初期件数まで表示し、超過分は末尾の
+  「Show N more」行でページ分ずつ段階的に開く。初期件数とページは
+  `agentShelfInitialLimit` / `agentShelfPage` が棚ごとに決める:
+  Working は 4 件初期・4 件ずつ (issue #418 — 高回転棚を小さく
+  保つ)、その他の棚は 10 件初期・25 件ずつ (T3 settled tail と同値)。
+  route 行は cap を超えても常に表示対象に含め、開示で隠さない。
+  開示件数はセッション内 state (T3 `settledTail` と同じく永続化
+  しない)。pane-id disambiguator の signature 集計は棚 membership
+  全体で行い、ページングで行内容が変わらないようにする。
+- **棚ヘッダーと行スクロールの分離 (issue #418)**: md+ の pinned
+  dock では、各棚の disclosure header は行一覧のスクロール
+  コンテナの外に置き、展開棚の行 `<ul>` が個別に
+  `overflow-y-auto` で dock の `max-h` を分け合う。Working の行を
+  スクロールしても Working のトグルは流れず、複数棚の展開時も全
+  トグルへ常に到達できる。md 未満の inline 表示は従来どおり
+  sidebar 全体のスクロールに従う (issue #211 の狭幅 sheet 契約)。
 - **ユーザー settle/snooze (UI 層)**: agent 行の context menu
   から Settle / Snooze / Restore を提供し、`machine.id` + `pane_id` +
   操作時点の `state_change_seq` を localStorage
@@ -178,16 +209,20 @@ T3 の settle/inbox は「ユーザーが完了とみなす/後で見る」の�
   進行で戻る — herdr には run 完了と状態遷移を区別する信号がない
   ための既知の単純化。snoozed 棚内のソートも T3 の `snoozedUntil`
   昇順ではなく、他棚と同じ status 優先度 + seq 降順。
-- `state_labels` (herdr が提供する状態別カスタム label) は行2の状態
-  テキスト (現 status の label) と行2末尾の補助 label (status 以外の
+- `state_labels` (herdr が提供する状態別カスタム label) は hover card
+  と aria (現 status の label) および行2末尾の補助 label (status 以外の
   key を持つ custom label) に使う。表示 status は herdr の5値に
-  限定する (§4 と同じ規則)。
+  限定する (§4 と同じ規則)。現 status の label は行へ印字しない
+  (issue #381)。
 - Attention 棚の header は他棚と同じ disclosure 付きだが、warning 色の
   tone で強調する (issue #165 の注意喚起を棚化後も維持、issue #211)。
 
 ### 6.3 操作
 
 - 行クリック: workspace 選択 + `pane.focus` (既存動作を維持)。
+- 棚末尾の「Show N more」行: 次ページ分の行を開示 (issue #389)。
+  棚 header の折りたたみとは独立した操作で、再度畳むには棚を
+  collapse する。
 - context menu: Focus / Details (既存 `PaneDetailsDialog` — `agent.read`
   要約・process info・内部 ID) / Copy pane ID / Copy workspace ID。
   三点メニュー・直接操作との役割分担は app-shell.md §4 に従う。
@@ -224,3 +259,107 @@ default rows (`src/ui/sidebar/tokens.rs` @ `e8d7d97`) に準拠する:
   (split right/down・zoom) は直接 icon button として露出する。
   直接操作・context menu・三点メニューは相互排他にしない
   (同一操作の複数経路を許容)。詳細は app-shell.md §4。
+
+## 9. Pane context card (v0.6.0 正本, Issue #390)
+
+現在の作業環境 (workspace の focused pane) に関する情報と直接操作を
+集約する独立したコンテキストカード。T3 Code の `ThreadDetailsCard` /
+`ThreadDetailsPanel` / `ThreadDetailsSection` / `ThreadDetailsItemsMenu`
+/ `threadDetailsCardLayout` / `threadDetailsItems`
+(`apps/web/src/components/chat/` @ `9cc4018`) を herdr の pane
+ドメインへ写像したもの (`src/shell/PaneContextCard.tsx`)。
+
+- **役割分担**: 本 card は作業環境の overview と直接操作、および
+  docked RightPanel surface への導線を持つ。RightPanel は詳細操作面
+  として維持し、内部 ID・`agent.read` 出力・プロセス一覧などの
+  低レベル diagnostics は `PaneDetailsDialog` に残す (§5)。
+  カードは診断の簡易版ではなく、plugin capability
+  (`rebuildup.git`/`projects`/`checkpoints`/`automations`/`conversations`/
+  `usage`) と snapshot を束ねた操作面である。
+- **提示形態** (T3 canvas layout 準拠): canvas container の右上に
+  floating する **inline card が通常形態**。container が狭い
+  (`resolveContextCardPlacement` が null) 場合は header trigger に
+  anchor した **popover が代替形態**。開閉状態は workspace scope で
+  `src/shell/contextCardStore.ts` が保持し localStorage に永続化
+  する (T3 `threadPanelVisibilityByThreadKey` 相当)。
+- **セクション** (item visibility + density + 内容の有無で畳む):
+  Workspace (pane/agent 識別・cwd・workspace 識別・machine・
+  tab/pane 数)、Version Control (branch・変更数・ahead/behind・PR、
+  `rebuildup.git`)、Project scripts (`rebuildup.projects`、run 操作
+  つき)、Checkpoints (`rebuildup.checkpoints`)、Automations
+  (`rebuildup.automations`、pane/workspace bound task の enable
+  switch・run-now・edit 導線)、Agents (同一 workspace の他 live
+  agent + 当該 pane/cwd の過去 session、`rebuildup.conversations`)、
+  Usage (`rebuildup.usage`、既定 off)、Actions (Prompt agent… /
+  Details… / Source Control / Checkpoints / Copy ID)、"Choose what
+  to show" の item menu (カード上の右クリックでも同じ menu を開く)。
+  各 plugin section は独立 fetch で、plugin 未導入・失敗時はその
+  section のみ畳む。section 見出しの icon action と行 click は既存
+  `openSurface` 経路で RightPanel を開くだけであり、機能の重複
+  実装を持たない。
+- **密度**: T3 と同じ full → compact → essential の階段を、内容の
+  **実測高さ** (density ごとに一度ずつ計測、`observeResize` で
+  双方向追従) と利用可能高さから `resolveContextCardDensity` で
+  決める。full のみ Workspace/Agents/Automations、essential では
+  Git/Usage/Actions のみ残る。内部 scroll を持つ一覧
+  (`data-context-card-scroll`) は密度計測から除外する (T3 と同じ
+  規則)。
+- **item visibility**: T3 `threadDetailsItems` 相当を
+  `src/lib/detailsCardItems.ts` に移植 (localStorage、default との差分
+  のみ永続化、id は永続化契約)。
+- **配置**: header の pane actions 群で三点メニューの直前の info
+  icon が trigger。card 内の Actions・section 導線は三点メニューや
+  RightPanel と同じ操作への別経路であり、§8 の「複数経路を許容」と
+  整合する。T3 固有概念 (thread/lineage/side chats/context window)
+  は herdr ドメインに存在する対応物 (agent record・過去 session)
+  のみ採用する。
+
+## 10. Canvas session 状態契約 (v0.7.0 正本, Issue #421)
+
+workspace canvas (`src/shell/WorkspaceCanvas.tsx`) が snapshot/probe/
+route/bridge 信号から表示状態を決める規則の正本。判定は純粋関数
+`src/shell/canvasState.ts` の `resolveCanvasSession` が行い、契約
+テストは `src/shell/canvasState.test.ts`。状態の正本は herdr/bridge
+であり、クライアントは workspace を捏造しない。
+
+### 10.1 upstream ライフサイクルの根拠 (herdr @ e8d7d97)
+
+- `AppState::close_workspaces` (`src/app/actions.rs`) は workspace を
+  削除し、リストが空になれば `active = None` にする。**server session
+  自体は生き続ける** — `workspace.close`・最後の pane を閉じる
+  `pane.close`・最後の tab を閉じる `tab.close` はすべてここへ
+  集約される。したがって `workspaces: []` の live snapshot は
+  「取得前」ではなく**到達可能な真の空状態**。
+- `session_snapshot` (`src/app/api/session.rs`) はその場合
+  `focused_workspace_id: null` と空リストを返す。
+  `workspace.create` (`src/app/api/workspaces.rs` →
+  `src/app/creation.rs`) は空リストからでも成功する — これが真空
+  状態からの回復経路。
+- tab は pane 0 個・workspace は tab 0 個では永続化されない
+  (`src/workspace.rs` の `close_pane`/`close_active_tab` が上位へ
+  カスケード)。「workspace は解決したが pane が無い」は異常/遷移中
+  のみ到達する。
+- probe snapshot (issue #212) は list 表示用データであり session
+  ではない (`shared/protocol.ts` ServerFrame コメント)。canvas は
+  probe-only を live として描画しない。
+
+### 10.2 状態 → 表示 対応表
+
+| 状態 | 判定条件 | 表示 |
+| --- | --- | --- |
+| bridge 未接続 | `bridge.connection !== "open"` かつ live snapshot なし | 1行の muted status テキスト ("Connecting to herdr…" / "Bridge disconnected — retrying…")。永続 spinner にしない |
+| machine fetch 中 | `pendingMachines[machine]` or status connecting/reconnecting | 1行 "Connecting to {machine}…" (T3 `threadSyncLabel` 相当の控えめ表示) |
+| probe→live 遷移中 | probe snapshot のみ保持 (ensureMachine が route/effect で起動) | 同上 "Connecting to {machine}…"。probe データを pane 面として描画しない |
+| 初回 snapshot 待ち | 上記以外で snapshot 未着 | 1行 "Loading session…" |
+| fetch/接続失敗 | `bridge.errors[machine]` あり・live なし | `Empty` compact: "Could not reach {machine}" + error + **Retry** (`ensureMachine`) |
+| machine hard-down | status ∈ offline/unreachable/error/auth_required/incompatible (snapshot 保持の有無を問わず) | `Empty` compact: "{machine} is {status}" + detail + **Reconnect** (`ensureMachine`)。保持 snapshot は last-known であり pane 面として描画しない |
+| machine disabled | `enabled === false` | `Empty` compact + **Open Connections** (`#/settings/connections`)。Retry は出さない (ensureMachine が拒否するため) |
+| 真の空 (live) | live snapshot かつ `workspaces: []` | `Empty` compact: "No workspaces" + **New workspace** (`workspace.create`)。sidebar の空状態と同じ回復導線 |
+| 異常/遷移中 | live snapshot・workspace 解決済みだが tab/pane 0 | 1行 "No panes in this tab." — 次の push で解消する前提の最小表示 |
+| live | 上記以外 | pane grid + context card (従来どおり) |
+
+原則: **ロード/接続/切替は1行の status テキスト、真の空・失敗・
+stale は `Empty*` primitive + 回復 action**。説明文を大きく常時
+表示しない。"No workspaces" は live snapshot の `workspaces: []`
+でのみ出し、loading 中に誤表示しない。stale を live 扱いしない
+(probe/stale の pane 面は描画しない)。

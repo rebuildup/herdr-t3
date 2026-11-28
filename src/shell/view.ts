@@ -30,6 +30,12 @@ export interface RouteWorkspace {
    * last-known state, not current. Surfaces must not present it as live.
    */
   stale: boolean;
+  /**
+   * True when the held snapshot came from the reachability probe
+   * (issue #212): real list data, but no live bridge session backs it.
+   * Surfaces that need a session (canvas panes) must not render it as live.
+   */
+  probe: boolean;
 }
 
 /** Statuses where held data cannot be current (session unreachable/closed). */
@@ -46,9 +52,32 @@ export function machineStale(info: MachineInfo | undefined): boolean {
   return info !== undefined && MACHINE_STALE_STATUSES.has(info.status);
 }
 
+/**
+ * True while any live (non-stale) machine has not yet delivered its first
+ * snapshot — until then an empty workspace list means "not loaded", not
+ * "empty" (anti-case AC-005, info-architecture.md §10). Stale machines are
+ * excluded so a permanently offline machine cannot suppress the empty
+ * state forever.
+ */
+export function awaitingFirstSnapshots(
+  machines: MachineInfo[],
+  snapshots: ShellBridgeState["snapshots"],
+): boolean {
+  return machines.some(
+    (m) => !machineStale(m) && snapshots[m.id] === undefined,
+  );
+}
+
 function defaultMachine(s: ShellBridgeState): string {
-  if (s.snapshots[LOCAL_MACHINE]) return LOCAL_MACHINE;
-  const first = machineListOf(s).find((m) => s.snapshots[m.id]);
+  // Probe snapshots (issue #212) are display data without a session; the
+  // default route must land on a machine with a live snapshot, or local
+  // (which initBridge ensures eagerly) when none exists (issue #421).
+  if (s.snapshots[LOCAL_MACHINE] && !s.probeSnapshots[LOCAL_MACHINE]) {
+    return LOCAL_MACHINE;
+  }
+  const first = machineListOf(s).find(
+    (m) => s.snapshots[m.id] && !s.probeSnapshots[m.id],
+  );
   return first?.id ?? LOCAL_MACHINE;
 }
 
@@ -84,5 +113,6 @@ export function useRouteWorkspace(): RouteWorkspace {
     view,
     explicit: routedWorkspace !== null,
     stale: snapshot !== null && machineStale(machineInfo),
+    probe: snapshot !== null && bridge.probeSnapshots[machine] === true,
   };
 }

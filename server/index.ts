@@ -10,10 +10,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isClientFrame } from "../shared/protocol.ts";
+import { protocolCodecWasm } from "../shared/protocolWasm.ts";
 import { HerdrError, herdrSocketPath, socketAddress } from "./herdr.ts";
 import { controlRequestAllowed, extraAllowedHosts, extraAllowedOrigins } from "./guard.ts";
 import { fetchSnapshot } from "./bridge-core.ts";
 import { MachineManager } from "./machine-manager.ts";
+import { metricsSnapshot } from "./metrics.ts";
 
 const HOST = process.env["HOST"] ?? "127.0.0.1";
 const PORT = Number(process.env["PORT"] ?? 4737);
@@ -102,6 +104,7 @@ Bun.serve({
       return new Response("forbidden host or origin", { status: 403 });
     }
     if (url.pathname === "/api/health") return health();
+    if (url.pathname === "/api/metrics") return Response.json(metricsSnapshot());
     if (url.pathname === "/api/session" && req.method === "GET") {
       return fetchSnapshot()
         .then((snapshot) => Response.json({ snapshot }))
@@ -125,9 +128,17 @@ Bun.serve({
     message(ws, message) {
       const manager = (ws as unknown as { __manager?: MachineManager }).__manager;
       if (!manager) return;
+      const raw = String(message);
+      if (protocolCodecWasm) {
+        // wasm ingress guard (issue #315): validates the raw JSON text;
+        // a pass guarantees JSON.parse below cannot throw.
+        if (!protocolCodecWasm.isClientFrame(raw)) return;
+        manager.handleFrame(JSON.parse(raw));
+        return;
+      }
       let frame: unknown;
       try {
-        frame = JSON.parse(String(message));
+        frame = JSON.parse(raw);
       } catch {
         return;
       }

@@ -14,6 +14,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { PaneInfo } from "../../shared/protocol";
+import { isAgentKindName } from "~/components/agentKind";
 import { AgentProviderIcon } from "~/components/agentIcons";
 import { statusIcon } from "~/components/statusIcons";
 import {
@@ -49,7 +50,17 @@ export function AgentHoverCard({
   // title when present, never the raw pane id fallback paneTitle()
   // would produce for untitled panes (issue #204 review: "w1:p7" as a
   // heading duplicated the pane-id row and contradicted the row label).
-  const title = agentWorkTarget(agent, pane) ?? agentDisplayName(agent);
+  const workTarget = agentWorkTarget(agent, pane) ?? agentDisplayName(agent);
+  // Agent CLIs prefix their terminal titles with the kind ("devin: …"),
+  // which printed the provider name twice — once in the heading and
+  // again on the identity row below (issue #417). Strip a leading
+  // "<kind>:" echo; the row keeps the canonical provider label.
+  const kindPrefix = agent.agent ? `${agent.agent.toLowerCase()}:` : null;
+  const stripped =
+    kindPrefix !== null && workTarget.toLowerCase().startsWith(kindPrefix)
+      ? workTarget.slice(kindPrefix.length).trimStart()
+      : "";
+  const title = stripped.length > 0 ? stripped : workTarget;
   const displayName = agentDisplayName(agent);
   const stateLabel = agentStateLabel(agent);
   const auxLabels = agentAuxStateLabels(agent);
@@ -61,7 +72,7 @@ export function AgentHoverCard({
   // Agent identity dedupes against the title (issue #165): when the pane
   // title already is the agent name, "pi · pi" adds nothing.
   const agentParts = [displayName];
-  if (agent.agent && agent.agent !== displayName) agentParts.push(agent.agent);
+  if (agent.agent && !isAgentKindName(displayName, agent.agent)) agentParts.push(agent.agent);
   const agentLabel = agentParts.join(" · ");
 
   return (
@@ -79,7 +90,7 @@ export function AgentHoverCard({
             changes with title luck reads as broken (issue #204 review). */}
         <DetailRow
           icon={
-            <AgentProviderIcon agent={agent.agent} name={displayName} className="size-3" />
+            <AgentProviderIcon agent={agent.agent} className="size-3" />
           }
         >
           {agentLabel}

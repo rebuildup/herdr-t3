@@ -494,6 +494,13 @@ pub fn run_op(
                         let text = composition.before_input_text(data);
                         serde_json::json!({ "text": text, "active": composition.active() })
                     }
+                    // The product facade (issue #319) drives the wasm
+                    // tracker across real event-loop turns, so it needs the
+                    // TS `setTimeout(0)` echo expiry as an explicit event.
+                    "expire" => {
+                        composition.expire_echo();
+                        serde_json::json!({ "text": null, "active": composition.active() })
+                    }
                     other => return Err(format!("unknown composition event \"{other}\"")),
                 };
                 results.push(result);
@@ -501,5 +508,93 @@ pub fn run_op(
             Ok(serde_json::json!({ "results": results }))
         }
         _ => Err(format!("unknown op \"{op}\"")),
+    }
+}
+
+/// wasm32 consumer surface (ADR-0025, issue #319).
+///
+/// The product path loads this crate's cdylib as a wasm module inside the
+/// consuming runtime and calls `terminal_input_eval` with a JSON request
+/// `{"op","input"}` — the same op vocabulary the differential adapter uses —
+/// receiving `{"ok","value"|"error"}`. Composition state lives in a
+/// thread-local tracker, mirroring the adapter's per-instance tracker.
+/// Memory crosses the boundary only as caller-owned buffers via
+/// `terminal_input_alloc`/`terminal_input_dealloc`; the result buffer is
+/// owned by the module until the next eval.
+#[cfg(target_arch = "wasm32")]
+pub mod wasm {
+    use super::{run_op, CompositionTracker};
+    use serde_json::{json, Value};
+    use std::cell::RefCell;
+    use std::slice;
+
+    thread_local! {
+        // Keyed trackers: each product `CompositionTracker` (one per pane)
+        // gets its own id so concurrent compositions cannot corrupt each
+        // other; id 0 serves callers that never set `tracker`.
+        static TRACKERS: RefCell<std::collections::HashMap<u64, CompositionTracker>> =
+            RefCell::new(std::collections::HashMap::new());
+        static RESULT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+
+    #[no_mangle]
+    pub extern "C" fn terminal_input_alloc(len: usize) -> *mut u8 {
+        if len == 0 {
+            return std::ptr::null_mut();
+        }
+        // Safety contract: caller passes the returned pointer and the same
+        // `len` to `terminal_input_dealloc`; the layout is (len, align 1).
+        unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(len, 1)) }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn terminal_input_dealloc(ptr: *mut u8, len: usize) {
+        if !ptr.is_null() && len > 0 {
+            unsafe {
+                std::alloc::dealloc(ptr, std::alloc::Layout::from_size_align_unchecked(len, 1));
+            }
+        }
+    }
+
+    /// Evaluates one op. Returns the byte length of the JSON result, now
+    /// readable at `terminal_input_result_ptr()` until the next eval.
+    #[no_mangle]
+    pub extern "C" fn terminal_input_eval(ptr: *const u8, len: usize) -> usize {
+        let request = unsafe { slice::from_raw_parts(ptr, len) };
+        let output = (|| -> String {
+            let parsed: Result<Value, _> = serde_json::from_slice(request);
+            match parsed {
+                Ok(Value::Object(mut map)) => {
+                    let op = map.remove("op").and_then(|v| v.as_str().map(str::to_string));
+                    let input = map.remove("input").and_then(|v| v.as_object().cloned());
+                    let tracker_id = map
+                        .remove("tracker")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    match (op, input) {
+                        (Some(op), Some(input)) => TRACKERS.with(|t| {
+                            let mut trackers = t.borrow_mut();
+                            let tracker = trackers.entry(tracker_id).or_default();
+                            match run_op(&op, &input, tracker) {
+                                Ok(value) => json!({ "ok": true, "value": value }).to_string(),
+                                Err(error) => json!({ "ok": false, "error": error }).to_string(),
+                            }
+                        }),
+                        _ => json!({ "ok": false, "error": "request must be {\"op\",\"input\"}" })
+                            .to_string(),
+                    }
+                }
+                _ => json!({ "ok": false, "error": "request must be a JSON object" }).to_string(),
+            }
+        })();
+        RESULT.with(|r| {
+            *r.borrow_mut() = output.into_bytes();
+            r.borrow().len()
+        })
+    }
+
+    #[no_mangle]
+    pub extern "C" fn terminal_input_result_ptr() -> *const u8 {
+        RESULT.with(|r| r.borrow().as_ptr())
     }
 }

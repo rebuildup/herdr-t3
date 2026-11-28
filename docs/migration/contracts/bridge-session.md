@@ -12,6 +12,26 @@ ADR-0010; wire shapes: protocol-frames.
 - `session.snapshot` / `events.subscribe` → `snapshot`/`event` stream.
   Only `events.subscribe` stays open; every other herdr RPC is
   one-connection-per-call.
+- Snapshot push policy (issue #423, both TS and Rust implementations):
+  - A successful client RPC schedules a snapshot refetch only for
+    methods outside `READ_ONLY_RPC_METHODS` (`shared/protocol.ts`);
+    read-only calls (`session.snapshot`, `agent.get/read/explain`,
+    `pane.process_info`, `pane.link.resolve`, `worktree.list`) never
+    trigger one. Unknown methods default to refreshing.
+  - At most one `session.snapshot` fetch is in flight per session;
+    triggers during a fetch queue a single trailing refetch.
+  - A fetched snapshot identical to the last one delivered to the
+    client is not re-pushed (dedup on content, not on fetch).
+  - `READ_ONLY_RPC_METHODS`/`isReadOnlyRpcMethod` in
+    `shared/protocol.ts` are the shared classification both
+    implementations must honor. The TS session applies it where client
+    RPC results are handled; the Rust `BridgeSession` has no client-RPC
+    path of its own — a GPUI consumer that issues mutating RPCs must
+    apply the same rule (schedule a refetch only for non-read-only
+    methods) at its call site. Verification condition: the
+    `rpc-read`/`activity` legs of `scripts/perf-bridge-load.ts` must
+    show `bridge.snapshot.schedule{cause=rpc}` == 0 for read-only
+    traffic on whichever implementation is under test.
 - `subscribe_terminal` → attach stream (`terminal_data` frames) is the
   truth for that pane's screen; input flows back through
   `terminal_input`/`terminal_mouse`/`terminal_scroll`.
@@ -55,6 +75,11 @@ ADR-0010; wire shapes: protocol-frames.
 ## Evidence today
 
 `server/herdr.test.ts`, `server/bridge-core.ts` paths,
+`server/bridge-core.test.ts` (attach-queue semantics: pre-attach frames
+flush in order on attach, are dropped with no subscription, and are
+abandoned on attach failure or session teardown — issue #356),
 `scripts/verify-terminal-input.ts` (live attach-path checks),
-`docs/design/verification.md` RC row 13 (attach→input→disconnect→
-reconnect→draft). Differential replay incl. fault injection: #237.
+`scripts/verify-reconnect-draft.ts` (attach→input→bridge kill→reconnect→
+draft retained / outage input never delivered / explicit send only;
+issue #356), `scripts/verify-guard.ts` (harness isolation enforcement).
+Differential replay incl. fault injection: #237.

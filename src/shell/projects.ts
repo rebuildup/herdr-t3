@@ -4,7 +4,7 @@
  *
  * `rebuildup.projects` on the host owns the session/host-scoped project
  * registry through the `herdr-plugins.projects/v1` contract, pinned at
- * rebuildup/herdr-plugins@2dcb2abf (release-0-3-0, schema v2 run
+ * rebuildup/hoxay-plugins@2dcb2abf (release-0-3-0, schema v2 run
  * records + shell-family fields — ADR-0015/0019/0020): `list`, `show`,
  * `discover`, `register`, `update`, `archive`/`unarchive`/`pin`/`unpin`,
  * `settings get|set|unset`, `repos list|add|remove`, `capability`. The
@@ -23,6 +23,7 @@
  * preserved by `classifyProjectsError`.
  */
 import { pluginCall } from "../lib/api";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail, pluginErrorFields } from "./pluginErrors";
 
 export const PROJECTS_PLUGIN_ID = "rebuildup.projects";
 export const PROJECTS_CONTRACT_PREFIX = "herdr-plugins.projects/";
@@ -428,38 +429,22 @@ const PROJECTS_ERROR_KINDS = new Set([
  * rather than collapsing into a fake success.
  */
 export function classifyProjectsError(error: unknown): ProjectsCallError {
-  const code = (error as { code?: string })?.code ?? "";
-  const detail = error instanceof Error ? error.message : String(error);
+  const code = pluginErrorCode(error);
+  const detail = pluginErrorDetail(error);
   // Bounded contract extras forwarded by the bridge (issue #257).
-  const rawFields = (error as { fields?: unknown })?.fields;
-  const fields =
-    typeof rawFields === "object" && rawFields !== null && !Array.isArray(rawFields)
-      ? (rawFields as Record<string, unknown>)
-      : undefined;
-  switch (code) {
-    case "plugin_not_installed":
-      return { kind: "unavailable", reason: "not_installed", detail };
-    case "plugin_disabled":
-      return { kind: "unavailable", reason: "disabled", detail };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { kind: "unavailable", reason: "incompatible", detail };
-    case "plugin_host_unreachable":
-    case "machine_unavailable":
-    case "connect_failed":
-    case "unreachable":
-      return { kind: "unavailable", reason: "unreachable", detail };
-    default:
-      if (PROJECTS_ERROR_KINDS.has(code)) {
-        return fields === undefined
-          ? { kind: "projects_error", code, detail }
-          : { kind: "projects_error", code, detail, fields };
-      }
-      return fields === undefined
-        ? { kind: "projects_error", code: "plugin_error", detail }
-        : { kind: "projects_error", code: "plugin_error", detail, fields };
+  const fields = pluginErrorFields(error);
+  const boundary = pluginBoundaryReason(code);
+  if (boundary !== null) {
+    return { kind: "unavailable", reason: boundary, detail };
   }
+  if (PROJECTS_ERROR_KINDS.has(code)) {
+    return fields === undefined
+      ? { kind: "projects_error", code, detail }
+      : { kind: "projects_error", code, detail, fields };
+  }
+  return fields === undefined
+    ? { kind: "projects_error", code: "plugin_error", detail }
+    : { kind: "projects_error", code: "plugin_error", detail, fields };
 }
 
 /* ------------------------------ calls -------------------------------- */

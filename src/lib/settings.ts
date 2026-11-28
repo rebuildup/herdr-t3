@@ -14,6 +14,15 @@ export interface TerminalSettings {
   /** cell height as a multiple of fontSize; null measures the font's own line height */
   lineHeight: number | null;
   scrollbackLines: number;
+  /** copy a completed local selection to the OS clipboard (issue #440); applies to open panes live */
+  copyOnSelect: boolean;
+  /**
+   * User-defined start/end regexes for the copy-report dialog's custom
+   * range candidate (issue #429). Empty string disables that side; an
+   * invalid pattern is treated as unset at match time, never at parse.
+   */
+  copyStartPattern: string;
+  copyEndPattern: string;
 }
 
 export interface GeneralSettings {
@@ -21,18 +30,54 @@ export interface GeneralSettings {
   confirmCloseWorkspace: boolean;
 }
 
+/**
+ * In-app notice (toast) placement (issue #428). Mirrors the position
+ * vocabulary of the ported T3 toast primitive (`ToastPosition` in
+ * src/components/ui/toast.tsx); the four corners are the required
+ * minimum, edge centers come with the upstream primitive.
+ */
+export type NotificationPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export const NOTIFICATION_POSITIONS: readonly NotificationPosition[] = [
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+];
+
+export interface NotificationsSettings {
+  /** screen corner/edge the notice toasts stack from; default top-right */
+  position: NotificationPosition;
+}
+
 const TERMINAL_KEY = "herdr-t3:settings:terminal";
 const GENERAL_KEY = "herdr-t3:settings:general";
+const NOTIFICATIONS_KEY = "herdr-t3:settings:notifications";
 
 export const TERMINAL_DEFAULTS: TerminalSettings = {
   fontFamily: "",
   fontSize: 13,
   lineHeight: null,
   scrollbackLines: 10_000,
+  copyOnSelect: false,
+  copyStartPattern: "",
+  copyEndPattern: "",
 };
 
 export const GENERAL_DEFAULTS: GeneralSettings = {
   confirmCloseWorkspace: false,
+};
+
+export const NOTIFICATIONS_DEFAULTS: NotificationsSettings = {
+  position: "top-right",
 };
 
 function storage(): Storage | null {
@@ -83,11 +128,37 @@ export function parseTerminalSettings(raw: Record<string, unknown>): TerminalSet
         ? null
         : num(raw["lineHeight"], TERMINAL_DEFAULTS.lineHeight ?? 1.2, 0.8, 2.5),
     scrollbackLines: Math.round(num(raw["scrollbackLines"], TERMINAL_DEFAULTS.scrollbackLines, 100, 100_000)),
+    // strict boolean: anything but `true` (missing key on old profiles,
+    // corrupt value) falls back to the OFF default
+    copyOnSelect: raw["copyOnSelect"] === true,
+    // bounded strings; regex validity is checked at match time so a bad
+    // pattern degrades to "no custom range", not a parse failure
+    copyStartPattern:
+      typeof raw["copyStartPattern"] === "string"
+        ? raw["copyStartPattern"].slice(0, 200)
+        : TERMINAL_DEFAULTS.copyStartPattern,
+    copyEndPattern:
+      typeof raw["copyEndPattern"] === "string"
+        ? raw["copyEndPattern"].slice(0, 200)
+        : TERMINAL_DEFAULTS.copyEndPattern,
   };
 }
 
 export function parseGeneralSettings(raw: Record<string, unknown>): GeneralSettings {
   return { confirmCloseWorkspace: raw["confirmCloseWorkspace"] === true };
+}
+
+export function parseNotificationsSettings(
+  raw: Record<string, unknown>,
+): NotificationsSettings {
+  const position = raw["position"];
+  return {
+    position: (NOTIFICATION_POSITIONS as readonly string[]).includes(
+      position as string,
+    )
+      ? (position as NotificationPosition)
+      : NOTIFICATIONS_DEFAULTS.position,
+  };
 }
 
 let terminal: TerminalSettings = load(TERMINAL_KEY, TERMINAL_DEFAULTS, parseTerminalSettings);
@@ -134,4 +205,32 @@ export function setGeneralSettings(patch: Partial<GeneralSettings>): GeneralSett
 export function onGeneralSettingsChange(listener: () => void): () => void {
   generalListeners.add(listener);
   return () => generalListeners.delete(listener);
+}
+
+/* ----------------------------- notifications --------------------------- */
+
+let notifications: NotificationsSettings = load(
+  NOTIFICATIONS_KEY,
+  NOTIFICATIONS_DEFAULTS,
+  parseNotificationsSettings,
+);
+
+const notificationsListeners = new Set<() => void>();
+
+export function getNotificationsSettings(): NotificationsSettings {
+  return notifications;
+}
+
+export function setNotificationsSettings(
+  patch: Partial<NotificationsSettings>,
+): NotificationsSettings {
+  notifications = parseNotificationsSettings({ ...notifications, ...patch });
+  save(NOTIFICATIONS_KEY, notifications);
+  for (const listener of notificationsListeners) listener();
+  return notifications;
+}
+
+export function onNotificationsSettingsChange(listener: () => void): () => void {
+  notificationsListeners.add(listener);
+  return () => notificationsListeners.delete(listener);
 }

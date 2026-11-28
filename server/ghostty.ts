@@ -113,6 +113,20 @@ function colorValue(value: string): string | undefined {
   return normalizeHex(value) ?? (/^(rgb|hsl|hwb|lab|lch|oklab|oklch)\(/i.test(value.trim()) ? value.trim() : undefined);
 }
 
+/**
+ * `cursor-color`/`cursor-text` also accept the Ghostty keywords
+ * `cell-foreground`/`cell-background` (issue #382): they name the colour
+ * of the cell under the cursor, resolved at paint time, so they pass
+ * through as literals instead of being dropped like an unparseable colour.
+ */
+const CELL_COLOR_KEYWORDS = new Set(["cell-foreground", "cell-background"]);
+
+function cursorColorValue(value: string): string | undefined {
+  const v = unquote(value).toLowerCase();
+  if (CELL_COLOR_KEYWORDS.has(v)) return v;
+  return colorValue(value);
+}
+
 /** `theme = dark:Foo,light:Bar` or plain `theme = Foo`. */
 export function parseThemeSpec(value: string): { dark?: string; light?: string; name?: string } {
   const parts = value.split(",").map((p) => p.trim()).filter(Boolean);
@@ -198,7 +212,9 @@ function applyColorEntries(
   for (const { key, value } of entries) {
     if (key === "background-image") continue;
     if (COLOR_KEYS.has(key)) {
-      const color = colorValue(value);
+      const color = key === "cursor-color" || key === "cursor-text"
+        ? cursorColorValue(value)
+        : colorValue(value);
       if (!color) continue;
       switch (key) {
         case "background": palette.background = color; break;
@@ -319,7 +335,9 @@ export function resolveGhosttyPalette(opts: {
     palette.foreground === undefined &&
     palette.palette.every((c) => c === undefined) &&
     palette.cursorColor === undefined &&
+    palette.cursorText === undefined &&
     palette.selectionBackground === undefined &&
+    palette.selectionForeground === undefined &&
     palette.backgroundImage === undefined &&
     palette.backgroundOpacity === undefined
   ) {

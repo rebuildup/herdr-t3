@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createElectronAdapter } from "./adapters/electron.ts";
+import { BudgetExceeded, uiBudgets } from "./lib/budget.ts";
 import { loadScenario, runScenario, scenarioFiles, UI_DIR } from "./lib/runner.ts";
 import type { UiAdapter, UiScenario } from "./lib/types.ts";
 
@@ -34,9 +35,14 @@ function parseArgs(argv: string[]) {
 
 async function makeAdapter(name: string, opts: ReturnType<typeof parseArgs>): Promise<UiAdapter> {
   if (name === "electron") {
+    // UI_ELECTRON_SPAWN_MS (set by scripts/ui-electron.sh at spawn time)
+    // anchors the single spawn->operable deadline; without it the adapter
+    // measures from its own connect, which would hide launch latency.
+    const spawnedAt = Number(process.env.UI_ELECTRON_SPAWN_MS);
     return createElectronAdapter({
       cdpPort: opts.cdpPort,
       ...(opts.injectFault !== undefined ? { injectFault: opts.injectFault } : {}),
+      ...(Number.isFinite(spawnedAt) && spawnedAt > 0 ? { spawnedAtMs: spawnedAt } : {}),
     });
   }
   if (name === "gpui") {
@@ -74,9 +80,30 @@ async function main(): Promise<number> {
 
   const adapter = await makeAdapter(opts.adapter, opts);
   let failures = 0;
+  const runStarted = Date.now();
+  const runBudgetMs = uiBudgets().runMs;
   try {
     for (const { path, scenario } of scenarios.sort((a, b) => a.scenario.id.localeCompare(b.scenario.id))) {
-      const result = await runScenario(scenario, adapter);
+      // Overall run budget: a scenario that would start after the budget
+      // is recorded as a failure, never silently skipped.
+      const elapsed = Date.now() - runStarted;
+      const result = elapsed > runBudgetMs
+        ? {
+            scenario: scenario.id,
+            adapter: opts.adapter,
+            pass: false,
+            steps: [],
+            error: `run budget exceeded (${runBudgetMs}ms) before scenario start`,
+            duration_ms: 0,
+          }
+        : await runScenario(scenario, adapter).catch((e) => ({
+            scenario: scenario.id,
+            adapter: opts.adapter,
+            pass: false,
+            steps: [],
+            error: e instanceof BudgetExceeded ? e.message : `runner crashed: ${e}`,
+            duration_ms: Date.now() - runStarted,
+          }));
       const tag = result.pass ? "PASS" : "FAIL";
       if (!result.pass) failures++;
       console.log(`${tag}  ${scenario.id}  [${opts.adapter}]`);
@@ -99,6 +126,19 @@ async function main(): Promise<number> {
         recorded_at: new Date().toISOString(),
         steps: result.steps,
         error: result.error ?? null,
+        duration_ms: result.duration_ms ?? null,
+        // Product time vs harness overhead: ready_ms is target-process
+        // launch -> operable; step duration_ms are product-observed UI
+        // timings; harness_ms is runner bookkeeping around them.
+        ready_ms: adapter.readyMs ?? null,
+        harness_ms:
+          result.duration_ms !== undefined
+            ? Math.max(
+                0,
+                result.duration_ms -
+                  result.steps.reduce((acc, s) => acc + (s.duration_ms ?? 0), 0),
+              )
+            : null,
       };
       const outDir = join(EVIDENCE_DIR, opts.adapter);
       mkdirSync(outDir, { recursive: true });

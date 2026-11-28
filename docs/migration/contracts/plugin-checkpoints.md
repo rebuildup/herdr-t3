@@ -2,13 +2,13 @@
 
 Version: 4. Scope: consuming `herdr-plugins.checkpoints/v1` through
 `plugin_call` (ADR-0011 boundary, ADR-0016 pin re-pinned by ADR-0017 at
-`rebuildup/herdr-plugins@c8dc3b3`, re-pinned again by ADR-0021 at
-`rebuildup/herdr-plugins@55df8d0a`, re-pinned by ADR-0024 at
-`rebuildup/herdr-plugins@ae4f214`). The plugin owns capture, hidden git
+`rebuildup/hoxay-plugins@c8dc3b3`, re-pinned again by ADR-0021 at
+`rebuildup/hoxay-plugins@55df8d0a`, re-pinned by ADR-0024 at
+`rebuildup/hoxay-plugins@ae4f214`). The plugin owns capture, hidden git
 refs (`refs/herdr-plugins/checkpoints/<repo-key>/<id>`), the state
 index, and restore execution; herdr-t3 renders them and forwards
 explicit user operations only. Upstream spec:
-`herdr-plugins/docs/contracts/checkpoints-v1.md`.
+`hoxay-plugins/docs/contracts/checkpoints-v1.md`.
 
 ## Operations
 
@@ -96,7 +96,7 @@ Commands are flat `plugin_call` command words (no subcommand argv):
   (mandatory pre-restore safety capture). Entries written before
   auto-capture carry no `kind` and are treated as `"manual"`; unknown
   future kinds are preserved verbatim, never relabelled.
-- Work-unit auto-capture (herdr-plugins#74): `pane.agent_status_changed`
+- Work-unit auto-capture (hoxay-plugins#74): `pane.agent_status_changed`
   (`working → idle|done` edge, generation-guarded) and `pane.closed`
   hooks only write capture-pending marks; EVERY command except
   `capability`/`help` lazily drains them before its own work. Drain
@@ -176,7 +176,7 @@ work-unit auto-capture) + `docs/adr/ADR-0024.md` (re-pin @ae4f214 +
 save/restore-group/gc/prune + partial-report bridge convention).
 Implementation evidence:
 `src/shell/checkpoints.ts` + `src/shell/checkpoints.test.ts`,
-`src/components/CheckpointsDialog.tsx`, menu wiring in
+`src/components/CheckpointsSurface.tsx`, menu wiring in
 `src/shell/WorkspaceHeader.tsx`, error-field allowlist in
 `server/plugins.ts` + `server/plugins.test.ts`. Live plugin hosts are
 RC verification.

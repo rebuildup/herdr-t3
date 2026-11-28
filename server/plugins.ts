@@ -1,5 +1,5 @@
 /**
- * herdr-plugins contract boundary (ADR-0011, issue #219).
+ * hoxay-plugins contract boundary (ADR-0011, issue #219).
  *
  * The bridge never proxies plugin sockets and never reads plugin state
  * files: every capability is consumed by executing the plugin's own CLI
@@ -13,6 +13,7 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import type { PluginCallResult, PluginListEntry, PluginListResult } from "../shared/protocol.ts";
 import { HerdrError, herdrSocketPath } from "./herdr.ts";
+import { metricInc, metricTimed } from "./metrics.ts";
 
 /* ------------------------------------------------------------------ */
 /* Host execution                                                       */
@@ -52,6 +53,15 @@ export interface PluginExecOptions {
    * is its only explicit socket override (issue #289).
    */
   envSet?: Record<string, string>;
+  /**
+   * Payload written to the child's stdin, then stdin is closed (issue
+   * #458): contracts like textgen-v1 `generate` read their JSON input
+   * from stdin and have no remote file-write channel for `--input
+   * FILE`. Always ended — even when undefined — so a CLI that reads
+   * stdin sees EOF instead of hanging. Bounded upstream by the
+   * `plugin_call` frame validator (256 KiB).
+   */
+  stdin?: string;
 }
 
 /** Executes argv on the host owning the herdr session. */
@@ -81,7 +91,69 @@ export interface PluginHost {
   herdrArgv?: string[];
 }
 
-const OUTPUT_CAP = 16 * 1024 * 1024;
+/**
+ * Per-stream ceiling for plugin exec output, shared by the local spawn
+ * path and the SSH transport (issue #537): a plugin emitting unbounded
+ * stdout must not grow bridge memory without limit. The cap keeps the
+ * *tail* — same semantics on both transports.
+ */
+export const OUTPUT_CAP = 16 * 1024 * 1024;
+
+/**
+ * Append one chunk under OUTPUT_CAP, keeping the most recent bytes.
+ * Exported so ssh.ts applies the identical tail-cap to remote execs.
+ */
+export function appendOutputCapped(current: string, chunk: Buffer): string {
+  return current.length >= OUTPUT_CAP ? current : (current + chunk.toString("utf8")).slice(-OUTPUT_CAP);
+}
+
+/**
+ * Kill a spawned plugin process *and its descendants* (issue #537).
+ * `child.kill()` alone only signals the direct child — a plugin CLI that
+ * spawned `git`/helpers would leave them running after a timeout.
+ *
+ * POSIX: the child is spawned `detached`, making it a process-group
+ * leader, so `kill(-pid)` reaches the whole group. Windows has no
+ * POSIX-style groups for this: `taskkill /T /F` walks the tree instead
+ * (plain `child.kill` there maps to TerminateProcess — direct child
+ * only).
+ */
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (process.platform === "win32") {
+    // Do NOT child.kill() first: once the root is dead `taskkill /T`
+    // can no longer resolve the tree and grandchildren would survive.
+    // The direct kill is only a failsafe for taskkill being unavailable.
+    const fallback = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    };
+    try {
+      const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      killer.on("error", fallback);
+      killer.unref();
+    } catch {
+      /* spawn threw synchronously — taskkill unavailable */
+      fallback();
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+    return;
+  } catch {
+    /* not a group leader (spawn without detached) — direct kill below */
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    /* already dead */
+  }
+}
 
 function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<PluginExecOutcome> {
   return new Promise((resolve) => {
@@ -97,18 +169,12 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<Pl
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* already dead */
-      }
+      killProcessTree(child);
       finish({ code: null, stdout, stderr, timedOut: true });
     }, timeoutMs);
     timer.unref?.();
-    const append = (current: string, chunk: Buffer) =>
-      current.length >= OUTPUT_CAP ? current : (current + chunk.toString("utf8")).slice(-OUTPUT_CAP);
-    child.stdout?.on("data", (c: Buffer) => (stdout = append(stdout, c)));
-    child.stderr?.on("data", (c: Buffer) => (stderr = append(stderr, c)));
+    child.stdout?.on("data", (c: Buffer) => (stdout = appendOutputCapped(stdout, c)));
+    child.stderr?.on("data", (c: Buffer) => (stderr = appendOutputCapped(stderr, c)));
     child.on("error", (err) => {
       finish({ code: null, stdout, stderr, timedOut, error: err.message });
     });
@@ -116,6 +182,29 @@ function collect(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<Pl
       finish({ code, stdout, stderr, timedOut });
     });
   });
+}
+
+/**
+ * Builds the child environment for a plugin exec: a copy of `base`
+ * (the bridge process env by default) with `envRemove` keys deleted
+ * and `envSet` applied last — envSet wins over envRemove because the
+ * scrub deletes ambient targeting vars and the bridge then re-pins the
+ * ones it resolved itself. Returns undefined when neither is requested
+ * so spawn inherits the parent env untouched. Exported so the scrub
+ * contract is unit-testable on the returned object without spawning a
+ * subprocess (issues #385/#402).
+ */
+export function pluginChildEnv(
+  options: Pick<PluginExecOptions, "envRemove" | "envSet">,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv | undefined {
+  const envRemove = options.envRemove ?? [];
+  const envSet = options.envSet ?? {};
+  if (envRemove.length === 0 && Object.keys(envSet).length === 0) return undefined;
+  const env = { ...base };
+  for (const key of envRemove) delete env[key];
+  for (const [key, value] of Object.entries(envSet)) env[key] = value;
+  return env;
 }
 
 /**
@@ -134,19 +223,18 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
       if (argv.length === 0) {
         return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: "empty argv" });
       }
-      const envRemove = options.envRemove ?? [];
-      const envSet = options.envSet ?? {};
-      let env: NodeJS.ProcessEnv | undefined;
-      if (envRemove.length > 0 || Object.keys(envSet).length > 0) {
-        env = { ...process.env };
-        for (const key of envRemove) delete env[key];
-        // envSet wins over envRemove: the scrub deletes ambient targeting
-        // vars, then the bridge re-pins the ones it resolved itself.
-        for (const [key, value] of Object.entries(envSet)) env[key] = value;
-      }
+      const env = pluginChildEnv(options);
       const spawnOptions: SpawnOptions = {
         cwd: options.cwd,
-        stdio: ["ignore", "pipe", "pipe"],
+        // stdin is a pipe (not "ignore") so contract payloads can be
+        // written; it is always ended immediately after the write so
+        // stdin-reading CLIs see EOF (issue #458).
+        stdio: ["pipe", "pipe", "pipe"],
+        // POSIX only: make the child a process-group leader so a timeout
+        // can SIGKILL the whole tree, not just the direct `bun` process
+        // (issue #537). On Windows `detached` would allocate a visible
+        // console — the tree kill there goes through taskkill /T instead.
+        detached: process.platform !== "win32",
       };
       if (env !== undefined) spawnOptions.env = env;
       let child: ReturnType<typeof spawn>;
@@ -161,6 +249,9 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
           error: error instanceof Error ? error.message : String(error),
         });
       }
+      // EPIPE when the child exits before consuming stdin is benign.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options.stdin ?? "");
       return collect(child, options.timeoutMs);
     },
   };
@@ -173,7 +264,38 @@ export function localPluginHost(socketPath: string = herdrSocketPath()): PluginH
 const DISCOVERY_TTL_MS = 30_000;
 const CAPABILITY_TTL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * Bound on plugin processes executing concurrently *per machine*
+ * (issue #538). Every plugin_call/plugin_list/capability probe spawns a
+ * fresh `bun` process; pane fan-out (e.g. per-pane git status refreshes)
+ * can burst dozens of them at once and starve the host. The default of
+ * 4 keeps interactive latency low while a burst queues instead of
+ * stampeding; override with HERDR_T3_PLUGIN_MAX_CONCURRENT (positive
+ * integer, anything else falls back to the default).
+ */
+const DEFAULT_MAX_CONCURRENT_EXECS = 4;
+
+function pluginMaxConcurrentExecs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env["HERDR_T3_PLUGIN_MAX_CONCURRENT"];
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CONCURRENT_EXECS;
+}
+
+interface ExecSlotWaiter {
+  grant: () => void;
+  cancel: () => void;
+}
+
+interface ExecSlot {
+  active: number;
+  waiting: ExecSlotWaiter[];
+}
+
+// textgen-v1 agent-path tasks default to 120–600s internally
+// (review_guide 600s, issue #458); the cap must cover the largest
+// per-task default or long generations die as plugin_timeout.
+const MAX_TIMEOUT_MS = 600_000;
 
 /**
  * Env vars that can redirect a plugin/herdr CLI to a different herdr
@@ -182,7 +304,7 @@ const MAX_TIMEOUT_MS = 120_000;
  * the socket as `HERDR_SOCKET_PATH` > `--session`/`HERDR_SESSION` >
  * default, so an ambient `HERDR_SOCKET_PATH` would silently override the
  * explicit `--session` appended for named sessions and point mutations
- * at a foreign Host/Session/Pane (upstream herdr-plugins#83, issue
+ * at a foreign Host/Session/Pane (upstream hoxay-plugins#83, issue
  * #270). The list mirrors herdr's own `scrub_herdr_runtime_env` for
  * plugin-spawned commands (src/cli/plugin.rs).
  *
@@ -221,7 +343,7 @@ export const PLUGIN_ENV_SCRUB = [
   "HERDR_PLUGIN_CLICKED_URL",
   "HERDR_PLUGIN_LINK_HANDLER_ID",
   // Git repo/config/transport targeting (ADR-0023, issue #280,
-  // upstream herdr-plugins#96). Plugin git invocations inherit this
+  // upstream hoxay-plugins#96). Plugin git invocations inherit this
   // environment verbatim — upstream git-core spreads process.env into
   // every `git` spawn with only GIT_TERMINAL_PROMPT/GIT_OPTIONAL_LOCKS
   // pinned — so ambient GIT_* vars can point plugin git operations at a
@@ -273,20 +395,20 @@ export interface PluginCallRequest {
   plugin: string;
   command: string;
   args?: string[] | undefined;
+  /** Written to the plugin CLI's stdin, then closed (issue #458). */
+  stdin?: string | undefined;
   timeoutMs?: number | undefined;
 }
 
 interface DiscoveryCacheEntry {
   at: number;
-  result?: PluginListResult;
-  error?: HerdrError;
+  result: PluginListResult;
 }
 
 interface CapabilityCacheEntry {
   at: number;
-  /** Parsed capability document, or the failure. */
-  doc?: Record<string, unknown>;
-  error?: HerdrError;
+  /** Parsed capability document. Failures are never cached (issue #339). */
+  doc: Record<string, unknown>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -437,7 +559,7 @@ function outcomeToJson(
     const doc = parseJson(outcome.stderr.trim());
     if (isRecord(doc) && isRecord(doc["error"])) {
       // Partial-failure convention (checkpoints-v1 `save` /
-      // `restore-group` / `gc` / `prune`, herdr-plugins#75): the plugin
+      // `restore-group` / `gc` / `prune`, hoxay-plugins#75): the plugin
       // prints the FULL per-repo report on stdout, a summary error on
       // stderr and exits 1. Returning a bare HerdrError would silently
       // drop that report, so when stdout also carries a contract
@@ -465,6 +587,27 @@ function outcomeToJson(
       const fields = pluginErrorFields(err);
       return { error: new HerdrError(code, message, fields) };
     }
+    // Exit-nonzero with no stderr error document but a contract
+    // `ok:false` document on stdout (secrets-v1 `resolve` reports
+    // per-binding statuses this way — issue #454): hand the report
+    // back as the result document, same convention as the
+    // partial-failure merge above, with the exit status attached so
+    // clients never mistake it for a success.
+    const stdoutReport = parseJson(outcome.stdout);
+    if (
+      isRecord(stdoutReport) &&
+      stdoutReport["ok"] === false &&
+      typeof stdoutReport["contract"] === "string" &&
+      stdoutReport["contract"].length > 0
+    ) {
+      const merged: Record<string, unknown> = { ...stdoutReport };
+      merged["error"] = {
+        code: "plugin_exit",
+        kind: `exit_${outcome.code}`,
+        message: `${what} exited ${outcome.code} with an ok:false report`,
+      };
+      return { doc: merged };
+    }
     const tail = outcome.stderr.trim() || outcome.stdout.trim();
     return {
       error: new HerdrError(
@@ -485,13 +628,125 @@ function outcomeToJson(
   return { doc };
 }
 
+export interface PluginServiceOptions {
+  /**
+   * Per-machine bound on concurrently executing plugin processes
+   * (issue #538). Defaults to `HERDR_T3_PLUGIN_MAX_CONCURRENT` or 4.
+   */
+  maxConcurrentExecs?: number;
+}
+
 export class PluginService {
   private readonly hostFor: (machine: string) => Promise<PluginHost | null>;
   private readonly discovery = new Map<string, DiscoveryCacheEntry>();
   private readonly capabilities = new Map<string, CapabilityCacheEntry>();
+  /** In-flight operations keyed for single-flight coalescing (issue #424). */
+  private readonly inflight = new Map<string, Promise<unknown>>();
+  /** Per-machine exec slots enforcing the concurrency bound (issue #538). */
+  private readonly execSlots = new Map<string, ExecSlot>();
+  private readonly maxConcurrentExecs: number;
 
-  constructor(hostFor: (machine: string) => Promise<PluginHost | null>) {
+  constructor(
+    hostFor: (machine: string) => Promise<PluginHost | null>,
+    options: PluginServiceOptions = {},
+  ) {
     this.hostFor = hostFor;
+    this.maxConcurrentExecs = options.maxConcurrentExecs ?? pluginMaxConcurrentExecs();
+  }
+
+  /**
+   * Single-flight per key (issue #424): identical concurrent requests share
+   * one in-flight operation instead of each spawning the plugin CLI. The
+   * entry is removed on settle, so only truly simultaneous callers dedup —
+   * nothing is cached and failures are never shared beyond the flight.
+   */
+  private coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = run().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, pending);
+    return pending;
+  }
+
+  /**
+   * Take one of the machine's exec slots, or null when `deadline` passes
+   * while queued (issue #538). A granted slot is released by calling the
+   * returned function; release hands the slot directly to the next
+   * waiter, so `active` never exceeds the bound and a queued call's
+   * timeout budget transparently covers queue wait + exec.
+   */
+  private acquireExecSlot(machine: string, deadline: number): Promise<(() => void) | null> {
+    let slot = this.execSlots.get(machine);
+    if (slot === undefined) {
+      slot = { active: 0, waiting: [] };
+      this.execSlots.set(machine, slot);
+    }
+    const current = slot;
+    if (current.active < this.maxConcurrentExecs) {
+      current.active += 1;
+      return Promise.resolve(() => this.releaseExecSlot(machine));
+    }
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter: ExecSlotWaiter = {
+        grant: () => {
+          if (timer !== undefined) clearTimeout(timer);
+          resolve(() => this.releaseExecSlot(machine));
+        },
+        cancel: () => resolve(null),
+      };
+      current.waiting.push(waiter);
+      timer = setTimeout(() => {
+        const index = current.waiting.indexOf(waiter);
+        if (index >= 0) {
+          current.waiting.splice(index, 1);
+          metricInc("plugin.exec.queue_timeout");
+          waiter.cancel();
+        }
+      }, Math.max(0, deadline - Date.now()));
+      timer.unref?.();
+    });
+  }
+
+  private releaseExecSlot(machine: string): void {
+    const slot = this.execSlots.get(machine);
+    if (slot === undefined) return;
+    const next = slot.waiting.shift();
+    if (next !== undefined) {
+      // Hand the slot straight to the next waiter: `active` is unchanged.
+      next.grant();
+      return;
+    }
+    slot.active -= 1;
+    if (slot.active <= 0) this.execSlots.delete(machine);
+  }
+
+  /**
+   * Run one plugin exec under the per-machine concurrency bound
+   * (issue #538). `timeoutMs` is a *deadline* covering queue wait plus
+   * exec: a call that cannot start before its budget expires resolves
+   * as `timedOut` without spawning (surfaced as `plugin_timeout`), and
+   * a started exec receives only the remaining budget.
+   */
+  private async execWithSlot(
+    machine: string,
+    timeoutMs: number,
+    run: (timeoutMs: number) => Promise<PluginExecOutcome>,
+  ): Promise<PluginExecOutcome> {
+    const deadline = Date.now() + timeoutMs;
+    const release = await this.acquireExecSlot(machine, deadline);
+    if (release === null) {
+      return { code: null, stdout: "", stderr: "", timedOut: true };
+    }
+    try {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return { code: null, stdout: "", stderr: "", timedOut: true };
+      }
+      return await run(remaining);
+    } finally {
+      release();
+    }
   }
 
   /** Drop cached discovery/capability for a machine (disconnect/refresh). */
@@ -500,46 +755,71 @@ export class PluginService {
     for (const key of [...this.capabilities.keys()]) {
       if (key.startsWith(`${machine}\u0000`)) this.capabilities.delete(key);
     }
+    // Stop new callers from joining pre-invalidate in-flight work; the
+    // running operation itself is left to settle. Covers every coalesced
+    // key family for the machine: `list`, `cap` and `exec` (issue #538 —
+    // the `exec`/`cap` prefixes were previously unmatched here).
+    for (const key of [...this.inflight.keys()]) {
+      if (
+        key === `list\u0000${machine}` ||
+        key.startsWith(`cap\u0000${machine}\u0000`) ||
+        key.startsWith(`exec\u0000${machine}\u0000`)
+      ) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   /** `herdr plugin list --json` on the target host → installed plugins. */
   async listPlugins(machine: string): Promise<PluginListResult> {
+    return this.coalesce(`list\u0000${machine}`, () => this.listPluginsInner(machine));
+  }
+
+  private async listPluginsInner(machine: string): Promise<PluginListResult> {
     const cached = this.discovery.get(machine);
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
-      if (cached.error) throw cached.error;
-      return cached.result as PluginListResult;
+      metricInc("plugin.discovery.hit");
+      return cached.result;
     }
+    metricInc("plugin.discovery.miss");
     const host = await this.requireHost(machine);
-    const outcome = await host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
-      timeoutMs: DEFAULT_TIMEOUT_MS,
-      // `herdr plugin list` itself resolves its socket through the same
-      // env precedence — scrub or discovery could read a foreign session.
-      envRemove: PLUGIN_ENV_SCRUB,
-      // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
-      // explicit socket override and beats `--session`/default. Set it
-      // *after* the scrub so it carries the bridge's own socket, not an
-      // ambient one (issue #289).
-      ...(host.pluginSocket !== undefined
-        ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
-        : {}),
-    });
+    const outcome = await this.execWithSlot(machine, DEFAULT_TIMEOUT_MS, (timeoutMs) =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec([...(host.herdrArgv ?? ["herdr"]), "plugin", "list", "--json"], {
+            timeoutMs,
+            // `herdr plugin list` itself resolves its socket through the same
+            // env precedence — scrub or discovery could read a foreign session.
+            envRemove: PLUGIN_ENV_SCRUB,
+            // The herdr CLI has no `--socket` flag; HERDR_SOCKET_PATH is its
+            // explicit socket override and beats `--session`/default. Set it
+            // *after* the scrub so it carries the bridge's own socket, not an
+            // ambient one (issue #289).
+            ...(host.pluginSocket !== undefined
+              ? { envSet: { HERDR_SOCKET_PATH: host.pluginSocket } }
+              : {}),
+          }),
+        { what: "plugin_list" },
+      ),
+    );
     const parsed = outcomeToJson(outcome, "herdr plugin list");
     if ("error" in parsed) {
-      this.discovery.set(machine, { at: Date.now(), error: parsed.error });
+      // Probe failures are never cached (issue #339): a cold-start ssh
+      // hiccup or a runtime that appears a moment later must not poison
+      // the TTL window for every subsequent call.
       throw parsed.error;
     }
     const doc = parsed.doc;
     // herdr CLI envelope: {id, result:{plugins:[InstalledPluginInfo]}}
     const pluginsRaw = isRecord(doc) && isRecord(doc["result"]) ? doc["result"]["plugins"] : undefined;
     if (!Array.isArray(pluginsRaw)) {
-      const error = new HerdrError("plugin_bad_output", "herdr plugin list returned no plugins array");
-      this.discovery.set(machine, { at: Date.now(), error });
-      throw error;
+      throw new HerdrError("plugin_bad_output", "herdr plugin list returned no plugins array");
     }
     const plugins: PluginListEntry[] = [];
     for (const entry of pluginsRaw) {
       if (!isRecord(entry)) continue;
-      const { plugin_id, name, version, enabled, plugin_root, description } = entry;
+      const { plugin_id, name, version, enabled, plugin_root, description, min_herdr_version, platforms } = entry;
       if (typeof plugin_id !== "string" || typeof plugin_root !== "string") continue;
       const item: PluginListEntry = {
         plugin_id,
@@ -549,6 +829,18 @@ export class PluginService {
         plugin_root,
       };
       if (typeof description === "string") item.description = description;
+      // herdr >= 0.9.x reports these (issue #539); absent on older hosts —
+      // forward only well-formed values, never fabricate.
+      if (typeof min_herdr_version === "string" && min_herdr_version.length > 0) {
+        item.min_herdr_version = min_herdr_version;
+      }
+      if (
+        Array.isArray(platforms) &&
+        platforms.every((p): p is string => typeof p === "string") &&
+        platforms.length > 0
+      ) {
+        item.platforms = [...platforms];
+      }
       plugins.push(item);
     }
     const result: PluginListResult = { plugins };
@@ -561,6 +853,10 @@ export class PluginService {
    * The plugin's own JSON document is returned verbatim on success.
    */
   async call(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
+    return this.callInner(machine, request);
+  }
+
+  private async callInner(machine: string, request: PluginCallRequest): Promise<PluginCallResult> {
     const { plugins } = await this.listPlugins(machine);
     const entry = plugins.find((p) => p.plugin_id === request.plugin);
     if (!entry) {
@@ -572,7 +868,7 @@ export class PluginService {
     if (!entry.enabled) {
       throw new HerdrError("plugin_disabled", `plugin ${request.plugin} is disabled`);
     }
-    const capability = await this.capability(machine, entry.plugin_root);
+    const capability = await this.capability(machine, entry.plugin_root, entry.version);
     const commands = capability.doc?.["commands"];
     const contract = capability.doc?.["contract"];
     if (typeof contract !== "string" || contract.length === 0) {
@@ -581,7 +877,14 @@ export class PluginService {
         `plugin ${request.plugin} capability has no contract field`,
       );
     }
-    if (!Array.isArray(commands) || !commands.includes(request.command)) {
+    // `capability` is the meta-command the probe itself just answered —
+    // upstream contracts do not have to list it in `commands` (issue #539),
+    // so the membership gate must not reject it. Every other command still
+    // requires an explicit `commands` entry.
+    const commandAllowed =
+      request.command === "capability" ||
+      (Array.isArray(commands) && commands.includes(request.command));
+    if (!commandAllowed) {
       throw new HerdrError(
         "plugin_unsupported_command",
         `plugin ${request.plugin} does not provide command "${request.command}"`,
@@ -591,11 +894,39 @@ export class PluginService {
     const host = await this.requireHost(machine);
     const argv = ["bun", "run", "src/cli.ts", request.command, ...(request.args ?? [])];
     argv.push(...pluginTargetArgs(host));
-    const outcome = await host.exec(argv, {
-      cwd: entry.plugin_root,
-      timeoutMs: Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS),
-      envRemove: PLUGIN_ENV_SCRUB,
-    });
+    const callTimeoutMs = Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS);
+    const exec = () =>
+      this.execWithSlot(machine, callTimeoutMs, (timeoutMs) =>
+        metricTimed(
+          "plugin.exec",
+          () =>
+            host.exec(argv, {
+              cwd: entry.plugin_root,
+              timeoutMs,
+              envRemove: PLUGIN_ENV_SCRUB,
+              ...(request.stdin !== undefined ? { stdin: request.stdin } : {}),
+            }),
+          { what: "plugin_call", command: request.command },
+        ),
+      );
+    // Single-flight at the spawn boundary (issue #424). The capability
+    // document's `mutation_commands` is the contract's own read/write
+    // declaration: a command absent from it is a read and may share an
+    // in-flight execution; a declared mutation never coalesces. Plugins that
+    // omit the field fail closed — nothing coalesces for them.
+    const mutationCommands = capability.doc?.["mutation_commands"];
+    const declaredMutation =
+      Array.isArray(mutationCommands) && mutationCommands.includes(request.command);
+    const contractRead = Array.isArray(mutationCommands) && !declaredMutation;
+    // A stdin payload is per-call input, so it never joins a shared
+    // execution either.
+    const mayCoalesce = request.stdin === undefined && contractRead;
+    const outcome = mayCoalesce
+      ? await this.coalesce(
+          `exec\u0000${machine}\u0000${entry.plugin_root}\u0000${request.command}\u0000${JSON.stringify(request.args ?? [])}\u0000${request.stdin ?? ""}\u0000${Math.min(Math.max(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 500), MAX_TIMEOUT_MS)}`,
+          exec,
+        )
+      : await exec();
     const parsed = outcomeToJson(outcome, `${request.plugin} ${request.command}`);
     if ("error" in parsed) throw parsed.error;
     if (!isRecord(parsed.doc)) {
@@ -604,27 +935,71 @@ export class PluginService {
     return parsed.doc as PluginCallResult;
   }
 
-  /** `capability` document for one plugin_root, cached per host+root. */
-  private async capability(machine: string, pluginRoot: string): Promise<CapabilityCacheEntry> {
-    const key = `${machine}\u0000${pluginRoot}`;
+  /**
+   * `capability` document for one plugin_root, cached per host+root+version
+   * (issue #539). Keying by the discovered plugin `version` means an
+   * upstream plugin update — which changes `plugin_list`'s version — can
+   * never be served a stale capability document inside the TTL window;
+   * superseded same-root entries are dropped on write. Concurrent misses
+   * for the same host+root+version single-flight (issue #538): a pane
+   * fan-out must not spawn one `bun` probe per caller.
+   */
+  private async capability(
+    machine: string,
+    pluginRoot: string,
+    pluginVersion: string,
+  ): Promise<CapabilityCacheEntry> {
+    return this.coalesce(`cap\u0000${machine}\u0000${pluginRoot}\u0000${pluginVersion}`, () =>
+      this.capabilityInner(machine, pluginRoot, pluginVersion),
+    );
+  }
+
+  private async capabilityInner(
+    machine: string,
+    pluginRoot: string,
+    pluginVersion: string,
+  ): Promise<CapabilityCacheEntry> {
+    const key = `${machine}\u0000${pluginRoot}\u0000${pluginVersion}`;
     const cached = this.capabilities.get(key);
-    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) return cached;
+    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) {
+      metricInc("plugin.capability.hit");
+      return cached;
+    }
+    metricInc("plugin.capability.miss");
     const host = await this.requireHost(machine);
-    const outcome = await host.exec(
-      ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
-      {
-        cwd: pluginRoot,
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-        envRemove: PLUGIN_ENV_SCRUB,
-      },
+    const outcome = await this.execWithSlot(machine, DEFAULT_TIMEOUT_MS, (timeoutMs) =>
+      metricTimed(
+        "plugin.exec",
+        () =>
+          host.exec(
+            ["bun", "run", "src/cli.ts", "capability", ...pluginTargetArgs(host)],
+            {
+              cwd: pluginRoot,
+              timeoutMs,
+              envRemove: PLUGIN_ENV_SCRUB,
+            },
+          ),
+        { what: "capability" },
+      ),
     );
     const parsed = outcomeToJson(outcome, `${pluginRoot} capability`);
-    const entry: CapabilityCacheEntry =
-      "error" in parsed
-        ? { at: Date.now(), error: parsed.error }
-        : { at: Date.now(), doc: isRecord(parsed.doc) ? parsed.doc : {} };
+    if ("error" in parsed) {
+      // Same cold-start rule as discovery (issue #339): a failed probe —
+      // e.g. `bun: command not found` before the runtime resolves — is
+      // retried on the next call instead of being served from cache.
+      throw parsed.error;
+    }
+    const entry: CapabilityCacheEntry = {
+      at: Date.now(),
+      doc: isRecord(parsed.doc) ? parsed.doc : {},
+    };
+    // Drop superseded entries for the same host+root (older plugin
+    // versions) so version churn cannot grow the cache unboundedly.
+    const rootPrefix = `${machine}\u0000${pluginRoot}\u0000`;
+    for (const stale of [...this.capabilities.keys()]) {
+      if (stale !== key && stale.startsWith(rootPrefix)) this.capabilities.delete(stale);
+    }
     this.capabilities.set(key, entry);
-    if (entry.error) throw entry.error;
     return entry;
   }
 

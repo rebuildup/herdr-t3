@@ -7,8 +7,16 @@
 //! (Canvas2D today, GPUI later) needs no canvas-state memory. Text
 //! measurement is injected through [`TextMetrics`]; nothing here touches
 //! DOM, canvas, or pixels.
+//!
+//! [`memory_budget`] is the aggregate layer above scenes: per-session
+//! byte probes, lossless cache shedders and the watchdog level semantics
+//! of the "Memory budget contract" (issue #528).
 
 use std::collections::{HashMap, HashSet};
+
+pub mod memory_budget;
+pub mod memory_host;
+pub mod os_mem;
 use terminal_core::{
     CursorStyle, GhosttyImage, GhosttyRun, GhosttySession, RunColor, ScreenRange,
     STYLE_BOLD, STYLE_FAINT, STYLE_INVERSE, STYLE_INVISIBLE, STYLE_ITALIC, STYLE_STRIKE,
@@ -51,6 +59,10 @@ pub struct GhosttySceneOptions {
     pub foreground: String,
     pub background: String,
     pub cursor: String,
+    /// `cursor-text` (issue #382): block-cursor text colour — a CSS colour
+    /// or the Ghostty keywords `cell-foreground`/`cell-background`; unset
+    /// defaults to `background`. Render-only, never sent to the engine.
+    pub cursor_text: Option<String>,
     pub selection: Option<String>,
     pub search: Option<String>,
 }
@@ -66,6 +78,51 @@ pub struct SceneBackgroundImage {
     pub position: String,
     pub fit: String,
     pub repeat: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Transient selection response (issue #441)
+// ---------------------------------------------------------------------------
+
+/// The transient selection-overlay response — port of the TS `SelectionFx`
+/// union. `progress` is the host-driven linear clock in [0, 1]; the scene
+/// owns the easing/pulse curves so every runtime paints identically.
+/// `progress >= 1` converges to the base frame (enter multiplier 1,
+/// pulses 0, clear alpha 0), so a forgotten clear is harmless.
+/// `Clear` carries its own history-coordinate range — the selection is
+/// already gone when the fade plays.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SelectionFx {
+    Enter { progress: f64 },
+    Commit { progress: f64 },
+    Copy { progress: f64 },
+    Clear { progress: f64, range: ScreenRange },
+}
+
+impl SelectionFx {
+    /// the host-driven linear clock in [0, 1] shared by every variant
+    pub fn progress(&self) -> f64 {
+        match *self {
+            Self::Enter { progress }
+            | Self::Commit { progress }
+            | Self::Copy { progress }
+            | Self::Clear { progress, .. } => progress,
+        }
+    }
+}
+
+fn clamp01(v: f64) -> f64 {
+    v.max(0.0).min(1.0)
+}
+
+/// ease-out cubic — the enter fade-in curve
+fn ease_out_cubic(p: f64) -> f64 {
+    1.0 - (1.0 - p).powi(3)
+}
+
+/// 0 -> 1 -> 0 bump over the fx's lifetime — commit/copy pulses
+fn pulse(p: f64) -> f64 {
+    4.0 * p * (1.0 - p)
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +205,11 @@ pub struct GhosttyScene<M: TextMetrics> {
     images: Vec<GhosttyImage>,
     metrics: Option<SceneMetrics>,
     selection: Option<ScreenRange>,
+    selection_fx: Option<SelectionFx>,
     highlights: Vec<ScreenRange>,
+    /// rows the host viewport sits above the engine's bottom-anchored
+    /// viewport_top (server-side scroll, issue #436)
+    viewport_shift: i64,
     cursor_on: bool,
     bg_image: Option<SceneBackgroundImage>,
     bg_opacity: f64,
@@ -170,7 +231,9 @@ impl<M: TextMetrics> GhosttyScene<M> {
             images: Vec::new(),
             metrics: None,
             selection: None,
+            selection_fx: None,
             highlights: Vec::new(),
+            viewport_shift: 0,
             cursor_on: true,
             bg_image: None,
             bg_opacity: 1.0,
@@ -179,6 +242,12 @@ impl<M: TextMetrics> GhosttyScene<M> {
             font_strings: HashMap::new(),
             advance_cache: HashMap::new(),
         }
+    }
+
+    /// The session's byte estimate for the aggregate memory budget
+    /// (issue #528) — the payload [`memory_host::scene_probe`] wraps.
+    pub fn memory_estimate_bytes(&self) -> u64 {
+        self.session.memory_estimate_bytes()
     }
 
     pub fn session(&mut self) -> &mut GhosttySession {
@@ -213,14 +282,47 @@ impl<M: TextMetrics> GhosttyScene<M> {
         self.rows.clear();
         self.pending.clear();
         self.pending_set.clear();
+        // a full repaint also ends any transient selection response — its
+        // anchors may no longer match what is on screen (issue #441)
+        self.selection_fx = None;
     }
 
     pub fn set_selection(&mut self, range: Option<ScreenRange>) {
         self.selection = range;
     }
 
+    /// Start/replace the transient selection response (issue #441). The
+    /// host owns the clock: it calls this once per frame with a fresh
+    /// `progress` and clears with `None` on finish — port of the TS
+    /// `setSelectionFx`.
+    pub fn set_selection_fx(&mut self, fx: Option<SelectionFx>) {
+        self.selection_fx = fx;
+    }
+
+    /// Overlay ops only (selection/search/cursor) — port of the TS
+    /// `renderOverlay()`: a runtime repaints just the overlay canvas
+    /// between full frames while a selection fx plays, so the text
+    /// surface is not repainted.
+    pub fn render_overlay(&mut self) -> Result<Vec<PaintOp>, String> {
+        let mut overlay = Vec::new();
+        let Some(m) = self.metrics.clone() else {
+            return Ok(overlay);
+        };
+        if self.disposed {
+            return Ok(overlay);
+        }
+        self.paint_overlay(&mut overlay, &m)?;
+        Ok(overlay)
+    }
+
     pub fn set_highlights(&mut self, ranges: Vec<ScreenRange>) {
         self.highlights = ranges;
+    }
+
+    /// rows the host's authoritative viewport sits above the engine's
+    /// bottom-anchored `viewport_top` (server-side scroll, issue #436)
+    pub fn set_viewport_shift(&mut self, shift: i64) {
+        self.viewport_shift = shift;
     }
 
     pub fn set_cursor_visible(&mut self, visible: bool) {
@@ -232,6 +334,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
         foreground: Option<String>,
         background: Option<String>,
         cursor: Option<String>,
+        cursor_text: Option<String>,
         selection: Option<String>,
         search: Option<String>,
     ) {
@@ -243,6 +346,9 @@ impl<M: TextMetrics> GhosttyScene<M> {
         }
         if let Some(c) = cursor {
             self.options.cursor = c;
+        }
+        if let Some(c) = cursor_text {
+            self.options.cursor_text = Some(c);
         }
         if let Some(c) = selection {
             self.options.selection = Some(c);
@@ -432,7 +538,10 @@ impl<M: TextMetrics> GhosttyScene<M> {
             if y + h <= top || y >= band_bottom {
                 continue;
             }
-            if self.session.image_pixels(image.id)?.is_none() {
+            // Cheap existence check only — image_pixels copies the whole
+            // image out of the module, which per row per frame was the
+            // allocation storm behind issue #499.
+            if !self.session.has_image(image.id)? {
                 continue;
             }
             let s = image.source;
@@ -515,11 +624,21 @@ impl<M: TextMetrics> GhosttyScene<M> {
         font
     }
 
-    /// advance width of one grapheme under `font`, measured once and cached
+    /// advance width of one grapheme under `font`, measured once and cached.
+    /// Bounded (issue #499): the key space is every distinct grapheme × font
+    /// a session draws; eviction costs only a re-measure. HashMap order is
+    /// arbitrary, so eviction is effectively random — cheaper than an LRU
+    /// list and equally safe for a pure measurement cache.
     fn glyph_advance(&mut self, text: &str, font: &str) -> f64 {
+        const ADVANCE_CACHE_MAX: usize = 4096;
         let key = format!("{font}\n{text}");
         if let Some(w) = self.advance_cache.get(&key) {
             return *w;
+        }
+        if self.advance_cache.len() >= ADVANCE_CACHE_MAX {
+            if let Some(oldest) = self.advance_cache.keys().next().cloned() {
+                self.advance_cache.remove(&oldest);
+            }
         }
         let w = self.metrics_provider.measure(text, font);
         self.advance_cache.insert(key, w);
@@ -616,15 +735,38 @@ impl<M: TextMetrics> GhosttyScene<M> {
         out.push(PaintOp::Clear {
             rect: Rect { x: 0.0, y: 0.0, w: m.cols as f64 * m.cell_w, h: m.rows as f64 * m.cell_h },
         });
-        let viewport_top = self.session.history()?.viewport_top;
+        let viewport_top = self.session.history()?.viewport_top as i64 - self.viewport_shift;
         let selection = self.selection;
         let selection_color = self
             .options
             .selection
             .clone()
             .unwrap_or_else(|| "rgba(120,160,255,0.28)".to_string());
+        let fx = self.selection_fx;
+        let p = fx.map(|f| clamp01(f.progress())).unwrap_or(0.0);
         if let Some(range) = selection {
-            self.wash(out, range, &selection_color, viewport_top, m);
+            // enter fades the live selection wash in; the boundary
+            // geometry is already final — only the paint alpha follows
+            // the fx clock (issue #441)
+            let enter_alpha = match fx {
+                Some(SelectionFx::Enter { .. }) => ease_out_cubic(p),
+                _ => 1.0,
+            };
+            self.wash(out, range, &selection_color, enter_alpha, viewport_top, m);
+            // commit: one brief brighten over the committed range
+            if matches!(fx, Some(SelectionFx::Commit { .. })) {
+                self.wash(out, range, &selection_color, 0.55 * pulse(p), viewport_top, m);
+            }
+            // copy: a short accent tick under each selected row — a
+            // shape cue, not just another colour wash
+            if matches!(fx, Some(SelectionFx::Copy { .. })) {
+                self.copy_accent(out, range, 0.85 * pulse(p), m, viewport_top);
+            }
+        }
+        // clear: the just-cleared range fades out in place — history
+        // coordinates keep it on the same characters while they scroll by
+        if let Some(SelectionFx::Clear { progress, range }) = fx {
+            self.wash(out, range, &selection_color, 1.0 - clamp01(progress), viewport_top, m);
         }
         let highlights = self.highlights.clone();
         let search_color = self
@@ -633,7 +775,7 @@ impl<M: TextMetrics> GhosttyScene<M> {
             .clone()
             .unwrap_or_else(|| "rgba(250,204,21,0.22)".to_string());
         for range in highlights {
-            self.wash(out, range, &search_color, viewport_top, m);
+            self.wash(out, range, &search_color, 1.0, viewport_top, m);
         }
         if self.cursor_on {
             self.paint_cursor(out, m)?;
@@ -641,26 +783,68 @@ impl<M: TextMetrics> GhosttyScene<M> {
         Ok(())
     }
 
+    /// The copy-success tick (issue #441): a thin accent strip along the
+    /// bottom edge of every selected row segment, in the theme's cursor
+    /// colour, fading with the fx pulse — port of `copyAccent`.
+    fn copy_accent(
+        &self,
+        out: &mut Vec<PaintOp>,
+        range: ScreenRange,
+        alpha: f64,
+        m: &SceneMetrics,
+        viewport_top: i64,
+    ) {
+        if alpha <= 0.0 {
+            return;
+        }
+        let color = self.options.cursor.clone();
+        let accent_h = (m.cell_h * 0.12).max(1.0);
+        let top = (range.start.y as i64).max(viewport_top);
+        let bottom = (range.end.y as i64).min(viewport_top + m.rows as i64 - 1);
+        if bottom < top {
+            return;
+        }
+        for y in top..=bottom {
+            let vy = y - viewport_top;
+            let from = if y == range.start.y as i64 { range.start.x as i64 } else { 0 };
+            let to = if y == range.end.y as i64 { range.end.x as i64 } else { m.cols as i64 - 1 };
+            if to >= from {
+                out.push(PaintOp::FillRect {
+                    rect: Rect {
+                        x: from as f64 * m.cell_w,
+                        y: vy as f64 * m.cell_h + m.cell_h - accent_h,
+                        w: (to - from + 1) as f64 * m.cell_w,
+                        h: accent_h,
+                    },
+                    color: color.clone(),
+                    alpha,
+                });
+            }
+        }
+    }
+
     fn wash(
         &self,
         out: &mut Vec<PaintOp>,
         range: ScreenRange,
         color: &str,
-        viewport_top: u64,
+        alpha: f64,
+        viewport_top: i64,
         m: &SceneMetrics,
     ) {
-        // TS `if (!color) return` — an empty wash colour emits nothing
-        if color.is_empty() {
+        // TS `if (!color || alpha <= 0) return` — an empty wash colour or
+        // a fully faded response emits nothing
+        if color.is_empty() || alpha <= 0.0 {
             return;
         }
         // the cells of a screen range on the viewport, row by row — eachCell
-        let top = (range.start.y as i64).max(viewport_top as i64);
-        let bottom = (range.end.y as i64).min(viewport_top as i64 + m.rows as i64 - 1);
+        let top = (range.start.y as i64).max(viewport_top);
+        let bottom = (range.end.y as i64).min(viewport_top + m.rows as i64 - 1);
         if bottom < top {
             return;
         }
         for y in top..=bottom {
-            let vy = y - viewport_top as i64;
+            let vy = y - viewport_top;
             let from = if y == range.start.y as i64 { range.start.x as i64 } else { 0 };
             let to = if y == range.end.y as i64 { range.end.x as i64 } else { m.cols as i64 - 1 };
             if to >= from {
@@ -672,10 +856,28 @@ impl<M: TextMetrics> GhosttyScene<M> {
                         h: m.cell_h,
                     },
                     color: color.to_string(),
-                    alpha: 1.0,
+                    alpha,
                 });
             }
         }
+    }
+
+    /// The cell covering viewport column `col` on row `y`, with its run's
+    /// style and the column the cell starts at — port of `cellInfoAt`.
+    /// Wide characters occupy two columns through their head cell; spacer
+    /// tails are not emitted, so a tail-column lookup returns the head.
+    fn cell_info_at(&self, y: u16, col: usize) -> Option<(&GhosttyRun, &terminal_core::RunCell, usize)> {
+        for run in self.rows.get(&y).map(Vec::as_slice).unwrap_or(&[]) {
+            let mut cx = run.x;
+            for cell in &run.cells {
+                let w = if cell.wide { 2 } else { 1 };
+                if col >= cx && col < cx + w {
+                    return Some((run, cell, cx));
+                }
+                cx += w;
+            }
+        }
+        None
     }
 
     fn paint_cursor(&mut self, out: &mut Vec<PaintOp>, m: &SceneMetrics) -> Result<(), String> {
@@ -683,34 +885,120 @@ impl<M: TextMetrics> GhosttyScene<M> {
         if !cursor.visible || cursor.x as u32 >= m.cols || cursor.y as u32 >= m.rows {
             return Ok(());
         }
-        let x = cursor.x as f64 * m.cell_w;
+        // A cursor on a wide character's tail column covers both cells
+        // (ghostty `cursor_wide`); normalize to the head column.
+        let head_x = if cursor.wide_tail {
+            (cursor.x as usize).saturating_sub(1)
+        } else {
+            cursor.x as usize
+        };
+        let head_wide = self
+            .cell_info_at(cursor.y, head_x)
+            .map(|(_, cell, _)| cell.wide)
+            .unwrap_or(false);
+        let span = if cursor.wide_tail || head_wide { 2 } else { 1 };
+        let (fg, bg, flags) = match self.cell_info_at(cursor.y, head_x) {
+            Some((run, _, _)) => {
+                let fg = run_color_string(run.fg.as_ref())
+                    .unwrap_or_else(|| self.options.foreground.clone());
+                let bg = run_color_string(run.bg.as_ref())
+                    .unwrap_or_else(|| self.options.background.clone());
+                (fg, bg, run.flags)
+            }
+            None => (
+                self.options.foreground.clone(),
+                self.options.background.clone(),
+                0,
+            ),
+        };
+        let (eff_fg, eff_bg) = if flags & STYLE_INVERSE != 0 { (bg, fg) } else { (fg, bg) };
+        let color = resolve_cursor_color(
+            Some(self.options.cursor.as_str()),
+            &eff_fg,
+            &eff_bg,
+            &self.options.foreground,
+        );
+        let x = head_x as f64 * m.cell_w;
         let y = cursor.y as f64 * m.cell_h;
-        let w = m.cell_w;
         let h = m.cell_h;
-        let color = self.options.cursor.clone();
         match cursor.style {
             CursorStyle::Bar => out.push(PaintOp::FillRect {
-                rect: Rect { x, y, w: (w * 0.12).max(2.0), h },
+                rect: Rect { x, y, w: (m.cell_w * 0.12).max(2.0), h },
                 color,
                 alpha: 1.0,
             }),
             CursorStyle::Underline => out.push(PaintOp::FillRect {
-                rect: Rect { x, y: y + h * 0.82, w, h: (h * 0.12).max(1.0) },
+                rect: Rect { x, y: y + h * 0.82, w: m.cell_w, h: (h * 0.12).max(1.0) },
                 color,
                 alpha: 1.0,
             }),
             CursorStyle::Hollow => out.push(PaintOp::StrokeRect {
-                rect: Rect { x: x + 0.5, y: y + 0.5, w: w - 1.0, h: h - 1.0 },
+                rect: Rect { x: x + 0.5, y: y + 0.5, w: span as f64 * m.cell_w - 1.0, h: h - 1.0 },
                 color,
                 line_width: 1.0,
             }),
-            _ => out.push(PaintOp::FillRect {
-                rect: Rect { x, y, w, h },
-                color,
-                alpha: 0.35,
-            }),
+            _ => {
+                // Ghostty block cursor (issue #382): the cell is filled
+                // opaquely with `cursor-color` and its text redrawn in
+                // `cursor-text` (default: the background colour) — a true
+                // fg/bg inversion, not a translucent wash.
+                out.push(PaintOp::FillRect {
+                    rect: Rect { x, y, w: span as f64 * m.cell_w, h },
+                    color,
+                    alpha: 1.0,
+                });
+                let text_color = resolve_cursor_color(
+                    self.options.cursor_text.as_deref(),
+                    &eff_fg,
+                    &eff_bg,
+                    &self.options.background,
+                );
+                // covered cell texts, deduped across the wide head/tail
+                // pair — collected owned so the font/baseline caches can
+                // borrow self mutably afterwards
+                let mut covered: Vec<(usize, String, u16)> = Vec::new();
+                let mut seen: HashSet<*const terminal_core::RunCell> = HashSet::new();
+                for i in 0..span {
+                    if let Some((run, cell, start_col)) = self.cell_info_at(cursor.y, head_x + i) {
+                        if !seen.insert(cell as *const _) {
+                            continue;
+                        }
+                        if run.flags & STYLE_INVISIBLE != 0 {
+                            continue;
+                        }
+                        if cell.text.is_empty() || cell.text == " " {
+                            continue;
+                        }
+                        covered.push((start_col, cell.text.clone(), run.flags));
+                    }
+                }
+                if !covered.is_empty() {
+                    let baseline = self.baseline_for(y, m);
+                    for (start_col, text, cell_flags) in covered {
+                        let font = self.font_for(cell_flags);
+                        out.push(PaintOp::FillText {
+                            x: start_col as f64 * m.cell_w,
+                            y: baseline,
+                            text,
+                            font,
+                            color: text_color.clone(),
+                            alpha: 1.0,
+                        });
+                    }
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Drop the grapheme-advance cache under memory pressure; it rebuilds
+    /// lazily on next paint — port of the TS `shedAdvanceCache`, the
+    /// scene half of `renderer.shedCaches()` (issue #499; the aggregate
+    /// driver is [`memory_budget::MemoryBudget`], issue #528). The
+    /// decoded-image cache lives in the host painter, not the scene, so
+    /// the host sheds that half itself.
+    pub fn shed_caches(&mut self) {
+        self.advance_cache.clear();
     }
 
     pub fn dispose(&mut self) {
@@ -739,5 +1027,27 @@ fn run_color_string(color: Option<&RunColor>) -> Option<String> {
     match color {
         Some(RunColor::Hex(s)) => Some(s.clone()),
         _ => None,
+    }
+}
+
+/// A `cursor-color`/`cursor-text` spec resolved against the cursor cell's
+/// effective colours (post-INVERSE) — port of `resolveCursorColor`. The
+/// Ghostty keywords `cell-foreground`/`cell-background` name those
+/// colours; anything else is a literal CSS colour, and an unset/empty
+/// spec falls back.
+fn resolve_cursor_color(spec: Option<&str>, eff_fg: &str, eff_bg: &str, fallback: &str) -> String {
+    let Some(raw) = spec else {
+        return fallback.to_string();
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cell-foreground" => eff_fg.to_string(),
+        "cell-background" => eff_bg.to_string(),
+        _ => {
+            if raw.trim().is_empty() {
+                fallback.to_string()
+            } else {
+                raw.to_string()
+            }
+        }
     }
 }

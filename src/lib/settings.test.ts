@@ -62,6 +62,66 @@ describe("terminal settings", () => {
     settings.setTerminalSettings({ lineHeight: null });
     expect(settings.getTerminalSettings().lineHeight).toBeNull();
   });
+
+  test("copyOnSelect defaults off, rejects non-booleans and round-trips (issue #440)", () => {
+    // profiles written before the key existed, or with a corrupt value,
+    // must parse back to the OFF default — never a truthy accident
+    expect(settings.parseTerminalSettings({}).copyOnSelect).toBe(false);
+    expect(settings.parseTerminalSettings({ copyOnSelect: "yes" }).copyOnSelect).toBe(false);
+    expect(settings.parseTerminalSettings({ copyOnSelect: 1 }).copyOnSelect).toBe(false);
+    expect(settings.TERMINAL_DEFAULTS.copyOnSelect).toBe(false);
+
+    settings.setTerminalSettings({ copyOnSelect: true });
+    expect(settings.getTerminalSettings().copyOnSelect).toBe(true);
+    const raw = storage.getItem("herdr-t3:settings:terminal");
+    expect(settings.parseTerminalSettings(JSON.parse(raw!)).copyOnSelect).toBe(true);
+    settings.setTerminalSettings({ copyOnSelect: false });
+    expect(settings.getTerminalSettings().copyOnSelect).toBe(false);
+  });
+
+  test("copy range patterns default empty, accept bounded strings and round-trip (issue #429)", () => {
+    expect(settings.parseTerminalSettings({}).copyStartPattern).toBe("");
+    expect(settings.parseTerminalSettings({}).copyEndPattern).toBe("");
+    // wrong-typed values fall back to empty — never a stored non-string
+    expect(settings.parseTerminalSettings({ copyStartPattern: 42 }).copyStartPattern).toBe("");
+    expect(settings.parseTerminalSettings({ copyEndPattern: null }).copyEndPattern).toBe("");
+    // over-long patterns are truncated at the 200-char bound
+    const long = "x".repeat(500);
+    expect(settings.parseTerminalSettings({ copyStartPattern: long }).copyStartPattern).toHaveLength(200);
+
+    settings.setTerminalSettings({ copyStartPattern: "^## Report", copyEndPattern: "^Done\\.$" });
+    const current = settings.getTerminalSettings();
+    expect(current.copyStartPattern).toBe("^## Report");
+    expect(current.copyEndPattern).toBe("^Done\\.$");
+    const raw = storage.getItem("herdr-t3:settings:terminal");
+    expect(settings.parseTerminalSettings(JSON.parse(raw!))).toEqual(current);
+    settings.setTerminalSettings({ copyStartPattern: "", copyEndPattern: "" });
+  });
+});
+
+describe("notifications settings", () => {
+  test("defaults to top-right and round-trips through its own key", () => {
+    expect(settings.getNotificationsSettings()).toEqual(settings.NOTIFICATIONS_DEFAULTS);
+    expect(settings.NOTIFICATIONS_DEFAULTS.position).toBe("top-right");
+    settings.setNotificationsSettings({ position: "bottom-left" });
+    expect(settings.getNotificationsSettings().position).toBe("bottom-left");
+    const raw = storage.getItem("herdr-t3:settings:notifications");
+    expect(raw).not.toBeNull();
+    expect(settings.parseNotificationsSettings(JSON.parse(raw!))).toEqual(
+      settings.getNotificationsSettings(),
+    );
+    settings.setNotificationsSettings({ position: "top-right" });
+  });
+
+  test("invalid persisted values fall back to the default", () => {
+    expect(settings.parseNotificationsSettings({ position: "middle" }).position).toBe(
+      "top-right",
+    );
+    expect(settings.parseNotificationsSettings({}).position).toBe("top-right");
+    expect(settings.parseNotificationsSettings({ position: 42 }).position).toBe(
+      "top-right",
+    );
+  });
 });
 
 describe("general settings", () => {

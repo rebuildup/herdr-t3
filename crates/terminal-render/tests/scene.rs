@@ -3,9 +3,9 @@
 //! `terminal-render@1`: op kinds, ordering, paint state, and dirty-row
 //! incremental behaviour.
 
-use terminal_core::{GhosttySession, SessionOptions};
+use terminal_core::{GhosttySession, ScreenPoint, ScreenRange, SessionOptions};
 use terminal_render::{
-    GhosttyScene, GhosttySceneOptions, PaintOp, SceneMetrics, TextMetrics,
+    GhosttyScene, GhosttySceneOptions, PaintOp, SceneMetrics, SelectionFx, TextMetrics,
 };
 
 /// Same deterministic fake the differential adapters share.
@@ -36,6 +36,7 @@ fn options() -> GhosttySceneOptions {
         foreground: "#d4d4d4".into(),
         background: "#1e1e1e".into(),
         cursor: "#ffffff".into(),
+        cursor_text: None,
         selection: Some("rgba(120,160,255,0.28)".into()),
         search: Some("rgba(250,204,21,0.22)".into()),
     }
@@ -77,12 +78,76 @@ fn first_collect_marks_every_row_and_render_paints_text() {
     let joined = texts(&frame.text).join("|");
     assert!(joined.contains("hi"), "{joined}");
     assert!(joined.contains("there"), "{joined}");
-    // overlay always clears then draws the block cursor
+    // overlay always clears then draws the block cursor: an opaque
+    // cursor-colour cell fill (issue #382 — no more alpha-0.35 wash)
     assert!(matches!(frame.overlay.first(), Some(PaintOp::Clear { .. })));
-    assert!(frame
-        .overlay
-        .iter()
-        .any(|o| matches!(o, PaintOp::FillRect { alpha: 0.35, .. })));
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, alpha: 1.0, .. } if color == "#ffffff"
+    )));
+    assert!(!frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { alpha, .. } if (*alpha - 0.35).abs() < f64::EPSILON
+    )));
+}
+
+#[test]
+fn block_cursor_fills_cell_and_redraws_text_in_cursor_text() {
+    let mut s = scene(20, 4);
+    s.session().write(b"hi").unwrap();
+    // park the cursor on 'h'
+    s.session().write(b"\x1b[1;1H").unwrap();
+    s.set_metrics(metrics(20, 4));
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    // opaque one-cell fill in the cursor colour
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { rect, color, alpha: 1.0, .. }
+            if color == "#ffffff" && (rect.w - 8.0).abs() < f64::EPSILON && (rect.h - 16.0).abs() < f64::EPSILON
+    )));
+    // the glyph is redrawn in cursor-text; unset defaults to background
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, alpha: 1.0, .. } if text == "h" && color == "#1e1e1e"
+    )));
+}
+
+#[test]
+fn cursor_text_option_and_cell_keywords_resolve() {
+    let mut s = scene(20, 4);
+    s.session().write(b"hi").unwrap();
+    s.session().write(b"\x1b[1;1H").unwrap();
+    s.set_metrics(metrics(20, 4));
+    s.collect().unwrap();
+    // explicit cursor-text wins over the background default
+    // (set_colors invalidates the row cache — collect repopulates it)
+    s.set_colors(None, None, None, Some("#123456".into()), None, None);
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, .. } if text == "h" && color == "#123456"
+    )));
+    // cell-foreground resolves against the cursor cell's effective fg
+    s.set_colors(
+        None,
+        None,
+        Some("cell-foreground".into()),
+        Some("cell-background".into()),
+        None,
+        None,
+    );
+    s.collect().unwrap();
+    let frame = s.render().unwrap();
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, .. } if color == "#d4d4d4"
+    )));
+    assert!(frame.overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillText { text, color, .. } if text == "h" && color == "#1e1e1e"
+    )));
 }
 
 #[test]
@@ -187,12 +252,12 @@ fn selection_highlights_and_cursor_hidden() {
         .collect();
     assert!(washes.iter().any(|c| c.contains("120,160,255")), "{washes:?}");
     assert!(washes.iter().any(|c| c.contains("250,204,21")), "{washes:?}");
-    // cursor hidden -> overlay keeps the clear + washes but no cursor block
+    // cursor hidden -> overlay keeps the clear + washes but no cursor ops
     s.set_cursor_visible(false);
     let frame = s.render().unwrap();
     assert!(!frame.overlay.iter().any(|o| matches!(
         o,
-        PaintOp::FillRect { color, alpha: 0.35, .. } if color == "#ffffff"
+        PaintOp::FillRect { color, .. } if color == "#ffffff"
     )));
 }
 
@@ -262,6 +327,82 @@ fn metrics_change_and_font_change_repaint_everything() {
         .text
         .iter()
         .any(|o| matches!(o, PaintOp::FillText { font, .. } if font == "15px DejaVu Sans Mono")));
+}
+
+#[test]
+fn selection_fx_paints_transient_overlay_responses() {
+    let mut s = scene(20, 4);
+    s.session().write(b"0123456789abcdef").unwrap();
+    s.set_metrics(metrics(20, 4)); // 160x64, cell 8x16
+    let range = ScreenRange {
+        start: ScreenPoint { x: 0, y: 0 },
+        end: ScreenPoint { x: 4, y: 0 },
+    };
+    s.set_selection(Some(range));
+    s.set_cursor_visible(false);
+    s.collect().unwrap();
+
+    let sel_washes = |ops: &[PaintOp]| -> Vec<f64> {
+        ops.iter()
+            .filter_map(|o| match o {
+                PaintOp::FillRect { color, alpha, .. }
+                    if color.contains("120,160,255") =>
+                {
+                    Some(*alpha)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+
+    // enter at progress 0: the wash exists but is fully transparent —
+    // geometry is final, only the paint alpha follows the clock
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 0.0 }));
+    let overlay = s.render_overlay().unwrap();
+    assert!(sel_washes(&overlay).is_empty());
+    // ease-out cubic at p=0.5 -> 0.875
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![0.875]);
+    // progress >= 1 converges to the base frame
+    s.set_selection_fx(Some(SelectionFx::Enter { progress: 1.0 }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![1.0]);
+
+    // commit at p=0.5: base wash plus one 0.55 brighten pulse
+    s.set_selection_fx(Some(SelectionFx::Commit { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    let mut alphas = sel_washes(&overlay);
+    alphas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(alphas, vec![0.55, 1.0]);
+
+    // copy at p=0.5: the accent strip is a thin cursor-coloured band at
+    // the bottom of each selected row — a shape cue beyond the wash
+    s.set_selection_fx(Some(SelectionFx::Copy { progress: 0.5 }));
+    let overlay = s.render_overlay().unwrap();
+    assert!(overlay.iter().any(|o| matches!(
+        o,
+        PaintOp::FillRect { color, alpha, rect }
+            if color == "#ffffff" && (*alpha - 0.85).abs() < 1e-9
+                && (rect.h - 1.92).abs() < 1e-9
+                && (rect.y - 14.08).abs() < 1e-9
+    )));
+
+    // clear: the selection is gone but its range still fades out
+    s.set_selection(None);
+    s.set_selection_fx(Some(SelectionFx::Clear { progress: 0.25, range }));
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![0.75]);
+
+    // a full invalidate ends the response — the next overlay is the base
+    // frame even though the fx object is still set scene-side... and the
+    // scene itself drops it
+    s.set_selection(Some(range));
+    s.set_selection_fx(Some(SelectionFx::Commit { progress: 0.5 }));
+    s.invalidate();
+    s.collect().unwrap();
+    let overlay = s.render_overlay().unwrap();
+    assert_eq!(sel_washes(&overlay), vec![1.0]);
 }
 
 #[test]

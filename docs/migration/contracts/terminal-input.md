@@ -20,7 +20,9 @@ pointer/wheel → mouse-report mapping. Canonical sources:
 - `CompositionTracker`: `start()` begins a composition; `end(data)`
   returns committed text once and arms a same-turn echo window;
   `beforeInputText(text)` returns text to send, or null when it
-  duplicates the commit echo or arrives mid-composition. Text during
+  duplicates the commit echo or arrives mid-composition;
+  `expireEcho()` closes the echo window early (the product wasm
+  consumer's explicit timer event, issue #319). Text during
   composition is never forwarded.
 - `pointerDragKind(shift, mouseReporting)` → `"select" | "mouse"`:
   Shift always selects locally; otherwise mouse-reporting panes get

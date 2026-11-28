@@ -16,6 +16,20 @@ behavior, not the DOM.
   workspaces/tabs/panes with status-token filter.
 - Sidebar: workspace tree (machine folders, two-line rows,
   drag-reorder), agent shelves w/ hover card, context menus, notices.
+  Agent row identity/status glyph (issue #419): a single shared
+  component leads each agent row — brand provider mark (resolution
+  order in `shared/agent-icons.json`: T3 artwork → bundled official
+  SVG → generic glyph) at a 20px slot with the brand art at 16px,
+  plus a perimeter status ring carrying `agent_status`. Ring grammar:
+  working = rotating primary arc around the *static* brand mark
+  (started/stopped only by the shared visibility control —
+  on-screen + document visible + motion allowed; static full ring
+  under reduced-motion), blocked = heavier warning ring, done =
+  success ring, idle = quiet muted ring, unknown/unrecognized =
+  dashed muted ring. State name is never printed on the row; it lives
+  in the shelf, hover card and accessible name. GPUI must reproduce
+  the same asset resolution, state→ring mapping and 20px footprint —
+  not a renderer-specific variant.
 - Tab strip: select/close/rename/move/drag, hover affordances,
   overflow scroll, per-tab agent status.
 - Pane grid: split/zoom/swap, split-ratio drag, focus dimming,
@@ -45,9 +59,18 @@ behavior, not the DOM.
 
 ## Errors / edge states
 
-- Empty states (no machines, no workspaces, disconnected bridge),
-  reconnecting, offline machine groups — all have defined presentations
-  in `verification.md`.
+- Canvas session states are a defined contract (issue #421,
+  `docs/design/info-architecture.md` §10): loading/connecting are a
+  single restrained status line; probe-only snapshots are never rendered
+  as live panes; machine down/disabled/fetch-error/genuine-empty
+  (`workspaces: []`, reachable because herdr keeps the session after
+  its last workspace closes) each get a distinct `Empty*` presentation
+  with a recovery action. GPUI must reproduce the same state→display
+  mapping, including "no 'No workspaces' during loading" and "stale is
+  never live".
+- Other empty states (no machines, no workspaces in sidebar,
+  disconnected bridge), reconnecting, offline machine groups — all have
+  defined presentations in `verification.md`.
 - Narrow viewport: toolbar/panes remain usable (issue #79 history);
   mobile sheet behavior for sidebar.
 

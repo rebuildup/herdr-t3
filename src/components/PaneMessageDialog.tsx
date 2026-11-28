@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { rpc } from "../lib/api";
-import { focusPaneTerminal } from "../lib/paneFocus";
+import { focusPaneTerminal } from "../lib/focusHandoff";
 import type { PaneInfo } from "../../shared/protocol";
 
 /**

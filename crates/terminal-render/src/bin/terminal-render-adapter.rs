@@ -18,7 +18,7 @@ use std::fs;
 use terminal_core::{GhosttySession, ScreenRange, ScreenPoint, SessionOptions, SessionWidths};
 use terminal_render::{
     GhosttyScene, GhosttySceneOptions, SceneBackgroundImage, SceneFrame, SceneMetrics,
-    TextMetrics,
+    SelectionFx, TextMetrics,
 };
 
 /// The deterministic text-metrics fake shared with the TS adapter.
@@ -86,6 +86,22 @@ fn parse_range(v: &Value) -> Result<ScreenRange, String> {
     })
 }
 
+/// scene_set `selectionFx` — mirrors the TS adapter's parser (issue #441)
+fn parse_selection_fx(v: &Value) -> Result<SelectionFx, String> {
+    let o = v.as_object().ok_or("selectionFx must be an object")?;
+    let progress = o.get("progress").and_then(Value::as_f64).unwrap_or(0.0);
+    match o.get("kind").and_then(Value::as_str) {
+        Some("enter") => Ok(SelectionFx::Enter { progress }),
+        Some("commit") => Ok(SelectionFx::Commit { progress }),
+        Some("copy") => Ok(SelectionFx::Copy { progress }),
+        Some("clear") => Ok(SelectionFx::Clear {
+            progress,
+            range: parse_range(o.get("range").ok_or("selectionFx clear requires range")?)?,
+        }),
+        other => Err(format!("unknown selectionFx kind {}", other.unwrap_or("<missing>"))),
+    }
+}
+
 fn parse_metrics(input: &Map<String, Value>) -> Result<SceneMetrics, String> {
     Ok(SceneMetrics {
         cols: num(input, "cols")? as u32,
@@ -138,6 +154,10 @@ fn run_op(
                 foreground: get("foreground", "#d4d4d4"),
                 background: get("background", "#1e1e1e"),
                 cursor: get("cursor", "#ffffff"),
+                cursor_text: options
+                    .and_then(|o| o.get("cursorText"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 selection: options
                     .and_then(|o| o.get("selection"))
                     .and_then(Value::as_str)
@@ -191,6 +211,10 @@ fn run_op(
             let s = state(scenes, input)?;
             Ok(frame_json(&s.scene.render()?))
         }
+        "scene_render_overlay" => {
+            let s = state(scenes, input)?;
+            Ok(json!(s.scene.render_overlay()?))
+        }
         "scene_set" => {
             let s = state(scenes, input)?;
             if input.get("invalidate").and_then(Value::as_bool) == Some(true) {
@@ -215,6 +239,13 @@ fn run_op(
                     Some(parse_range(sel)?)
                 });
             }
+            if let Some(fx) = input.get("selectionFx") {
+                s.scene.set_selection_fx(if fx.is_null() {
+                    None
+                } else {
+                    Some(parse_selection_fx(fx)?)
+                });
+            }
             if let Some(hs) = input.get("highlights").and_then(Value::as_array) {
                 let mut ranges = Vec::with_capacity(hs.len());
                 for h in hs {
@@ -225,12 +256,16 @@ fn run_op(
             if let Some(v) = input.get("cursorVisible").and_then(Value::as_bool) {
                 s.scene.set_cursor_visible(v);
             }
+            if let Some(shift) = input.get("viewportShift").and_then(Value::as_i64) {
+                s.scene.set_viewport_shift(shift);
+            }
             if let Some(colors) = input.get("colors").and_then(Value::as_object) {
                 let own = |k: &str| colors.get(k).and_then(Value::as_str).map(str::to_string);
                 s.scene.set_colors(
                     own("foreground"),
                     own("background"),
                     own("cursor"),
+                    own("cursorText"),
                     own("selection"),
                     own("search"),
                 );

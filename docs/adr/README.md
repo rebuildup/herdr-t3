@@ -26,3 +26,12 @@
 | [ADR-0022](./ADR-0022.md) | Accepted | plugin exec env scrub: no ambient herdr targeting vars on any exec path |
 | [ADR-0023](./ADR-0023.md) | Accepted | plugin exec env scrub: no ambient GIT_* repo/config/transport targeting vars |
 | [ADR-0024](./ADR-0024.md) | Accepted | Checkpoints: checkpoints-v1 re-pin @ae4f214 and save/restore-group/gc/prune adoption (partial-report bridge convention) |
+| [ADR-0025](./ADR-0025.md) | Accepted | Transitional Rust consumer: wasm-in-runtime for small-data capabilities; no transitional consumer for per-frame paths |
+| [ADR-0026](./ADR-0026.md) | Accepted | Automations surface: automations-v1 contract pin @6c1cfa5 and read-only adoption |
+| [ADR-0027](./ADR-0027.md) | Accepted | Conversations surface: conversations-v1 contract pin @d23205af and read + index adoption |
+| [ADR-0028](./ADR-0028.md) | Accepted | Usage surface: usage-v1 contract pin @d23205af and read-only adoption |
+| [ADR-0029](./ADR-0029.md) | Accepted | Artifacts surface: artifacts-v1 contract pin @d23205af and read-surface adoption |
+| [ADR-0030](./ADR-0030.md) | Accepted | Handoffs surface: handoff-v1 contract pin @d23205af and read-only adoption (mutations incl. top-level commands gated off) |
+| [ADR-0031](./ADR-0031.md) | Accepted | TextGen surface: textgen-v1 contract pin @d23205af and read-surface adoption; #458 amendment adopts confirm-gated `generate` via `plugin_call.stdin` (transient results, watch-next-prompt/config still gated) |
+| [ADR-0032](./ADR-0032.md) | Accepted | Controls surface: controls-v1 contract pin @d23205af and gated mutation adoption (send/rename/read stay bridge-owned) |
+| [ADR-0033](./ADR-0033.md) | Accepted | Secrets/Machines/MCP surfaces: secrets-v1/machines-v1/mcp-v1 pins @d23205af — value guarantee, read-only machines, mcp diagnostics |

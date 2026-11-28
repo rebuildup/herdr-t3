@@ -3,7 +3,7 @@
  *
  * `rebuildup.git` on the pane's host owns repository reads through the
  * `herdr-plugins.git/v1` contract, pinned at
- * rebuildup/herdr-plugins@d057830 (release-0-2-0, strict option parsing —
+ * rebuildup/hoxay-plugins@d057830 (release-0-2-0, strict option parsing —
  * ADR-0018): `status`, `files`,
  * `diff`, `log`, `compare`, `capability`. Hosts may still run the older
  * Stage-1 build (`status`/`diff`/`project` only, drifted `diff`/`stat`
@@ -20,6 +20,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 import { pluginCall } from "../lib/api";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail, pluginErrorFields } from "./pluginErrors";
 
 export const GIT_PLUGIN_ID = "rebuildup.git";
 export const GIT_CONTRACT_PREFIX = "herdr-plugins.git/";
@@ -475,39 +476,29 @@ export function gitCapabilityFromDoc(doc: Record<string, unknown>): GitCapabilit
 
 /**
  * Classify a plugin_call failure into boundary unavailability or a
- * plugin-side repository error. Unknown codes stay `error`/`git_error`
- * rather than collapsing into a fake success.
+ * plugin-side repository error. Boundary codes — including
+ * `plugin_timeout`/`plugin_exec_failed`, which previously fell through
+ * to `git_error` (issue #538) — map via the shared `pluginBoundaryReason`
+ * table. Unknown codes stay `error`/`git_error` rather than collapsing
+ * into a fake success.
  */
 export function classifyGitError(error: unknown): GitStatusState & { kind: "unavailable" | "repo_error" } {
-  const code = (error as { code?: string })?.code ?? "";
-  const detail = error instanceof Error ? error.message : String(error);
+  const code = pluginErrorCode(error);
+  const detail = pluginErrorDetail(error);
   // Bounded contract extras forwarded by the bridge (issue #257).
-  const rawFields = (error as { fields?: unknown })?.fields;
-  const fields = isRecord(rawFields) ? rawFields : undefined;
-  switch (code) {
-    case "plugin_not_installed":
-      return { kind: "unavailable", reason: "not_installed", detail };
-    case "plugin_disabled":
-      return { kind: "unavailable", reason: "disabled", detail };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { kind: "unavailable", reason: "incompatible", detail };
-    case "plugin_host_unreachable":
-    case "machine_unavailable":
-    case "connect_failed":
-    case "unreachable":
-      return { kind: "unavailable", reason: "unreachable", detail };
-    default:
-      if (REPO_ERROR_KINDS.has(code)) {
-        return fields === undefined
-          ? { kind: "repo_error", code, detail }
-          : { kind: "repo_error", code, detail, fields };
-      }
-      return fields === undefined
-        ? { kind: "repo_error", code: "git_error", detail }
-        : { kind: "repo_error", code: "git_error", detail, fields };
+  const fields = pluginErrorFields(error);
+  const boundary = pluginBoundaryReason(code);
+  if (boundary !== null) {
+    return { kind: "unavailable", reason: boundary, detail };
   }
+  if (REPO_ERROR_KINDS.has(code)) {
+    return fields === undefined
+      ? { kind: "repo_error", code, detail }
+      : { kind: "repo_error", code, detail, fields };
+  }
+  return fields === undefined
+    ? { kind: "repo_error", code: "git_error", detail }
+    : { kind: "repo_error", code: "git_error", detail, fields };
 }
 
 /* ------------------------------ store -------------------------------- */

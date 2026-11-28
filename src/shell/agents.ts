@@ -69,6 +69,73 @@ export const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
  */
 export const COLLAPSIBLE_AGENT_SECTIONS: readonly AgentSection[] = AGENT_SECTIONS;
 
+/**
+ * Progressive disclosure inside an expanded shelf (issue #389, T3
+ * `Sidebar.tsx` settled tail + `ThreadDetailsMoreButton`): capped
+ * sections render their initial window and reveal a page more per
+ * "Show N more" click — sizes come from `agentShelfInitialLimit` /
+ * `agentShelfPage` (Working: 4/4 per issue #418; others: 10/25).
+ * Attention is exempt — blocked agents must never sit behind a
+ * disclosure.
+ */
+export const AGENT_SHELF_INITIAL_VISIBLE = 10;
+export const AGENT_SHELF_PAGE = 25;
+export const UNCAPPED_AGENT_SECTIONS: readonly AgentSection[] = ["attention"];
+
+/**
+ * Working is the high-churn shelf: it opens at 4 rows and reveals 4 per
+ * "Show N more" so the dock stays compact while agents cycle through
+ * (issue #418). Other shelves keep the T3 settled-tail sizes above.
+ */
+export const AGENT_SHELF_WORKING_INITIAL_VISIBLE = 4;
+export const AGENT_SHELF_WORKING_PAGE = 4;
+
+export function agentShelfInitialLimit(section: AgentSection): number {
+  return section === "working"
+    ? AGENT_SHELF_WORKING_INITIAL_VISIBLE
+    : AGENT_SHELF_INITIAL_VISIBLE;
+}
+
+export function agentShelfPage(section: AgentSection): number {
+  return section === "working" ? AGENT_SHELF_WORKING_PAGE : AGENT_SHELF_PAGE;
+}
+
+/** Stable identity for shelf-row matching (route pinning, tests). */
+export function agentShelfEntryKey(entry: AgentListEntry): string {
+  return `${entry.machine.id}:${entry.agent.pane_id}`;
+}
+
+/**
+ * Which rows an expanded/collapsed shelf renders (issue #389, T3
+ * `routeThreadOnly` + settled tail):
+ * - collapsed: only the route-selected agent row survives — the shelf
+ *   header count still reports the full membership;
+ * - expanded + capped: first `limit` rows, with the route row kept even
+ *   when it falls beyond the cap (T3 appends the route thread the same
+ *   way);
+ * - expanded + uncapped (`limit === null`): everything.
+ * `hidden` counts rows still behind the disclosure.
+ */
+export function shelfRows(
+  list: readonly AgentListEntry[],
+  expanded: boolean,
+  limit: number | null,
+  routeKey: string | null,
+): { visible: AgentListEntry[]; hidden: number } {
+  const isRoute = (entry: AgentListEntry) =>
+    routeKey !== null && agentShelfEntryKey(entry) === routeKey;
+  if (!expanded) {
+    return { visible: list.filter(isRoute), hidden: 0 };
+  }
+  if (limit === null) {
+    return { visible: [...list], hidden: 0 };
+  }
+  const visible = list.slice(0, limit);
+  const route = list.find(isRoute);
+  if (route !== undefined && !visible.includes(route)) visible.push(route);
+  return { visible, hidden: list.length - visible.length };
+}
+
 export function agentSection(status: AgentStatus): AgentSection {
   switch (status) {
     case "blocked":

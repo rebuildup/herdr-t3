@@ -250,3 +250,16 @@ export function useWorkspaceBranch(
 export function useWorkspaceBranchIndex(): ReadonlyMap<string, string> {
   return useSyncExternalStore(subscribe, () => branchIndex);
 }
+
+/**
+ * Branch name for one workspace from the live cache, or undefined while
+ * unresolved/none (issue #428). Non-hook read for snapshot-driven
+ * producers like attention notices — it only sees what
+ * syncWorktreeBranches already fetched, never triggers an RPC itself.
+ */
+export function workspaceBranch(
+  machine: string,
+  workspaceId: string,
+): string | undefined {
+  return branchIndex.get(indexKey(machine, workspaceId));
+}

@@ -280,7 +280,24 @@ export interface MachineInfo {
 /** Client -> server WebSocket frames. `machine` selects the endpoint; absent means local. */
 export type ClientFrame =
   | { type: "rpc"; id: string; method: RpcMethod; params: Record<string, unknown>; machine?: string }
-  | { type: "subscribe_terminal"; paneId: string; cols?: number; rows?: number; machine?: string; takeover?: boolean }
+  | {
+      type: "subscribe_terminal";
+      paneId: string;
+      cols?: number;
+      rows?: number;
+      machine?: string;
+      takeover?: boolean;
+      /**
+       * Attach mode (issue #571): `true`/absent = writable AttachTerminal
+       * (resize authority + input); `false` = read-only ObserveTerminal
+       * stream that does not touch pane size, focus or scroll ownership.
+       * Re-sending subscribe_terminal for a live paneId with a different
+       * `writable` negotiates the mode on the existing slot — the bridge
+       * re-attaches the link without dropping queued ops — while a repeat
+       * with the same `writable` counts as an ordinary extra reference.
+       */
+      writable?: boolean;
+    }
   | { type: "unsubscribe_terminal"; paneId: string; machine?: string }
   /** `data` is base64 bytes: encoded keys/mouse/paste and engine replies are arbitrary bytes, not necessarily UTF-8. */
   | { type: "terminal_input"; paneId: string; data: string; machine?: string }
@@ -326,6 +343,10 @@ export type ClientFrame =
    * `<plugin_root>/src/cli.ts <command> [args]` as argv — never through
    * a forwarded socket and never by reading plugin state files.
    * `args` are argv elements; the bridge adds no shell interpolation.
+   * `stdin` is written to the child's stdin and closed immediately —
+   * contracts that read a payload from stdin (e.g. textgen-v1 `generate`)
+   * need it because `--input FILE` has no remote write channel; it is
+   * bounded and never logged.
    */
   | {
       type: "plugin_call";
@@ -334,6 +355,7 @@ export type ClientFrame =
       plugin: string;
       command: string;
       args?: string[];
+      stdin?: string;
       timeout_ms?: number;
     };
 
@@ -403,6 +425,7 @@ export const RPC_METHODS = [
   "pane.clear",
   "layout.set_split_ratio",
   "pane.send_text",
+  "pane.send_input",
   "pane.send_keys",
   "agent.get",
   "agent.prompt",
@@ -422,6 +445,28 @@ export const RPC_METHODS = [
 
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
+/**
+ * RPC methods that cannot mutate session state (issue #423). A successful
+ * call to one of these never schedules a snapshot refetch; every other
+ * method keeps the post-RPC refresh as a belt-and-suspenders for mutations
+ * herdr does not emit events for. `session.snapshot` is the fetch itself —
+ * refreshing after it would amplify read traffic into more fetches.
+ * Unknown/future methods default to refreshing (conservative).
+ */
+export const READ_ONLY_RPC_METHODS = [
+  "session.snapshot",
+  "agent.get",
+  "agent.read",
+  "agent.explain",
+  "pane.process_info",
+  "pane.link.resolve",
+  "worktree.list",
+] as const;
+
+export function isReadOnlyRpcMethod(method: string): boolean {
+  return (READ_ONLY_RPC_METHODS as readonly string[]).includes(method);
+}
+
 /* ------------------------------------------------------------------ */
 /* Plugin contract boundary types (ADR-0011)                            */
 /* ------------------------------------------------------------------ */
@@ -434,10 +479,63 @@ export interface PluginListEntry {
   enabled: boolean;
   plugin_root: string;
   description?: string;
+  /**
+   * Lowest herdr version the plugin supports (`plugin_list`'s
+   * `min_herdr_version`, e.g. "0.9.0"). Absent on hosts/plugins that do
+   * not report it — never fabricated.
+   */
+  min_herdr_version?: string;
+  /** OS ids the plugin supports (`plugin_list`'s `platforms`). */
+  platforms?: string[];
 }
 
 export interface PluginListResult {
   plugins: PluginListEntry[];
+}
+
+/**
+ * Compare two dotted-numeric versions ("0.9.5" vs "0.9.0"). Parses the
+ * leading `v?\d+(\.\d+)*` prefix and pads missing components with 0, so
+ * "0.9" equals "0.9.0". Returns null when either side has no numeric
+ * version prefix — callers must treat null as "unknown", never as equal.
+ */
+export function compareVersions(a: string, b: string): number | null {
+  const parse = (v: string): number[] | null => {
+    const match = /^\s*v?(\d+(?:\.\d+)*)/.exec(v);
+    const digits = match?.[1];
+    if (digits === undefined) return null;
+    return digits.split(".").map((part) => Number.parseInt(part, 10));
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return null;
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i++) {
+    const l = left[i] ?? 0;
+    const r = right[i] ?? 0;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * ADR-0011 §10 version-skew check for one `plugin_list` entry against the
+ * machine's reported herdr version. Returns a display-ready detail string
+ * only when the host herdr is *definitively* older than the plugin's
+ * `min_herdr_version`; null when compatible or when either version is
+ * unknown — missing data never blocks a surface.
+ */
+export function pluginHerdrSkew(
+  entry: Pick<PluginListEntry, "min_herdr_version">,
+  hostVersion: string | undefined,
+): string | null {
+  const min = entry.min_herdr_version;
+  if (typeof min !== "string" || min.length === 0 || hostVersion === undefined) {
+    return null;
+  }
+  const cmp = compareVersions(hostVersion, min);
+  if (cmp === null || cmp >= 0) return null;
+  return `requires herdr >= ${min} (host reports ${hostVersion})`;
 }
 
 /**
@@ -485,7 +583,8 @@ export function isClientFrame(value: unknown): value is ClientFrame {
         typeof paneId === "string" &&
         paneId.length > 0 &&
         machineOk &&
-        (frame["takeover"] === undefined || typeof frame["takeover"] === "boolean")
+        (frame["takeover"] === undefined || typeof frame["takeover"] === "boolean") &&
+        (frame["writable"] === undefined || typeof frame["writable"] === "boolean")
       );
     case "unsubscribe_terminal":
       return typeof paneId === "string" && paneId.length > 0 && machineOk;
@@ -576,11 +675,13 @@ export function isClientFrame(value: unknown): value is ClientFrame {
             frame["args"].every(
               (a) => typeof a === "string" && a.length <= 4096 && !a.includes("\0"),
             ))) &&
+        (frame["stdin"] === undefined ||
+          (typeof frame["stdin"] === "string" && frame["stdin"].length <= 262144)) &&
         (frame["timeout_ms"] === undefined ||
           (typeof frame["timeout_ms"] === "number" &&
             Number.isInteger(frame["timeout_ms"]) &&
             frame["timeout_ms"] >= 500 &&
-            frame["timeout_ms"] <= 120_000))
+            frame["timeout_ms"] <= 600_000))
       );
     default:
       return false;

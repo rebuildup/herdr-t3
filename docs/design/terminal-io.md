@@ -141,6 +141,47 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
   モードでのみ有効 (現行維持)。
 - テキスト選択のコピーは `copy` event 経路 (Cmd/Ctrl+C) で DOM selection
   ではなく engine の `textOf(selection)` を使う (現行維持)。
+- Copy on select (issue #440): Settings > Terminal の
+  `copyOnSelect` (既定 OFF) が ON のとき、ユーザーがローカル選択を
+  **確定**した時点 (ドラッグの pointer-up、ダブル/トリプルクリックの
+  word/line 拡大。逆方向ドラッグ・端オートスクロール含む) で、確定した
+  選択本文を OS clipboard へ一度だけ書き込む。core は確定ごとに
+  `selection_commit{text}` effect を `selection_change` の直後へ 1 回
+  だけ発行し、ドラッグ途中・tick・wheel/scroll・出力・検索結果選択・
+  `pointerCancel`・空選択・`clearSelection` では発行しない
+  (`selection_change` は clear/invalidate でも飛ぶ通知であり、確定
+  信号とは区別する)。clipboard 書き込みは host 層
+  (`PaneTerminal` → `src/lib/selectionCopy.ts`) が設定を commit ごとに
+  読んで行い、書き込みは commit 順に直列化する — 遅い write が新しい
+  コピーを上書きしない。失敗は握り潰し、本文をログ・外部送信しない。
+  明示 copy・OSC 52 (`onClipboardWrite`)・#429 の構造化コピー経路とは
+  独立に共存する。
+- 選択オーバーレイの一時応答 (issue #441): 選択の **形状** (wash の
+  範囲) は常に pointer に即時追従し、遅延も補間もしない。その上で
+  短い視覚フィードバックだけを重ねる — ドラッグで範囲が最初に
+  非空になった瞬間の `enter` フェードイン (逆方向ドラッグで一度
+  空になり再び伸びたときも再発火)、pointer-up 確定時の `commit`
+  パルス、明示 copy / copy-on-select の書き込み成功時の `copy`
+  アクセント帯、選択が消えるときの `clear` フェードアウト。core は
+  `render_selection_fx{kind,range?}` effect で発火タイミングだけを
+  決め、進行度 `progress` は host の rAF が供給する。`clear` は
+  消えた直後の範囲を履歴座標で運び、表示中のコンテンツに追従して
+  フェードする。座標の信頼性を失う invalidate (reflow/prune) では
+  `cancel` で再生中の応答を止める。reduced-motion / forced-colors
+  では応答自体を出さず即時切替に縮退し、非表示・画面外・dispose
+  では中断してベースフレームへ戻る。paint 側は選択 wash の alpha
+  と専用アクセントのみを変え、text surface は再描画しない
+  (overlay canvas のみ)。契約は `terminal-surface.md` /
+  `terminal-render.md`、differential scenario は
+  `terminal.surface-selection-fx` / `terminal.scene-selection-fx`。
+- ドラッグ選択のアンカーは pointer-down 時点のセルに固定し、移動端点と
+  独立して保持する。表示・コピー時のみ `ordered()` で正規化する
+  (issue #427 — 正規化済み start を次のアンカーに再利用すると逆方向
+  ドラッグで開始点が失われる)。viewportTop の追従 (selection carry)
+  が走るときは進行中ドラッグのアンカーも同じ delta で移し、出力追記で
+  アンカーが取り残されないようにする。TS `surfaceCore` と Rust
+  `terminal-surface` および differential scenario
+  `terminal.surface-select-reverse` がこの契約を共有する。
 
 ### 5.3 GUI が握り潰してはいけないもの
 
@@ -189,12 +230,99 @@ pane が要求した mouse mode (`session.modes().mouse`) と format
     `pane.focus` が upstream で修正されれば追加実装不要。`AttachFocus`
     採用時のみ attach link への薄い配線が必要。
 
+### 5.5 ホスト側スクロールと選択投影 (issues #433/#436)
+
+attach 経路では wheel/trackpad scroll が `terminal_scroll` → herdr
+`AttachScroll` として **server 側** で処理されるため、クライアント
+engine の `scrollJump`/`scrollOffset` は更新されない。選択・検索
+highlight は engine の履歴座標 (absolute row) に保存したまま、
+**投影時にだけ** ホストの表示位置を差し引く:
+
+- herdr は `PaneInfo.scroll`
+  (`{offset_from_bottom, max_offset_from_bottom, viewport_rows}`) と
+  `pane.scroll_changed` subscription event で権威ある scroll 状態を
+  push する。bridge は attach 中の全 pane に対してこの購読を張り、
+  `pane.scroll` RPC で絶対 offset を設定できる。
+- `SurfaceCore.hostScrollChanged` が受け取るたびに
+  `shift = offset_from_bottom - appends` を再計算する
+  (`appends` は scroll 中の scrollback 増加分 — pin された表示内容を
+  保つため)。`render_set_viewport_shift` effect として scene/renderer
+  へ伝え、selection/highlight の wash は
+  `viewportTop - shift` を投影原点に使う (TS `scene.ts` /
+  Rust `terminal-render`)。`cellAt`・mouse report 座標も同じ
+  effective top を使う。
+- **選択の y 座標は書き換えない** — `textOf`/copy が engine 履歴を
+  引くため、座標を動かすとコピー内容が壊れる。投影だけをずらす。
+- `viewport_rows` の変化 (resize/reflow) または `max` の縮小
+  (history prune) は座標の信頼性を失うため、selection と highlights
+  を明示的に invalidate する (残しておくと別の行を highlight する)。
+- **選択ドラッグ中の viewport 端オートスクロール (issue #433)**:
+  pointer がグリッド外へ出ても select drag は継続し、ポインタ位置を
+  cell 単位の float で保持する。最外周 1 行またはオーバーシュート
+  で edge zone に入り、`tick()` が `scroll_request {direction, lines}`
+  を毎フレーム発行する (速度はオーバーシュート距離で逓増、行数で
+  クランプ)。ホストはこれを `pane.scroll` へ写像し、結果は
+  `pane.scroll_changed` → `hostScrollChanged` で戻る。wheel 経路
+  (`AttachScroll`) は select drag 中には使わない — TUI の mouse
+  report との arbitration を避けるため。pointerup/cancel/dispose で
+  停止する。
+- アンカー契約は §5.2 (issue #427) を共有する: アンカーは engine
+  履歴座標で固定、移動端は pointer の cell 座標から effective
+  viewport top 経由で毎フレーム再導出するため、ホスト駆動の
+  スクロールに追従して選択が伸びる。
+- TS `surfaceCore` / Rust `terminal-surface` の両 adapter が同一
+  契約を持ち、differential scenario `terminal.surface-host-scroll`
+  (core) と `terminal.scene-viewport-shift` (投影) が固定する。
+
 ## 6. Paste / clipboard
 
-- `paste` event → `session.encodePaste` (mode 2004 bracketed paste を
-  pane が要求していれば bracket で包む)。
+- `paste` event → `onPasteText` → herdr `pane.send_input` (issue #434)。
+  TerminalAnsi attach ストリームは pane の画面を再エンコードした blit
+  であり DECSET 系列を一切含まないため、クライアント engine の
+  mode 2004 は常に off で `encodePaste` は絶対に bracket しない
+  (改行が CR 化され行ごとに実行される不具合の根因)。herdr 側は
+  `pane.send_input` が text を `encode_api_text` に通し、pane runtime
+  の `bracketed_paste_enabled()` を見て `\x1b[200~…\x1b[201~` で包む
+  ため、mode の正本は server に残る (keys は空で送り、text のみが
+  符号化される)。`pane.send_text` は生バイトをそのまま書き込む
+  literal-text 経路であり paste には使わない — PaneMessageDialog /
+  artifacts の意図的な literal 配送だけが残る。`sanitizePasteText`
+  が body 中の ESC を空白化し、server 側 wrapper を早期終了させる
+  注入を防ぐ (libghostty encoder と同じ最小規則)。attach プロトコルが
+  paste mode を push するようになれば (herdrdev/herdr#6215)、
+  engine `encodePaste` 経路へ戻せる。
+- `pane.send_input` と herdr 本来の paste 経路 (`try_send_paste` →
+  `paste_payload`) の残差: 前者は `encode_api_text` のみで、Windows
+  での改行正規化 (`prepare_paste_text_for_pty`、LF→CRLF) と
+  `scroll_reset` を行わない。0.9.5 時点で paste を bracket する
+  JSON-RPC は `pane.send_input` のみであり、herdr CLI 自身も
+  `pane run` を同経路で送る。upstream が `pane.send_text` の wrap か
+  専用 paste RPC を入れた場合はそちらへ移行する。
+- mode off (pane が 2004 を要求していない) の複数行 paste は
+  bracket なしの生バイトとして届き、readline 系では改行が
+  accept-line として働き得る — これは標準端末の unbracketed paste
+  意味論であり、client 側で改行を除去/置換して見かけ上安全化は
+  しない (issue #434 要求)。mode on の TUI/agent pane では
+  一括 paste として配送される。
+- **暫定経路と本来契約の差異・移行条件 (issue #434)**: 現行は
+  `pane.send_input` RPC 経由で、attach `Input` ストリームとは別
+  チャネルのため、paste 直後のキー入力との配送順序は server 側の
+  処理順に依存する (同一 pane への連続操作では実害は稀だが、
+  厳密な順序保証はない)。本来契約は attach ストリーム上の
+  `encodePaste` で、兄弟のキー/マウス入力と同じ順序列を保つ。
+  差異は3点: (1)配送チャネルと順序、(2) mode off 時の改行変換
+  (engine は LF→CR、send_input は LF のまま — readline ではどちらも
+  accept-line になり得るため実害は同等)、(3) body の制御文字処理
+  (engine は C0 を空白化、暫定経路は ESC のみ空白化)。
+  移行条件: herdrdev/herdr#6215 (attach への pane mode-state
+  push、MouseCapture variant 8 と同型) が採用された時点で
+  `onPasteText` 配線を外し `encodePaste` へ戻す。それまでは
+  `pane.send_input` が mode の正本を持つため機能差はない。
 - OSC 52 等の clipboard write は `onClipboardWrite` →
   `navigator.clipboard.writeText` (現行維持)。
+- 構造化コピー (issue #429): pane コンテキストメニューの
+  「Copy output…」が transcript/scrollback/pattern の候補から
+  明示コピーする経路。詳細契約は `docs/design/report-copy.md`。
 
 ## 7. 契約テスト要件 (#155 と連携)
 

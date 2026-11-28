@@ -42,7 +42,8 @@ so runtimes need no canvas-state memory to reproduce it.
   7. Row text (below).
   8. Kitty images on layer 2 clipped to the band.
 - Pending set cleared. Overlay ops appended for the overlay layer:
-  clear, selection wash, search-match washes, cursor.
+  clear, selection wash (+ transient fx ops), search-match washes,
+  cursor.
 
 Row text, per run (skipped entirely when `flags & INVISIBLE`):
 
@@ -88,6 +89,20 @@ Background image (`backgroundDest`, pure geometry):
 
 Overlay (always repaints fully):
 
+- Transient selection response (issue #441): `setSelectionFx(fx)` stores
+  a host-clocked `SelectionFx` — `{kind:"enter"|"commit"|"copy",
+  progress}` tracking the live selection, or `{kind:"clear", progress,
+  range}` carrying its own history-coordinate range. `progress` is
+  linear [0,1]; the scene owns the curves: `enter` multiplies the
+  selection-wash alpha by `easeOutCubic(p)` (boundary geometry is never
+  delayed), `commit` adds a second wash at `0.55 * 4p(1-p)`, `copy`
+  adds a `0.85 * 4p(1-p)` accent strip (`max(1, cellH*0.12)` tall) along
+  the bottom edge of each selected row segment in `options.cursor`,
+  and `clear` washes `fx.range` at `1 - p` after the selection is gone.
+  `progress >= 1` converges to the base frame. `invalidate()` drops the
+  fx; `setSelectionFx(null)` clears it. `renderOverlay()` returns the
+  overlay ops only so a host can repaint just that layer between full
+  frames.
 - Selection wash then each search highlight, color
   `options.selection ?? "rgba(120,160,255,0.28)"` /
   `options.search ?? "rgba(250,204,21,0.22)"`.
@@ -95,10 +110,22 @@ Overlay (always repaints fully):
   viewportTop+rows-1)`; per row `from = y==start.y ? start.x : 0`,
   `to = y==end.y ? end.x : cols-1`; skip when `to < from`.
 - Cursor when `cursorOn` and `cursorState().visible` and
-  `x < cols && y < rows`: `bar` → fill `max(2, cellW*0.12) × cellH`;
+  `x < cols && y < rows`. A cursor on a wide character's tail column
+  (`wideTail`) is normalized to the head column and covers both cells;
+  a cursor on a wide head cell covers both cells the same way.
+  Cursor colours resolve `cursor-color`/`cursor-text` specs against
+  the cursor cell's effective fg/bg (post-INVERSE): the keywords
+  `cell-foreground`/`cell-background` name those colours, anything else
+  is a literal CSS colour; unset `cursor-text` defaults to `background`.
+  `bar` → fill `max(2, cellW*0.12) × cellH` at the head column;
   `underline` → `cellW × max(1, cellH*0.12)` at `y + cellH*0.82`;
-  `hollow` → stroke rect inset 0.5, width 1; `block` (default) → fill
-  whole cell at alpha 0.35.
+  `hollow` → stroke rect inset 0.5 spanning the covered cells, width 1;
+  `block` (default) → opaque `fill_rect` of the covered cells in the
+  cursor colour at alpha 1, then each covered cell's grapheme redrawn
+  as `fill_text` in the cursor-text colour at alpha 1 (skipped for
+  spaces, empty text and INVISIBLE runs; the run's bold/italic font
+  and exact cell x are kept). This is the Ghostty inversion cursor —
+  the former alpha-0.35 wash was removed in issue #382.
 
 ## Metrics provider
 

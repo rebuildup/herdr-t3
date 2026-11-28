@@ -17,11 +17,12 @@ evidence is collected at RC freeze — see below).
 
 | Gate | Verdict | Note |
 |---|---|---|
-| contracts-registry | PASS | 56 capabilities, 12 contracts, validator + self-test in CI |
+| contracts-registry | PASS | 70 capabilities, 26 contracts, validator + self-test in CI |
 | differential-harness | PASS | codec/terminal/projection scenarios; TS + Rust adapters parity (attach-codec reference + product protocol.codec) |
 | persistence-compat | PASS | format rules frozen; fault-injection contract tests; live-profile OS evidence → RC |
 | performance-baseline | PASS | reproducible bench + gate + first baseline; comprehensive suite → RC |
 | ui-conformance | PASS | real Electron (CDP) + GPUI test-host adapters run the same scenarios; fault-injection FAIL evidence recorded under `harness/ui/evidence/` |
+| design-conformance | PASS | `design-system@1` contract + canonical T3 sources (conformance-audit, verification matrix, tokens, primitives, surfaceLayout) present; B6 capabilities must pin it; per-capability proof is cutover/equivalence evidence + T3-reference visual review (#412) |
 | os-real-device | DEFERRED | real-device/IME/clipboard/packaged evidence at RC freeze on same SHA |
 
 A BLOCKED/DEFERRED gate is a correct state, not a failure — it means
@@ -71,12 +72,20 @@ report.
    `terminal.scene` at `rust-implemented`. `terminal.input` likewise
    landed (#304): `crates/terminal-input` ports `inputPolicy.ts` +
    `keys.ts` under contract `terminal-input@1`.
-   Remaining: the `surface.ts` orchestration layer (selection/scroll/
-   IME coalescing) — #301 open — then a Rust surface consumer and the
-   ui-conformance render assertions.
+   #301 landed the `surface.ts` remainder: `surfaceCore.ts` is the
+   DOM-free state machine (contract `terminal-surface@1`) and
+   `crates/terminal-surface` mirrors it in Rust; the `terminal/surface`
+   + `terminal/surface-fresh` scenarios pass differentially (54+11
+   steps covering scroll/selection/click-widening/mouse+wheel reports/
+   keys/IME/readOnly/dispose) with 9 Rust integration tests.
+   Remaining: a Rust surface consumer (GPUI view) and the
+   ui-conformance render assertions — tracked under #305+.
 5. **pane/UI/settings shell** (B6): ui-conformance gate is PASS
-   (Electron + GPUI host evidence recorded); remaining prerequisite is
-   the terminal/render pipeline (boundary 4) it renders.
+   (Electron + GPUI host evidence recorded); design-system conformance
+   is contract-bound via `design-system@1` (#412) and proven per
+   capability at cutover by T3-reference visual review; remaining
+   prerequisite is the terminal/render pipeline (boundary 4) it
+   renders.
 6. **native shell/OS/distribution** (B7/B8): last; depends on
    persistence-compat migration plan execution + pc-setup coordination
    (upstream dependency, explicit Issue required before any pc-setup
@@ -92,11 +101,22 @@ remaining work before old-path removal:
 
 | Capability | rust-implemented | switched (product consumer) | old impl removal |
 |---|---|---|---|
-| protocol.codec | #275/#277 | needs Rust bridge consumer | shared/protocol.ts codec path |
-| agent.projection | #281 (+#287 perf, #288 conformance) | needs Rust consumer | src/lib/workspace.ts, src/shell/agents.ts |
-| terminal.engine | #286 | needs Rust consumer | shared/ghostty engine/session TS path |
-| terminal.scene | #298 | needs Rust consumer | renderer.ts Canvas2D path |
-| terminal.input | #304 | needs Rust consumer | inputPolicy.ts/keys.ts call sites |
+| protocol.codec | #275/#277 + #315 (**switched**: ingress guards → protocol-codec.wasm via shared/protocolWasm.ts; encode/decode ops have no product call sites) | old impl removal — #359 | shared/protocol.ts codec path |
+| agent.projection | #281 (+#287 perf, #288 conformance) + #316 (**equivalence-verified**: agent_view_model/workspace_view_model ops + facade + consumer-path tests; wasm consumer measured ~21ms/~10ms per call at 200 agents vs ~0.8ms/~0.05ms TS — state-scale payloads are outside ADR-0025 small-data scope, Electron keeps TS) | switched with GPUI cutover — Rust runs natively | src/lib/workspace.ts, src/shell/agents.ts |
+| terminal.engine | #286 | no transitional consumer — switches with GPUI surface (ADR-0025) — #317 re-scoped | shared/ghostty engine/session TS path |
+| terminal.scene | #298 | no transitional consumer — switches with GPUI surface (ADR-0025) — #318 re-scoped | renderer.ts Canvas2D path |
+| terminal.input | #304 + #319 (**switched**: inputRuntime facade → terminal-input.wasm; TS fallback retained for rollback) | old impl removal — #348 | inputPolicy.ts/keys.ts call sites |
+| terminal.surface | #301 | no transitional consumer — switches with GPUI surface (ADR-0025) — #320 re-scoped | surfaceCore.ts/surface.ts product path |
+
+Connection mechanism decided by ADR-0025 (#314): small-data
+call-shaped capabilities consume Rust via wasm32 modules inside the
+consuming runtime (measured ~15 ns/call + payload serialization, no
+codesign delta); per-frame capabilities (`terminal.engine`/`scene`/
+`surface`) get **no** transitional consumer — their `switched` step is
+the GPUI surface cutover itself, since any bridge would mandate
+serialize+copy of frame-sized data the end-state does not need.
+Sidecar processes and napi+IPC were measured and rejected for these
+payload shapes.
 
 `equivalence-verified` additionally requires consumer-path
 differential evidence; `switched` flips the product path; removal
@@ -108,6 +128,21 @@ performance within recorded threshold, persistence round-trip where
 state is involved, OS evidence per `os.*` capability rows, and the
 capability's registry `stage` advanced with evidence refs (the
 readiness checker rejects stage claims without them).
+
+## Release trains (issue #386)
+
+The GPUI migration program (#233 and children) targets the **next**
+release train once v0.6.0 RC converges: ticket PRs for #305, #322–#329,
+#317/#318/#320, and deferred removals #348/#359 target `release-0-7-0`,
+not `release-0-6-0`. Work already merged into `release-0-6-0` (e.g.
+`crates/herdr-bridge`, ui-kit, state-projections view-model ops) is the
+shared foundation and is not reverted.
+
+Train-to-train propagation uses the release-sync path added to
+`release-path.yml`: an older `release-*` may merge into a newer one
+(numeric version order enforced), so v0.6.0 fixes flow into
+`release-0-7-0` via sync PRs. `release-* -> main` keeps its explicit
+maintainer authorization boundary.
 
 ## Standing rules
 

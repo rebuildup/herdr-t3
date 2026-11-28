@@ -1,0 +1,194 @@
+{
+  "format": "herdr-t3/ui-evidence",
+  "version": 1,
+  "adapter": "electron",
+  "scenario": "shell.goto-picker-navigation",
+  "capability": "ui.goto-picker",
+  "contract": "ui-shell@1",
+  "fixture": "goto-picker",
+  "pass": true,
+  "injected_fault": null,
+  "git_sha": "451d8a4ee27a73e9a8940506be939b8d69fbf866",
+  "recorded_at": "2026-11-28T04:48:06.537Z",
+  "steps": [
+    {
+      "index": 0,
+      "kind": "assert",
+      "name": "state.goto_open",
+      "ok": true,
+      "duration_ms": 706
+    },
+    {
+      "index": 1,
+      "kind": "action",
+      "name": "activate nav.goto",
+      "ok": true,
+      "duration_ms": 5658
+    },
+    {
+      "index": 2,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true,
+      "duration_ms": 504
+    },
+    {
+      "index": 3,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true,
+      "duration_ms": 218
+    },
+    {
+      "index": 4,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true,
+      "duration_ms": 236
+    },
+    {
+      "index": 5,
+      "kind": "action",
+      "name": "type goto.input",
+      "ok": true,
+      "duration_ms": 444
+    },
+    {
+      "index": 6,
+      "kind": "wait",
+      "name": "wait goto.row_count",
+      "ok": true,
+      "duration_ms": 217
+    },
+    {
+      "index": 7,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true,
+      "duration_ms": 10
+    },
+    {
+      "index": 8,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true,
+      "duration_ms": 206
+    },
+    {
+      "index": 9,
+      "kind": "action",
+      "name": "select goto.row",
+      "ok": true,
+      "duration_ms": 2054
+    },
+    {
+      "index": 10,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true,
+      "duration_ms": 2855
+    },
+    {
+      "index": 11,
+      "kind": "wait",
+      "name": "wait state.selected_workspace",
+      "ok": true,
+      "duration_ms": 531
+    },
+    {
+      "index": 12,
+      "kind": "assert",
+      "name": "state.selected_workspace",
+      "ok": true,
+      "duration_ms": 6
+    },
+    {
+      "index": 13,
+      "kind": "wait",
+      "name": "wait state.focused_pane",
+      "ok": true,
+      "duration_ms": 207
+    },
+    {
+      "index": 14,
+      "kind": "assert",
+      "name": "state.focused_pane",
+      "ok": true,
+      "duration_ms": 6
+    },
+    {
+      "index": 15,
+      "kind": "action",
+      "name": "activate nav.goto",
+      "ok": true,
+      "duration_ms": 6179
+    },
+    {
+      "index": 16,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true,
+      "duration_ms": 716
+    },
+    {
+      "index": 17,
+      "kind": "assert",
+      "name": "goto.query",
+      "ok": true,
+      "duration_ms": 624
+    },
+    {
+      "index": 18,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true,
+      "duration_ms": 307
+    },
+    {
+      "index": 19,
+      "kind": "action",
+      "name": "type goto.input",
+      "ok": true,
+      "duration_ms": 562
+    },
+    {
+      "index": 20,
+      "kind": "wait",
+      "name": "wait goto.row_count",
+      "ok": true,
+      "duration_ms": 305
+    },
+    {
+      "index": 21,
+      "kind": "assert",
+      "name": "goto.row_count",
+      "ok": true,
+      "duration_ms": 9
+    },
+    {
+      "index": 22,
+      "kind": "action",
+      "name": "dismiss goto.dialog",
+      "ok": true,
+      "duration_ms": 444
+    },
+    {
+      "index": 23,
+      "kind": "wait",
+      "name": "wait state.goto_open",
+      "ok": true,
+      "duration_ms": 184
+    },
+    {
+      "index": 24,
+      "kind": "assert",
+      "name": "state.selected_workspace",
+      "ok": true,
+      "duration_ms": 238
+    }
+  ],
+  "error": null,
+  "duration_ms": 34872,
+  "ready_ms": 25088,
+  "harness_ms": 11446
+}

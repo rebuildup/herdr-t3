@@ -5,6 +5,7 @@ directories:
 files:
   - dist/**/*
   - desktop/**/*
+  - shared/protocol-codec.wasm
   - package.json
   - "!**/*.map"
 mac:

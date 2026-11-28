@@ -12,12 +12,16 @@ bun run test
 
 printf 'Running differential harness (rust adapter)...\n'
 ./scripts/ghostty-vt/ensure-native.sh
-cargo build -p diff-adapter -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render
-cargo test -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render
+cargo build -p diff-adapter -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface
+cargo test -p protocol-codec -p state-projections -p terminal-core -p terminal-input -p terminal-render -p terminal-surface
 bun harness/run.ts harness/scenarios --adapters rust
 
 printf 'UI lint...\n'
 bun run lint:ui
+
+printf 'Brand icon pipeline...\n'
+bun scripts/check-brand-icons.ts
+bun scripts/check-brand-icons.ts --self-test
 
 printf 'Checking ADR index...\n'
 python3 - <<'PY'
@@ -44,5 +48,9 @@ bun scripts/check-ui-scenarios.ts
 printf 'Checking migration readiness...\n'
 bun scripts/check-migration-readiness.ts
 bun scripts/check-migration-readiness.ts --self-test
+
+printf 'Checking performance contract...\n'
+bun scripts/perf-contract-check.ts
+bun scripts/perf-contract-check.ts --self-test
 
 printf 'All repository checks passed.\n'

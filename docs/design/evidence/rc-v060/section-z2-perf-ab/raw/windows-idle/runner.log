@@ -1,0 +1,25 @@
+2026-11-26T23:20:13.3096243+09:00 sampler started job=1
+2026-11-26T23:20:16.2630068+09:00 record 0e3c14e-idle-r1 wall=2878ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-idle-r1.json
+2026-11-26T23:20:20.9715716+09:00 record 932ce11-idle-r1 wall=2675ms -> C:\Users\rebui\ht3-perf\results\932ce11-idle-r1.json
+2026-11-26T23:20:41.5629883+09:00 record 2febbbf-idle-r1 wall=18568ms -> C:\Users\rebui\ht3-perf\results\2febbbf-idle-r1.json
+2026-11-26T23:21:02.5243722+09:00 record 9bb50cf-idle-r1 wall=18934ms -> C:\Users\rebui\ht3-perf\results\9bb50cf-idle-r1.json
+2026-11-26T23:21:07.3449664+09:00 record 932ce11-idle-r2 wall=2795ms -> C:\Users\rebui\ht3-perf\results\932ce11-idle-r2.json
+2026-11-26T23:21:28.6408205+09:00 record 2febbbf-idle-r2 wall=19266ms -> C:\Users\rebui\ht3-perf\results\2febbbf-idle-r2.json
+2026-11-26T23:21:49.7471628+09:00 record 9bb50cf-idle-r2 wall=19086ms -> C:\Users\rebui\ht3-perf\results\9bb50cf-idle-r2.json
+2026-11-26T23:21:54.7745922+09:00 record 0e3c14e-idle-r2 wall=2995ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-idle-r2.json
+2026-11-26T23:22:16.1155049+09:00 record 2febbbf-idle-r3 wall=19310ms -> C:\Users\rebui\ht3-perf\results\2febbbf-idle-r3.json
+2026-11-26T23:22:37.4864688+09:00 record 9bb50cf-idle-r3 wall=19335ms -> C:\Users\rebui\ht3-perf\results\9bb50cf-idle-r3.json
+2026-11-26T23:22:42.3762549+09:00 record 0e3c14e-idle-r3 wall=2862ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-idle-r3.json
+2026-11-26T23:22:47.1081408+09:00 record 932ce11-idle-r3 wall=2717ms -> C:\Users\rebui\ht3-perf\results\932ce11-idle-r3.json
+2026-11-26T23:23:08.1114720+09:00 record 9bb50cf-idle-r4 wall=18975ms -> C:\Users\rebui\ht3-perf\results\9bb50cf-idle-r4.json
+2026-11-26T23:23:12.7346864+09:00 record 0e3c14e-idle-r4 wall=2596ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-idle-r4.json
+2026-11-26T23:23:17.3714009+09:00 record 932ce11-idle-r4 wall=2622ms -> C:\Users\rebui\ht3-perf\results\932ce11-idle-r4.json
+2026-11-26T23:23:38.2988552+09:00 record 2febbbf-idle-r4 wall=18906ms -> C:\Users\rebui\ht3-perf\results\2febbbf-idle-r4.json
+2026-11-26T23:23:43.2461672+09:00 record 0e3c14e-idle-r5 wall=2923ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-idle-r5.json
+2026-11-26T23:23:48.1918330+09:00 record 932ce11-idle-r5 wall=2916ms -> C:\Users\rebui\ht3-perf\results\932ce11-idle-r5.json
+2026-11-26T23:24:09.4218628+09:00 record 2febbbf-idle-r5 wall=19203ms -> C:\Users\rebui\ht3-perf\results\2febbbf-idle-r5.json
+2026-11-26T23:24:30.8810410+09:00 record 9bb50cf-idle-r5 wall=19430ms -> C:\Users\rebui\ht3-perf\results\9bb50cf-idle-r5.json
+2026-11-26T23:24:36.6306983+09:00 load started: 10 spinner jobs
+2026-11-26T23:25:03.0564433+09:00 record 0e3c14e-loaded-r1 wall=26188ms -> C:\Users\rebui\ht3-perf\results\0e3c14e-loaded-r1.json
+2026-11-26T23:25:16.6103493+09:00 record 932ce11-loaded-r1 wall=11411ms -> C:\Users\rebui\ht3-perf\results\932ce11-loaded-r1.json
+2026-11-26T23:35:38.8771597+09:00 record 2febbbf-loaded-r1 wall=620162ms -> C:\Users\rebui\ht3-perf\results\2febbbf-loaded-r1.json

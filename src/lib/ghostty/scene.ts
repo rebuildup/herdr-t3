@@ -58,12 +58,47 @@ export interface GhosttySceneOptions {
   foreground: string;
   background: string;
   cursor: string;
+  /**
+   * `cursor-text`: the colour block-cursor cell text is redrawn in.
+   * Accepts a CSS colour or the Ghostty keywords `cell-foreground` /
+   * `cell-background`; unset defaults to `background` (issue #382).
+   */
+  cursorText?: string | undefined;
   /** selection and search-match washes, as CSS colours with alpha */
   selection?: string;
   search?: string;
 }
 
 interface Rect { x: number; y: number; w: number; h: number }
+
+/**
+ * A transient selection-overlay response (issue #441, contract
+ * `terminal-render@1`): short, restrained feedback anchored to engine
+ * history coordinates — never to screen pixels — so scrolling keeps it
+ * glued to the same characters and `invalidate()` drops it.
+ *
+ * - `enter` / `commit` / `copy` track the *live* selection: they modulate
+ *   or accent whatever `setSelection` currently paints, so the selection
+ *   boundary itself is never delayed, interpolated or painted early.
+ * - `clear` carries the just-cleared range explicitly (the selection is
+ *   already gone) and fades it out. Hosts must not start it when the
+ *   range's history coordinates lost their identity (resize/reflow/
+ *   history prune — the surface core reports `kind: "cancel"` instead).
+ *
+ * `progress` is the host-driven linear clock in [0, 1]; the scene owns
+ * the easing/pulse curves so every runtime paints identically.
+ * `progress >= 1` converges to the base frame (enter multiplier 1,
+ * pulses 0, clear alpha 0), so a forgotten clear is harmless.
+ */
+export type SelectionFx =
+  | { kind: "enter" | "commit" | "copy"; progress: number }
+  | { kind: "clear"; progress: number; range: ScreenRange };
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** ease-out cubic — the enter fade-in curve */
+const easeOutCubic = (p: number): number => 1 - Math.pow(1 - p, 3);
+/** 0 -> 1 -> 0 bump over the fx's lifetime — commit/copy pulses */
+const pulse = (p: number): number => 4 * p * (1 - p);
 
 /** One paint operation; every op carries its full state (contract §Operations). */
 export type PaintOp =
@@ -84,6 +119,15 @@ export type PaintOp =
       clip?: Rect;
     };
 
+/**
+ * Bound on cached grapheme advance measurements per draw-font (issue
+ * #499): the key space is every distinct grapheme a session ever draws,
+ * which grows without limit on image/emoji-heavy output. Eviction only
+ * costs a re-measure. There are at most a handful of draw-fonts (the
+ * bold/italic bit pairs), so the total stays bounded.
+ */
+const ADVANCE_CACHE_MAX = 4096;
+
 export interface SceneFrame {
   /** bottom canvas ops, in call order */
   text: PaintOp[];
@@ -101,7 +145,17 @@ export class GhosttyScene {
   private images: GhosttyImage[] = [];
   private metrics: SceneMetrics | null = null;
   private selection: ScreenRange | null = null;
+  private selectionFx: SelectionFx | null = null;
   private highlights: ScreenRange[] = [];
+  /**
+   * Rows the host's authoritative viewport sits above the engine's
+   * bottom-anchored `viewportTop` (server-side scroll, issue #436). The
+   * attach blit repaints screen rows without moving `viewportTop`, so
+   * selection/search ranges — stored in engine history coordinates —
+   * project against `viewportTop - viewportShift` to stay on their
+   * characters.
+   */
+  private viewportShift = 0;
   private cursorOn = true;
   private bgImage: SceneBackgroundImage | null = null;
   private bgOpacity = 1;
@@ -117,7 +171,7 @@ export class GhosttyScene {
     if (font.fontFamily !== undefined) this.options.fontFamily = font.fontFamily;
     if (font.fontSize !== undefined) this.options.fontSize = font.fontSize;
     this.fontStrings.clear();
-    this.advanceCache.clear();
+    this.advanceFonts.clear();
     this.invalidate();
   }
 
@@ -130,21 +184,39 @@ export class GhosttyScene {
   invalidate(): void {
     this.rows.clear();
     this.pending.clear();
+    // a full repaint also ends any transient selection response — its
+    // anchors may no longer match what is on screen (issue #441)
+    this.selectionFx = null;
   }
 
   setSelection(range: ScreenRange | null): void {
     this.selection = range;
   }
 
+  /**
+   * Start/replace the transient selection response (issue #441). The
+   * host owns the clock: it calls this once per animation frame with a
+   * fresh `progress` and clears with `null` on finish. `enter`, `commit`
+   * and `copy` always track the live selection; `clear` carries its own
+   * history-coordinate range.
+   */
+  setSelectionFx(fx: SelectionFx | null): void {
+    this.selectionFx = fx;
+  }
+
   setHighlights(ranges: ScreenRange[]): void {
     this.highlights = ranges;
+  }
+
+  setViewportShift(shift: number): void {
+    this.viewportShift = shift;
   }
 
   setCursorVisible(visible: boolean): void {
     this.cursorOn = visible;
   }
 
-  setColors(colors: Partial<Pick<GhosttySceneOptions, "foreground" | "background" | "cursor" | "selection" | "search">>): void {
+  setColors(colors: Partial<Pick<GhosttySceneOptions, "foreground" | "background" | "cursor" | "cursorText" | "selection" | "search">>): void {
     Object.assign(this.options, colors);
     this.invalidate();
   }
@@ -239,6 +311,20 @@ export class GhosttyScene {
   }
 
   /**
+   * Overlay ops only (selection/search/cursor) — the DOM shell repaints
+   * just the overlay canvas between full frames while a selection fx
+   * plays, so the text surface is not repainted (issue #441). May throw
+   * on a dead engine exactly like `render()`.
+   */
+  renderOverlay(): PaintOp[] {
+    const overlay: PaintOp[] = [];
+    const m = this.metrics;
+    if (!m || this.disposed) return overlay;
+    this.paintOverlay(overlay, m);
+    return overlay;
+  }
+
+  /**
    * The `background-image` fitted into the surface for the current metrics,
    * honouring `background-image-fit`/`position`/`repeat` (issue #108).
    */
@@ -291,7 +377,7 @@ export class GhosttyScene {
       const y = image.row * m.cellH + image.offsetY;
       const h = image.height;
       if (y + h <= top || y >= bandBottom) continue;
-      if (!this.session.imagePixels(image.id)) continue;
+      if (!this.session.hasImage(image.id)) continue;
       const { source } = image;
       if (source.width > 0 && source.height > 0) {
         out.push({
@@ -329,8 +415,16 @@ export class GhosttyScene {
   private textBox: { key: string; ascent: number; descent: number } | null = null;
   /** draw-font string per bold/italic flag pair (issue #213) */
   private readonly fontStrings = new Map<number, string>();
-  /** grapheme advance measurements, keyed by font + text (issue #213) */
-  private readonly advanceCache = new Map<string, number>();
+  /**
+   * Grapheme advance measurements, per draw-font then per grapheme
+   * (issue #213). Nested maps keep the per-cell hot path allocation-free:
+   * `paintRowText` calls this for every cell of every repainted row —
+   * hundreds of thousands of times per repaint — and the previous
+   * `${font}\n${text}` key allocated a string and paid an LRU
+   * get+delete+set per lookup (issue #554). Each font's map evicts its
+   * oldest entry past the cap; eviction only costs a re-measure.
+   */
+  private readonly advanceFonts = new Map<string, Map<string, number>>();
 
   /**
    * The alphabetic baseline y for a cell row: the font's ink box is centered
@@ -364,11 +458,19 @@ export class GhosttyScene {
 
   /** advance width of one grapheme under `font`, measured once and cached */
   private glyphAdvance(text: string, font: string): number {
-    const key = `${font}\n${text}`;
-    let width = this.advanceCache.get(key);
+    let inner = this.advanceFonts.get(font);
+    let width = inner?.get(text);
     if (width === undefined) {
       width = this.textMetrics.measure(text, font);
-      this.advanceCache.set(key, width);
+      if (inner === undefined) {
+        inner = new Map();
+        this.advanceFonts.set(font, inner);
+      }
+      if (inner.size >= ADVANCE_CACHE_MAX) {
+        const oldest = inner.keys().next().value;
+        if (oldest !== undefined) inner.delete(oldest);
+      }
+      inner.set(text, width);
     }
     return width;
   }
@@ -443,15 +545,63 @@ export class GhosttyScene {
   /** selection and search washes, then the cursor, on the overlay layer */
   private paintOverlay(out: PaintOp[], m: SceneMetrics): void {
     out.push({ op: "clear", rect: { x: 0, y: 0, w: m.cols * m.cellW, h: m.rows * m.cellH } });
-    const viewportTop = this.session.history().viewportTop;
-    const wash = (range: ScreenRange, color: string | undefined): void => {
-      if (!color) return;
+    const viewportTop = this.session.history().viewportTop - this.viewportShift;
+    const selectionColor = this.options.selection ?? "rgba(120,160,255,0.28)";
+    const fx = this.selectionFx;
+    const p = fx ? clamp01(fx.progress) : 0;
+    const wash = (range: ScreenRange, color: string | undefined, alpha = 1): void => {
+      if (!color || alpha <= 0) return;
       this.eachCell(range, viewportTop, m, (x, y, w, h) =>
-        out.push({ op: "fill_rect", rect: { x: x * m.cellW, y: y * m.cellH, w: w * m.cellW, h: h * m.cellH }, color, alpha: 1 }));
+        out.push({ op: "fill_rect", rect: { x: x * m.cellW, y: y * m.cellH, w: w * m.cellW, h: h * m.cellH }, color, alpha }));
     };
-    if (this.selection) wash(this.selection, this.options.selection ?? "rgba(120,160,255,0.28)");
-    for (const match of this.highlights) wash(match, this.options.search ?? "rgba(250,204,21,0.22)");
+    // enter fades the live selection wash in; the boundary geometry is
+    // already final — only the paint alpha follows the fx clock
+    if (this.selection) {
+      wash(this.selection, selectionColor, fx?.kind === "enter" ? easeOutCubic(p) : 1);
+      // commit: one brief brighten over the committed range
+      if (fx?.kind === "commit") {
+        wash(this.selection, selectionColor, 0.55 * pulse(p));
+      }
+      // copy: a short accent tick under each selected row — a shape cue,
+      // not just another colour wash, so it reads differently from the
+      // commit pulse and from the selection itself (issue #441)
+      if (fx?.kind === "copy") {
+        this.copyAccent(out, this.selection, 0.85 * pulse(p), m, viewportTop);
+      }
+    }
+    // clear: the just-cleared range fades out in place — history
+    // coordinates keep it on the same characters while they scroll by
+    if (fx?.kind === "clear") {
+      wash(fx.range, selectionColor, 1 - p);
+    }
+    const searchColor = this.options.search ?? "rgba(250,204,21,0.22)";
+    for (const match of this.highlights) wash(match, searchColor);
     if (this.cursorOn) this.paintCursor(out, m);
+  }
+
+  /**
+   * The copy-success tick (issue #441): a thin accent strip along the
+   * bottom edge of every selected row segment, in the theme's cursor
+   * colour, fading with the fx pulse. Painted on the overlay layer only —
+   * the text surface is untouched.
+   */
+  private copyAccent(
+    out: PaintOp[],
+    range: ScreenRange,
+    alpha: number,
+    m: SceneMetrics,
+    viewportTop: number,
+  ): void {
+    if (alpha <= 0) return;
+    const color = this.options.cursor;
+    const accentH = Math.max(1, m.cellH * 0.12);
+    this.eachCell(range, viewportTop, m, (x, y, w, h) =>
+      out.push({
+        op: "fill_rect",
+        rect: { x: x * m.cellW, y: (y + h) * m.cellH - accentH, w: w * m.cellW, h: accentH },
+        color,
+        alpha,
+      }));
   }
 
   /** the cells of a screen range that are on the viewport, row by row */
@@ -467,25 +617,102 @@ export class GhosttyScene {
     }
   }
 
+  /**
+   * The cell covering viewport column `col` on row `y`, with its run's
+   * style. Wide characters occupy two columns through their head cell —
+   * spacer tails are not emitted as cells, so a lookup on the tail
+   * column returns the head.
+   */
+  private cellInfoAt(
+    y: number,
+    col: number,
+  ): { run: GhosttyRun; cell: { text: string; wide: boolean }; startCol: number } | null {
+    for (const run of this.rows.get(y) ?? []) {
+      let cx = run.x;
+      for (const cell of run.cells) {
+        const w = cell.wide ? 2 : 1;
+        if (col >= cx && col < cx + w) return { run, cell, startCol: cx };
+        cx += w;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A `cursor-color`/`cursor-text` spec resolved against the cursor
+   * cell's effective colours (post-INVERSE). The Ghostty keywords
+   * `cell-foreground`/`cell-background` name those colours; anything
+   * else is a literal CSS colour, and an unset spec falls back.
+   */
+  private resolveCursorColor(
+    spec: string | undefined,
+    effective: { fg: string; bg: string },
+    fallback: string,
+  ): string {
+    const v = (spec ?? "").trim().toLowerCase();
+    if (v === "cell-foreground") return effective.fg;
+    if (v === "cell-background") return effective.bg;
+    return spec !== undefined && spec.trim() !== "" ? spec : fallback;
+  }
+
   private paintCursor(out: PaintOp[], m: SceneMetrics): void {
     const cursor = this.session.cursorState();
     if (!cursor.visible || cursor.x >= m.cols || cursor.y >= m.rows) return;
-    const x = cursor.x * m.cellW, y = cursor.y * m.cellH;
-    const w = m.cellW, h = m.cellH;
-    const color = this.options.cursor;
+    // A cursor on a wide character's tail column covers both cells
+    // (ghostty `cursor_wide`); normalize to the head column.
+    const headX = cursor.wideTail ? Math.max(0, cursor.x - 1) : cursor.x;
+    const head = this.cellInfoAt(cursor.y, headX);
+    const span = cursor.wideTail || head?.cell.wide ? 2 : 1;
+    const run = head?.run;
+    const fg = run?.fg ?? this.options.foreground;
+    const bg = run?.bg ?? this.options.background;
+    const inverse = (run?.flags ?? 0) & STYLE_INVERSE;
+    const effective = inverse ? { fg: bg, bg: fg } : { fg, bg };
+    const color = this.resolveCursorColor(this.options.cursor, effective, this.options.foreground);
+    const x = headX * m.cellW, y = cursor.y * m.cellH;
+    const h = m.cellH;
     switch (cursor.style) {
       case "bar":
-        out.push({ op: "fill_rect", rect: { x, y, w: Math.max(2, w * 0.12), h }, color, alpha: 1 });
+        out.push({ op: "fill_rect", rect: { x, y, w: Math.max(2, m.cellW * 0.12), h }, color, alpha: 1 });
         break;
       case "underline":
-        out.push({ op: "fill_rect", rect: { x, y: y + h * 0.82, w, h: Math.max(1, h * 0.12) }, color, alpha: 1 });
+        out.push({ op: "fill_rect", rect: { x, y: y + h * 0.82, w: m.cellW, h: Math.max(1, h * 0.12) }, color, alpha: 1 });
         break;
       case "hollow":
-        out.push({ op: "stroke_rect", rect: { x: x + 0.5, y: y + 0.5, w: w - 1, h: h - 1 }, color, lineWidth: 1 });
+        out.push({ op: "stroke_rect", rect: { x: x + 0.5, y: y + 0.5, w: span * m.cellW - 1, h: h - 1 }, color, lineWidth: 1 });
         break;
-      default:
-        out.push({ op: "fill_rect", rect: { x, y, w, h }, color, alpha: 0.35 });
+      default: {
+        // Ghostty block cursor: the cell is filled opaquely with
+        // `cursor-color` and its text is redrawn in `cursor-text`
+        // (default: the background colour) — a true fg/bg inversion,
+        // not a translucent wash (issue #382).
+        out.push({ op: "fill_rect", rect: { x, y, w: span * m.cellW, h }, color, alpha: 1 });
+        const textColor = this.resolveCursorColor(this.options.cursorText, effective, this.options.background);
+        const baseline = this.baselineFor(y);
+        const seen = new Set<{ text: string; wide: boolean }>();
+        for (let i = 0; i < span; i++) {
+          const info = this.cellInfoAt(cursor.y, headX + i);
+          if (!info || seen.has(info.cell)) continue;
+          seen.add(info.cell);
+          if (info.run.flags & STYLE_INVISIBLE) continue;
+          if (info.cell.text === "" || info.cell.text === " ") continue;
+          out.push({
+            op: "fill_text",
+            x: info.startCol * m.cellW,
+            y: baseline,
+            text: info.cell.text,
+            font: this.fontFor(info.run.flags),
+            color: textColor,
+            alpha: 1,
+          });
+        }
+      }
     }
+  }
+
+  /** drop the grapheme-advance cache under memory pressure; it rebuilds lazily (issue #499) */
+  shedAdvanceCache(): void {
+    this.advanceFonts.clear();
   }
 
   dispose(): void {
@@ -493,6 +720,6 @@ export class GhosttyScene {
     this.rows.clear();
     this.pending.clear();
     this.fontStrings.clear();
-    this.advanceCache.clear();
+    this.advanceFonts.clear();
   }
 }

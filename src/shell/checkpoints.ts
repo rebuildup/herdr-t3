@@ -4,7 +4,7 @@
  *
  * `rebuildup.checkpoints` on the host owns hidden-ref worktree
  * checkpoints through the `herdr-plugins.checkpoints/v1` contract,
- * pinned at rebuildup/herdr-plugins@ae4f214 (release-0-4-0, re-pin per
+ * pinned at rebuildup/hoxay-plugins@ae4f214 (release-0-4-0, re-pin per
  * ADR-0017/ADR-0021/ADR-0024). The contract doc is
  * docs/migration/contracts/plugin-checkpoints.md.
  *
@@ -31,7 +31,7 @@
  * `pre_restore_*` error fields (the recovery checkpoint) — surfaced
  * verbatim, never swallowed.
  *
- * Since @55df8d0a (herdr-plugins #74) every command except
+ * Since @55df8d0a (hoxay-plugins #74) every command except
  * `capability`/`help` lazily drains pending work-unit auto-captures
  * recorded by the plugin's `agent_status` event hooks; outcomes arrive
  * as `auto_captures` on the payload (omitted when empty) and are
@@ -43,7 +43,7 @@
  * `checkpoint_count` pane metadata after pane-targeted captures; this
  * client does not consume it.
  *
- * Since @ae4f214 (herdr-plugins #75/#94) the contract adds multi-repo
+ * Since @ae4f214 (hoxay-plugins #75/#94) the contract adds multi-repo
  * groups and bounded retention: `save` captures one checkpoint per
  * repo under a shared `group_id` (`grp-…`; explicit `--repo` list, a
  * pane target, or live discovery from session pane cwds with
@@ -60,6 +60,7 @@
  * collapsed into a generic failure.
  */
 import { pluginCall } from "../lib/api";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail, pluginErrorFields } from "./pluginErrors";
 
 export const CHECKPOINTS_PLUGIN_ID = "rebuildup.checkpoints";
 export const CHECKPOINTS_CONTRACT_PREFIX = "herdr-plugins.checkpoints/";
@@ -141,42 +142,25 @@ const CHECKPOINTS_ERROR_KINDS = new Set([
  * success.
  */
 export function classifyCheckpointsError(error: unknown): CheckpointsError {
-  const code = (error as { code?: string })?.code ?? "";
-  const detail = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { kind: "unavailable", reason: "not_installed", detail };
-    case "plugin_disabled":
-      return { kind: "unavailable", reason: "disabled", detail };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { kind: "unavailable", reason: "incompatible", detail };
-    case "plugin_host_unreachable":
-    case "machine_unavailable":
-    case "connect_failed":
-    case "unreachable":
-      return { kind: "unavailable", reason: "unreachable", detail };
-    default: {
-      // Contract extras (panes, pre_restore_*) arrive as ApiError.fields;
-      // pass them through so the UI can render pane ids and the
-      // recovery checkpoint without re-parsing the message.
-      const fields = (error as { fields?: unknown })?.fields;
-      const extras =
-        typeof fields === "object" && fields !== null && !Array.isArray(fields)
-          ? (fields as Record<string, unknown>)
-          : undefined;
-      if (CHECKPOINTS_ERROR_KINDS.has(code)) {
-        return { kind: "plugin", code, detail, ...(extras ? { fields: extras } : {}) };
-      }
-      return {
-        kind: "plugin",
-        code: "plugin_error",
-        detail,
-        ...(extras ? { fields: extras } : {}),
-      };
-    }
+  const code = pluginErrorCode(error);
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(code);
+  if (boundary !== null) {
+    return { kind: "unavailable", reason: boundary, detail };
   }
+  // Contract extras (panes, pre_restore_*) arrive as ApiError.fields;
+  // pass them through so the UI can render pane ids and the
+  // recovery checkpoint without re-parsing the message.
+  const extras = pluginErrorFields(error);
+  if (CHECKPOINTS_ERROR_KINDS.has(code)) {
+    return { kind: "plugin", code, detail, ...(extras ? { fields: extras } : {}) };
+  }
+  return {
+    kind: "plugin",
+    code: "plugin_error",
+    detail,
+    ...(extras ? { fields: extras } : {}),
+  };
 }
 
 /* ------------------------------ capability ---------------------------- */
@@ -281,7 +265,7 @@ export function checkpointsCapability(
 /* ------------------------------ documents ------------------------------ */
 
 /**
- * Capture provenance recorded by the plugin (@55df8d0a, herdr-plugins
+ * Capture provenance recorded by the plugin (@55df8d0a, hoxay-plugins
  * #74): `"manual"` (explicit `create`), `"auto"` (lazy work-unit drain
  * or `create --auto`), `"pre_restore"` (mandatory pre-restore safety
  * capture). Entries written before auto-capture carry no `kind` and

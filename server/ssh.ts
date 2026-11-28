@@ -23,6 +23,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { MachineMetadata, SavedMachine } from "./machines.ts";
+import { appendOutputCapped } from "./plugins.ts";
 import type { Connector, SocketHandlers } from "./socket.ts";
 
 export const SSH_CONNECT_TIMEOUT_S = 10;
@@ -39,6 +40,13 @@ export interface SshEndpoint {
   remoteHerdr: string;
   /** Remote OS from herdr's ssh-metadata ("windows" selects the PowerShell path). */
   os?: string;
+  /**
+   * Resolved remote bun executable for plugin CLIs (issue #339). Non-login
+   * ssh PATH often lacks mise/bun installs, so plugin execs must not rely
+   * on bare `bun` resolving remotely. Absent → argv keeps `bun` and the
+   * remote shell resolves it (or fails honestly).
+   */
+  remoteBun?: string;
 }
 
 export function endpointFromMachine(machine: SavedMachine, remoteHerdr: string, os?: string): SshEndpoint {
@@ -422,35 +430,165 @@ export async function resolveRemoteHerdr(
   throw new Error("remote herdr not found on PATH or known install locations");
 }
 
+/* ------------------------- remote bun resolution ----------------------- */
+
+const resolvedBuns = new Map<string, string>();
+
+/**
+ * POSIX bun probe (issue #339): non-login ssh PATH frequently misses
+ * user-level bun installs (mise shims, ~/.bun), so plugin CLIs cannot
+ * rely on bare `bun`. Check PATH first, then the common per-user install
+ * locations; print the first executable candidate.
+ */
+const BUN_PROBE_SCRIPT = [
+  'for c in "$(command -v bun 2>/dev/null)" "$HOME/.bun/bin/bun" "$(ls -d "$HOME"/.local/share/mise/installs/bun/*/bin/bun 2>/dev/null | tail -1)" "$HOME/.local/share/mise/shims/bun" "$HOME/.local/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun /home/linuxbrew/.linuxbrew/bin/bun; do',
+  '  if [ -n "$c" ] && [ -x "$c" ]; then printf "%s\\n" "$c"; exit 0; fi',
+  "done",
+  "exit 1",
+].join("\n");
+
+/** herdr-style Windows bun candidate enumeration for `resolveRemoteBun`. */
+function windowsBunCandidateCommand(): string {
+  const script =
+    "function Emit-BunPath([string]$CandidatePath) { " +
+    "if ([string]::IsNullOrWhiteSpace($CandidatePath) -or -not (Test-Path -LiteralPath $CandidatePath -PathType Leaf)) { return }; " +
+    "$candidateFullPath = [System.IO.Path]::GetFullPath($CandidatePath); " +
+    "$encodedCandidate = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($candidateFullPath)); " +
+    `[Console]::Out.WriteLine('${WINDOWS_REMOTE_PATH_MARKER}' + $encodedCandidate) }; ` +
+    "$cmd = Get-Command bun.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+    "if ($null -ne $cmd) { Emit-BunPath $cmd.Source }; " +
+    "$cmd = Get-Command bun -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+    "if ($null -ne $cmd) { Emit-BunPath $cmd.Source }; " +
+    "Emit-BunPath (Join-Path $env:USERPROFILE '.bun\\bin\\bun.exe'); " +
+    "$mise = if ([string]::IsNullOrWhiteSpace($env:MISE_DATA_DIR)) { Join-Path $env:LOCALAPPDATA 'mise' } else { $env:MISE_DATA_DIR }; " +
+    "Get-ChildItem -LiteralPath (Join-Path $mise 'installs\\bun') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object { Emit-BunPath (Join-Path $_.FullName 'bin\\bun.exe') }; " +
+    "Emit-BunPath (Join-Path $mise 'shims\\bun.exe'); exit 0";
+  return windowsPowerShellScriptCommand(script);
+}
+
+async function probePosixBun(target: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn("ssh", [...sshArgs({ id: `probe-${target}`, target, session: "default", remoteHerdr: "true" }), "sh", "-s"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let out = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, SSH_CONNECT_TIMEOUT_S * 1000 + 5000);
+    child.stdout?.on("data", (c: Buffer) => (out = appendOutputCapped(out, c)));
+    child.stderr?.on("data", () => {});
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const path = out.trim().split("\n").pop()?.trim() ?? "";
+      resolve(code === 0 && path.startsWith("/") ? path : null);
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(BUN_PROBE_SCRIPT);
+  });
+}
+
+/**
+ * Resolve the remote bun runtime used by plugin CLIs (issue #339). Probes
+ * are memoized per endpoint id for the process lifetime, mirroring
+ * `resolveRemoteHerdr`; only successes are cached so a later-installed bun
+ * is picked up on the next plugin host creation. Probe/ssh failures
+ * resolve to null — callers keep the bare `bun` argv and the remote
+ * failure stays honest instead of breaking machine connect.
+ */
+export async function resolveRemoteBun(endpoint: SshEndpoint): Promise<string | null> {
+  const cached = resolvedBuns.get(endpoint.id);
+  if (cached !== undefined) return cached;
+
+  let found: string | null = null;
+  if (isWindowsEndpoint(endpoint)) {
+    const candidates = await sshExecEndpoint(
+      endpoint,
+      windowsBunCandidateCommand(),
+      SSH_CONNECT_TIMEOUT_S * 1000 + 15000,
+    );
+    if (candidates.code === 0) {
+      const seen = new Set<string>();
+      for (const line of candidates.stdout.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith(WINDOWS_REMOTE_PATH_MARKER)) continue;
+        let path: string;
+        try {
+          path = Buffer.from(trimmed.slice(WINDOWS_REMOTE_PATH_MARKER.length), "base64").toString("utf8");
+        } catch {
+          continue;
+        }
+        if (!path || seen.has(path)) continue;
+        seen.add(path);
+        found = path;
+        break;
+      }
+    }
+  } else {
+    found = await probePosixBun(endpoint.target);
+  }
+  if (found !== null) resolvedBuns.set(endpoint.id, found);
+  return found;
+}
+
 /* ------------------------- windows remote discovery --------------------- */
+
+/**
+ * Buffered counterpart of `makePreambleDiscard` for one-shot execs
+ * (plugin host argv, remote probes): every Windows-bridged command
+ * prints a blank line plus the `herdr-remote-output-ready:1` marker
+ * before its payload, and `sshExecEndpoint` callers parse stdout as a
+ * bare document — without stripping, `JSON.parse` fails and every
+ * remote plugin call reports `plugin_bad_output` (issue #353). Returns
+ * stdout unchanged when the marker never arrived (the remote command
+ * died before PowerShell ran; error paths must still see the raw
+ * text).
+ */
+export function stripRemoteOutputPreamble(endpoint: SshEndpoint, stdout: string): string {
+  if (!isWindowsEndpoint(endpoint)) return stdout;
+  const marker = stdout.indexOf(REMOTE_OUTPUT_READY_MARKER);
+  if (marker === -1) return stdout;
+  const eol = stdout.indexOf("\n", marker + REMOTE_OUTPUT_READY_MARKER.length);
+  return eol === -1 ? "" : stdout.slice(eol + 1);
+}
 
 /** Run one ssh remote command to completion; resolves {code, stdout, stderr, timedOut}. */
 function sshExecEndpoint(
   endpoint: SshEndpoint,
   command: string,
   timeoutMs: number,
+  stdin?: string,
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
+    // stdin is a pipe so plugin_call payloads reach the remote CLI's
+    // stdin through ssh (issue #458); it is always ended immediately so
+    // stdin-reading remote commands see EOF instead of hanging.
     const child = spawn("ssh", [...sshArgs(endpoint), command], {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(stdin ?? "");
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill();
-      resolve({ code: null, stdout, stderr: `${stderr}\n[timed out]`, timedOut });
+      resolve({ code: null, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr: `${stderr}\n[timed out]`, timedOut });
     }, timeoutMs);
-    child.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
+    child.stdout?.on("data", (c: Buffer) => (stdout = appendOutputCapped(stdout, c)));
     child.stderr?.on("data", (c: Buffer) => (stderr = (stderr + c.toString("utf8")).slice(-STDERR_TAIL)));
     child.on("error", (err) => {
       clearTimeout(timer);
-      resolve({ code: null, stdout, stderr: `${stderr}${err.message}`, timedOut });
+      resolve({ code: null, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr: `${stderr}${err.message}`, timedOut });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut });
+      resolve({ code, stdout: stripRemoteOutputPreamble(endpoint, stdout), stderr, timedOut });
     });
   });
 }
@@ -473,6 +611,23 @@ function sshExec(
  * Remote command for one argv vector (ADR-0011): POSIX shells quote every
  * element; Windows endpoints go through the same PowerShell encoded-script
  * path as the bridges. `cwd` is a host-local path.
+ *
+ * `timeoutMs` bounds the *remote* side's lifetime (issue #537): killing
+ * the local ssh client on timeout does not reliably reap the remote
+ * command — without a pty the remote shell and its children can survive
+ * the disconnect. When provided, the payload is wrapped so it
+ * self-terminates shortly *after* the local timeout (the local timer
+ * must win the race so the outcome stays `timedOut`, not a bare exit
+ * code):
+ *
+ * - POSIX: the payload runs as a background job watched by a shell
+ *   watchdog that SIGKILLs its process group (pgid resolved via `ps`,
+ *   covering grandchildren that share the session group) once the bound
+ *   elapses.
+ * - Windows: the payload runs under `Start-Process`/`WaitForExit(ms)`
+ *   and `taskkill /T /F` reaps the tree on expiry.
+ *
+ * Callers that only need the raw argv shape may omit it.
  */
 export function remoteArgvCommand(
   endpoint: SshEndpoint,
@@ -480,6 +635,7 @@ export function remoteArgvCommand(
   cwd?: string,
   envRemove: string[] = [],
   envSet: Record<string, string> = {},
+  timeoutMs?: number,
 ): string {
   if (!isWindowsEndpoint(endpoint)) {
     const parts = argv.map(shellQuote).join(" ");
@@ -497,8 +653,10 @@ export function remoteArgvCommand(
       .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
       .map(([name, value]) => `export ${name}=${shellQuote(value)}; `)
       .join("");
-    const command = `${scrub}${set}${parts}`;
-    return cwd ? `${scrub}${set}cd ${shellQuote(cwd)} && ${parts}` : command;
+    const inner = cwd ? `cd ${shellQuote(cwd)} && ${parts}` : parts;
+    const command = `${scrub}${set}${inner}`;
+    if (timeoutMs === undefined) return command;
+    return posixBoundedCommand(command, timeoutMs);
   }
   // PowerShell has no env-assignment removal; `$env:X=$null` deletes the
   // variable from the process environment (not an empty-string set),
@@ -512,11 +670,79 @@ export function remoteArgvCommand(
     .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
     .map(([name, value]) => `$env:${name}=${quotePowerShellArg(value)}; `)
     .join("");
-  const invoke = argv.map(quotePowerShellArg).join(" ");
-  const script = scrub + set + (cwd
-    ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; & ${invoke}; exit $LASTEXITCODE`
-    : `& ${invoke}; exit $LASTEXITCODE`);
-  return windowsPowerShellScriptCommand(script);
+  const preamble = scrub + set + (cwd ? `Set-Location -LiteralPath ${quotePowerShellArg(cwd)}; ` : "");
+  if (timeoutMs === undefined) {
+    const invoke = argv.map(quotePowerShellArg).join(" ");
+    return windowsPowerShellScriptCommand(`${preamble}& ${invoke}; exit $LASTEXITCODE`);
+  }
+  return windowsPowerShellScriptCommand(preamble + windowsBoundedInvocation(argv, timeoutMs));
+}
+
+/**
+ * POSIX remote lifetime bound (issue #537). `command` is the already
+ * scrub/env/cwd-prefixed payload; it runs as one background job so the
+ * watchdog below can signal it. The watchdog polls `kill -0` once a
+ * second: on normal completion it exits within ~1s (no long-lived stray
+ * `sleep`); on expiry it resolves the payload's process group via `ps`
+ * and SIGKILLs it — the session group (`$$`) is tried as well so
+ * grandchildren that escaped into the shared group are still reaped.
+ * The bound deliberately exceeds `timeoutMs` by ~2-3s so the local
+ * sshExecEndpoint timer always wins and reports `timedOut`.
+ */
+function posixBoundedCommand(command: string, timeoutMs: number): string {
+  const seconds = Math.max(1, Math.ceil(timeoutMs / 1000) + 2);
+  return [
+    `${command} &`,
+    "__ht3_pid=$!",
+    "( __ht3_i=0",
+    `while kill -0 $__ht3_pid 2>/dev/null; do __ht3_i=$((__ht3_i + 1)); [ $__ht3_i -ge ${seconds} ] && break; sleep 1; done`,
+    "if kill -0 $__ht3_pid 2>/dev/null; then",
+    "for __ht3_t in $__ht3_pid $$; do",
+    `__ht3_p=$(ps -o pgid= -p $__ht3_t 2>/dev/null | tr -d '[:space:]')`,
+    '[ -n "$__ht3_p" ] && kill -KILL -$__ht3_p 2>/dev/null',
+    "done",
+    "kill -KILL $__ht3_pid 2>/dev/null",
+    "fi",
+    ") &",
+    "__ht3_watch=$!",
+    "wait $__ht3_pid",
+    "__ht3_rc=$?",
+    "kill $__ht3_watch 2>/dev/null",
+    "wait $__ht3_watch 2>/dev/null",
+    "exit $__ht3_rc",
+  ].join("\n");
+}
+
+/**
+ * Windows remote lifetime bound (issue #537): run the argv as a
+ * Start-Process child (same streaming pattern as the bridges), wait up
+ * to `timeoutMs` + grace, then `taskkill /T /F` the whole tree. Exit 124
+ * mirrors GNU `timeout` so a remote-side expiry is distinguishable from
+ * a plugin failure — though the local timer normally resolves first.
+ */
+function windowsBoundedInvocation(argv: string[], timeoutMs: number): string {
+  const filePath = quotePowerShellArg(argv[0] ?? "");
+  const argLine = argv.slice(1).map(quoteWindowsCommandLineArg).join(" ");
+  const argumentList = argv.length > 1 ? ` -ArgumentList ${quotePowerShellArg(argLine)}` : "";
+  const waitMs = Math.max(1, Math.ceil(timeoutMs) + 2000);
+  return (
+    `$p = Start-Process -FilePath ${filePath}${argumentList} -NoNewWindow -PassThru -ErrorAction Stop; ` +
+    "$null = $p.Handle; " +
+    `if (-not $p.WaitForExit(${waitMs})) { try { & taskkill.exe /PID $p.Id /T /F | Out-Null } catch {}; exit 124 }; ` +
+    "exit $p.ExitCode"
+  );
+}
+
+/**
+ * Plugin CLIs are spawned as `bun run src/cli.ts …` (plugins.ts). A
+ * resolved `endpoint.remoteBun` replaces the bare `bun` argv head so
+ * non-login ssh PATH does not have to carry the runtime (issue #339);
+ * every other argv passes through unchanged.
+ */
+export function remotePluginArgv(endpoint: SshEndpoint, argv: string[]): string[] {
+  return endpoint.remoteBun !== undefined && argv[0] === "bun"
+    ? [endpoint.remoteBun, ...argv.slice(1)]
+    : argv;
 }
 
 /**
@@ -541,8 +767,16 @@ export function sshPluginHost(
     exec(argv, options) {
       return sshExecEndpoint(
         endpoint,
-        remoteArgvCommand(endpoint, argv, options.cwd, options.envRemove ?? [], options.envSet ?? {}),
+        remoteArgvCommand(
+          endpoint,
+          remotePluginArgv(endpoint, argv),
+          options.cwd,
+          options.envRemove ?? [],
+          options.envSet ?? {},
+          options.timeoutMs,
+        ),
         options.timeoutMs,
+        options.stdin,
       ).then((r) => ({
         code: r.code,
         stdout: r.stdout,
@@ -646,8 +880,8 @@ function probeRemoteHerdr(target: string): Promise<string | null> {
       child.kill();
       resolve(null);
     }, SSH_CONNECT_TIMEOUT_S * 1000 + 5000);
-    child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf8")));
-    child.stderr?.on("data", (c: Buffer) => (err += c.toString("utf8")));
+    child.stdout?.on("data", (c: Buffer) => (out = appendOutputCapped(out, c)));
+    child.stderr?.on("data", (c: Buffer) => (err = appendOutputCapped(err, c)));
     child.on("error", () => {
       clearTimeout(timer);
       resolve(null);

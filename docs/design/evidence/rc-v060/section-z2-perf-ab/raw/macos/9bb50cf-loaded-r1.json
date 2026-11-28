@@ -1,0 +1,65 @@
+{
+  "format": "herdr-t3/perf-baseline",
+  "version": 1,
+  "recorded_at": "2026-11-26T14:35:33.470Z",
+  "git_sha": "9bb50cf0f6bd58ee8ae62f75f9bd80ccbb33ff5c",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "hostname": "mac",
+    "cpu_model": "Apple M5",
+    "cpu_count": 10,
+    "mem_total_bytes": 25769803776
+  },
+  "bun_version": "1.4.4",
+  "workload": {
+    "bench": "scripts/perf-terminal-bench.ts",
+    "seed": 42,
+    "ticks": 400,
+    "note": "ANSI streaming decode+frame, base64 bridge hop; fixed LCG seed 42 inside bench"
+  },
+  "bench": {
+    "command": "bun /private/tmp/ht3-ab/9bb50cf/scripts/perf-terminal-bench.ts",
+    "iterations": 5,
+    "totals_ms": [
+      4113,
+      4389,
+      4471,
+      5209,
+      5385
+    ],
+    "p50_ms": 4471,
+    "p95_ms": 5385,
+    "min_ms": 4113,
+    "max_ms": 5385,
+    "cv": 0.10484875713827678,
+    "cells_decoded_total": 1912344
+  },
+  "scene": {
+    "command": "bun /private/tmp/ht3-ab/9bb50cf/scripts/perf-scene-bench.ts",
+    "iterations": 5,
+    "totals_ms": [
+      2970,
+      3299,
+      3702,
+      3872,
+      4924
+    ],
+    "p50_ms": 3702,
+    "p95_ms": 4924,
+    "min_ms": 2970,
+    "max_ms": 4924,
+    "cv": 0.17701566471519087,
+    "cells_decoded_total": 0,
+    "ops_total": 16189,
+    "workload": {
+      "ticks": 200,
+      "note": "SurfaceCore.tick + GhosttyScene collect/render op emission, output storm + scroll jumps; Canvas2D rasterization excluded (DOM-bound)"
+    }
+  },
+  "condition": {
+    "loadavg_1m": 42.31005859375,
+    "loadavg_5m": 37.4365234375,
+    "loadavg_15m": 41.453125
+  }
+}

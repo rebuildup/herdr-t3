@@ -44,6 +44,7 @@ interface Capability {
   status?: { implemented?: boolean; excluded?: boolean };
 }
 interface Registry {
+  contracts?: { id: string }[];
   capabilities: Capability[];
 }
 
@@ -102,14 +103,16 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
   const scenariosDir = join(ROOT, "harness/ui/scenarios");
   const evidenceDir = join(ROOT, "harness/ui/evidence");
   if (!existsSync(scenariosDir)) return "BLOCKED";
-  const scenarioIds: string[] = [];
+  // id -> adapters the scenario claims; absent/empty means every adapter.
+  const scenarioAdapters = new Map<string, string[]>();
   const walk = (dir: string) => {
     for (const e of readdirSync(dir)) {
       const p = join(dir, e);
       try {
         if (statSync(p).isDirectory()) walk(p);
         else if (e.endsWith(".json")) {
-          scenarioIds.push(JSON.parse(readFileSync(p, "utf8")).id as string);
+          const sc = JSON.parse(readFileSync(p, "utf8")) as { id?: string; adapters?: string[] };
+          if (typeof sc.id === "string") scenarioAdapters.set(sc.id, sc.adapters ?? []);
         }
       } catch {
         /* unreadable scenario — the scenario validator reports it */
@@ -117,7 +120,11 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
     }
   };
   walk(scenariosDir);
-  if (scenarioIds.length === 0) return "BLOCKED";
+  if (scenarioAdapters.size === 0) return "BLOCKED";
+  const claims = (id: string, adapter: string) => {
+    const list = scenarioAdapters.get(id);
+    return list === undefined || list.length === 0 || list.includes(adapter);
+  };
 
   const readEvidence = (adapter: string, file: string): { pass?: boolean } | null => {
     const p = join(evidenceDir, adapter, file);
@@ -130,7 +137,8 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
   };
 
   for (const adapter of ["electron", "gpui"]) {
-    for (const id of scenarioIds) {
+    for (const id of scenarioAdapters.keys()) {
+      if (!claims(id, adapter)) continue;
       if (readEvidence(adapter, `${id}.json`)?.pass !== true) return "BLOCKED";
     }
     // detection proofs: injected faults must produce FAIL evidence
@@ -143,7 +151,36 @@ function uiConformanceVerdict(): "PASS" | "BLOCKED" {
   return "PASS";
 }
 
-function gates(): Gate[] {
+/**
+ * design-conformance gate (issue #412): PASS only when the
+ * design-system@1 contract is declared in the registry AND the
+ * canonical T3 design sources it inherits exist in the repo. This gate
+ * proves the conformance machinery is defined and reachable; per-
+ * capability enforcement happens at cutover/equivalence via the
+ * ui-conformance scenarios plus T3-reference visual review
+ * (docs/migration/contracts/design-system.md).
+ */
+function designConformanceVerdict(reg: Registry): "PASS" | "BLOCKED" {
+  const declared = (reg.contracts ?? []).some((c) => c.id === "design-system");
+  if (!declared) return "BLOCKED";
+  const required = [
+    "docs/migration/contracts/design-system.md",
+    "docs/design/conformance-audit.md",
+    "docs/design/verification.md",
+    "docs/design/rules.md",
+    "src/index.css",
+    "src/components/surfaceLayout.tsx",
+    "src/components/ui/alert.tsx",
+  ];
+  if (!required.every((p) => existsSync(join(ROOT, p)))) return "BLOCKED";
+  const uiDir = join(ROOT, "src/components/ui");
+  if (!existsSync(uiDir) || !readdirSync(uiDir).some((f) => f.endsWith(".tsx"))) {
+    return "BLOCKED";
+  }
+  return "PASS";
+}
+
+function gates(reg: Registry): Gate[] {
   const has = (p: string) => existsSync(join(ROOT, p));
   const dirHas = (p: string, suffix: string) =>
     has(p) && readdirSync(join(ROOT, p)).some((f) => f.endsWith(suffix));
@@ -197,6 +234,20 @@ function gates(): Gate[] {
         "crates/ui-test-host/",
       ],
       note: "every scenario must have PASS evidence on BOTH the real Electron adapter (CDP-driven app) and the GPUI test host (real gpui window + input dispatch), plus fault-injection runs that correctly FAIL — recorded under harness/ui/evidence/",
+    },
+    {
+      id: "design-conformance",
+      verdict: designConformanceVerdict(reg),
+      evidence: [
+        "docs/migration/contracts/design-system.md",
+        "docs/design/conformance-audit.md",
+        "docs/design/verification.md",
+        "docs/design/rules.md",
+        "src/index.css",
+        "src/components/ui/",
+        "src/components/surfaceLayout.tsx",
+      ],
+      note: "design-system@1 contract + canonical T3 sources (tokens, primitives, composition, audit, verification matrix) present; B6 capabilities must pin it (registry-validated); per-capability proof is cutover/equivalence evidence + T3-reference visual review, not this gate",
     },
     {
       id: "os-real-device",
@@ -280,7 +331,7 @@ function main(): number {
 
   const reg = JSON.parse(readFileSync(REGISTRY, "utf8")) as Registry;
   const { errors: evalErrors } = evaluate(reg);
-  const gateList = gates();
+  const gateList = gates(reg);
   const report = {
     format: "herdr-t3/migration-readiness",
     version: 1,

@@ -21,7 +21,7 @@ herdr-t3 `release-0-4-0` 時点の実装。
 | `workspace.move` | ✅ #111/#115 | `insert_index` 指定の並び替え。sidebar D&D。**`insert_index` は pre-removal の挿入位置** (現在その index にある要素の前に挿入、`length` は末尾追加)。herdr 0.9.5 で実測確認済み — post-removal と誤解すると後方ドロップが 1 つ手前に着地する |
 | `workspace.move_block` | 🔶 #111 | 複数 workspace の一括移動。単一 D&D のみなら不要になる可能性 |
 | `workspace.report_metadata` | ⏸ | metadata tokens は agent/外部連携向け。herdr-t3 は読み取り側のみでよい。表示が必要になれば `tokens` は既に `WorkspaceInfo` にある |
-| `worktree.list` / `create` / `open` / `remove` | ✅ #114 | herdr ネイティブ worktree。**Worktrunk UI とは別物** (AGENTS.md §5 は Worktrunk を対象外とするが herdr worktree は in-scope)。WorktreesDialog が open/create/remove を提供。`remove` は open 済み linked-worktree workspace の `workspace_id` が必須 (herdr schema) のため、open entry のみ Remove 可 |
+| `worktree.list` / `create` / `open` / `remove` | ✅ #114 | herdr ネイティブ worktree。**Worktrunk UI とは別物** (AGENTS.md §5 は Worktrunk を対象外とするが herdr worktree は in-scope)。WorktreesSurface が open/create/remove を提供。`remove` は open 済み linked-worktree workspace の `workspace_id` が必須 (herdr schema) のため、open entry のみ Remove 可 |
 
 ### Tab / Pane / Layout
 
@@ -84,10 +84,10 @@ herdr TUI (`src/client/shell/`) が提供する操作・情報と、herdr-t3 で
 | goto / aggregate navigation | agent/pane/workspace へのジャンプ、検索・status フィルタ・workspace グルーピング | `GotoDialog` (palette の "Go to…")。workspace/tab/pane の3階層、複数語 AND 検索、先頭 status token (`blocked`/`working`/`idle`/`done`/`b`/`w`/`i`/`d`) で agent status フィルタ。行モデルは `src/shell/goto.ts` | ✅ #114 |
 | ドラッグ並び替え | tab 挿入 indicator (`│`)、workspace reorder、pane drag/swap | #111 | 🔶 #111 |
 | コンテキストメニュー | pane/tab/workspace の右クリック操作 | 既存 context menu を拡張 (move/swap/rename 等) | 🔶 #111/#113 |
-| 通知 toast (`notifications.rs`) | herdr イベントの toast (位置・遅延・delivery は config) | アプリ内 toast (既存 ui primitive があれば流用)。blocked/done の attention 通知 | 🔶 #113 |
+| 通知 toast (`notifications.rs`) | herdr イベントの toast (位置・遅延・delivery は config) | アプリ内 toast。#428 で T3 `toast.tsx` primitive (Base UI Toast) を port し、位置は Settings → General → Notifications で四隅+辺中央から選択・永続化 (既定 top-right)。内容は snapshot diff 由来の構造化データのみ (status icon、agent/work title、workspace、machine、cache 済み branch、時刻)。blocked/done の attention 通知 | ✅ #113/#428 |
 | リンク hover/click (`link_hover.rs`) | pane 内リンクの検出・open | surface の link detection + `pane.link.*` (#113) | 🔶 #113 |
 | コピーモード | scrollback 内検索・選択・yank | GUI は DOM selection + terminal scrollback で代替。検索は #113 で検討 | ⏸ |
-| ワークツリービュー (`worktrees.rs`) | repo の worktree 一覧・open・remove overlay | `WorktreesDialog` (header overflow / palette)。一覧は `worktree.list`、open/create/remove は対応 RPC。branch/path は #109 の `worktree.list` cache が sidebar/header に表示 | ✅ #114 |
+| ワークツリービュー (`worktrees.rs`) | repo の worktree 一覧・open・remove overlay | `WorktreesSurface` (header overflow / palette)。一覧は `worktree.list`、open/create/remove は対応 RPC。branch/path は #109 の `worktree.list` cache が sidebar/header に表示 | ✅ #114 |
 | カスタムコマンド (`custom_commands.rs`) | ユーザー定義コマンドの実行 | `command.invoke` をパレットへ (#113) | 🔶 #113 |
 | 設定 overlay / global menu | TUI 設定画面 | herdr-t3 Settings (T3 構造) で代替。herdr config 自体は編集しない | ✅ 代替済み |
 | マルチエンドポイント (`endpoints.rs`) | 複数 herdr server の切替・集約 view | herdr-t3 の machine 概念で代替済み。集約 agent view は将来検討 | ✅/⏸ |

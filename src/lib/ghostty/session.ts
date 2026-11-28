@@ -12,6 +12,7 @@
  * libghostty does not take) must say so rather than hide it.
  */
 import wasmUrl from "../../../shared/ghostty/ghostty-vt.wasm?url";
+import { wasmAssetBytes } from "../wasmAsset.ts";
 import {
   GhosttyEngine,
   GhosttyModule,
@@ -59,6 +60,8 @@ export {
 
 /** bytes of decoded Kitty pictures one pane keeps; every pane has a wasm instance of its own */
 const IMAGE_STORAGE_BYTES = 64n * 1024n * 1024n;
+/** scrollback byte cap per pane (issue #499); pairs with the line limit */
+const SCROLLBACK_BYTES = 64n * 1024n * 1024n;
 
 export interface GhosttySessionOptions {
   cols: number;
@@ -108,37 +111,14 @@ export function onGhosttyEngineStatus(listener: () => void): () => void {
 
 /**
  * The engine file, compiled once for the page; each session gets an instance of its own so a trap
- * in one pane's parse reaches no other pane's memory. The fetch is not streamed: the server and the
- * relay's resource worker do not promise `application/wasm`. `?url` resolves to a real asset URL in
- * dev, but the production build inlines the wasm as a `data:` URI (vite assetsInlineLimit) because
- * fetch() of a file:// URL is refused in the packaged app — and fetch() of a data: URI is refused by
- * the page CSP, so data URIs are decoded here instead of fetched.
+ * in one pane's parse reaches no other pane's memory. `?url` resolves to a real asset URL in
+ * dev; the production build emits it as a dist/assets file the packaged app reads through the
+ * IPC asset channel (src/lib/wasmAsset.ts) because fetch() of a file:// URL is refused.
  */
 export function compileGhostty(): Promise<WebAssembly.Module> {
-  compiled ??= (async () => {
-    const bytes = wasmUrl.startsWith("data:")
-      ? decodeDataUri(wasmUrl)
-      : await (async () => {
-          const response = await fetch(wasmUrl);
-          if (!response.ok) throw new Error(`ghostty-vt: ${wasmUrl} answered ${response.status}`);
-          return response.arrayBuffer();
-        })();
-    return WebAssembly.compile(bytes);
-  })();
+  compiled ??= wasmAssetBytes(wasmUrl).then((bytes) => WebAssembly.compile(bytes));
   compiled.catch(() => { compiled = null; });
   return compiled;
-}
-
-/** `data:<mime>;base64,<payload>` -> bytes; throws on any other data: shape */
-function decodeDataUri(url: string): Uint8Array {
-  const comma = url.indexOf(",");
-  const meta = url.slice(5, comma);
-  const payload = url.slice(comma + 1);
-  if (!meta.endsWith(";base64")) throw new Error(`ghostty-vt: unsupported data URI (${meta})`);
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 /** test and tool seam: a session on an already-made module (the TUI emulator's loader does the same) */
@@ -164,7 +144,10 @@ function openSession(module: GhosttyModule, options: GhosttySessionOptions): Gho
     images: IMAGE_STORAGE_BYTES,
     events,
   };
-  if (options.scrollbackLines !== undefined) engineOptions.scrollbackLines = options.scrollbackLines;
+  if (options.scrollbackLines !== undefined) {
+    engineOptions.scrollbackLines = options.scrollbackLines;
+    engineOptions.scrollbackBytes = SCROLLBACK_BYTES;
+  }
   const engine = new GhosttyEngine(module, options.cols, options.rows, engineOptions);
   if (options.cellW || options.cellH) engine.resize(options.cols, options.rows, options.cellW ?? 0, options.cellH ?? 0);
   if (options.scrollbackLines !== undefined) engine.setScrollback(options.scrollbackLines);
@@ -293,6 +276,16 @@ export class GhosttySession {
 
   imagePixels(id: number): GhosttyPixels | null {
     return this.call(() => this.engine.imagePixels(id));
+  }
+
+  /** cheap Kitty-image existence check — no pixel copy (issue #499) */
+  hasImage(id: number): boolean {
+    return this.call(() => this.engine.hasImage(id));
+  }
+
+  /** WASM linear-memory high-water mark for this session's engine (issue #499) */
+  memoryBytes(): number {
+    return this.engine.memoryBytes();
   }
 
   /** the bytes a key sends the program in the keyboard mode it asked for; empty when it cannot see the chord */

@@ -198,6 +198,21 @@ const FALLBACK_ANSI = [
   "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
 ] as const;
 
+/**
+ * The same xterm.js hues re-leveled for a light terminal background
+ * (issue #480): the default palette's bright slots (`#fce94f`,
+ * `#8ae234`, `#34e2e2`, `#eeeeec`) and even normal `yellow`/`white`
+ * drop to ~1.2–2.8:1 on white, which made PowerShell's yellow prompt
+ * text nearly invisible in the Windows light captures. Every slot
+ * keeps its hue family but is darkened to ≥ ~3.5:1 on `#ffffff`.
+ */
+const FALLBACK_ANSI_LIGHT = [
+  "#2e3436", "#cc0000", "#4e9a06", "#a08000",
+  "#3465a4", "#75507b", "#06989a", "#767676",
+  "#888a85", "#ef2929", "#3e7c00", "#967000",
+  "#4a7ab5", "#8a5a91", "#0a7d7d", "#555753",
+] as const;
+
 let colorProbe: HTMLElement | null = null;
 
 /** a theme token resolved to a concrete CSS colour (custom properties stay unresolved in getPropertyValue) */
@@ -221,11 +236,16 @@ function resolvedColor(name: string): string {
  */
 export function getTerminalSurfaceColors(): GhosttyThemeColors {
   const theme = getTerminalTheme();
-  const ansi = ANSI_KEYS.map((key, i): string => theme?.[key] ?? FALLBACK_ANSI[i] ?? "#000000");
+  // Light surfaces get the re-leveled palette: the xterm.js defaults are
+  // dark-background colors and wash out on the light terminal background.
+  const fallback = resolveDark() ? FALLBACK_ANSI : FALLBACK_ANSI_LIGHT;
+  const ansi = ANSI_KEYS.map((key, i): string => theme?.[key] ?? fallback[i] ?? "#000000");
   return {
     foreground: theme?.foreground || resolvedColor("--terminal-foreground"),
     background: theme?.background || resolvedColor("--terminal-background"),
     cursor: theme?.cursor || resolvedColor("--terminal-cursor"),
+    // `cursor-text` is render-only (issue #382): the engine never sees it.
+    cursorText: theme?.cursorAccent || undefined,
     ansi,
   };
 }

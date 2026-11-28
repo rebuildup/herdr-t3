@@ -1,0 +1,22 @@
+{
+  "format": "herdr-t3/ui-scenario",
+  "version": 1,
+  "id": "shell.settings-modal-frame-contract",
+  "capability": "ui.shell",
+  "contract": "settings-modal-frame@1",
+  "fixture": "single-workspace",
+  "os": ["macos", "windows-11"],
+  "adapters": ["electron"],
+  "steps": [
+    { "action": "activate", "target": "nav.settings" },
+    { "wait": { "until": "state.settings_open", "equals": true, "timeout_ms": 5000 } },
+    { "assert": "dialog.section", "equals": "general" },
+    { "assert": "dialog.settings_frame_contract", "equals": true },
+    { "action": "activate", "target": "nav.settings-section", "params": { "section": "about" } },
+    { "wait": { "until": "dialog.section", "equals": "about", "timeout_ms": 5000 } },
+    { "assert": "dialog.settings_frame_contract", "equals": true },
+    { "action": "activate", "target": "nav.settings-section", "params": { "section": "diagnostics" } },
+    { "wait": { "until": "dialog.section", "equals": "diagnostics", "timeout_ms": 5000 } },
+    { "assert": "dialog.settings_frame_contract", "equals": true }
+  ]
+}

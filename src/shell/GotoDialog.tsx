@@ -38,7 +38,7 @@ import {
   useBridgeState,
 } from "./bridge";
 import { machineStale } from "./view";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { focusPaneTerminal } from "~/lib/focusHandoff";
 import { useWorkspaceBranchIndex } from "./worktrees";
 
 function rowIcon(row: GotoRow) {
@@ -145,10 +145,11 @@ export function GotoDialog({
 
   return (
     <CommandDialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
-      <CommandDialogPopup aria-label="Go to" data-command-palette="true">
+      <CommandDialogPopup aria-label="Go to" data-command-palette="true" data-goto-dialog="true">
         <Command mode="none" value={query} onValueChange={setQuery}>
           <div className="relative">
             <CommandInput
+              data-goto-input="true"
               placeholder="Go to workspace, tab or pane — status: blocked/working/idle/done"
               value={query}
               onChange={(e) => setQuery(e.currentTarget.value)}
@@ -163,6 +164,7 @@ export function GotoDialog({
                     <CommandItem
                       key={row.id}
                       value={row.id}
+                      data-goto-row={row.id}
                       onClick={() => {
                         jumpTo(row);
                         close();

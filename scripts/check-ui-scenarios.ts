@@ -22,6 +22,7 @@ const ACTIONS = new Set([
   "wait",
   "open",
   "close",
+  "dismiss",
 ]);
 const ASSERTS = new Set([
   "state.selected_workspace",
@@ -31,10 +32,17 @@ const ASSERTS = new Set([
   "state.theme_resolved",
   "state.settings_open",
   "state.focused_target",
+  "state.focused_pane",
+  "state.focused_tab",
+  "state.goto_open",
+  "goto.query",
+  "goto.rows",
+  "goto.row_count",
   "terminal.scroll_offset",
   "terminal.cursor_visible",
   "dialog.open",
   "dialog.section",
+  "dialog.settings_frame_contract",
   "element.visible",
   "element.enabled",
 ]);
@@ -43,6 +51,7 @@ const FIXTURES = new Set([
   "single-workspace",
   "two-workspaces-two-panes",
   "two-workspaces-with-scrollback",
+  "goto-picker",
   "default-settings",
 ]);
 const KNOWN_CAPABILITIES = /^(ui\.|settings\.|agent\.|workspace\.|terminal\.|protocol\.|bridge\.|machines\.|plugins\.|distribution\.|os\.)/;
@@ -106,6 +115,11 @@ for (const file of scenarioFiles(join(UI_DIR, "scenarios"))) {
   }
   if (!sc.fixture || !FIXTURES.has(sc.fixture)) fail(`${rel}: unknown fixture "${sc.fixture}"`);
   if (!Array.isArray(sc.os) || sc.os.length === 0) fail(`${rel}: os coverage required`);
+  if (sc.adapters !== undefined) {
+    if (!Array.isArray(sc.adapters) || sc.adapters.length === 0 || sc.adapters.some((a) => typeof a !== "string" || a.length === 0)) {
+      fail(`${rel}: adapters must be a non-empty string array when present`);
+    }
+  }
   if (!Array.isArray(sc.steps) || sc.steps.length === 0) fail(`${rel}: steps required`);
 
   for (const [i, step] of (sc.steps ?? []).entries()) {

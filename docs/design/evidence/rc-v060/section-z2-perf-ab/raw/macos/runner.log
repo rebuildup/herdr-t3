@@ -1,0 +1,44 @@
+2026-11-26T14:26:31Z sampler pid=85202
+2026-11-26T14:26:41Z record 0e3c14e-idle-r1 rc=0 -> /tmp/ht3-ab/results/0e3c14e-idle-r1.json
+2026-11-26T14:26:54Z record 932ce11-idle-r1 rc=0 -> /tmp/ht3-ab/results/932ce11-idle-r1.json
+2026-11-26T14:27:25Z record 2febbbf-idle-r1 rc=0 -> /tmp/ht3-ab/results/2febbbf-idle-r1.json
+2026-11-26T14:27:52Z record 9bb50cf-idle-r1 rc=0 -> /tmp/ht3-ab/results/9bb50cf-idle-r1.json
+2026-11-26T14:28:03Z record 932ce11-idle-r2 rc=0 -> /tmp/ht3-ab/results/932ce11-idle-r2.json
+2026-11-26T14:28:25Z record 2febbbf-idle-r2 rc=0 -> /tmp/ht3-ab/results/2febbbf-idle-r2.json
+2026-11-26T14:28:48Z record 9bb50cf-idle-r2 rc=0 -> /tmp/ht3-ab/results/9bb50cf-idle-r2.json
+2026-11-26T14:29:07Z record 0e3c14e-idle-r2 rc=0 -> /tmp/ht3-ab/results/0e3c14e-idle-r2.json
+2026-11-26T14:29:35Z record 2febbbf-idle-r3 rc=0 -> /tmp/ht3-ab/results/2febbbf-idle-r3.json
+2026-11-26T14:30:03Z record 9bb50cf-idle-r3 rc=0 -> /tmp/ht3-ab/results/9bb50cf-idle-r3.json
+2026-11-26T14:30:14Z record 0e3c14e-idle-r3 rc=0 -> /tmp/ht3-ab/results/0e3c14e-idle-r3.json
+2026-11-26T14:30:22Z record 932ce11-idle-r3 rc=0 -> /tmp/ht3-ab/results/932ce11-idle-r3.json
+2026-11-26T14:30:39Z record 9bb50cf-idle-r4 rc=0 -> /tmp/ht3-ab/results/9bb50cf-idle-r4.json
+2026-11-26T14:30:48Z record 0e3c14e-idle-r4 rc=0 -> /tmp/ht3-ab/results/0e3c14e-idle-r4.json
+2026-11-26T14:31:01Z record 932ce11-idle-r4 rc=0 -> /tmp/ht3-ab/results/932ce11-idle-r4.json
+2026-11-26T14:31:20Z record 2febbbf-idle-r4 rc=0 -> /tmp/ht3-ab/results/2febbbf-idle-r4.json
+2026-11-26T14:31:29Z record 0e3c14e-idle-r5 rc=0 -> /tmp/ht3-ab/results/0e3c14e-idle-r5.json
+2026-11-26T14:31:38Z record 932ce11-idle-r5 rc=0 -> /tmp/ht3-ab/results/932ce11-idle-r5.json
+2026-11-26T14:32:02Z record 2febbbf-idle-r5 rc=0 -> /tmp/ht3-ab/results/2febbbf-idle-r5.json
+2026-11-26T14:32:40Z record 9bb50cf-idle-r5 rc=0 -> /tmp/ht3-ab/results/9bb50cf-idle-r5.json
+2026-11-26T14:32:42Z load started: 10 spinners
+2026-11-26T14:33:17Z record 0e3c14e-loaded-r1 rc=0 -> /tmp/ht3-ab/results/0e3c14e-loaded-r1.json
+2026-11-26T14:33:46Z record 932ce11-loaded-r1 rc=0 -> /tmp/ht3-ab/results/932ce11-loaded-r1.json
+2026-11-26T14:34:39Z record 2febbbf-loaded-r1 rc=0 -> /tmp/ht3-ab/results/2febbbf-loaded-r1.json
+2026-11-26T14:35:33Z record 9bb50cf-loaded-r1 rc=0 -> /tmp/ht3-ab/results/9bb50cf-loaded-r1.json
+2026-11-26T14:36:05Z record 932ce11-loaded-r2 rc=0 -> /tmp/ht3-ab/results/932ce11-loaded-r2.json
+2026-11-26T14:37:07Z record 2febbbf-loaded-r2 rc=0 -> /tmp/ht3-ab/results/2febbbf-loaded-r2.json
+2026-11-26T14:37:52Z record 9bb50cf-loaded-r2 rc=0 -> /tmp/ht3-ab/results/9bb50cf-loaded-r2.json
+2026-11-26T14:38:14Z record 0e3c14e-loaded-r2 rc=0 -> /tmp/ht3-ab/results/0e3c14e-loaded-r2.json
+2026-11-26T14:38:56Z record 2febbbf-loaded-r3 rc=0 -> /tmp/ht3-ab/results/2febbbf-loaded-r3.json
+2026-11-26T14:39:51Z record 9bb50cf-loaded-r3 rc=0 -> /tmp/ht3-ab/results/9bb50cf-loaded-r3.json
+2026-11-26T14:40:23Z record 0e3c14e-loaded-r3 rc=0 -> /tmp/ht3-ab/results/0e3c14e-loaded-r3.json
+2026-11-26T14:40:45Z record 932ce11-loaded-r3 rc=0 -> /tmp/ht3-ab/results/932ce11-loaded-r3.json
+2026-11-26T14:41:44Z record 9bb50cf-loaded-r4 rc=0 -> /tmp/ht3-ab/results/9bb50cf-loaded-r4.json
+2026-11-26T14:42:03Z record 0e3c14e-loaded-r4 rc=0 -> /tmp/ht3-ab/results/0e3c14e-loaded-r4.json
+2026-11-26T14:42:24Z record 932ce11-loaded-r4 rc=0 -> /tmp/ht3-ab/results/932ce11-loaded-r4.json
+2026-11-26T14:43:03Z record 2febbbf-loaded-r4 rc=0 -> /tmp/ht3-ab/results/2febbbf-loaded-r4.json
+2026-11-26T14:43:24Z record 0e3c14e-loaded-r5 rc=0 -> /tmp/ht3-ab/results/0e3c14e-loaded-r5.json
+2026-11-26T14:43:41Z record 932ce11-loaded-r5 rc=0 -> /tmp/ht3-ab/results/932ce11-loaded-r5.json
+2026-11-26T14:44:23Z record 2febbbf-loaded-r5 rc=0 -> /tmp/ht3-ab/results/2febbbf-loaded-r5.json
+2026-11-26T14:45:05Z record 9bb50cf-loaded-r5 rc=0 -> /tmp/ht3-ab/results/9bb50cf-loaded-r5.json
+2026-11-26T14:45:07Z load stopped
+2026-11-26T14:45:10Z done

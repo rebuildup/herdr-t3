@@ -8,17 +8,24 @@ import type {
 } from "../../shared/protocol";
 import {
   AGENT_SECTIONS,
+  AGENT_SHELF_INITIAL_VISIBLE,
+  AGENT_SHELF_PAGE,
   COLLAPSIBLE_AGENT_SECTIONS,
+  UNCAPPED_AGENT_SECTIONS,
   agentAuxStateLabels,
   agentDisplayName,
   agentOrganizeKey,
   agentRowSignature,
   agentSection,
+  agentShelfEntryKey,
+  agentShelfInitialLimit,
+  agentShelfPage,
   agentStateLabel,
   agentWorkTarget,
   collectAgentEntries,
   compareAgents,
   partitionAgents,
+  shelfRows,
   shortPaneId,
   type AgentListEntry,
   type AgentOrganizeMap,
@@ -446,18 +453,6 @@ describe("partitionAgents organize overlay (issue #173)", () => {
   });
 });
 
-function visibleAgentPanes(
-  sections: ReturnType<typeof partitionAgents>["sections"],
-): string[] {
-  return [
-    ...sections.attention,
-    ...sections.working,
-    ...sections.done,
-    ...sections.idle,
-    ...sections.snoozed,
-    ...sections.settled,
-  ].map((e) => e.agent.pane_id);
-}
 
 describe("agentRowSignature / shortPaneId", () => {
   test("identical rendered rows share a signature; pane id alone does not split it", () => {
@@ -483,5 +478,73 @@ describe("agentRowSignature / shortPaneId", () => {
     expect(shortPaneId("w1:p4")).toBe("p4");
     expect(shortPaneId("p4")).toBe("p4");
     expect(shortPaneId("host:w2:p9")).toBe("p9");
+  });
+});
+
+describe("shelfRows (issue #389)", () => {
+  const list = Array.from({ length: 40 }, (_, i) =>
+    entry(agent({ pane_id: `w1:p${i + 1}` })),
+  );
+  const routeKey = agentShelfEntryKey(list[35]!);
+
+  test("collapsed shelf keeps only the route-selected row", () => {
+    const { visible, hidden } = shelfRows(list, false, AGENT_SHELF_INITIAL_VISIBLE, routeKey);
+    expect(visible).toEqual([list[35]!]);
+    expect(hidden).toBe(0);
+  });
+
+  test("collapsed shelf renders nothing without a route match", () => {
+    const { visible } = shelfRows(list, false, AGENT_SHELF_INITIAL_VISIBLE, null);
+    expect(visible).toEqual([]);
+    const { visible: none } = shelfRows(list, false, AGENT_SHELF_INITIAL_VISIBLE, "other:p");
+    expect(none).toEqual([]);
+  });
+
+  test("expanded capped shelf shows the first page and counts the rest", () => {
+    const { visible, hidden } = shelfRows(list, true, AGENT_SHELF_INITIAL_VISIBLE, null);
+    expect(visible).toEqual(list.slice(0, AGENT_SHELF_INITIAL_VISIBLE));
+    expect(hidden).toBe(30);
+  });
+
+  test("route row survives beyond the cap without duplicating", () => {
+    const { visible, hidden } = shelfRows(list, true, AGENT_SHELF_INITIAL_VISIBLE, routeKey);
+    expect(visible).toHaveLength(AGENT_SHELF_INITIAL_VISIBLE + 1);
+    expect(visible.at(-1)).toBe(list[35]);
+    expect(hidden).toBe(29);
+    // A route row inside the cap is not appended twice.
+    const early = shelfRows(list, true, AGENT_SHELF_INITIAL_VISIBLE, agentShelfEntryKey(list[0]!));
+    expect(early.visible).toHaveLength(AGENT_SHELF_INITIAL_VISIBLE);
+    expect(early.hidden).toBe(30);
+  });
+
+  test("uncapped shelf renders everything regardless of limit", () => {
+    const { visible, hidden } = shelfRows(list, true, null, null);
+    expect(visible).toHaveLength(40);
+    expect(hidden).toBe(0);
+  });
+
+  test("disclosure constants mirror the T3 settled tail", () => {
+    expect(AGENT_SHELF_INITIAL_VISIBLE).toBe(10);
+    expect(AGENT_SHELF_PAGE).toBe(25);
+    expect(UNCAPPED_AGENT_SECTIONS).toEqual(["attention"]);
+  });
+
+  test("working shelf opens smaller and pages by 4 (issue #418)", () => {
+    expect(agentShelfInitialLimit("working")).toBe(4);
+    expect(agentShelfPage("working")).toBe(4);
+    for (const section of ["attention", "done", "idle", "snoozed", "settled"] as const) {
+      expect(agentShelfInitialLimit(section)).toBe(AGENT_SHELF_INITIAL_VISIBLE);
+      expect(agentShelfPage(section)).toBe(AGENT_SHELF_PAGE);
+    }
+    // The route row still survives beyond the smaller Working cap.
+    const { visible, hidden } = shelfRows(
+      list,
+      true,
+      agentShelfInitialLimit("working"),
+      routeKey,
+    );
+    expect(visible).toHaveLength(5);
+    expect(visible.at(-1)).toBe(list[35]);
+    expect(hidden).toBe(35);
   });
 });

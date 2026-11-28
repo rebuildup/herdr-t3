@@ -8,3 +8,8 @@ description = "Runtime-independent terminal input policy (issue #301, contract t
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
+
+# rlib for the native harness adapter/tests; cdylib is the wasm32 consumer
+# artifact the product path loads (ADR-0025, issue #319).
+[lib]
+crate-type = ["rlib", "cdylib"]

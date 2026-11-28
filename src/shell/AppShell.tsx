@@ -32,7 +32,7 @@ import { useRoute } from "./router";
 import "~/lib/uiObserve";
 import { useBridgeState } from "./bridge";
 import { syncWorktreeBranches } from "./worktrees";
-import { SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
+import { BrandWordmark, SidebarChromeFooter, SidebarChromeHeader } from "./SidebarChrome";
 import { WorkspaceSidebarBody } from "./WorkspaceSidebar";
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "herdr-t3:sidebar-width";
@@ -118,11 +118,10 @@ function SidebarBrandWidthProbe({ onWidthChange }: { onWidthChange: (width: numb
       className="pointer-events-none invisible fixed top-0 left-0 flex w-max border-r border-transparent pr-3"
       ref={observeWidth}
     >
-      <div className="ml-[var(--workspace-titlebar-content-left)] flex gap-1">
-        <span className="inline-flex items-baseline gap-1 text-sm tracking-tight">
-          <span className="font-semibold text-foreground">herdr</span>
-          <span className="font-medium text-muted-foreground">-t3</span>
-        </span>
+      <div className="ml-(--workspace-titlebar-content-left) flex gap-1">
+        {/* Shared with SidebarBrand so the measured wordmark can never
+            drift from the visible one (anti-case AC-004, issue #612). */}
+        <BrandWordmark />
         {isElectron ? <div className="w-[calc(2*var(--workspace-titlebar-control-size))]" /> : null}
       </div>
     </div>
@@ -152,7 +151,7 @@ function SidebarControl() {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
+        "pointer-events-none fixed left-(--workspace-controls-left) top-(--workspace-controls-top) z-50 ml-px flex h-(--workspace-topbar-height) items-center",
         mobileSidebarSheetMounted && "hidden",
       )}
       data-sidebar-control=""

@@ -14,6 +14,43 @@
 //! re-spaced for the native sizes while keeping the TS `AT` ordering.
 //! All enum values, field offsets and struct sizes are still resolved at
 //! runtime from `ghostty_type_json()`.
+//!
+//! ## Safety contract (migration-policy §5)
+//!
+//! All `unsafe` in this module sits at the libghostty-vt FFI boundary and
+//! upholds these invariants:
+//!
+//! - **Scratch block**: `Scratch` is one fixed `Vec<u8>` (`SCRATCH_BYTES`)
+//!   allocated once per engine and never resized, so `at()`/`ptr_at()`
+//!   pointers stay valid for the engine's life. Every `at::*` region is
+//!   disjoint and sized with headroom for the native struct; the library
+//!   only writes through out-params during a single call, and no `&mut`
+//!   alias of the buffer is live across an FFI call.
+//! - **Out-params**: every `*_get`/`*_new` out slot is written only through
+//!   `scratch.at(...)` or a stack `&mut` local; callers never hand the
+//!   library a pointer into Rust-owned data except the deliberately shared
+//!   `GhosttySelection`/`GhosttyString` views (search needle, format
+//!   options) whose pointed-to bytes outlive the call.
+//! - **Returned buffers**: `slice()` maps a null out-pointer to an empty
+//!   slice (the library returns null for empty results); every other
+//!   library-reported length is clamped to the allocation it was read
+//!   from (`encoded`, `grapheme`, `search`, `image_pixels`) because the TS
+//!   original could read adjacent wasm-heap bytes where Rust would read
+//!   out of bounds — a contract violation degrades to truncated/zero data
+//!   or an `Err`, never UB.
+//! - **Callbacks**: `userdata` is `*mut EngineInner` inside a `Box`, set
+//!   only when events exist and only alongside the matching C callback
+//!   registration; every callback re-enters through `with_engine`, which
+//!   isolates panics with `catch_unwind` and records the first error.
+//! - **Handles**: opaque `Handle`s are null-checked before `*_free` and
+//!   freed exactly once in `dispose` (reverse creation order via the
+//!   constructor's undo list on partial failure).
+//!
+//! `layout.rs` resolves every offset/size/enum at runtime from
+//! `ghostty_type_json()`, so no struct layout is assumed beyond the three
+//! by-value argument structs in `ffi.rs` (`Point`, `ScrollViewport`,
+//! `MousePosition`), whose `repr(C)` shape is verified against that same
+//! JSON.
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -431,6 +468,10 @@ pub struct EngineOptions {
     pub images: Option<u64>,
     /// lines of history above the screen
     pub scrollback_lines: Option<u32>,
+    /// byte cap on scrollback history; applied together with the line cap —
+    /// whichever binds first ends history (issue #499). None leaves the
+    /// module default.
+    pub scrollback_bytes: Option<u64>,
     /// when present, the engine wires the terminal's callbacks and follows
     /// win32-input-mode; without it none of that happens
     pub events: Option<Box<dyn EngineEvents>>,
@@ -509,6 +550,12 @@ unsafe fn rusize(p: *const u8, off: usize) -> usize {
     (p.add(off) as *const u64).read_unaligned().to_le() as usize
 }
 unsafe fn slice<'a>(p: *const u8, len: usize) -> &'a [u8] {
+    // libghostty-vt returns a null out-pointer for empty results; JS sees ""
+    // there, so map null to an empty slice rather than invoking UB.
+    if p.is_null() {
+        debug_assert_eq!(len, 0, "null buffer with nonzero length");
+        return &[];
+    }
     std::slice::from_raw_parts(p, len)
 }
 
@@ -686,7 +733,7 @@ impl GhosttyEngine {
             undo.push(Box::new(move || unsafe { ffi::ghostty_render_state_image_iterator_free(im) }));
             inner.images = im;
 
-            inner.set_up_handles(options.widths, options.images, options.scrollback_lines, has_events)?;
+            inner.set_up_handles(options.widths, options.images, options.scrollback_lines, options.scrollback_bytes, has_events)?;
             Ok(())
         })();
         if let Err(e) = created {
@@ -707,7 +754,7 @@ impl GhosttyEngine {
 }
 
 impl EngineInner {
-    fn set_up_handles(&mut self, widths: Widths, images: Option<u64>, scrollback_lines: Option<u32>, has_events: bool) -> Result<(), String> {
+    fn set_up_handles(&mut self, widths: Widths, images: Option<u64>, scrollback_lines: Option<u32>, scrollback_bytes: Option<u64>, has_events: bool) -> Result<(), String> {
         let option = |name: &str| self.r.enum_("GhosttyTerminalOption", name);
         self.scratch.w64(0, images.unwrap_or(0));
         self.check(
@@ -719,8 +766,12 @@ impl EngineInner {
         }
         if let Some(lines) = scrollback_lines {
             self.set_line_limit(lines)?;
+        }
+        if let Some(bytes) = scrollback_bytes {
+            // usize on the native target: write a full u64
+            self.scratch.w64(0, bytes);
             self.check(
-                unsafe { ffi::ghostty_terminal_set(self.terminal, option("SCROLLBACK_MAX_BYTES") as u32, std::ptr::null()) },
+                unsafe { ffi::ghostty_terminal_set(self.terminal, option("SCROLLBACK_MAX_BYTES") as u32, self.scratch.at(0) as *const c_void) },
                 "scrollback bytes",
             )?;
         }
@@ -738,7 +789,10 @@ impl EngineInner {
 
     fn allocate(&self, len: usize, what: &str) -> Result<*mut u8, String> {
         let ptr = unsafe { ffi::ghostty_alloc(std::ptr::null(), len) };
-        if ptr.is_null() && self.events.is_some() {
+        // The TS engine only threw when events existed (a null wasm pointer
+        // was merely wrong data there); here a null would flow into
+        // copy_nonoverlapping/from_raw_parts as UB, so it is always an error.
+        if ptr.is_null() {
             return Err(format!("ghostty-vt: no memory for {what} ({len} bytes)"));
         }
         Ok(ptr)
@@ -1285,12 +1339,10 @@ impl GhosttyEngine {
             let _ = unsafe { ffi::ghostty_key_event_set_action(event, this.r.enum_("GhosttyKeyAction", action) as u32) };
             let _ = unsafe { ffi::ghostty_key_event_set_key(event, code as u32) };
             unsafe { ffi::ghostty_key_event_set_mods(event, mods_bits(key.mods)) };
+            // Pass the scratch pointer unconditionally: a null data pointer
+            // is only valid with len 0, and the C side need not special-case it.
             unsafe {
-                ffi::ghostty_key_event_set_utf8(
-                    event,
-                    if utf8.is_empty() { std::ptr::null() } else { this.scratch.at(at::KEY_TEXT) },
-                    utf8.len(),
-                )
+                ffi::ghostty_key_event_set_utf8(event, this.scratch.at(at::KEY_TEXT), utf8.len())
             };
             unsafe {
                 ffi::ghostty_key_event_set_unshifted_codepoint(
@@ -1461,8 +1513,8 @@ impl GhosttyEngine {
                 s("rectangle"),
             );
             let selection = at::SELECTION;
-            this.scratch.copy_within(at::REF_START, selection + sstart, ref_bytes);
-            this.scratch.copy_within(at::REF_END, selection + send, ref_bytes);
+            this.scratch.copy_within(selection + sstart, at::REF_START, ref_bytes);
+            this.scratch.copy_within(selection + send, at::REF_END, ref_bytes);
             this.scratch.w8(selection + rect, 0);
 
             let options = at::FORMAT_OPTIONS;
@@ -1604,7 +1656,9 @@ impl GhosttyEngine {
                     unsafe { ffi::ghostty_search_get(searcher, matches as u32, this.scratch.at(buffer) as *mut c_void) },
                     "search matches",
                 )?;
-                let found = this.scratch.r64(buffer + b("len")) as usize;
+                // `len` must not exceed the `cap` we offered; clamp anyway so
+                // a misbehaving library cannot turn this into an OOB read.
+                let found = (this.scratch.r64(buffer + b("len")) as usize).min(count);
                 let mut ranges = Vec::with_capacity(found);
                 for index in 0..found {
                     let item = unsafe { list.add(index * stride) };
@@ -1715,6 +1769,26 @@ impl GhosttyEngine {
         })
     }
 
+    /// whether the Kitty graphics store still holds `id` — port of
+    /// `hasImage`; cheap existence check, no pixel copy (issue #499)
+    pub fn has_image(&mut self, id: u32) -> Result<bool, String> {
+        self.inner.guard(|this| {
+            this.scratch.w64(0, 0);
+            if unsafe {
+                ffi::ghostty_terminal_get(
+                    this.terminal,
+                    this.r.enum_("GhosttyTerminalData", "KITTY_GRAPHICS") as u32,
+                    this.scratch.at(0) as *mut c_void,
+                )
+            } != 0
+            {
+                return Ok(false);
+            }
+            let graphics = this.scratch.r64(0) as Handle;
+            Ok(!unsafe { ffi::ghostty_kitty_graphics_image(graphics, id) }.is_null())
+        })
+    }
+
     /// a stored Kitty image's pixels as RGBA — port of `imagePixels`.
     pub fn image_pixels(&mut self, id: u32) -> Result<Option<GhosttyPixels>, String> {
         self.inner.guard(|this| {
@@ -1784,15 +1858,17 @@ impl GhosttyEngine {
                     let s = p * channels;
                     let d = p * 4;
                     if channels >= 3 {
-                        rgba[d] = source[s];
-                        rgba[d + 1] = source[s + 1];
-                        rgba[d + 2] = source[s + 2];
+                        // TS reads past a short source as 0 (undefined -> 0 in
+                        // Uint8ClampedArray); mirror that without panicking.
+                        rgba[d] = source.get(s).copied().unwrap_or(0);
+                        rgba[d + 1] = source.get(s + 1).copied().unwrap_or(0);
+                        rgba[d + 2] = source.get(s + 2).copied().unwrap_or(0);
                         rgba[d + 3] = 255;
                     } else {
-                        rgba[d] = source[s];
-                        rgba[d + 1] = source[s];
-                        rgba[d + 2] = source[s];
-                        rgba[d + 3] = if channels == 2 { source[s + 1] } else { 255 };
+                        rgba[d] = source.get(s).copied().unwrap_or(0);
+                        rgba[d + 1] = source.get(s).copied().unwrap_or(0);
+                        rgba[d + 2] = source.get(s).copied().unwrap_or(0);
+                        rgba[d + 3] = if channels == 2 { source.get(s + 1).copied().unwrap_or(0) } else { 255 };
                     }
                 }
             }
@@ -1943,6 +2019,9 @@ impl EngineInner {
             let cell_len_off = self.r.field("GhosttyCellsView", "len");
             let cells_ptr = unsafe { rusize(view_ptr, cell_ptr_off) } as *const u8;
             let len = unsafe { rusize(view_ptr, cell_len_off) };
+            if len > 0 && cells_ptr.is_null() {
+                return Err("ghostty-vt: row cells view has cells but a null pointer".into());
+            }
 
             let mut runs: Vec<GhosttyRun> = Vec::new();
             let mut run_key: i64 = i64::MIN;
@@ -2135,14 +2214,16 @@ impl EngineInner {
                 if r != 0 {
                     return Ok(" ".into());
                 }
-                let n = self.scratch.r64(out + len_at) as usize;
+                let n = (self.scratch.r64(out + len_at) as usize).min(need);
                 Ok(String::from_utf8_lossy(unsafe { slice(big, n) }).into_owned())
             })();
             unsafe { ffi::ghostty_free(std::ptr::null(), big, need) };
             let text = out_result?;
             return Ok(if text.is_empty() { " ".into() } else { text });
         }
-        let n = self.scratch.r64(out + len_at) as usize;
+        // The library promises len <= cap on success; the scratch Vec is the
+        // bound that keeps a violated promise inside allocated memory.
+        let n = (self.scratch.r64(out + len_at) as usize).min(SCRATCH_BYTES - at::GRAPHEME);
         let text = String::from_utf8_lossy(unsafe { slice(self.scratch.ptr_at(buf), n) }).into_owned();
         Ok(if text.is_empty() { " ".into() } else { text })
     }
@@ -2219,12 +2300,20 @@ impl EngineInner {
             let inner = encode(big, need, &mut out_len);
             let out = (|| {
                 self.check(inner, what)?;
-                Ok(unsafe { slice(big, out_len).to_vec() })
+                // Same promise as the scratch path: out_len <= the buffer we
+                // offered; clamp so a violation cannot read past `big`.
+                Ok(unsafe { slice(big, out_len.min(need)) }.to_vec())
             })();
             unsafe { ffi::ghostty_free(std::ptr::null(), big, need) };
             return out;
         }
         self.check(result, what)?;
+        // The encoder promises out_len <= cap; a violated promise must not
+        // become an out-of-bounds slice index (the TS read stayed inside the
+        // wasm heap, here it would panic or worse).
+        if out_len > ENCODED_CAP {
+            return Err(format!("ghostty-vt: {what} reported {out_len} bytes into a {ENCODED_CAP} byte buffer"));
+        }
         Ok(self.scratch.buf[at::ENCODED..at::ENCODED + out_len].to_vec())
     }
 
@@ -2353,6 +2442,7 @@ fn read_clipboard_write_with(r: &Resolved, request: *const c_void) -> EngineEffe
             let len = rusize(at, string_off + slen);
             slice(ptr, len).to_vec()
         };
+        let count = if list.is_null() { 0 } else { count };
         let mut contents = Vec::with_capacity(count);
         for index in 0..count {
             let item = list.add(index * stride);
@@ -2456,4 +2546,54 @@ unsafe extern "C" fn clipboard_write_cb(_terminal: Handle, userdata: *mut c_void
         let effect = inner.read_clipboard_write(request);
         inner.with_events(|events| events.on_effect(&effect));
     });
+}
+
+#[cfg(test)]
+mod scratch_layout_tests {
+    //! Regression guard for the scratch-block layout (#321): every `at::*`
+    //! region must be at least as large as the native struct the library
+    //! writes into it. Sizes come from `ghostty_type_json()` at runtime, so
+    //! this fails loudly if the vendored library's layout ever grows past
+    //! the hand-spaced regions (wasm32→native re-spacing is the risk class
+    //! that produced the #301 FFI bugs).
+    use super::at;
+    use crate::layout::type_size;
+
+    /// (region start, region end, ghostty type written there)
+    const REGIONS: &[(usize, usize, &str)] = &[
+        (at::FRAME_VIEW, at::FRAME_COLOR, "GhosttyCellsView"),
+        (at::FRAME_STYLE, at::PALETTE, "GhosttyStyle"),
+        (at::PALETTE, at::GRAPHEME_OUT, "GhosttyColorRgb"), // x256 palette
+        (at::GRAPHEME_OUT, at::GRAPHEME, "GhosttyBuffer"),
+        (at::MODE, at::CURSOR, "GhosttyTerminalModeConfig"),
+        (at::CURSOR, at::MOUSE_SIZE, "GhosttyRenderStateCursor"),
+        (at::MOUSE_SIZE, at::MOUSE_POSITION, "GhosttyMouseEncoderSize"),
+        (at::MOUSE_POSITION, at::STRING, "GhosttyMousePosition"),
+        (at::STRING, at::SELECTION_BUFFER, "GhosttyString"),
+        (at::SELECTION_BUFFER, at::REF_START, "GhosttySelectionBuffer"),
+        (at::REF_START, at::REF_END, "GhosttyGridRef"),
+        (at::REF_END, at::COORDINATE, "GhosttyGridRef"),
+        (at::COORDINATE, at::SELECTION, "GhosttyPointCoordinate"),
+        (at::SELECTION, at::SELECT_OPTIONS, "GhosttySelection"),
+        (at::SELECT_OPTIONS, at::FORMAT_OPTIONS, "GhosttyTerminalSelectLineOptions"),
+        (at::FORMAT_OPTIONS, at::SCROLLBAR, "GhosttyTerminalSelectionFormatOptions"),
+        (at::SCROLLBAR, at::IMAGE_OUT, "GhosttyTerminalScrollbar"),
+    ];
+
+    #[test]
+    fn scratch_regions_fit_native_structs() {
+        for &(start, end, ty) in REGIONS {
+            let span = end - start;
+            let size = type_size(ty);
+            assert!(
+                size <= span,
+                "scratch region for {ty} is {span} bytes but the native struct is {size}"
+            );
+        }
+        // The palette region is used as GhosttyColorRgb[256], not one struct.
+        assert_eq!(type_size("GhosttyColorRgb") * 256, at::GRAPHEME_OUT - at::PALETTE);
+        // Byte-capped regions must match their documented caps exactly.
+        assert_eq!(super::ENCODED_CAP, at::KEY_TEXT - at::ENCODED);
+        assert_eq!(super::KEY_TEXT_CAP_TOTAL, super::SCRATCH_BYTES - at::KEY_TEXT);
+    }
 }

@@ -6,30 +6,42 @@
  * the pushed snapshot is what updates the UI.
  */
 import {
+  ArrowLeftRightIcon,
+  BotIcon,
+  CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   Columns2,
   EllipsisIcon,
   FolderGit2Icon,
   FolderKanbanIcon,
+  GaugeIcon,
   GitBranchIcon,
   HistoryIcon,
   InfoIcon,
+  KeyRoundIcon,
   Maximize2,
+  MessagesSquareIcon,
   MessageSquareTextIcon,
   Minimize2,
   MousePointerClickIcon,
+  PackageIcon,
   PencilIcon,
+  PlugIcon,
   PlusIcon,
   Rows2,
+  ServerIcon,
   SquarePlayIcon,
   SquareSplitHorizontalIcon,
+  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { focusPaneTerminal } from "~/lib/paneFocus";
+import { observeResize } from "~/lib/observeResize";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { focusPaneTerminal, requestFocusHandoff } from "~/lib/focusHandoff";
 import { isElectron } from "~/lib/env";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import {
@@ -66,11 +78,8 @@ import { callRpc } from "./bridge";
 import { useWorkspaceBranch } from "./worktrees";
 import { PaneMessageDialog } from "~/components/PaneMessageDialog";
 import { PaneDetailsDialog } from "~/components/PaneDetailsDialog";
-import { WorktreesDialog } from "~/components/WorktreesDialog";
-import { ProjectScriptsDialog } from "~/components/ProjectScriptsDialog";
-import { ProjectsDialog } from "~/components/ProjectsDialog";
-import { GitDialog } from "~/components/GitDialog";
-import { CheckpointsDialog } from "~/components/CheckpointsDialog";
+import { ContextCardTrigger } from "./PaneContextCard";
+import { openSurface, RIGHT_PANEL_NARROW_QUERY, useRightPanelState, type RightPanelSurface } from "./rightPanelStore";
 import { RenameDialog, type RenameTarget } from "~/components/RenameDialog";
 
 function HeaderIconButton({
@@ -111,11 +120,6 @@ export function WorkspaceHeader() {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const [messagePane, setMessagePane] = useState<PaneInfo | null>(null);
   const [detailsPane, setDetailsPane] = useState<PaneInfo | null>(null);
-  const [worktreesOpen, setWorktreesOpen] = useState(false);
-  const [projectScriptsOpen, setProjectScriptsOpen] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
-  const [gitPane, setGitPane] = useState<PaneInfo | null>(null);
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   // Tab drag-reorder (issue #111): HTML5 drag with an insertion indicator;
@@ -132,19 +136,34 @@ export function WorkspaceHeader() {
     if (!el) return;
     const check = () => setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
     check();
-    const observer = new ResizeObserver(check);
-    observer.observe(el);
-    return () => observer.disconnect();
+    return observeResize(el, check);
   }, [tabs]);
   const branch = useWorkspaceBranch(machine, workspace?.workspace_id ?? "");
   const zoomed = layout?.zoomed === true;
   const rpc = (method: RpcMethod, params: Record<string, unknown> = {}) =>
     callRpc(machine, method, params);
+  // Issue #333: plugin surfaces open as docked right-panel tabs scoped to
+  // this workspace — Source Control targets the focused pane's repo.
+  const panelScope = `${machine}\n${workspace?.workspace_id ?? ""}`;
+  const openPanelSurface = (surface: RightPanelSurface) =>
+    openSurface(panelScope, surface);
+  // T3 ChatView `inlineRightPanelOwnsTitleBar` / `reserveNativeControls`:
+  // while the inline (wide) right panel is open on Electron its tab bar
+  // owns the desktop titlebar — drag region, `wco:` inset and the fixed
+  // controls strip all live there — so this header must NOT also reserve
+  // the native-controls inset (the caption strip sits over the panel's
+  // top-right corner, not over this column's right edge).
+  const rightPanelState = useRightPanelState(panelScope);
+  const narrowPanel = useMediaQuery(RIGHT_PANEL_NARROW_QUERY);
+  const inlinePanelOwnsTitleBar = rightPanelState.isOpen && !narrowPanel;
 
   const headerClass = cn(
-    "relative flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-3",
+    "relative flex h-(--workspace-topbar-height) min-h-(--workspace-topbar-height) shrink-0 items-center gap-3",
     isElectron
-      ? "drag-region bg-background px-3 sm:px-5 wco:pr-(--workspace-native-controls-inset)"
+      ? cn(
+          "drag-region bg-background px-3 sm:px-5",
+          !inlinePanelOwnsTitleBar && "wco:pr-(--workspace-native-controls-inset)",
+        )
       : "pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
     COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
   );
@@ -196,7 +215,12 @@ export function WorkspaceHeader() {
             scrolls internally; the surrounding header space stays draggable.
             The new-tab action sits outside the scroller so it never slides
             out of view on narrow widths. */}
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        {/* min-w-11 floors the strip at its fixed chrome (hairline +
+            gap + the size-8/size-7 new-tab button ≈ 41/37px): without it
+            flex-1 + min-w-0 let the container collapse to ~0 and the
+            shrink-0 "+" overflowed rightward onto the pane-summary text
+            (issue #417). The scroller still scrolls internally. */}
+        <div className="flex min-w-11 flex-1 items-center gap-1">
           {/* Hairline separating the workspace breadcrumb from the tab
               strip — at narrow widths the two read as one run without it
               (issue #130). */}
@@ -275,7 +299,7 @@ export function WorkspaceHeader() {
                       ? // The inset ring keeps the active pill distinct from
                         // an hovered inactive tab — both share bg-accent, so
                         // fill alone cannot carry selection (issue #204).
-                        "bg-accent font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                        "bg-accent font-medium text-foreground inset-ring-1 inset-ring-border"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
@@ -296,7 +320,17 @@ export function WorkspaceHeader() {
                     // oxlint-disable-next-line herdr-t3/no-raw-control -- tab label is part of a composite tab row, not a standalone control
                     <button
                       type="button"
-                      onClick={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      onClick={() => {
+                        // Issue #435: selecting a tab hands keyboard focus
+                        // to the pane herdr focuses inside it once the
+                        // snapshot and the mounted surface agree.
+                        requestFocusHandoff({
+                          machine,
+                          workspaceId: workspace.workspace_id,
+                          tabId: t.tab_id,
+                        });
+                        void rpc("tab.focus", { tab_id: t.tab_id });
+                      }}
                       // Prevent mousedown focus: a clicked tab kept a
                       // persistent focus ring while hovering siblings
                       // (issue #204 review). Keyboard focus is unaffected.
@@ -331,7 +365,10 @@ export function WorkspaceHeader() {
                       size="icon-xs"
                       variant="ghost"
                       aria-label="Close tab"
-                      onClick={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                      onClick={() => {
+                        requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
+                        void rpc("tab.close", { tab_id: t.tab_id });
+                      }}
                     >
                       <XIcon className="size-3" />
                     </Button>
@@ -361,7 +398,14 @@ export function WorkspaceHeader() {
                   <ContextMenuContent>
                     <ContextMenuItem
                       disabled={selected}
-                      onSelect={() => void rpc("tab.focus", { tab_id: t.tab_id })}
+                      onSelect={() => {
+                        requestFocusHandoff({
+                          machine,
+                          workspaceId: workspace.workspace_id,
+                          tabId: t.tab_id,
+                        });
+                        void rpc("tab.focus", { tab_id: t.tab_id });
+                      }}
                     >
                       <MousePointerClickIcon /> Focus tab
                     </ContextMenuItem>
@@ -398,7 +442,10 @@ export function WorkspaceHeader() {
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       destructive
-                      onSelect={() => void rpc("tab.close", { tab_id: t.tab_id })}
+                      onSelect={() => {
+                        requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
+                        void rpc("tab.close", { tab_id: t.tab_id });
+                      }}
                     >
                       <XIcon /> Close tab
                     </ContextMenuItem>
@@ -409,31 +456,45 @@ export function WorkspaceHeader() {
           </div>
           <HeaderIconButton
             label="New tab"
-            onClick={() =>
+            onClick={() => {
+              requestFocusHandoff({ machine, workspaceId: workspace.workspace_id });
               void rpc("tab.create", {
                 workspace_id: workspace.workspace_id,
                 focus: true,
-              })
-            }
+              });
+            }}
           >
             <PlusIcon className="size-4" />
           </HeaderIconButton>
         </div>
 
         {/* Focused pane summary + actions. Shrinks (label truncates) before
-            the tab strip does, so narrow widths keep tabs readable. */}
+            the tab strip does, so narrow widths keep tabs readable. The
+            summary is capped so its "title · agent" text gives up width
+            (agent metadata truncates first — it is the tail of the single
+            truncating node) before the workspace breadcrumb does
+            (issue #417). Below `md` it hides entirely: at ~480–700px
+            windows it could only render "r…"/"devin.exe: re…", and the
+            workspace/session breadcrumb is the higher-value label there
+            (issue #417 Windows leg). */}
         <div className="flex min-w-0 items-center gap-2 [-webkit-app-region:no-drag]">
           <Tooltip>
             <TooltipTrigger
               render={
-                <div className="flex min-w-0 items-center gap-2 text-xs text-secondary-label max-sm:hidden" />
+                <div className="flex min-w-0 max-w-48 items-center gap-2 text-xs text-secondary-label max-md:hidden" />
               }
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">
-                  {focusedTitle}
-                  {focusedPane?.agent ? ` · ${focusedPane.agent}` : ""}
-                </span>
+                {/* The pane title keeps priority inside the cap; the agent
+                    name is capped and truncates first so a long agent
+                    label cannot starve the title (issue #417 Windows
+                    leg). */}
+                <span className="min-w-0 truncate">{focusedTitle}</span>
+                {focusedPane?.agent ? (
+                  <span className="min-w-0 max-w-28 shrink truncate">
+                    · {focusedPane.agent}
+                  </span>
+                ) : null}
               </span>
               {focusedPane && isKnownAgentStatus(focusedPane.agent_status) ? (
                 <AgentStatusBadge status={focusedPane.agent_status} />
@@ -495,6 +556,13 @@ export function WorkspaceHeader() {
               <Rows2 className="size-4" />
             </HeaderIconButton>
           </div>
+          {/* Context card trigger (issue #390): T3's ThreadDetailsPanel
+              toggle — the card itself renders inside the workspace
+              canvas (inline) or as a popover anchored to this button. */}
+          <ContextCardTrigger
+            scope={`${machine}\n${workspace?.workspace_id ?? ""}`}
+            disabled={!focusedPane}
+          />
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -613,22 +681,93 @@ export function WorkspaceHeader() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => focusedPane && setGitPane(focusedPane)}
+                onClick={() =>
+                  focusedPane &&
+                  openPanelSurface({
+                    id: `git:${focusedPane.pane_id}`,
+                    kind: "git",
+                    paneId: focusedPane.pane_id,
+                  })
+                }
                 disabled={!focusedPane}
               >
-                <FolderGit2Icon /> Source Control…
+                <FolderGit2Icon /> Source Control
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setProjectScriptsOpen(true)}>
-                <SquarePlayIcon /> Project Scripts…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "scripts", kind: "scripts" })}
+              >
+                <SquarePlayIcon /> Project Scripts
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setWorktreesOpen(true)}>
-                <GitBranchIcon /> Worktrees…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "worktrees", kind: "worktrees" })}
+              >
+                <GitBranchIcon /> Worktrees
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setProjectsOpen(true)}>
-                <FolderKanbanIcon /> Projects…
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "projects", kind: "projects" })}
+              >
+                <FolderKanbanIcon /> Projects
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCheckpointsOpen(true)}>
-                <HistoryIcon /> Checkpoints…
+              <DropdownMenuItem
+                onClick={() =>
+                  openPanelSurface({
+                    id: "checkpoints",
+                    kind: "checkpoints",
+                    paneId: focusedPane?.pane_id ?? null,
+                  })
+                }
+              >
+                <HistoryIcon /> Checkpoints
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "automations", kind: "automations" })}
+              >
+                <CalendarClockIcon /> Automations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "conversations", kind: "conversations" })}
+              >
+                <MessagesSquareIcon /> Conversations
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "usage", kind: "usage" })}
+              >
+                <GaugeIcon /> Usage
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "artifacts", kind: "artifacts" })}
+              >
+                <PackageIcon /> Artifacts
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "handoffs", kind: "handoffs" })}
+              >
+                <ArrowLeftRightIcon /> Handoffs
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "controls", kind: "controls" })}
+              >
+                <BotIcon /> Controls
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "textgen", kind: "textgen" })}
+              >
+                <SparklesIcon /> Text Generation
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "secrets", kind: "secrets" })}
+              >
+                <KeyRoundIcon /> Secrets
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "machines", kind: "machines" })}
+              >
+                <ServerIcon /> Machines
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openPanelSurface({ id: "mcp", kind: "mcp" })}
+              >
+                <PlugIcon /> MCP
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void rpc("tab.close", { tab_id: activeTab.tab_id })}>
                 <XIcon /> Close tab
@@ -652,34 +791,6 @@ export function WorkspaceHeader() {
         machine={machine}
         onClose={() => setDetailsPane(null)}
       />
-      <GitDialog
-        pane={gitPane}
-        machine={machine}
-        onClose={() => setGitPane(null)}
-      />
-      {worktreesOpen ? (
-        <WorktreesDialog
-          machine={machine}
-          workspace={workspace}
-          onClose={() => setWorktreesOpen(false)}
-        />
-      ) : null}
-      {projectScriptsOpen ? (
-        <ProjectScriptsDialog
-          machine={machine}
-          onClose={() => setProjectScriptsOpen(false)}
-        />
-      ) : null}
-      {projectsOpen ? (
-        <ProjectsDialog machine={machine} onClose={() => setProjectsOpen(false)} />
-      ) : null}
-      {checkpointsOpen ? (
-        <CheckpointsDialog
-          machine={machine}
-          pane={focusedPane ?? null}
-          onClose={() => setCheckpointsOpen(false)}
-        />
-      ) : null}
     </>
   );
 }

@@ -36,6 +36,32 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
 - 状態バッジ (agent_status) の変化: 色・icon の即時切替を基本とし、
   blocked 到達時のみ attention を示す控えめな pulse を許可
   (reduced-motion では静止)。
+- agent 行の identity/status glyph (issue #419,
+  `src/components/agentIdentityIcon.tsx`): ブランドアイコンは常時
+  静止し、`agent_status` は外周リングだけが担う。working の回転弧は
+  `visible-animate-spin` + `observeVisibleAnimation` の共有可視性
+  制御に従い、非表示・画面外・document hidden・reduced-motion で停止
+  する (別個のタイマーを持たない — Windows 停止調査 #420 と同一
+  機構)。reduced-motion では回転弧を静止した全周リングへ置き換え、
+  状態の意味を保持する。
+- 可視性ゲートの診断 (issue #420): Settings → Diagnostics の
+  「Motion visibility gate → Copy report」が、spinner/ring を止める
+  全入力 (`prefers-reduced-motion`・`document.visibilityState`・
+  IntersectionObserver の交差状態・computed animation 値) を JSON で
+  出力する。Windows 実機での停止報告はこのレポートを Issue に貼って
+  切り分ける。挙動契約は変えない — レポートは観測のみ。
+- 通知 toast (#428): `ui/toast.tsx` (T3 port) の stack/peek・swipe・
+  退出 motion をそのまま使う。自動 dismiss は「表示時間」だけを数え、
+  window 非表示・非 focus・hover 中は停止する。位置は設定で
+  top-left/top-center/top-right/bottom-left/bottom-center/bottom-right
+  から選択 (既定 top-right)、top 系は `--workspace-topbar-height`
+  (titlebar/WCO 予約領域) の下に逃げる。
+- ターミナル選択オーバーレイの一時応答 (issue #441): 選択範囲の
+  形状は pointer に即時追従させ、enter/commit/copy/clear の短い
+  強調だけを `--motion-duration-fast`/`--motion-duration-base` の
+  token 時間で再生する。`prefers-reduced-motion` と
+  `forced-colors` では応答を出さず即時切替、非表示・画面外・
+  dispose では中断する (terminal-io.md §5.2)。
 
 ## 3. ドラッグ & ドロップ (#111)
 
@@ -84,6 +110,16 @@ focus 表現は ring ではなく **Ghostty 本家の `unfocused-split-opacity`
   レポートの契約は `terminal-io.md` が正本。GUI の選択・検索・
   scrollback は pane の mouse/keyboard モードを覗き見て分岐し、
   pane が要求した入力を GUI 都合で握り潰さない。
+- **入力フォーカスの handoff** (Issue #435): workspace/tab 選択・
+  ダイアログ/palette 閉鎖など GUI 側のフォーカス要求は、固定時間の
+  retry ではなく状態駆動の coordinator (`src/lib/focusHandoff.ts`)
+  が処理する。最新の要求だけを pending として保持し、bridge snapshot
+  が要求先 workspace/tab の focused pane を証明し、かつ対象 pane の
+  `.ghostty-input` が mount 済みの時点でのみ DOM focus を移す。
+  snapshot push・resize・再描画だけでは handoff を作らず、別の
+  編集可能 surface・dialog・menu へのフォーカス移動・workspace
+  route 離脱・deadline 超過で cancel する。DOM focus の移譲は
+  DECSET 1004 の pane focus report とは別系統 (terminal-io.md §4)。
 
 ## 6. 性能
 

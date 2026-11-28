@@ -1,0 +1,18 @@
+[package]
+name = "herdr-bridge"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "herdr RPC client: unix-socket / named-pipe transport, one-request connections, events.subscribe stream (port of server/herdr.ts for the GPUI host, issue #329)"
+
+[dependencies]
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+    "Win32_System_IO",
+] }

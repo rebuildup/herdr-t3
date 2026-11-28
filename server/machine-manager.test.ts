@@ -198,6 +198,29 @@ describe("probe snapshot distribution (issue #212)", () => {
   });
 });
 
+describe("machine scoping (issue #572)", () => {
+  test("rpc for an unknown machine is refused once, never forwarded to local", async () => {
+    const h = harness([...SAVED]);
+    h.manager.handleFrame({
+      type: "rpc",
+      id: "x1",
+      method: "session.snapshot",
+      params: {},
+      machine: "ghost",
+    });
+    const result = await h.waitResult("x1");
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("machine_unavailable");
+    // If the frame had leaked to the local session it would answer too
+    // (its endpoint is a dead socket → a second rpc_result with the same
+    // id). Exactly one result proves the frame never left its machine.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const results = h.frames.filter((f) => f.type === "rpc_result" && f.id === "x1");
+    expect(results).toHaveLength(1);
+    h.manager.close();
+  });
+});
+
 describe("isClientFrame machine frames", () => {
   test("accepts well-formed remove/update frames", () => {
     expect(isClientFrame({ type: "machine_remove", id: "a", machine: "m1" })).toBe(true);
@@ -211,5 +234,33 @@ describe("isClientFrame machine frames", () => {
     expect(isClientFrame({ type: "machine_update", id: "c", machine: "m1" })).toBe(false);
     expect(isClientFrame({ type: "machine_remove", id: "d" })).toBe(false);
     expect(isClientFrame({ type: "machine_update", id: "e", machine: "m1", enabled: "yes" })).toBe(false);
+  });
+});
+
+describe("enqueuePendingFrame (issue #576)", () => {
+  test("collapses repeats per pane — latest frame wins", async () => {
+    const { enqueuePendingFrame } = await import("./machine-manager.ts");
+    const queue: ClientFrame[] = [];
+    const sub = (paneId: string): ClientFrame => ({ type: "subscribe_terminal", paneId });
+    const unsub = (paneId: string): ClientFrame => ({ type: "unsubscribe_terminal", paneId });
+    enqueuePendingFrame(queue, sub("p1"));
+    enqueuePendingFrame(queue, unsub("p1"));
+    enqueuePendingFrame(queue, sub("p1"));
+    enqueuePendingFrame(queue, sub("p2"));
+    expect(queue.map((f) => `${f.type}:${(f as { paneId: string }).paneId}`)).toEqual([
+      "subscribe_terminal:p1",
+      "subscribe_terminal:p2",
+    ]);
+  });
+
+  test("caps the queue and drops the oldest frame", async () => {
+    const { enqueuePendingFrame } = await import("./machine-manager.ts");
+    const queue: ClientFrame[] = [];
+    for (let i = 0; i < 600; i++) {
+      enqueuePendingFrame(queue, { type: "subscribe_terminal", paneId: `p${i}` });
+    }
+    expect(queue.length).toBe(512);
+    expect((queue[0] as { paneId: string }).paneId).toBe("p88");
+    expect((queue[511] as { paneId: string }).paneId).toBe("p599");
   });
 });

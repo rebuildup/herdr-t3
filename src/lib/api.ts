@@ -9,6 +9,7 @@ import type {
   SessionResponse,
   SessionSnapshot,
 } from "../../shared/protocol.ts";
+import { isReadOnlyRpcMethod } from "../../shared/protocol.ts";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -37,6 +38,15 @@ export async function fetchHealth(): Promise<HealthResponse> {
   return (await res.json()) as HealthResponse;
 }
 
+/** Bridge performance counters (issue #425); shape is server-owned JSON. */
+export async function fetchMetrics(): Promise<unknown> {
+  const ipc = desktopBridge();
+  if (ipc?.metrics) return ipc.metrics();
+  const res = await fetch("/api/metrics");
+  if (!res.ok) throw new ApiError("http", `metrics ${res.status}`);
+  return res.json();
+}
+
 /**
  * In the desktop app the preload bridge (`window.herdrT3`) carries the same
  * ClientFrame/ServerFrame contract over IPC; the WebSocket path is the dev
@@ -47,8 +57,17 @@ interface DesktopBridge {
   onFrame(listener: (frame: ServerFrame) => void): () => void;
   health(): Promise<unknown>;
   snapshot(): Promise<unknown>;
+  metrics?(): Promise<unknown>;
   loginItem?(): Promise<unknown>;
   setLoginItem?(openAtLogin: boolean): Promise<unknown>;
+  onMemoryPressure?(listener: (push: MemoryPressurePush) => void): () => void;
+}
+
+/** Main-process memory watchdog push (issue #499). */
+export interface MemoryPressurePush {
+  level: "ok" | "warn" | "critical" | "breach";
+  totalMb?: number;
+  baselineMb?: number;
 }
 
 function desktopBridge(): DesktopBridge | null {
@@ -110,6 +129,8 @@ export type TerminalClosedListener = (machine: string, paneId: string, reason: s
 export type TerminalMouseCaptureListener = (machine: string, paneId: string, enabled: boolean) => void;
 export type MachinesListener = (machines: MachineInfo[]) => void;
 export type MachineStatusListener = (machine: MachineInfo) => void;
+/** Raw herdr `events.subscribe` frame (`{event, data}`), already machine-tagged by the bridge. */
+export type HerdrEventListener = (event: { event?: string; data?: Record<string, unknown> }, machine: string) => void;
 
 let ws: WebSocket | null = null;
 let ipcOff: (() => void) | null = null;
@@ -120,6 +141,7 @@ let terminalClosedListeners = new Set<TerminalClosedListener>();
 let terminalMouseCaptureListeners = new Set<TerminalMouseCaptureListener>();
 let machinesListeners = new Set<MachinesListener>();
 let machineStatusListeners = new Set<MachineStatusListener>();
+let herdrEventListeners = new Set<HerdrEventListener>();
 let rpcWaiters = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 let rpcCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -172,6 +194,13 @@ function handleFrame(frame: ServerFrame): void {
       return;
     case "machine_status":
       for (const listener of machineStatusListeners) listener(frame.machine);
+      return;
+    case "event":
+      if (frame.event !== null && typeof frame.event === "object" && !Array.isArray(frame.event)) {
+        for (const listener of herdrEventListeners) {
+          listener(frame.event as { event?: string; data?: Record<string, unknown> }, frame.machine);
+        }
+      }
       return;
   }
 }
@@ -270,6 +299,19 @@ export function onMachineStatus(listener: MachineStatusListener): () => void {
   return () => machineStatusListeners.delete(listener);
 }
 
+/** Main-process memory watchdog pushes (issue #499); no-op on the WS dev path. */
+export function onMemoryPressure(listener: (push: MemoryPressurePush) => void): () => void {
+  const ipc = desktopBridge();
+  if (!ipc?.onMemoryPressure) return () => {};
+  return ipc.onMemoryPressure(listener);
+}
+
+/** Subscribed herdr events (`pane.scroll_changed`, structure changes, …) the bridge forwards. */
+export function onHerdrEvent(listener: HerdrEventListener): () => void {
+  herdrEventListeners.add(listener);
+  return () => herdrEventListeners.delete(listener);
+}
+
 function sendFrame(frame: ClientFrame): void {
   const ipc = desktopBridge();
   if (ipc) {
@@ -280,8 +322,15 @@ function sendFrame(frame: ClientFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-export function subscribeTerminal(machine: string, paneId: string, cols: number, rows: number, takeover = false): void {
-  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows, takeover });
+export function subscribeTerminal(
+  machine: string,
+  paneId: string,
+  cols: number,
+  rows: number,
+  takeover = false,
+  writable = true,
+): void {
+  sendFrame({ type: "subscribe_terminal", machine, paneId, cols, rows, takeover, writable });
 }
 
 export function unsubscribeTerminal(machine: string, paneId: string): void {
@@ -325,8 +374,40 @@ export function terminalScroll(
   sendFrame({ type: "terminal_scroll", machine, paneId, ...event });
 }
 
+/*
+ * Single-flight for identical concurrent read-only RPCs (issue #527).
+ * Every mounted pane issues `session.snapshot` on attach to seed its
+ * scroll offset, so a workspace switch with K panes used to fan out into
+ * K identical large-reply herdr RPCs. Concurrent identical read-only
+ * calls now share one bridge round-trip; entries are removed on settle —
+ * nothing is cached, so sequential calls still fetch fresh data.
+ */
+const readRpcInflight = new Map<string, Promise<unknown>>();
+
+function readRpcKey(method: RpcMethod, params: Record<string, unknown>, machine: string): string {
+  return `${machine} ${method} ${JSON.stringify(params)}`;
+}
+
 /** Call a whitelisted herdr RPC through the bridge, on the given machine. */
 export function rpc<T = unknown>(
+  method: RpcMethod,
+  params: Record<string, unknown> = {},
+  machine: string = LOCAL_MACHINE,
+): Promise<T> {
+  if (isReadOnlyRpcMethod(method)) {
+    const key = readRpcKey(method, params, machine);
+    const existing = readRpcInflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = rpcOnce<T>(method, params, machine);
+    readRpcInflight.set(key, pending);
+    const cleanup = () => readRpcInflight.delete(key);
+    pending.then(cleanup, cleanup);
+    return pending;
+  }
+  return rpcOnce(method, params, machine);
+}
+
+function rpcOnce<T = unknown>(
   method: RpcMethod,
   params: Record<string, unknown> = {},
   machine: string = LOCAL_MACHINE,
@@ -393,9 +474,23 @@ export function machineUpdate(
 
 /* ------------------------- plugin contract calls ---------------------- */
 
-/** Installed-plugin discovery on one host (ADR-0011). */
+/**
+ * Single-flight for plugin discovery (issue #424): `plugin_list` is a pure
+ * read, so identical concurrent calls share one bridge round-trip. Entries
+ * are removed on settle — nothing is cached. `plugin_call` coalescing is
+ * contract-driven server-side (`capability.mutation_commands`), not here.
+ */
+const pluginListInflight = new Map<string, Promise<PluginListResult>>();
+
+/** Installed-plugin discovery on one host (ADR-0011); always read-only. */
 export function pluginList(machine: string): Promise<PluginListResult> {
-  return machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>;
+  const existing = pluginListInflight.get(machine);
+  if (existing) return existing;
+  const pending = machineCommand({ type: "plugin_list", id: "", machine }) as Promise<PluginListResult>;
+  pluginListInflight.set(machine, pending);
+  const cleanup = () => pluginListInflight.delete(machine);
+  pending.then(cleanup, cleanup);
+  return pending;
 }
 
 /** One plugin contract command on one host; result is the plugin's JSON document. */

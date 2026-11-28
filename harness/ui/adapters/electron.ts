@@ -9,6 +9,7 @@
  * plus DOM queries — never mocks.
  */
 import type { UiAdapter, UiKind } from "../lib/types.ts";
+import { BudgetExceeded, uiBudgets, waitFor, withTimeout } from "../lib/budget.ts";
 
 interface CdpMessage {
   id?: number;
@@ -22,6 +23,11 @@ export interface ElectronAdapterOptions {
   cdpPort: number;
   /** fault injection for harness self-proof (issue #238 acceptance) */
   injectFault?: string;
+  /** epoch ms when the Electron process was spawned; the single
+   *  spawn -> operable deadline is spawnedAtMs + uiBudgets().readyMs.
+   *  CDP connect, domain init and the operable probe all share it —
+   *  none of them may run outside the budget. */
+  spawnedAtMs?: number;
 }
 
 const MODES: Record<string, string> = {
@@ -32,19 +38,57 @@ const MODES: Record<string, string> = {
 
 export async function createElectronAdapter(opts: ElectronAdapterOptions): Promise<UiAdapter> {
   const port = opts.cdpPort;
-  const targets = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as {
-    type: string;
-    url: string;
-    webSocketDebuggerUrl: string;
-  }[];
-  const page = targets.find((t) => t.type === "page" && t.url.startsWith("http"));
-  if (!page) throw new Error(`no debuggable page on :${port} (${targets.map((t) => t.url).join(", ")})`);
+  const budgets = uiBudgets();
+  // Single deadline: Electron spawn -> operable state. Everything below —
+  // CDP discovery, websocket connect, domain init, page load — shares it.
+  const spawnedAt = opts.spawnedAtMs ?? Date.now();
+  const readyDeadline = spawnedAt + budgets.readyMs;
+  const remaining = () => readyDeadline - Date.now();
+  let measuredReadyMs: number | undefined;
+
+  // /json/version comes up before the first page target exists; poll
+  // target discovery inside the same shared deadline until a page shows.
+  const page = await waitFor(
+    async () => {
+      const list = (await withTimeout(
+        (async () =>
+          (await fetch(`http://127.0.0.1:${port}/json`, {
+            signal: AbortSignal.timeout(Math.max(1, remaining())),
+          })).json())() as Promise<{
+          type: string;
+          url: string;
+          webSocketDebuggerUrl: string;
+        }[]>,
+        Math.max(1, remaining()),
+        "cdp /json discovery",
+      ));
+      return (
+        list.find((t) => t.type === "page" && t.url.startsWith("http")) ??
+        list.find((t) => t.type === "page" && t.url.startsWith("file://")) ??
+        null
+      );
+    },
+    {
+      timeoutMs: Math.max(1, remaining()),
+      intervalMs: 150,
+      label: "cdp page target",
+    },
+  ).catch((e) => {
+    if (e instanceof BudgetExceeded) {
+      throw new Error(`no debuggable page on :${port} within launch budget`);
+    }
+    throw e;
+  });
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("CDP websocket failed"));
-  });
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error("CDP websocket failed"));
+    }),
+    Math.max(1, remaining()),
+    "cdp websocket connect",
+  );
 
   let nextId = 1;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
@@ -57,15 +101,83 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
       else p.resolve(msg.result);
     }
   };
+  // Every CDP call is bounded: a hung renderer must surface as a
+  // BudgetExceeded failure, not a stalled harness (issue #416 program).
+  // During startup the per-call budget is also capped by the shared
+  // spawn->operable deadline so init cannot run outside it.
+  const cdpBudget = uiBudgets().cdpCallMs;
+  // The shared spawn->operable deadline governs startup only. Once the
+  // operable gate passes, per-call budget is cdpCallMs alone — scenario
+  // time is bounded by STEP_CALL/SCENARIO/RUN budgets, not by launch
+  // latency (otherwise a slow-but-successful launch starves every later
+  // CDP call of budget).
+  let operable = false;
   const send = (method: string, params: unknown = {}): Promise<unknown> =>
     new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
+      const budget = operable
+        ? cdpBudget
+        : Math.min(cdpBudget, Math.max(1, remaining()));
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new BudgetExceeded(`cdp ${method}`, budget));
+      }, budget);
+      pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       ws.send(JSON.stringify({ id, method, params }));
     });
 
   await send("Runtime.enable");
   await send("Page.enable");
+  // The dev window is routinely occluded/unfocused on a developer machine;
+  // without focus emulation Chromium silently drops dispatched key events.
+  await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+
+  // Operable-state gate: a live CDP endpoint, an existing window, or even
+  // a loaded document is NOT proof the app works. Require BOTH a real
+  // observe() round-trip (UI bundle responsive) AND a live /api/health
+  // answer through the page's own origin (bridge RPC path responsive),
+  // all inside the shared spawn->operable deadline.
+  // Probe records a status string: on timeout the diagnostic shows
+  // WHICH check is failing (bridge RPC vs health endpoint vs bundle
+  // not loaded) instead of a bare `false`.
+  let operableStatus = "pending";
+  await waitFor(
+    async () => {
+      const s = await evaluate<string>(
+        `(async () => {
+          const s = await window.__herdrT3Ui?.observe?.();
+          if (!s || typeof s !== "object" || typeof s.route !== "string") return "observe-unavailable";
+          // Packaged builds load dist/ over file:// where fetch("/api/…")
+          // cannot work; the product path is the preload IPC bridge
+          // (window.herdrT3.health). Dev mode has both — prefer IPC as it
+          // is the path the shipped app actually uses.
+          if (window.herdrT3?.health) {
+            try { await window.herdrT3.health(); return "ok"; }
+            catch (e) { return "health-ipc-error"; }
+          }
+          return fetch("/api/health").then((r) => (r.ok ? "ok" : "health-" + r.status)).catch(() => "health-unreachable");
+        })()`,
+      ).catch((e) => `evaluate-error:${String(e).slice(0, 80)}`);
+      operableStatus = s;
+      return s === "ok" ? s : null;
+    },
+    {
+      timeoutMs: Math.max(1, remaining()),
+      intervalMs: 100,
+      label: "electron app operable state",
+    },
+  ).catch((e) => {
+    if (e instanceof BudgetExceeded) {
+      throw new BudgetExceeded(`electron app operable state stuck at ${operableStatus}`, budgets.readyMs);
+    }
+    throw e;
+  });
+  operable = true;
+  measuredReadyMs = Date.now() - spawnedAt;
+  console.error(`[electron] operable state reached ${measuredReadyMs}ms after spawn (budget ${budgets.readyMs}ms)`);
 
   async function evaluate<T>(expr: string): Promise<T> {
     const r = (await send("Runtime.evaluate", {
@@ -96,6 +208,21 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   async function observeState(): Promise<Record<string, unknown>> {
     return evaluate<Record<string, unknown>>(`window.__herdrT3Ui.observe()`);
   }
+
+  /** Raw CDP key transition for non-text keys. On macOS the
+   *  nativeVirtualKeyCode must be the macOS virtual keycode (k=40,
+   *  Escape=53) — the Windows VK value is silently dropped. */
+  async function pressKey(key: string, code: string, modifiers: number, vk: number, macVk?: number) {
+    const native = process.platform === "darwin" ? (macVk ?? vk) : vk;
+    for (const type of ["rawKeyDown", "keyUp"] as const) {
+      await send("Input.dispatchKeyEvent", {
+        type, key, code, modifiers,
+        windowsVirtualKeyCode: vk, nativeVirtualKeyCode: native,
+      });
+    }
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   // Scroll-loss fault state: models a real "scroll not preserved" bug.
   // The offset is reported intact until a workspace is re-selected after
@@ -130,6 +257,9 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
 
   const adapter: UiAdapter = {
     name: "electron",
+    get readyMs() {
+      return measuredReadyMs;
+    },
 
     async enumerate(kind: UiKind): Promise<string[]> {
       switch (kind) {
@@ -138,9 +268,17 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             `[...document.querySelectorAll('[data-sidebar-workspace]')].map(e => e.getAttribute('data-sidebar-workspace'))`,
           );
         case "pane": {
-          const state = await observeState();
-          return Object.keys((state["terminals"] as Record<string, unknown>) ?? {});
+          // Mounted panes only: [data-ui-terminal] exists solely for the
+          // routed workspace's panes — the same "currently visible"
+          // semantics the GPUI host's mounted_pane_ids reports.
+          return evaluate<string[]>(
+            `[...document.querySelectorAll('[data-ui-terminal]')].map(e => e.getAttribute('data-ui-terminal'))`,
+          );
         }
+        case "goto.row":
+          return evaluate<string[]>(
+            `[...document.querySelectorAll('[data-goto-row]')].map(e => e.getAttribute('data-goto-row'))`,
+          );
         case "mode":
           return ["system", "light", "dark"];
         default:
@@ -181,6 +319,13 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
               if (!aria) return { ok: false, error: `unknown mode "${mode}"` };
               return clickSelector(`button[aria-label="${aria}"]`);
             }
+            if (target === "goto.row") {
+              const id = String(params["id"] ?? "");
+              const r = await clickSelector(`[data-goto-row=${JSON.stringify(id)}]`);
+              if (!r.ok) return r;
+              await sleep(200);
+              return { ok: true };
+            }
             return { ok: false, error: `select not supported for target ${target}` };
           }
           case "activate": {
@@ -193,7 +338,65 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             if (target === "nav.settings-appearance") {
               return clickSelector(`[data-settings-section="appearance"]`);
             }
+            if (target === "nav.settings-section") {
+              const section = String(params["section"] ?? "");
+              if (!section) return { ok: false, error: "nav.settings-section requires params.section" };
+              return clickSelector(`[data-settings-section="${section.replace(/"/g, '\\"')}"]`);
+            }
+            if (target === "nav.goto") {
+              // Real key path: ⌘K/Ctrl+K opens the command palette, type
+              // the action query, then click the palette's Go to item —
+              // the same route a user takes (issue #328).
+              const meta = process.platform === "darwin" ? 4 : 2;
+              await pressKey("k", "KeyK", meta, 75, 40);
+              // Wait for the palette input before typing the query.
+              const pDeadline = Date.now() + 5000;
+              for (;;) {
+                const ready = await evaluate<boolean>(
+                  `(() => { const el = document.querySelector('[data-command-palette] input'); return !!el && document.activeElement === el; })()`,
+                ).catch(() => false);
+                if (ready || Date.now() > pDeadline) break;
+                await sleep(100);
+              }
+              // The palette query persists across opens; clear it so the
+              // "goto" filter is deterministic on repeat activations.
+              await evaluate(
+                `(() => { const el = document.querySelector('[data-command-palette] input'); if (!el) return; const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+              );
+              await sleep(100);
+              await send("Input.insertText", { text: "goto" });
+              await sleep(250);
+              const r = await clickSelector(`[data-palette-action="goto"]`);
+              if (!r.ok) return r;
+              // Wait for the goto dialog to mount and autofocus.
+              const deadline = Date.now() + 5000;
+              for (;;) {
+                const open = await evaluate<boolean>(
+                  `!!document.querySelector('[data-goto-dialog]')`,
+                ).catch(() => false);
+                if (open || Date.now() > deadline) break;
+                await sleep(100);
+              }
+              return { ok: true };
+            }
             return { ok: false, error: `activate not supported for target ${target}` };
+          }
+          case "type": {
+            if (target === "goto.input") {
+              const text = String(params["text"] ?? "");
+              await send("Input.insertText", { text });
+              await sleep(150);
+              return { ok: true };
+            }
+            return { ok: false, error: `type not supported for target ${target}` };
+          }
+          case "dismiss": {
+            if (target === "goto.dialog") {
+              await pressKey("Escape", "Escape", 0, 27, 53);
+              await sleep(150);
+              return { ok: true };
+            }
+            return { ok: false, error: `dismiss not supported for target ${target}` };
           }
           case "terminal.scroll": {
             const key = String(params["id"] ?? "");
@@ -250,6 +453,31 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             const m = /^#\/settings(?:\/([^/?#]+))?/.exec(route);
             return { ok: true, value: m ? (m[1] ?? "general") : null };
           }
+          case "dialog.settings_frame_contract": {
+            // AC-001 (docs/design/anti-cases.md): the settings popup frame
+            // is viewport-derived, not content-derived. On sm+ the popup
+            // must fill the viewport content box up to its max-h cap
+            // regardless of which section is active; max-sm is a
+            // full-bleed sheet with its own contract.
+            const holds = await evaluate<boolean>(
+              `(() => {
+                const popup = document.querySelector('[data-app-modal]');
+                if (!popup) return false;
+                if (!window.matchMedia('(min-width: 640px)').matches) return true;
+                const vp = popup.parentElement;
+                if (!vp) return false;
+                const vpStyle = getComputedStyle(vp);
+                const avail = vp.clientHeight
+                  - parseFloat(vpStyle.paddingTop)
+                  - parseFloat(vpStyle.paddingBottom);
+                const maxH = parseFloat(getComputedStyle(popup).maxHeight);
+                const expected = Math.min(avail, Number.isFinite(maxH) ? maxH : avail);
+                const actual = popup.getBoundingClientRect().height;
+                return Math.abs(actual - expected) <= 1.5;
+              })()`,
+            );
+            return { ok: true, value: holds };
+          }
           case "state.focused_target": {
             const desc = await evaluate<string>(
               `(() => { const el=document.activeElement; if(!el) return "none"; return el.getAttribute("aria-label") || el.tagName.toLowerCase(); })()`,
@@ -261,6 +489,31 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
             const terminals = (state["terminals"] ?? {}) as Record<string, number>;
             return { ok: true, value: terminals[key] ?? null };
           }
+          case "state.goto_open":
+            return { ok: true, value: await evaluate<boolean>(
+              `!!document.querySelector('[data-goto-dialog]')`,
+            ) };
+          case "goto.query":
+            return { ok: true, value: await evaluate<string | null>(
+              `(() => { const el = document.querySelector('[data-goto-input] input, [data-goto-input], [data-goto-dialog] input'); return el ? el.value : null; })()`,
+            ) };
+          case "goto.rows":
+            return { ok: true, value: await evaluate<string[]>(
+              `[...document.querySelectorAll('[data-goto-row]')].map(e => e.getAttribute('data-goto-row'))`,
+            ) };
+          case "goto.row_count":
+            return { ok: true, value: await evaluate<number>(
+              `document.querySelectorAll('[data-goto-row]').length`,
+            ) };
+          case "state.focused_pane": {
+            // Canonical pane key (`${machine}\n${paneId}`), same shape as
+            // [data-ui-terminal] — the seeded conformance session is
+            // local-machine only.
+            const id = state["focused_pane_id"];
+            return { ok: true, value: typeof id === "string" ? `local\n${id}` : null };
+          }
+          case "state.focused_tab":
+            return { ok: true, value: state["focused_tab_id"] ?? null };
           case "terminal.cursor_visible":
           case "dialog.open":
           case "element.visible":
@@ -285,30 +538,37 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
         // The reload can interrupt this very evaluate — that's fine, the
         // readiness poll below is the real synchronization point.
         await evaluate(`(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("herdr-t3:")) localStorage.removeItem(k); location.hash="#/"; location.reload(); return true; })()`).catch(() => {});
-        const deadline = Date.now() + 45000;
+        const fixtureMs = uiBudgets().fixtureMs;
+        const deadline = Date.now() + fixtureMs;
         for (;;) {
           await new Promise((r) => setTimeout(r, 400));
           const ready = await evaluate<boolean>(
             `!!window.__herdrT3Ui && document.readyState === "complete"`,
           ).catch(() => false);
-          if (ready || Date.now() > deadline) break;
+          if (ready) return;
+          if (Date.now() > deadline) {
+            throw new BudgetExceeded(`fixture default-settings reload`, fixtureMs);
+          }
         }
-        return;
       }
-      if (fixture === "single-workspace" || fixture === "two-workspaces-with-scrollback") {
+      if (fixture === "single-workspace" || fixture === "two-workspaces-with-scrollback" || fixture === "goto-picker") {
         // Deterministic shell preconditions: sidebar open, home route.
         // Workspace/scrollback content comes from the seeded isolated
         // herdr session (scripts/ui-electron.sh) — never the live session.
         await evaluate(`(() => { localStorage.setItem("herdr-t3:sidebar-open","true"); location.hash="#/"; location.reload(); return true; })()`).catch(() => {});
         // Wait until the snapshot has actually rendered workspace rows —
         // a fixed sleep races bridge connect + snapshot + first paint.
-        const deadline = Date.now() + 45000;
+        const fixtureMs = uiBudgets().fixtureMs;
+        const deadline = Date.now() + fixtureMs;
         for (;;) {
           await new Promise((r) => setTimeout(r, 400));
           const n = await evaluate<number>(
             `document.querySelectorAll('[data-sidebar-workspace]').length`,
           ).catch(() => 0);
-          if (n > 0 || Date.now() > deadline) break;
+          if (n > 0) return;
+          if (Date.now() > deadline) {
+            throw new BudgetExceeded(`fixture ${fixture} workspace rows`, fixtureMs);
+          }
         }
       }
     },

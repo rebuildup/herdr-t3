@@ -18,13 +18,25 @@ import { syncDocumentElectronPlatformClasses, syncDocumentWindowControlsOverlayC
 import { AppShell } from "./shell/AppShell";
 import { WorkspaceHeader } from "./shell/WorkspaceHeader";
 import { WorkspaceCanvas } from "./shell/WorkspaceCanvas";
+import { RightPanel } from "./shell/RightPanel";
 import { SettingsModal } from "./shell/SettingsModal";
 import { CommandMenu } from "./shell/CommandMenu";
 import { NoticeToasts } from "./shell/NoticeToasts";
 import { observeSnapshotAttention } from "./shell/attention";
 import { initRouter, useRoute } from "./shell/router";
-import { callRpc, ensureMachine, initBridge, selectWorkspace } from "./shell/bridge";
+import { callRpc, ensureMachine, getBridgeState, initBridge, selectWorkspace } from "./shell/bridge";
 import { initInbox } from "./shell/inbox";
+import { initAutomations } from "./shell/automations";
+import { initConversations } from "./shell/conversations";
+import { initUsage } from "./shell/usage";
+import { initArtifacts } from "./shell/artifacts";
+import { initHandoffs } from "./shell/handoffs";
+import { initControls } from "./shell/controls";
+import { initTextgen } from "./shell/textgen";
+import { initSecrets } from "./shell/secrets";
+import { initMachines } from "./shell/machines";
+import { initMcp } from "./shell/mcp";
+
 import { onSnapshot } from "./lib/api";
 import type { SessionSnapshot } from "../shared/protocol";
 import { isElectron } from "./lib/env";
@@ -38,6 +50,17 @@ export default function App() {
     initRouter();
     const disconnectBridge = initBridge();
     initInbox();
+    initAutomations();
+    initConversations();
+    initUsage();
+    initArtifacts();
+    initHandoffs();
+    initControls();
+    initTextgen();
+    initSecrets();
+    initMachines();
+    initMcp();
+
     // Attention toasts (issue #113): diff each machine's pushed snapshots
     // for agent blocked/done transitions. The first snapshot per machine
     // is a baseline and never notifies.
@@ -54,6 +77,9 @@ export default function App() {
             callRpc(m, "pane.focus", { pane_id: paneId }).catch(() => {}),
           );
         },
+        // Notice meta line (issue #428): the machine registry label,
+        // resolved lazily at notify time — no extra RPC.
+        machineLabel: (m) => getBridgeState().machines[m]?.label,
       });
       previous.set(machine, snapshot);
     });
@@ -93,9 +119,15 @@ export default function App() {
     <TooltipProvider>
       <AppShell>
         <SidebarInset className="h-dvh min-h-0">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <WorkspaceHeader />
-            <WorkspaceCanvas />
+          {/* Issue #333: the right panel docks beside the whole content
+              column (header + canvas), T3 ChatView layout — surfaces are
+              tabs, never modal, so the terminal stays live. */}
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <WorkspaceHeader />
+              <WorkspaceCanvas />
+            </div>
+            <RightPanel />
           </div>
         </SidebarInset>
         {isSettingsOpen ? <SettingsModal /> : null}

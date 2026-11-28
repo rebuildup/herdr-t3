@@ -15,7 +15,8 @@
 import { useSyncExternalStore } from "react";
 import { pluginCall, pluginList } from "../lib/api";
 import { onMachineStatus, onMachines, onSnapshot } from "../lib/api";
-import type { PluginCallResult } from "../../shared/protocol";
+import { pluginHerdrSkew, type PluginCallResult } from "../../shared/protocol";
+import { pluginBoundaryReason, pluginErrorCode, pluginErrorDetail } from "./pluginErrors";
 import {
   agentOrganizeKey,
   type AgentOrganizeKind,
@@ -72,6 +73,15 @@ const migrated = new Set<string>();
 const listeners = new Set<() => void>();
 let started = false;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Snapshot pushes are a polling heartbeat, not a per-event signal: plugin
+ * data moves on plugin/human timescales while every refresh spawns
+ * `bun run src/cli.ts` on the host. Cap snapshot-triggered refreshes per
+ * machine so continuous herdr activity cannot become a spawn storm
+ * (issue #422; amplification chain in #416).
+ */
+const SNAPSHOT_REFRESH_MIN_MS = 15_000;
+const lastRefreshAt = new Map<string, number>();
 let statesVersion = 0;
 let mergedCache: { version: number; map: AgentOrganizeMap } | null = null;
 let statesSnapshot: ReadonlyMap<string, InboxMachineState> = new Map();
@@ -144,25 +154,9 @@ export function inboxReady(machine: string): boolean {
 }
 
 function classifyError(error: unknown): { reason: InboxUnavailableReason; detail: string } {
-  const code = (error as { code?: string })?.code ?? "";
-  const message = error instanceof Error ? error.message : String(error);
-  switch (code) {
-    case "plugin_not_installed":
-      return { reason: "not_installed", detail: message };
-    case "plugin_disabled":
-      return { reason: "disabled", detail: message };
-    case "plugin_incompatible":
-    case "plugin_unsupported_command":
-    case "plugin_bad_output":
-      return { reason: "incompatible", detail: message };
-    case "plugin_host_unreachable":
-    case "connect_failed":
-    case "unreachable":
-    case "machine_unavailable":
-      return { reason: "unreachable", detail: message };
-    default:
-      return { reason: "error", detail: message };
-  }
+  const detail = pluginErrorDetail(error);
+  const boundary = pluginBoundaryReason(pluginErrorCode(error));
+  return boundary === null ? { reason: "error", detail } : { reason: boundary, detail };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -211,6 +205,7 @@ function capabilityOk(doc: PluginCallResult): { contract: string; version: strin
 async function refreshInbox(machine: string): Promise<void> {
   const running = inflight.get(machine);
   if (running) return running;
+  lastRefreshAt.set(machine, Date.now());
   const previous = states.get(machine);
   if (previous?.status.kind !== "ready") {
     setState(machine, { status: { kind: "loading" }, organize: {} });
@@ -229,6 +224,16 @@ async function refreshInbox(machine: string): Promise<void> {
       if (!entry.enabled) {
         setState(machine, {
           status: { kind: "unavailable", reason: "disabled", detail: entry.plugin_id },
+          organize: {},
+        });
+        return;
+      }
+      // ADR-0011 §10: a plugin whose min_herdr_version exceeds the host's
+      // reported herdr version is `incompatible`, same as a contract miss.
+      const skew = pluginHerdrSkew(entry, getBridgeState().machines[machine]?.version);
+      if (skew !== null) {
+        setState(machine, {
+          status: { kind: "unavailable", reason: "incompatible", detail: skew },
           organize: {},
         });
         return;
@@ -371,9 +376,14 @@ function scheduleRefresh() {
   if (snapshotTimer) return;
   snapshotTimer = setTimeout(() => {
     snapshotTimer = null;
-    // Refresh every machine that has ever resolved — snapshot pushes are
-    // per-machine but organize state can change host-side at any time.
-    for (const id of states.keys()) void refreshInbox(id);
+    // No mounted consumer → no reason to spawn plugin CLIs; and each
+    // machine refreshes at most once per SNAPSHOT_REFRESH_MIN_MS.
+    if (listeners.size === 0) return;
+    const now = Date.now();
+    for (const id of states.keys()) {
+      if (now - (lastRefreshAt.get(id) ?? 0) < SNAPSHOT_REFRESH_MIN_MS) continue;
+      void refreshInbox(id);
+    }
   }, 800);
 }
 
@@ -386,6 +396,7 @@ export function initInbox(): void {
     if (machine.status === "online") void refreshInbox(machine.id);
     else if (machine.status === "offline" || machine.status === "disabled") {
       states.delete(machine.id);
+      lastRefreshAt.delete(machine.id);
       emit();
     }
   });
@@ -394,6 +405,7 @@ export function initInbox(): void {
     for (const id of [...states.keys()]) {
       if (!known.has(id)) {
         states.delete(id);
+        lastRefreshAt.delete(id);
         emit();
       }
     }

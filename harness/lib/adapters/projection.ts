@@ -3,7 +3,7 @@
  * derivation functions the product uses (src/lib/workspace.ts,
  * src/shell/agents.ts) so scenarios assert on real projection behavior.
  */
-import type { MachineInfo, SessionSnapshot } from "../../../shared/protocol.ts";
+import type { MachineInfo, PaneInfo, PaneLayoutSnapshot, SessionSnapshot } from "../../../shared/protocol.ts";
 import {
   agentAuxStateLabels,
   agentDisplayName,
@@ -18,6 +18,15 @@ import {
   type AgentOrganizeMap,
 } from "../../../src/shell/agents.ts";
 import { deriveWorkspace } from "../../../src/lib/workspace.ts";
+import { paneCanvasView } from "../../../src/lib/paneCanvas.ts";
+import { nextPaneInReadingOrder } from "../../../src/lib/paneOrder.ts";
+import { moveInsertIndex } from "../../../src/lib/reorder.ts";
+import {
+  buildGotoRows,
+  filterGotoRows,
+  parseGotoQuery,
+  type GotoRow,
+} from "../../../src/shell/goto.ts";
 import type { Adapter, Observation } from "../types.ts";
 
 function ok(value: unknown): Observation {
@@ -32,6 +41,10 @@ const OPS = new Set([
   "derive_workspace",
   "agent_entries",
   "agent_partition",
+  "goto_eval",
+  "canvas_view_model",
+  "next_pane",
+  "move_insert_index",
 ]);
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -138,6 +151,76 @@ export function createProjectionAdapter(): Adapter {
                 settled: section(result.sections.settled),
               },
               organize: result.organize,
+            });
+          }
+          case "goto_eval": {
+            const entries = (input["entries"] ?? []) as {
+              machine: MachineInfo;
+              snapshot: SessionSnapshot;
+              branch_index?: Record<string, string>;
+            }[];
+            const machines = entries.map((e) => ({
+              machine: e.machine,
+              snapshot: e.snapshot,
+              branchIndex: new Map(Object.entries(e.branch_index ?? {})),
+            }));
+            const query = (input["query"] as string | undefined) ?? "";
+            const built = buildGotoRows(machines);
+            const parsed = parseGotoQuery(query);
+            const rows = query ? filterGotoRows(built, query) : built;
+            // Match the Rust JSON shape: absent optional fields, not
+            // `undefined` keys.
+            const clean = (row: GotoRow) => {
+              const out: Record<string, unknown> = { ...row };
+              for (const k of Object.keys(out)) {
+                if (out[k] === undefined) delete out[k];
+              }
+              return out;
+            };
+            return ok({ query: parsed, rows: rows.map(clean) });
+          }
+          case "canvas_view_model": {
+            const snapshot = (input["snapshot"] ?? null) as SessionSnapshot | null;
+            const workspaceId = (input["workspace_id"] as string | null | undefined) ?? null;
+            const view = deriveWorkspace(snapshot, workspaceId);
+            const canvas = paneCanvasView(view.tabPanes, view.layout, view.focusedPane ?? null);
+            // Match the Rust JSON shape: absent optional ids serialize as
+            // null, not dropped keys.
+            return ok({
+              zoomed: canvas.zoomed,
+              can_drag_panes: canvas.canDragPanes,
+              panes: canvas.panes.map((cp) => ({
+                pane_id: cp.pane.pane_id ?? null,
+                terminal_id: cp.pane.terminal_id ?? null,
+                title: cp.title,
+                focused: cp.focused,
+                frame: cp.frame,
+                emphasis: cp.emphasis,
+              })),
+            });
+          }
+          case "next_pane": {
+            const panes = (input["panes"] ?? []) as PaneInfo[];
+            const layout = (input["layout"] ?? null) as PaneLayoutSnapshot | null;
+            const focused = input["focused_pane_id"] as string;
+            // `undefined` must reach the comparator: `p.pane_id ===
+            // undefined` matches a pane with no id, mirroring the Rust
+            // `None == None` position lookup.
+            return ok({
+              next_pane_id: nextPaneInReadingOrder(panes, layout, focused),
+            });
+          }
+          case "move_insert_index": {
+            const side = input["side"] as "before" | "after";
+            if (side !== "before" && side !== "after") {
+              return fail(`move_insert_index: bad side ${JSON.stringify(side)}`);
+            }
+            return ok({
+              insert_index: moveInsertIndex(
+                input["from"] as number,
+                input["target"] as number,
+                side,
+              ),
             });
           }
           default:

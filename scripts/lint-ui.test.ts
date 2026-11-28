@@ -20,8 +20,9 @@ function lint(path: string) {
 }
 
 // Each case spawns a fresh oxlint process; jsPlugins make startup cost
-// seconds, so these need more than bun's 5s default under load.
-const LINT_SPAWN_TIMEOUT = 30_000;
+// tens of seconds (a full `src` pass measured ~90s on a slow host), so
+// these need far more than bun's 5s default under load.
+const LINT_SPAWN_TIMEOUT = 120_000;
 
 test("bad fixture triggers every UI lint rule", () => {
   const { code, output } = lint("scripts/lint-fixtures/bad.tsx");
@@ -30,6 +31,9 @@ test("bad fixture triggers every UI lint rule", () => {
     "herdr-t3(no-raw-control)",
     "herdr-t3(no-native-title-tooltip)",
     "herdr-t3(no-static-inline-style)",
+    "herdr-t3(no-text-button-in-surface-slot)",
+    "herdr-t3(no-raw-badge)",
+    "herdr-t3(no-raw-resize-observer)",
     "herdr-t3(require-suppression-reason)",
     "shadcn(no-restyle)",
     "shadcn(require-static-classes)",
