@@ -324,6 +324,55 @@ verification of the converted surfaces is tracked under #413 RC.
 variant choice is the *right* semantic mapping; that stays with review
 and the typed component's variant union.
 
+## AC-004 — Brand wordmark duplicated in measuring probe drifts from canonical mark
+
+**Statement.** The sidebar's minimum width is derived from an invisible
+probe (`SidebarBrandWidthProbe`) that renders its own copy of the brand
+wordmark. After the hoxay rename (#517) the probe still renders the old
+"herdr-t3" wordmark while the visible `SidebarBrand` renders "hoxay".
+Layout derived from brand geometry is therefore computed from stale
+content; today the probe measures ~123 px, below the 208 px
+`SIDEBAR_MIN_WIDTH` floor, so no rendered defect is visible — but any
+future wordmark wider than the floor silently over-constrains the
+sidebar minimum, and the duplicated markup invites further drift.
+
+**Evidence.** `src/shell/AppShell.tsx` `SidebarBrandWidthProbe`
+(~lines 122–125) hardcodes `<span …>herdr</span><span …>-t3</span>`;
+`src/shell/SidebarChrome.tsx` `SidebarBrand` (~lines 137–141) renders
+`hoxay`. DOM probe on the RC build (vite dev, 1440×900): probe width
+123.1 px vs visible wordmark 38.1 px; `--sidebar-width` floor resolves
+to `max(208 px, 123 px)` = 208 px, masking the drift.
+
+**Root cause.** The probe duplicates the wordmark markup instead of
+sharing it with `SidebarBrand` (it must stay invisible and
+pointer-events-none, so it cannot mount the real button). The #517 brand
+migration updated the visible component but had no mechanical link to
+the probe copy, and no lint rule covers brand-string duplication.
+
+**Scope.** Sidebar minimum-width derivation and any future layout
+measurement that duplicates rendered brand/content markup.
+
+**Detection (planned).** Rendered/review property today: DOM geometry
+probe comparing the probe's measured width against the visible
+wordmark's rendered width (assert equal within rounding). A lint-level
+check is not currently proposed — the duplication is two JSX literals;
+a shared `BrandWordmark` presentational component (usable by both the
+button and the probe) would make drift unrepresentable and is the
+preferred fix direction.
+
+**Fixtures.** Negative: current probe — measured width reflects
+"herdr-t3", not "hoxay". Positive: shared wordmark component — probe and
+visible brand cannot diverge.
+
+**Status.** `fix+gate landed` (#612) — `BrandWordmark` in
+`SidebarChrome.tsx` is now the single wordmark source used by both
+`SidebarBrand` and `SidebarBrandWidthProbe`; drift is unrepresentable.
+`verified` pending the geometry assertion described under Detection.
+
+**Unguaranteed.** Does not cover other duplicated-geometry patterns
+beyond the brand probe; does not judge whether text-only "hoxay" is the
+final wordmark treatment (open brand task per `docs/brand/README.md`).
+
 ## Adding cases
 
 Append `AC-NNN` entries here in the same PR that lands the fix + gate
