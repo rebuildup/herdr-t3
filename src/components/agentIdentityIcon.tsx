@@ -203,7 +203,7 @@ function StatusRing({ status }: { status: AgentStatus }) {
  * so the state reads at a glance instead of competing with the glyph
  * for attention.
  */
-function StatusOverlay({
+function CenterDisc({
   tone,
   size,
   className,
@@ -240,7 +240,7 @@ function StatusOverlay({
  * Absolutely positioned so it layers over the mark and ring without
  * squeezing the slot.
  */
-function StatusBadge({
+function CornerBadge({
   tone,
   size,
   className,
@@ -291,39 +291,39 @@ function StatusMarker({
   if (exiting) {
     // The outgoing marker only fades — its ongoing motion stops with it.
     return status === "blocked" ? (
-      <StatusOverlay tone="destructive" size={size} className={MARKER_EXIT}>
+      <CenterDisc tone="destructive" size={size} className={MARKER_EXIT}>
         !
-      </StatusOverlay>
+      </CenterDisc>
     ) : status === "done" ? (
-      <StatusBadge tone="success" size={size} className={MARKER_EXIT}>
+      <CornerBadge tone="success" size={size} className={MARKER_EXIT}>
         {check}
-      </StatusBadge>
+      </CornerBadge>
     ) : status === "idle" || status === "working" ? null : (
-      <StatusBadge tone="muted" size={size} className={MARKER_EXIT}>
+      <CornerBadge tone="muted" size={size} className={MARKER_EXIT}>
         ?
-      </StatusBadge>
+      </CornerBadge>
     );
   }
   if (status === "blocked") {
     return (
-      <StatusOverlay tone="destructive" size={size} className={MARKER_ENTER_BLOCKED}>
+      <CenterDisc tone="destructive" size={size} className={MARKER_ENTER_BLOCKED}>
         !
-      </StatusOverlay>
+      </CenterDisc>
     );
   }
   if (status === "done") {
     return (
-      <StatusBadge tone="success" size={size} className={MARKER_ENTER_LIVE}>
+      <CornerBadge tone="success" size={size} className={MARKER_ENTER_LIVE}>
         {check}
-      </StatusBadge>
+      </CornerBadge>
     );
   }
   if (status === "idle" || status === "working") return null;
   // `unknown` and any status herdr adds later.
   return (
-    <StatusBadge tone="muted" size={size} className={MARKER_ENTER_LIVE}>
+    <CornerBadge tone="muted" size={size} className={MARKER_ENTER_LIVE}>
       ?
-    </StatusBadge>
+    </CornerBadge>
   );
 }
 
