@@ -8,87 +8,101 @@
   "fixture": "two-workspaces-with-scrollback",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "9b59d38185d26f84e6a25a83d10b01c2642b1a45",
-  "recorded_at": "2026-11-27T18:47:10.254Z",
+  "git_sha": "bed4528e143c93cbd8a5f0b6037f45537ed2edbd",
+  "recorded_at": "2026-11-28T03:18:40.788Z",
   "steps": [
     {
       "index": 0,
       "kind": "action",
       "name": "select workspace.item",
-      "ok": true
+      "ok": true,
+      "duration_ms": 1048
     },
     {
       "index": 1,
       "kind": "wait",
       "name": "wait state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 322
     },
     {
       "index": 2,
       "kind": "wait",
       "name": "wait terminal.scroll_offset",
-      "ok": true
+      "ok": true,
+      "duration_ms": 380
     },
     {
       "index": 3,
       "kind": "action",
       "name": "terminal.scroll terminal.pane",
-      "ok": true
+      "ok": true,
+      "duration_ms": 1047
     },
     {
       "index": 4,
       "kind": "assert",
       "name": "terminal.scroll_offset (capture before)",
-      "ok": true
+      "ok": true,
+      "duration_ms": 210
     },
     {
       "index": 5,
       "kind": "action",
       "name": "select workspace.item",
-      "ok": true
+      "ok": true,
+      "duration_ms": 913
     },
     {
       "index": 6,
       "kind": "wait",
       "name": "wait state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 5
     },
     {
       "index": 7,
       "kind": "assert",
       "name": "state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 246
     },
     {
       "index": 8,
       "kind": "action",
       "name": "select workspace.item",
-      "ok": true
+      "ok": true,
+      "duration_ms": 827
     },
     {
       "index": 9,
       "kind": "wait",
       "name": "wait state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 590
     },
     {
       "index": 10,
       "kind": "wait",
       "name": "wait terminal.scroll_offset",
-      "ok": true
+      "ok": true,
+      "duration_ms": 203
     },
     {
       "index": 11,
       "kind": "assert",
       "name": "state.selected_workspace",
-      "ok": true
+      "ok": true,
+      "duration_ms": 9
     },
     {
       "index": 12,
       "kind": "assert",
       "name": "terminal.scroll_offset terminal.pane",
-      "ok": true
+      "ok": true,
+      "duration_ms": 2
     }
   ],
-  "error": null
+  "error": null,
+  "duration_ms": 9653
 }

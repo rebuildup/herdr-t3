@@ -8,57 +8,66 @@
   "fixture": "single-workspace",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "9b59d38185d26f84e6a25a83d10b01c2642b1a45",
-  "recorded_at": "2026-11-27T18:47:47.123Z",
+  "git_sha": "bed4528e143c93cbd8a5f0b6037f45537ed2edbd",
+  "recorded_at": "2026-11-28T03:18:55.315Z",
   "steps": [
     {
       "index": 0,
       "kind": "assert",
       "name": "state.sidebar_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 504
     },
     {
       "index": 1,
       "kind": "action",
       "name": "activate nav.sidebar-toggle",
-      "ok": true
+      "ok": true,
+      "duration_ms": 472
     },
     {
       "index": 2,
       "kind": "wait",
       "name": "wait state.sidebar_visible",
-      "ok": true
+      "ok": true,
+      "duration_ms": 440
     },
     {
       "index": 3,
       "kind": "assert",
       "name": "state.sidebar_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 5
     },
     {
       "index": 4,
       "kind": "assert",
       "name": "state.sidebar_visible",
-      "ok": true
+      "ok": true,
+      "duration_ms": 212
     },
     {
       "index": 5,
       "kind": "action",
       "name": "activate nav.sidebar-toggle",
-      "ok": true
+      "ok": true,
+      "duration_ms": 254
     },
     {
       "index": 6,
       "kind": "wait",
       "name": "wait state.sidebar_visible",
-      "ok": true
+      "ok": true,
+      "duration_ms": 239
     },
     {
       "index": 7,
       "kind": "assert",
       "name": "state.sidebar_open",
-      "ok": true
+      "ok": true,
+      "duration_ms": 155
     }
   ],
-  "error": null
+  "error": null,
+  "duration_ms": 6925
 }

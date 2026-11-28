@@ -19,6 +19,13 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5737,
+    // Pre-transform the client entry graph at server start: the UI
+    // verification harness (scripts/ui-electron.sh) requires the app to
+    // reach operable state within a strict budget, and on-demand
+    // transform of the module graph otherwise dominates cold start.
+    warmup: {
+      clientFiles: ["./src/main.tsx"],
+    },
     proxy: {
       "/api": `http://127.0.0.1:${bridgePort}`,
       "/ws": { target: `ws://127.0.0.1:${bridgePort}`, ws: true },
