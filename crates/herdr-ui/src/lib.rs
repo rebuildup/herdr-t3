@@ -31,6 +31,8 @@
 pub mod app_view;
 pub mod bridge_host;
 pub mod model;
+pub mod palette;
+pub mod shortcuts;
 
 use gpui::{
     point, px, App, AppContext, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
