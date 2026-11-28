@@ -35,9 +35,14 @@ function parseArgs(argv: string[]) {
 
 async function makeAdapter(name: string, opts: ReturnType<typeof parseArgs>): Promise<UiAdapter> {
   if (name === "electron") {
+    // UI_ELECTRON_SPAWN_MS (set by scripts/ui-electron.sh at spawn time)
+    // anchors the single spawn->operable deadline; without it the adapter
+    // measures from its own connect, which would hide launch latency.
+    const spawnedAt = Number(process.env.UI_ELECTRON_SPAWN_MS);
     return createElectronAdapter({
       cdpPort: opts.cdpPort,
       ...(opts.injectFault !== undefined ? { injectFault: opts.injectFault } : {}),
+      ...(Number.isFinite(spawnedAt) && spawnedAt > 0 ? { spawnedAtMs: spawnedAt } : {}),
     });
   }
   if (name === "gpui") {
@@ -122,6 +127,18 @@ async function main(): Promise<number> {
         steps: result.steps,
         error: result.error ?? null,
         duration_ms: result.duration_ms ?? null,
+        // Product time vs harness overhead: ready_ms is target-process
+        // launch -> operable; step duration_ms are product-observed UI
+        // timings; harness_ms is runner bookkeeping around them.
+        ready_ms: adapter.readyMs ?? null,
+        harness_ms:
+          result.duration_ms !== undefined
+            ? Math.max(
+                0,
+                result.duration_ms -
+                  result.steps.reduce((acc, s) => acc + (s.duration_ms ?? 0), 0),
+              )
+            : null,
       };
       const outDir = join(EVIDENCE_DIR, opts.adapter);
       mkdirSync(outDir, { recursive: true });

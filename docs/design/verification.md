@@ -183,26 +183,57 @@ be detected inside budget — a checker that cannot fail is rejected by
 `scripts/perf-contract-check.ts` piece `ui-verification-budgets`).
 
 - **Budgets** (`UI_BUDGET_*` env overrides, ms): `CDP_CALL` 10s per CDP
-  call, `READY` 5s from process start to operable state
-  (`__herdrT3Ui` + `readyState`), `STEP_CALL` 15s per adapter
-  act/observe, `FIXTURE` 60s fixture setup, `SCENARIO` 180s per
-  scenario, `RUN` 900s whole orchestration. A missing deadline is a
-  defect; fixed sleeps are only allowed as poll intervals inside a
-  deadline-bounded loop.
+  call, `READY` 5s as a *single* deadline from Electron process spawn to
+  operable state — CDP discovery, websocket connect, domain init, page
+  load and the operable probe all share it (`UI_ELECTRON_SPAWN_MS`
+  anchors the deadline at spawn; nothing runs outside the budget),
+  `STEP_CALL` 15s per adapter act/observe, `FIXTURE` 60s fixture setup,
+  `SCENARIO` 180s per scenario, `RUN` 900s whole orchestration. A
+  missing deadline is a defect; fixed sleeps are only allowed as poll
+  intervals inside a deadline-bounded loop.
+  `READY` is the *product* contract, verified on packaged builds.
+  `scripts/ui-electron.sh` runs against the vite dev server, where
+  measured spawn->operable is ~8s idle and ~20s under multi-worktree
+  load (Electron cold start to CDP ~8s + dev page load ~10s); it
+  therefore exports `UI_BUDGET_READY=45000` for the dev harness only —
+  a measured environment budget, not a relaxed product contract. Hang
+  detection still fails inside it.
 - **Operable state, not process existence**: the electron adapter
-  refuses to proceed until the observe bridge answers and the document
-  is complete. A live CDP port or an existing window is not a pass.
+  refuses to proceed until `observe()` returns real UI state AND
+  `/api/health` answers through the page's own origin (UI bundle +
+  bridge RPC path both responsive). A live CDP port, an existing window
+  or a loaded document is not a pass.
 - **Independent watchdog**: `scripts/ui-electron.sh` starts
   `harness/ui/watchdog-cli.ts` as a separate process. It never talks to
   the app, so a hung target cannot stall the timeout mechanism. On
-  budget expiry it writes `diagnostics.md` + `ps` snapshot into the run's
-  diag dir and SIGTERM→SIGKILLs only the pids recorded in its pid file.
-- **Exclusive lease**: the watchdog process holds
-  `harness/ui/lease.json` (owner pid, user@host, worktree, session,
-  ports) for the run's lifetime. A second real-machine run fails fast
-  with the current owner's identity instead of fighting over ports and
-  processes. Cleanup signals only pids the run itself recorded — never
-  another session's processes.
+  budget expiry it writes `diagnostics.md` + a process-table snapshot
+  into the run's diag dir and reaps the recorded pids *plus their
+  descendants* (Electron GPU/renderer/utility helpers) via
+  `reapRecorded` — SIGTERM, grace, SIGKILL. The process table is `ps`
+  on POSIX and CIM/PowerShell on Windows, so the contract is
+  OS-agnostic even though the POSIX shell orchestration is not.
+- **Exclusive lease**: the watchdog process holds a machine-global
+  lease (`$XDG_STATE_HOME/herdr-t3/ui-verify.lease.json`, or
+  `%LOCALAPPDATA%\herdr-t3\ui-verify.lease.json` on Windows — shared by
+  every worktree of this repo on the machine) with owner pid,
+  user@host, worktree, session and ports, for the run's lifetime.
+  Acquisition is atomic (O_EXCL create): a second real-machine run —
+  from any worktree — fails fast with the current owner's identity
+  instead of racing. Stale leases (dead owner pid) are taken over.
+  Cleanup signals only pids the run itself recorded and their
+  descendants — never another session's processes.
+- **Port isolation**: `scripts/ui-electron.sh` auto-allocates free
+  ports for the bridge/vite/CDP endpoints by default, so leftovers or
+  concurrent dev servers cannot collide. Explicit `CDP_PORT` /
+  `UI_BRIDGE_PORT` / `UI_VITE_PORT` overrides are honored but
+  pre-flight checked: an occupied port fails fast naming the holder —
+  the harness never kills a process it does not own (a stale bridge on
+  the old fixed port previously surfaced only as an operable-gate
+  timeout).
+- **Product vs harness time**: evidence records `ready_ms` (target
+  spawn -> operable, product launch latency), per-step `duration_ms`
+  (product-observed UI timings) and `harness_ms` (runner bookkeeping).
+  Budgets apply to both but are never relaxed to hide product latency.
 - **Diagnostics**: on failure the diag dir (`mktemp -d -t ui-diag`)
   keeps vite/electron/herdr/bridge/watchdog logs plus the watchdog
   snapshot; the path is printed on every `fail`.

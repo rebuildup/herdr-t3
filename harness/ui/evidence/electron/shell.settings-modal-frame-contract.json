@@ -8,80 +8,82 @@
   "fixture": "single-workspace",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "bed4528e143c93cbd8a5f0b6037f45537ed2edbd",
-  "recorded_at": "2026-11-28T03:18:48.374Z",
+  "git_sha": "451d8a4ee27a73e9a8940506be939b8d69fbf866",
+  "recorded_at": "2026-11-28T04:49:21.207Z",
   "steps": [
     {
       "index": 0,
       "kind": "action",
       "name": "activate nav.settings",
       "ok": true,
-      "duration_ms": 1344
+      "duration_ms": 3887
     },
     {
       "index": 1,
       "kind": "wait",
       "name": "wait state.settings_open",
       "ok": true,
-      "duration_ms": 263
+      "duration_ms": 1923
     },
     {
       "index": 2,
       "kind": "assert",
       "name": "dialog.section",
       "ok": true,
-      "duration_ms": 363
+      "duration_ms": 841
     },
     {
       "index": 3,
       "kind": "assert",
       "name": "dialog.settings_frame_contract",
       "ok": true,
-      "duration_ms": 211
+      "duration_ms": 1072
     },
     {
       "index": 4,
       "kind": "action",
       "name": "activate nav.settings-section",
       "ok": true,
-      "duration_ms": 651
+      "duration_ms": 2977
     },
     {
       "index": 5,
       "kind": "wait",
       "name": "wait dialog.section",
       "ok": true,
-      "duration_ms": 301
+      "duration_ms": 369
     },
     {
       "index": 6,
       "kind": "assert",
       "name": "dialog.settings_frame_contract",
       "ok": true,
-      "duration_ms": 197
+      "duration_ms": 265
     },
     {
       "index": 7,
       "kind": "action",
       "name": "activate nav.settings-section",
       "ok": true,
-      "duration_ms": 427
+      "duration_ms": 2015
     },
     {
       "index": 8,
       "kind": "wait",
       "name": "wait dialog.section",
       "ok": true,
-      "duration_ms": 298
+      "duration_ms": 709
     },
     {
       "index": 9,
       "kind": "assert",
       "name": "dialog.settings_frame_contract",
       "ok": true,
-      "duration_ms": 236
+      "duration_ms": 238
     }
   ],
   "error": null,
-  "duration_ms": 7556
+  "duration_ms": 24528,
+  "ready_ms": 25088,
+  "harness_ms": 10232
 }

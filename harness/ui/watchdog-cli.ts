@@ -3,20 +3,23 @@
  * Watchdog + lease holder for scripts/ui-electron.sh (issue #416 program).
  *
  *   bun harness/ui/watchdog-cli.ts --budget-ms N --pids-file F --diag-dir D \
- *     [--label L] [--lease-file L --owner NAME --worktree PATH --session ID --ports k=v,...]
+ *     [--label L] [--lease-file PATH | --no-lease] [--owner NAME --worktree PATH --session ID --ports k=v,...]
  *
  * Runs as an independent process for the whole verification: it holds the
  * exclusive real-machine lease (its own pid is the lease owner, so the
  * lease stays valid exactly as long as the watchdog lives) and, on budget
- * expiry, writes diagnostics into --diag-dir and kills only the pids
- * recorded in --pids-file. It never talks to the app under test, so a
- * hung target cannot stall the timeout mechanism.
+ * expiry, writes diagnostics into --diag-dir and reaps only the pids
+ * recorded in --pids-file plus their descendants. It never talks to the
+ * app under test, so a hung target cannot stall the timeout mechanism.
+ *
+ * The lease defaults to the machine-global path (defaultLeasePath()) so
+ * every worktree of this repo serializes on the same real machine.
  *
  * Exit code 0 = stopped cleanly before budget; 3 = budget fired;
  * 4 = lease denied (another live run holds it).
  */
 import { hostname } from "node:os";
-import { startWatchdog, acquireLease, releaseLease, type LeaseOwner } from "./lib/watchdog.ts";
+import { startWatchdog, acquireLease, releaseLease, defaultLeasePath, type LeaseOwner } from "./lib/watchdog.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -27,10 +30,11 @@ const budgetMs = Number(arg("--budget-ms"));
 const pidsFile = arg("--pids-file");
 const diagDir = arg("--diag-dir");
 const label = arg("--label") ?? "ui-run";
-const leaseFile = arg("--lease-file");
+const noLease = process.argv.includes("--no-lease");
+const leaseFile = noLease ? undefined : (arg("--lease-file") ?? defaultLeasePath());
 
 if (!Number.isFinite(budgetMs) || budgetMs <= 0 || !pidsFile || !diagDir) {
-  console.error("usage: watchdog-cli.ts --budget-ms N --pids-file F --diag-dir D [--label L] [--lease-file L ...]");
+  console.error("usage: watchdog-cli.ts --budget-ms N --pids-file F --diag-dir D [--label L] [--lease-file PATH|--no-lease ...]");
   process.exit(2);
 }
 
@@ -42,7 +46,7 @@ if (leaseFile) {
   }
   const owner: LeaseOwner = {
     pid: process.pid,
-    owner: `${hostname()}:${process.env.USER ?? "?"}`,
+    owner: `${hostname()}:${process.env.USER ?? process.env.USERNAME ?? "?"}`,
     worktree: arg("--worktree") ?? process.cwd(),
     session: arg("--session") ?? "unknown",
     startedAt: new Date().toISOString(),
@@ -50,6 +54,7 @@ if (leaseFile) {
   };
   try {
     acquireLease(leaseFile, owner);
+    console.error(`[watchdog] lease acquired: ${leaseFile} (pid ${process.pid})`);
   } catch (e) {
     console.error(`lease denied: ${e}`);
     process.exit(4);

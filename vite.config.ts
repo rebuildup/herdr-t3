@@ -24,7 +24,11 @@ export default defineConfig(({ command }) => ({
     // reach operable state within a strict budget, and on-demand
     // transform of the module graph otherwise dominates cold start.
     warmup: {
-      clientFiles: ["./src/main.tsx"],
+      // Warm the whole client graph, not just the entry: lazy routes and
+      // deep imports still transform on demand otherwise, and the UI
+      // verification harness's spawn->operable deadline is measured
+      // against the real page load.
+      clientFiles: ["./src/main.tsx", "./src/**/*.ts", "./src/**/*.tsx"],
     },
     proxy: {
       "/api": `http://127.0.0.1:${bridgePort}`,

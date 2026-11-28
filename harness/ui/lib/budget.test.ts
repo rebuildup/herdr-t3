@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BudgetExceeded, uiBudgets, waitFor, withTimeout } from "./budget.ts";
-import { acquireLease, releaseLease, readPids, recordPid, startWatchdog } from "./watchdog.ts";
+import { acquireLease, releaseLease, readPids, recordPid, startWatchdog, reapRecorded, collectTree, defaultLeasePath, type ProcInfo } from "./watchdog.ts";
 import { runScenario } from "./runner.ts";
 import type { UiAdapter, UiScenario } from "./types.ts";
 
@@ -161,7 +161,54 @@ describe("watchdog", () => {
   });
 });
 
+describe("reap", () => {
+  test("collectTree includes transitive descendants only", () => {
+    const table: ProcInfo[] = [
+      { pid: 100, ppid: 1, command: "electron" },
+      { pid: 101, ppid: 100, command: "electron --type=gpu" },
+      { pid: 102, ppid: 101, command: "electron --type=renderer" },
+      { pid: 200, ppid: 1, command: "other-session" },
+      { pid: 201, ppid: 200, command: "other-child" },
+    ];
+    const tree = collectTree([100], table);
+    expect([...tree].sort()).toEqual([100, 101, 102]);
+    expect(tree.has(200)).toBe(false);
+    expect(tree.has(201)).toBe(false);
+  });
+
+  test("reapRecorded SIGTERMs then SIGKILLs recorded pids and descendants", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "reap-test-"));
+    const pidsFile = join(dir, "pids.txt");
+    writeFileSync(pidsFile, "100 electron\n");
+    const table: ProcInfo[] = [
+      { pid: 100, ppid: 1, command: "electron" },
+      { pid: 101, ppid: 100, command: "electron --type=gpu" },
+      { pid: 999, ppid: 1, command: "unrelated" },
+    ];
+    const signals: string[] = [];
+    const targets = await reapRecorded(pidsFile, {
+      kill: (pid, sig) => signals.push(`${pid}:${sig}`),
+      listProcesses: () => table,
+      sleep: async () => {},
+      graceMs: 0,
+    });
+    expect(targets.sort()).toEqual([100, 101]);
+    expect(signals).toContain("100:SIGTERM");
+    expect(signals).toContain("101:SIGTERM");
+    expect(signals).toContain("100:SIGKILL");
+    expect(signals).toContain("101:SIGKILL");
+    expect(signals.some((s) => s.startsWith("999:"))).toBe(false);
+  });
+});
+
 describe("lease", () => {
+  test("default lease path is machine-global, not worktree-local", () => {
+    const p = defaultLeasePath();
+    expect(p).toContain("herdr-t3");
+    expect(p).toContain("ui-verify.lease.json");
+    expect(p).not.toContain("worktrees");
+  });
+
   test("denies a second live owner and frees on release", () => {
     const dir = mkdtempSync(join(tmpdir(), "lease-test-"));
     const lease = join(dir, "lease.json");
