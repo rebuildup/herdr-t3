@@ -10,6 +10,7 @@ use gpui::{Modifiers, Point, TestAppContext};
 use herdr_ui::app_view::{AppView, FixtureData};
 use protocol_codec::parse_session_snapshot;
 use serde_json::{json, Value};
+use ui_kit::tokens;
 
 fn sel(name: &str) -> &'static str {
     Box::leak(name.to_string().into_boxed_str())
@@ -150,7 +151,7 @@ fn closed_pane_does_not_mount() {
     data.closed_panes
         .entry("local".to_string())
         .or_default()
-        .insert("w1:p1".to_string());
+        .insert("w1:p1".to_string(), "pane exited".to_string());
     let (view, mut vcx) = cx.add_window_view(|window, cx| AppView::with_model(window, cx, data));
     redraw(&mut vcx);
 
@@ -228,6 +229,200 @@ fn terminal_input_reaches_frame_ledger() {
         assert_eq!(
             input.get("data").and_then(Value::as_str),
             Some(herdr_bridge::base64_encode(b"hi").as_str())
+        );
+    });
+}
+
+/* ---------------- issue #644: colors, theme re-push, revival --------- */
+
+#[test]
+fn mounted_terminal_gets_full_ansi_ramp() {
+    // The surface colors carry the 16-slot ANSI ramp
+    // (`FALLBACK_ANSI`/`FALLBACK_ANSI_LIGHT` ported into
+    // `Palette::terminal_ansi`) — not the old 16×`#000000` stub.
+    let mut cx = TestAppContext::single();
+    let (view, mut vcx) =
+        cx.add_window_view(|window, cx| AppView::with_model(window, cx, fixture()));
+    redraw(&mut vcx);
+
+    view.read_with(&vcx.cx, |v, _| {
+        let colors = v
+            .terminal_colors("local", "w1:p1")
+            .expect("mounted terminal colors");
+        assert_eq!(colors.ansi.len(), 16);
+        assert!(
+            colors.ansi.iter().all(|c| c.starts_with('#')),
+            "ansi slots are hex colors: {:?}",
+            colors.ansi
+        );
+        // Slot 1 (red) is `#cc0000` in both the dark and light ramps.
+        assert_eq!(colors.ansi[1], "#cc0000");
+        assert_ne!(colors.ansi[0], "#000000");
+        assert!(colors.foreground.starts_with('#'));
+        assert!(colors.background.starts_with('#'));
+        assert!(colors.cursor.starts_with('#'));
+    });
+}
+
+#[test]
+fn palette_change_repushes_surface_colors() {
+    // The TS `applyTheme` path: a palette change pushes `set_colors`
+    // into every mounted surface without remounting (scrollback and
+    // attach state survive).
+    let mut cx = TestAppContext::single();
+    let (view, mut vcx) =
+        cx.add_window_view(|window, cx| AppView::with_model(window, cx, fixture()));
+    redraw(&mut vcx);
+
+    // Sentinel palette — proves the push happened regardless of which
+    // appearance the headless window reports.
+    let mut p = tokens::dark();
+    p.terminal_foreground = gpui::rgb(0x123456).into();
+    p.terminal_background = gpui::rgb(0x654321).into();
+    p.terminal_ansi[1] = gpui::rgb(0xabcdef).into();
+    view.update(&mut vcx.cx, |v, _| {
+        v.sync_terminal_colors(&p);
+        // Assert inside the same update — a render pass re-pushes the
+        // *real* window palette, which is the behaviour under test.
+        let colors = v
+            .terminal_colors("local", "w1:p1")
+            .expect("mounted terminal colors");
+        assert_eq!(colors.foreground, "#123456");
+        assert_eq!(colors.background, "#654321");
+        assert_eq!(colors.ansi[1], "#abcdef");
+        // Untouched slots keep the palette ramp.
+        assert_eq!(colors.ansi[2], "#4e9a06");
+    });
+
+    view.read_with(&vcx.cx, |v, _| {
+        // Still mounted — a theme push never remounts.
+        assert_eq!(v.terminal_count(), 1);
+        assert!(v
+            .terminal_surface_state("local", "w1:p1")
+            .is_some_and(|(_, _, dead, disposed)| !dead && !disposed));
+    });
+
+    // The render pass itself re-pushes the *real* window palette —
+    // this is the same pass that carries an OS appearance flip into
+    // `set_colors` (issue #644), so the sentinel is replaced.
+    redraw(&mut vcx);
+    view.read_with(&vcx.cx, |v, _| {
+        let colors = v
+            .terminal_colors("local", "w1:p1")
+            .expect("mounted terminal colors");
+        assert_ne!(colors.foreground, "#123456");
+        assert!(colors.ansi.iter().any(|c| c != "#abcdef"));
+    });
+}
+
+#[test]
+fn attached_client_close_offers_takeover_and_resubscribes() {
+    // TS parity: an `attached client` close shows "Take over terminal";
+    // clicking it clears the closed mark and the remount's
+    // `subscribe_terminal` carries `takeover: true`.
+    let mut cx = TestAppContext::single();
+    let (view, mut vcx) =
+        cx.add_window_view(|window, cx| AppView::with_model(window, cx, fixture()));
+    redraw(&mut vcx);
+
+    view.update(&mut vcx.cx, |v, cx| {
+        v.inject_terminal_closed("local", "w1:p1", "attached client");
+        cx.notify();
+    });
+    redraw(&mut vcx);
+
+    view.read_with(&vcx.cx, |v, _| {
+        assert_eq!(v.terminal_count(), 0);
+        // The detach ledger ends with unsubscribe_terminal.
+        let frames = v.terminal_frames("local", "w1:p1");
+        assert_eq!(
+            frames.last().and_then(|f| f.get("type")).and_then(Value::as_str),
+            Some("unsubscribe_terminal")
+        );
+    });
+    // The takeover affordance renders only for `attached client`.
+    let bounds = vcx
+        .debug_bounds(sel("pane.takeover.w1:p1"))
+        .expect("takeover button");
+    let center = bounds.center();
+    vcx.simulate_click(
+        Point {
+            x: center.x,
+            y: center.y,
+        },
+        Modifiers::none(),
+    );
+    redraw(&mut vcx);
+
+    view.read_with(&vcx.cx, |v, _| {
+        assert_eq!(v.terminal_count(), 1);
+        let frames = v.terminal_frames("local", "w1:p1");
+        let types = frame_types(&frames);
+        let sub = frames
+            .iter()
+            .rev()
+            .find(|f| f.get("type").and_then(Value::as_str) == Some("subscribe_terminal"))
+            .expect("resubscribe after takeover");
+        assert_eq!(sub.get("takeover").and_then(Value::as_bool), Some(true));
+        assert!(types.iter().any(|t| t == "subscribe_terminal"));
+    });
+}
+
+#[test]
+fn non_attached_client_close_has_no_takeover_but_revives_on_remount() {
+    // A `pane exited` close gets no takeover button; the closed mark
+    // still clears when the pane leaves the canvas (TS `closedReason`
+    // dies with the unmounted component), so returning to the
+    // workspace mounts fresh and resubscribes.
+    let mut cx = TestAppContext::single();
+    let (view, mut vcx) =
+        cx.add_window_view(|window, cx| AppView::with_model(window, cx, fixture()));
+    redraw(&mut vcx);
+
+    view.update(&mut vcx.cx, |v, cx| {
+        v.inject_terminal_closed("local", "w1:p1", "pane exited");
+        cx.notify();
+    });
+    redraw(&mut vcx);
+
+    view.read_with(&vcx.cx, |v, _| assert_eq!(v.terminal_count(), 0));
+    assert!(vcx.debug_bounds(sel("pane.takeover.w1:p1")).is_none());
+
+    // Switch to w2 — w1:p1 leaves the canvas entirely.
+    let bounds = vcx
+        .debug_bounds(sel("workspace.item.local:w2"))
+        .expect("w2 row bounds");
+    let center = bounds.center();
+    vcx.simulate_click(
+        Point {
+            x: center.x,
+            y: center.y,
+        },
+        Modifiers::none(),
+    );
+    redraw(&mut vcx);
+
+    // Back to w1 — the closed mark was pruned on unmount, so the pane
+    // remounts and resubscribes like a fresh TS mount.
+    let bounds = vcx
+        .debug_bounds(sel("workspace.item.local:w1"))
+        .expect("w1 row bounds");
+    let center = bounds.center();
+    vcx.simulate_click(
+        Point {
+            x: center.x,
+            y: center.y,
+        },
+        Modifiers::none(),
+    );
+    redraw(&mut vcx);
+
+    view.read_with(&vcx.cx, |v, _| {
+        assert_eq!(v.terminal_count(), 1);
+        let frames = v.terminal_frames("local", "w1:p1");
+        assert!(
+            frame_types(&frames).iter().any(|t| t == "subscribe_terminal"),
+            "expected resubscribe after remount, got {frames:?}"
         );
     });
 }

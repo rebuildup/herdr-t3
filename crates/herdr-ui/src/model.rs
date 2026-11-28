@@ -172,6 +172,10 @@ pub struct CanvasPane {
     pub terminal_id: Option<String>,
     /// `terminal.closed` frames seen for this pane (attach ended).
     pub closed: bool,
+    /// The `terminal_closed` reason when `closed` — the view offers
+    /// takeover only for `attached client` closes, mirroring the TS
+    /// `PaneTerminal` banner (issue #644).
+    pub closed_reason: Option<String>,
 }
 
 /// The selected workspace's content: breadcrumb + tab strip + canvas.
@@ -276,7 +280,7 @@ fn pane_terminal_state(pane: &PaneInfo) -> PaneTerminalState {
 /// equal-stack fallback for panes herdr gave no layout rect.
 fn canvas_panes(
     canvas: &state_projections::PaneCanvasView,
-    closed: &std::collections::HashSet<String>,
+    closed: &std::collections::HashMap<String, String>,
 ) -> Vec<CanvasPane> {
     let n = canvas.panes.len();
     canvas
@@ -309,7 +313,8 @@ fn canvas_panes(
                     .map(|t| t.trim().to_string())
                     .filter(|t| !t.is_empty()),
                 terminal_state: pane_terminal_state(cp.pane),
-                closed: closed.contains(&pane_id),
+                closed: closed.contains_key(&pane_id),
+                closed_reason: closed.get(&pane_id).cloned(),
             }
         })
         .collect()
@@ -323,7 +328,7 @@ fn content_model(
     snapshot: &SessionSnapshot,
     selected_workspace: Option<&str>,
     advertised: &[String],
-    closed: &std::collections::HashSet<String>,
+    closed: &std::collections::HashMap<String, String>,
 ) -> ContentModel {
     let view = derive_workspace(Some(snapshot), selected_workspace);
     let canvas = pane_canvas_view(&view);
@@ -374,7 +379,7 @@ pub fn build_shell_model(
     snapshots: &HashMap<String, SessionSnapshot>,
     capabilities: &HashMap<String, Vec<String>>,
     machine_errors: &HashMap<String, String>,
-    closed_panes: &HashMap<String, std::collections::HashSet<String>>,
+    closed_panes: &HashMap<String, std::collections::HashMap<String, String>>,
     selected_machine: &str,
     selected_workspace: Option<&str>,
 ) -> ShellModel {
@@ -434,7 +439,7 @@ pub fn build_shell_model(
     }
 
     // Content area: selected machine only.
-    let empty_closed = std::collections::HashSet::new();
+    let empty_closed = std::collections::HashMap::new();
     if let Some(snap) = snapshots.get(selected_machine) {
         let closed = closed_panes.get(selected_machine).unwrap_or(&empty_closed);
         model.content = Some(content_model(

@@ -54,7 +54,9 @@ use crate::model::{
     build_shell_model, status_label, status_tone, CanvasPane, PaneTerminalState, ShellModel,
     StatusTone,
 };
-use crate::pane_terminal::{create_terminal_view, pane_client_id, PaneIo, PaneLink, PaneTerminal};
+use crate::pane_terminal::{
+    create_terminal_view, pane_client_id, surface_colors, PaneIo, PaneLink, PaneTerminal,
+};
 
 /* ------------------------------ data source ---------------------------- */
 
@@ -66,7 +68,8 @@ pub struct FixtureData {
     pub snapshots: HashMap<String, SessionSnapshot>,
     pub capabilities: HashMap<String, Vec<String>>,
     pub machine_errors: HashMap<String, String>,
-    pub closed_panes: HashMap<String, HashSet<String>>,
+    /// machine → pane → `terminal_closed` reason (issue #644).
+    pub closed_panes: HashMap<String, HashMap<String, String>>,
 }
 
 /// Where shell data comes from.
@@ -103,6 +106,12 @@ pub struct AppView {
     memory_host: Option<MemoryHost>,
     /// Last memory-host tick — the 30 s watchdog interval.
     last_memory_tick: Instant,
+    /// Panes the user asked to take over (`attached client` closes,
+    /// issue #644) — keyed like `terminals`; consumed by
+    /// [`PaneLink::takeover`] on the next mount and cleared on detach,
+    /// matching the TS `takeover` state living and dying with the
+    /// `PaneTerminal` component.
+    takeovers: HashSet<String>,
 }
 
 /// Sidebar geometry — T3's sidebar is resizable; the scaffold uses the
@@ -143,6 +152,7 @@ impl AppView {
             detached_outboxes: HashMap::new(),
             memory_host: MemoryHost::for_platform(),
             last_memory_tick: Instant::now(),
+            takeovers: HashSet::new(),
         };
         view.rebuild_model();
         view
@@ -349,6 +359,46 @@ impl AppView {
             }
         }
 
+        // TS parity (issue #644): `closedReason` lives and dies with
+        // the mounted `PaneTerminal` — a pane that leaves the canvas
+        // (workspace/tab switch, pane close, machine change, summary
+        // downgrade) loses its closed mark, so returning to it mounts
+        // fresh and resubscribes. Marks for panes still on the canvas
+        // stay (they drive the closed badge + takeover affordance).
+        let visible: HashSet<String> = self
+            .model
+            .content
+            .as_ref()
+            .map(|c| {
+                c.canvas
+                    .iter()
+                    .map(|p| terminal_key(&c.machine, &p.pane_id))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.prune_closed_marks(&visible);
+
+        // Keys whose pane is closed *in the current canvas* — a detach
+        // of one of these is close-caused and must NOT clear the mark
+        // (that would resubscribe-loop an `attached client` refusal).
+        // Every other detach means the pane left the canvas (workspace
+        // switch, pane close, summary downgrade): the TS equivalent is
+        // a component unmount, which destroys `closedReason` — so the
+        // mark clears and a later return mounts fresh and resubscribes
+        // (issue #644).
+        let closed_keys: HashSet<String> = self
+            .model
+            .content
+            .as_ref()
+            .map(|c| {
+                c.canvas
+                    .iter()
+                    .filter(|p| p.closed)
+                    .map(|p| terminal_key(&c.machine, &p.pane_id))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         // Detach: keys no longer desired (pane closed, workspace switch,
         // summary downgrade, no-terminal pane).
         let stale: Vec<String> = self
@@ -363,7 +413,12 @@ impl AppView {
                     t.link.unsubscribe_terminal();
                 }
                 let _ = t.surface.borrow_mut().dispose();
-                self.detached_outboxes.insert(key, t.outbox);
+                self.detached_outboxes.insert(key.clone(), t.outbox);
+                // TS parity: unmount resets `takeover`/`closedReason`.
+                self.takeovers.remove(&key);
+                if !closed_keys.contains(&key) {
+                    self.clear_closed_mark(&t.link.machine, &t.link.pane_id);
+                }
             }
         }
 
@@ -397,6 +452,72 @@ impl AppView {
                 t.io.borrow_mut().egress.flush();
             }
         }
+
+        // Theme re-push (issue #644): the OS-appearance observer only
+        // notifies — this pass diffs the resolved palette against each
+        // mounted surface's last colors and pushes `set_colors` on
+        // change, like the TS `onTerminalThemeChange` → `applyTheme`.
+        self.sync_terminal_colors(p);
+    }
+
+    /// Push the current palette's [`SurfaceColors`] into every mounted
+    /// terminal whose colors differ — scrollback and attach state are
+    /// untouched (the TS `applyTheme` path). Called from
+    /// [`AppView::sync_terminals`] each render; public so tests and
+    /// diagnostic hosts can drive a palette change directly (the
+    /// headless `TestAppContext` cannot flip `window.appearance()`).
+    pub fn sync_terminal_colors(&mut self, p: &Palette) {
+        let colors = surface_colors(p);
+        for t in self.terminals.values_mut() {
+            if t.colors == colors {
+                continue;
+            }
+            if t.surface.borrow_mut().set_colors(colors.clone()).is_ok() {
+                t.colors = colors.clone();
+            }
+        }
+    }
+
+    /// Drop `terminal_closed` marks for panes not in `visible` — see
+    /// the call site in [`AppView::sync_terminals`] for the TS
+    /// `closedReason`-per-mount rationale (issue #644).
+    fn prune_closed_marks(&mut self, visible: &HashSet<String>) {
+        let closed = match &mut self.data {
+            DataSource::Live(b) => &mut b.closed_panes,
+            DataSource::Fixture(f) => &mut f.closed_panes,
+        };
+        closed.retain(|machine, panes| {
+            panes.retain(|pane_id, _| visible.contains(&format!("{machine}:{pane_id}")));
+            !panes.is_empty()
+        });
+    }
+
+    /// Clear a pane's `terminal_closed` mark in whichever data source
+    /// is mounted — live goes through `BridgeHost`, fixtures mutate
+    /// their `FixtureData` directly.
+    fn clear_closed_mark(&mut self, machine: &str, pane_id: &str) {
+        match &mut self.data {
+            DataSource::Live(b) => b.clear_closed(machine, pane_id),
+            DataSource::Fixture(f) => {
+                if let Some(panes) = f.closed_panes.get_mut(machine) {
+                    panes.remove(pane_id);
+                    if panes.is_empty() {
+                        f.closed_panes.remove(machine);
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Take over terminal" (issue #644): the TS banner's takeover
+    /// button — offered only for `attached client` closes. Clears the
+    /// closed mark and arms `subscribe_terminal`'s takeover flag on the
+    /// remount that follows.
+    fn take_over_terminal(&mut self, machine: String, pane_id: String, cx: &mut Context<Self>) {
+        self.takeovers.insert(terminal_key(&machine, &pane_id));
+        self.clear_closed_mark(&machine, &pane_id);
+        self.rebuild_model();
+        cx.notify();
     }
 
     /// Create the [`TerminalView`] entity + bridge wiring for one pane.
@@ -417,7 +538,7 @@ impl AppView {
             DataSource::Fixture(_) => (None, ScrollInfo { offset: 0, max: 0 }),
         };
         let outbox = Arc::new(Mutex::new(Vec::new()));
-        let link = match &hub {
+        let mut link = match &hub {
             Some(h) => PaneLink::new(
                 machine.to_string(),
                 pane_id.to_string(),
@@ -430,6 +551,11 @@ impl AppView {
                 Arc::clone(&outbox),
             ),
         };
+        // Armed by a prior "Take over" click (issue #644) — the
+        // subscribe below carries `takeover: true` like the TS
+        // `takeover` state. Consumed on mount so a later detach →
+        // remount cycle cannot silently re-arm it.
+        link.takeover = self.takeovers.remove(key);
         let io = Rc::new(RefCell::new(PaneIo::new(&link, scroll)));
         io.borrow_mut().last_writable = link.writable();
         let replies = Arc::new(Mutex::new(VecDeque::new()));
@@ -453,6 +579,7 @@ impl AppView {
                 link,
                 replies,
                 outbox,
+                colors: surface_colors(p),
             },
         );
     }
@@ -523,6 +650,34 @@ impl AppView {
         self.memory_host
             .as_ref()
             .and_then(|h| h.diagnostics_json().ok())
+    }
+
+    /// The [`SurfaceColors`] last pushed to one pane's surface —
+    /// tests assert the palette→surface mapping (issue #644).
+    pub fn terminal_colors(
+        &self,
+        machine: &str,
+        pane_id: &str,
+    ) -> Option<terminal_surface::SurfaceColors> {
+        let key = terminal_key(machine, pane_id);
+        self.terminals.get(&key).map(|t| t.colors.clone())
+    }
+
+    /// Record a `terminal_closed` for one pane and rebuild — the
+    /// test/diagnostic injection path mirroring a real server frame
+    /// (live hosts get it through `BridgeHost`'s frame handler).
+    /// Returns nothing; the caller notifies.
+    pub fn inject_terminal_closed(&mut self, machine: &str, pane_id: &str, reason: &str) {
+        match &mut self.data {
+            DataSource::Live(b) => b.mark_closed(machine, pane_id, reason),
+            DataSource::Fixture(f) => {
+                f.closed_panes
+                    .entry(machine.to_string())
+                    .or_default()
+                    .insert(pane_id.to_string(), reason.to_string());
+            }
+        }
+        self.rebuild_model();
     }
 
     fn rebuild_model(&mut self) {
@@ -1138,6 +1293,16 @@ impl AppView {
         let border = if focused { p.ring } else { p.border };
         let pane_for_click = pane_id.clone();
         let hover_border = p.input;
+        // "Take over terminal" (issue #644): the TS banner offers it only
+        // when the close reason names another attached client.
+        let can_takeover = closed
+            && pane
+                .closed_reason
+                .as_deref()
+                .map(|r| r.contains("attached client"))
+                .unwrap_or(false);
+        let takeover_machine = machine.to_string();
+        let takeover_pane = pane_id.clone();
         // The mounted terminal surface for this pane (issue #641) —
         // `None` for no-terminal/closed/detached states, which keep
         // the honest placeholder caption.
@@ -1203,6 +1368,27 @@ impl AppView {
                                     .variant(BadgeVariant::Warning)
                                     .size(ui_kit::primitives::BadgeSize::Sm)
                                     .render(p),
+                                )
+                            })
+                            .when(can_takeover, |el| {
+                                el.child(
+                                    Button::new(
+                                        SharedString::from(format!("pane.takeover.{pane_id}")),
+                                        "Take over",
+                                    )
+                                    .variant(ButtonVariant::Outline)
+                                    .size(ButtonSize::Sm)
+                                    .selector(SharedString::from(format!(
+                                        "pane.takeover.{pane_id}"
+                                    )))
+                                    .on_click(cx.listener(move |view, _ev, _win, cx| {
+                                        view.take_over_terminal(
+                                            takeover_machine.clone(),
+                                            takeover_pane.clone(),
+                                            cx,
+                                        );
+                                    }))
+                                    .render(p, false, false),
                                 )
                             }),
                     )

@@ -295,8 +295,10 @@ pub struct SurfaceRect {
 }
 
 /// Theme colors as the host resolved them (hex `#rrggbb` strings; the
-/// 16 ANSI slots feed palette entries 0-15).
-#[derive(Debug, Clone)]
+/// 16 ANSI slots feed palette entries 0-15). `PartialEq` lets hosts
+/// skip a `set_colors` round-trip when the resolved theme is
+/// unchanged (issue #644).
+#[derive(Debug, Clone, PartialEq)]
 pub struct SurfaceColors {
     pub foreground: String,
     pub background: String,
