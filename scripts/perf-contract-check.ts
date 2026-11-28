@@ -244,6 +244,28 @@ const PIECES: ContractPiece[] = [
     ],
   },
   {
+    id: "assurance-noninterference-handoff",
+    description: "assurance contract tests: observe/writable non-interference, operator handoff, viewport-only scroll, O(visible) host scaling (#586)",
+    verify: () => [
+      // The four #586 contract tests must keep existing — they are the
+      // cheap deterministic half of the assurance program; the live legs
+      // stay in perf-bridge-load / perf-memory-bench.
+      ...fileHas("server/bridge-core.test.ts", [
+        /non-interference contract: observe cannot move the writable link/,
+        /operator handoff: writable follows focus/,
+        /local history scroll is viewport-only/,
+        /host scaling: cost tracks visible panes/,
+      ]),
+      // The semantics they pin: observe-mode ops dropped at the slot, and
+      // mode negotiation flipping slot.writable on a live slot (#571).
+      ...sourceHas("server/bridge-core.ts", [
+        /!slot\.writable\) return/,
+        /existing\.writable = writable/,
+      ]),
+      ...fileHas("docs/migration/performance-baseline.md", [/#586/]),
+    ],
+  },
+  {
     id: "committed-baselines",
     description: "committed perf baselines for the RC compare leg (perf-reports/)",
     verify: () => {
