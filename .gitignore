@@ -16,5 +16,3 @@ docs/design/evidence/**/*.png
 !docs/design/evidence/**/manifest.json
 native/
 
-# UI verification runtime state (lease held by watchdog process)
-harness/ui/lease.json

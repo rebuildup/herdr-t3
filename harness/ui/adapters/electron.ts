@@ -9,7 +9,7 @@
  * plus DOM queries — never mocks.
  */
 import type { UiAdapter, UiKind } from "../lib/types.ts";
-import { BudgetExceeded, uiBudgets, waitFor } from "../lib/budget.ts";
+import { BudgetExceeded, uiBudgets, waitFor, withTimeout } from "../lib/budget.ts";
 
 interface CdpMessage {
   id?: number;
@@ -23,6 +23,11 @@ export interface ElectronAdapterOptions {
   cdpPort: number;
   /** fault injection for harness self-proof (issue #238 acceptance) */
   injectFault?: string;
+  /** epoch ms when the Electron process was spawned; the single
+   *  spawn -> operable deadline is spawnedAtMs + uiBudgets().readyMs.
+   *  CDP connect, domain init and the operable probe all share it —
+   *  none of them may run outside the budget. */
+  spawnedAtMs?: number;
 }
 
 const MODES: Record<string, string> = {
@@ -33,19 +38,38 @@ const MODES: Record<string, string> = {
 
 export async function createElectronAdapter(opts: ElectronAdapterOptions): Promise<UiAdapter> {
   const port = opts.cdpPort;
-  const targets = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as {
-    type: string;
-    url: string;
-    webSocketDebuggerUrl: string;
-  }[];
+  const budgets = uiBudgets();
+  // Single deadline: Electron spawn -> operable state. Everything below —
+  // CDP discovery, websocket connect, domain init, page load — shares it.
+  const spawnedAt = opts.spawnedAtMs ?? Date.now();
+  const readyDeadline = spawnedAt + budgets.readyMs;
+  const remaining = () => readyDeadline - Date.now();
+  let measuredReadyMs: number | undefined;
+
+  const targets = (await withTimeout(
+    (async () =>
+      (await fetch(`http://127.0.0.1:${port}/json`, {
+        signal: AbortSignal.timeout(Math.max(1, remaining())),
+      })).json())() as Promise<{
+      type: string;
+      url: string;
+      webSocketDebuggerUrl: string;
+    }[]>,
+    Math.max(1, remaining()),
+    "cdp /json discovery",
+  ));
   const page = targets.find((t) => t.type === "page" && t.url.startsWith("http"));
   if (!page) throw new Error(`no debuggable page on :${port} (${targets.map((t) => t.url).join(", ")})`);
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("CDP websocket failed"));
-  });
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error("CDP websocket failed"));
+    }),
+    Math.max(1, remaining()),
+    "cdp websocket connect",
+  );
 
   let nextId = 1;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
@@ -60,14 +84,25 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   };
   // Every CDP call is bounded: a hung renderer must surface as a
   // BudgetExceeded failure, not a stalled harness (issue #416 program).
+  // During startup the per-call budget is also capped by the shared
+  // spawn->operable deadline so init cannot run outside it.
   const cdpBudget = uiBudgets().cdpCallMs;
+  // The shared spawn->operable deadline governs startup only. Once the
+  // operable gate passes, per-call budget is cdpCallMs alone — scenario
+  // time is bounded by STEP_CALL/SCENARIO/RUN budgets, not by launch
+  // latency (otherwise a slow-but-successful launch starves every later
+  // CDP call of budget).
+  let operable = false;
   const send = (method: string, params: unknown = {}): Promise<unknown> =>
     new Promise((resolve, reject) => {
       const id = nextId++;
+      const budget = operable
+        ? cdpBudget
+        : Math.min(cdpBudget, Math.max(1, remaining()));
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new BudgetExceeded(`cdp ${method}`, cdpBudget));
-      }, cdpBudget);
+        reject(new BudgetExceeded(`cdp ${method}`, budget));
+      }, budget);
       pending.set(id, {
         resolve: (v) => { clearTimeout(timer); resolve(v); },
         reject: (e) => { clearTimeout(timer); reject(e); },
@@ -81,22 +116,41 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
   // without focus emulation Chromium silently drops dispatched key events.
   await send("Emulation.setFocusEmulationEnabled", { enabled: true });
 
-  // Operable-state gate: a live CDP endpoint or an existing window is NOT
-  // proof the app works. Require the observe bridge + a completed document
-  // within the ready budget; a launch hang fails here inside readyMs.
-  const readyStart = Date.now();
+  // Operable-state gate: a live CDP endpoint, an existing window, or even
+  // a loaded document is NOT proof the app works. Require BOTH a real
+  // observe() round-trip (UI bundle responsive) AND a live /api/health
+  // answer through the page's own origin (bridge RPC path responsive),
+  // all inside the shared spawn->operable deadline.
+  // Probe records a status string: on timeout the diagnostic shows
+  // WHICH check is failing (bridge RPC vs health endpoint vs bundle
+  // not loaded) instead of a bare `false`.
+  let operableStatus = "pending";
   await waitFor(
-    () =>
-      evaluate<boolean>(
-        `!!window.__herdrT3Ui && document.readyState === "complete"`,
-      ).catch(() => false),
+    async () => {
+      const s = await evaluate<string>(
+        `(async () => {
+          const s = await window.__herdrT3Ui?.observe?.();
+          if (!s || typeof s !== "object" || typeof s.route !== "string") return "observe-unavailable";
+          return fetch("/api/health").then((r) => (r.ok ? "ok" : "health-" + r.status)).catch(() => "health-unreachable");
+        })()`,
+      ).catch((e) => `evaluate-error:${String(e).slice(0, 80)}`);
+      operableStatus = s;
+      return s === "ok" ? s : null;
+    },
     {
-      timeoutMs: uiBudgets().readyMs,
+      timeoutMs: Math.max(1, remaining()),
       intervalMs: 100,
       label: "electron app operable state",
     },
-  );
-  console.error(`[electron] operable state reached in ${Date.now() - readyStart}ms`);
+  ).catch((e) => {
+    if (e instanceof BudgetExceeded) {
+      throw new BudgetExceeded(`electron app operable state stuck at ${operableStatus}`, budgets.readyMs);
+    }
+    throw e;
+  });
+  operable = true;
+  measuredReadyMs = Date.now() - spawnedAt;
+  console.error(`[electron] operable state reached ${measuredReadyMs}ms after spawn (budget ${budgets.readyMs}ms)`);
 
   async function evaluate<T>(expr: string): Promise<T> {
     const r = (await send("Runtime.evaluate", {
@@ -176,6 +230,9 @@ export async function createElectronAdapter(opts: ElectronAdapterOptions): Promi
 
   const adapter: UiAdapter = {
     name: "electron",
+    get readyMs() {
+      return measuredReadyMs;
+    },
 
     async enumerate(kind: UiKind): Promise<string[]> {
       switch (kind) {

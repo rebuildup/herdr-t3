@@ -31,6 +31,8 @@ export interface UiScenario {
 
 export interface UiAdapter {
   readonly name: string;
+  /** measured target-process launch -> operable-state latency (ms), when known */
+  readyMs?: number;
   /** concrete members of a symbolic collection, in stable UI order */
   enumerate(kind: UiKind): Promise<string[]>;
   /** map a symbolic ref ("$first"/"$second"/"$last") or pass through a concrete id */

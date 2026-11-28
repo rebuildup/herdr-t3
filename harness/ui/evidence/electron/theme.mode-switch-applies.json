@@ -8,57 +8,57 @@
   "fixture": "default-settings",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "bed4528e143c93cbd8a5f0b6037f45537ed2edbd",
-  "recorded_at": "2026-11-28T03:19:05.417Z",
+  "git_sha": "451d8a4ee27a73e9a8940506be939b8d69fbf866",
+  "recorded_at": "2026-11-28T04:49:58.377Z",
   "steps": [
     {
       "index": 0,
       "kind": "assert",
       "name": "state.appearance_mode",
       "ok": true,
-      "duration_ms": 1108
+      "duration_ms": 1524
     },
     {
       "index": 1,
       "kind": "action",
       "name": "activate nav.settings",
       "ok": true,
-      "duration_ms": 1782
+      "duration_ms": 3992
     },
     {
       "index": 2,
       "kind": "wait",
       "name": "wait state.settings_open",
       "ok": true,
-      "duration_ms": 317
+      "duration_ms": 597
     },
     {
       "index": 3,
       "kind": "action",
       "name": "activate nav.settings-appearance",
       "ok": true,
-      "duration_ms": 1070
+      "duration_ms": 2828
     },
     {
       "index": 4,
       "kind": "wait",
       "name": "wait dialog.section",
       "ok": true,
-      "duration_ms": 463
+      "duration_ms": 710
     },
     {
       "index": 5,
       "kind": "action",
       "name": "select theme.mode-tiles",
       "ok": true,
-      "duration_ms": 378
+      "duration_ms": 1452
     },
     {
       "index": 6,
       "kind": "wait",
       "name": "wait state.theme_resolved",
       "ok": true,
-      "duration_ms": 217
+      "duration_ms": 562
     },
     {
       "index": 7,
@@ -72,30 +72,32 @@
       "kind": "assert",
       "name": "state.theme_resolved",
       "ok": true,
-      "duration_ms": 220
+      "duration_ms": 11
     },
     {
       "index": 9,
       "kind": "action",
       "name": "select theme.mode-tiles",
       "ok": true,
-      "duration_ms": 872
+      "duration_ms": 1596
     },
     {
       "index": 10,
       "kind": "wait",
       "name": "wait state.theme_resolved",
       "ok": true,
-      "duration_ms": 761
+      "duration_ms": 599
     },
     {
       "index": 11,
       "kind": "assert",
       "name": "state.theme_resolved",
       "ok": true,
-      "duration_ms": 258
+      "duration_ms": 301
     }
   ],
   "error": null,
-  "duration_ms": 10066
+  "duration_ms": 19022,
+  "ready_ms": 25088,
+  "harness_ms": 4650
 }
