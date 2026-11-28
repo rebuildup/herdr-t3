@@ -19,6 +19,20 @@ export function* scenarioFiles(dir: string): Generator<string> {
   }
 }
 
+/**
+ * Adapter gating (issue #631): a scenario runs on an adapter only when it
+ * claims it. Absent or empty `adapters` means every adapter — the same
+ * rule the readiness gate applies, so runner and gate can never disagree
+ * about coverage.
+ */
+export function claimsAdapter(
+  scenario: { adapters?: string[] | undefined },
+  adapter: string,
+): boolean {
+  const list = scenario.adapters;
+  return list === undefined || list.length === 0 || list.includes(adapter);
+}
+
 /** kind implied by a step's target/assert/params for symbolic ref resolution */
 function kindFor(step: UiStep): import("./types.ts").UiKind {
   if (step.target === "workspace.item" || step.assert === "state.selected_workspace") return "workspace";

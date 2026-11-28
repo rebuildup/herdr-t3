@@ -54,7 +54,14 @@ scripts/check-ui-scenarios.ts   validator (CI)
   means every adapter. Use it only when a contract genuinely cannot be
   expressed on an adapter yet (e.g. a pixel-frame geometry check the
   semantic GPUI test host cannot measure) — the readiness gate then
-  requires PASS evidence only from the claimed adapters.
+  requires PASS evidence only from the claimed adapters. `adapters_note`
+  (optional string) records why the restriction exists. The runner
+  (`harness/ui/run.ts`) enforces the declaration: unclaimed scenarios
+  are reported as `SKIP` and recorded under `evidence/<adapter>/` with
+  `skipped: true` + `skip_reason` — never executed and never a silent
+  pass (issue #631). Adapter names are validated against the runner's
+  known set (`electron`, `gpui`) so a typo cannot silently drop coverage
+  on every adapter.
 - `action`/`assert` come from the closed vocabularies in
   `scripts/check-ui-scenarios.ts`; `target` must exist in
   `targets.json`.
@@ -98,7 +105,8 @@ never by pixel assertions in this scenario format.
   on both adapters while unrelated scenarios still pass — the harness
   detects real misbehavior rather than rubber-stamping. The readiness
   gate (`scripts/check-migration-readiness.ts`, `ui-conformance`) requires
-  committed PASS evidence for every scenario on BOTH adapters plus FAIL
+  committed PASS evidence for every scenario on every adapter it claims
+  (both, unless `adapters` restricts it) plus FAIL
   evidence for both faults before it reports PASS.
 - **Observation note.** Terminal scroll offsets are read from herdr's
   `pane.scroll.offset_from_bottom` via `session.snapshot` — herdr owns

@@ -26,6 +26,8 @@ export interface UiScenario {
   os?: string[];
   /** adapters this scenario claims; absent means every adapter (electron + gpui) */
   adapters?: string[];
+  /** why the scenario is restricted to `adapters` (recorded in evidence + docs) */
+  adapters_note?: string;
   steps: UiStep[];
 }
 

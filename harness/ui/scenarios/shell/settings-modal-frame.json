@@ -7,6 +7,7 @@
   "fixture": "single-workspace",
   "os": ["macos", "windows-11"],
   "adapters": ["electron"],
+  "adapters_note": "dialog.settings_frame_contract is a viewport-geometry check (anti-cases AC-001) the semantic GPUI test host cannot measure — it renders settings inline, not as a popup frame; the host also lacks section nav and opens on 'appearance' instead of the app's 'general' default. Gap tracked under issue #631.",
   "steps": [
     { "action": "activate", "target": "nav.settings" },
     { "wait": { "until": "state.settings_open", "equals": true, "timeout_ms": 5000 } },
