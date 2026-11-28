@@ -14,13 +14,32 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use terminal_core::{
-    EngineColors, EngineKey, EngineMods, EngineMouse, GhosttySession,
-    KeyAction, MouseAction, MouseButton, MouseMode, Rgb, ScreenPoint, ScreenRange, SessionOptions,
+    EngineColors, EngineKey, EngineMods, EngineMouse, GhosttySession, KeyAction, MouseAction,
+    MouseButton, MouseMode, Rgb, ScreenPoint, ScreenRange, SessionOptions,
 };
 use terminal_input::{
     bypasses_key_encoder, engine_key_for, focus_report, mouse_report_cell, pointer_drag_kind,
     sends_hover_motion, wheel_button, CompositionTracker, KeyEvent, KeyEventFields,
 };
+
+/// Anything that can vend `&mut GhosttySession` — the seam that lets a
+/// host compose the surface state machine over a session owned by
+/// another layer (the GPUI view nests it inside `GhosttyScene`, issue
+/// #620). Implemented for `GhosttySession` itself and, in consuming
+/// crates, for scene wrappers.
+pub trait SessionProvider {
+    /// Run `f` with `&mut` access to the underlying engine session.
+    /// Closure form so providers can vend the session out of shared
+    /// ownership (the GPUI view keeps it inside `Arc<Mutex<GhosttyScene>>`
+    /// so memory probes can reach it — issue #620).
+    fn with_session<T>(&mut self, f: impl FnOnce(&mut GhosttySession) -> T) -> T;
+}
+
+impl SessionProvider for GhosttySession {
+    fn with_session<T>(&mut self, f: impl FnOnce(&mut GhosttySession) -> T) -> T {
+        f(self)
+    }
+}
 
 // ---- effect vocabulary (terminal-surface@1) ---------------------------------
 
@@ -147,7 +166,7 @@ pub struct RangeJson {
     pub end: PointJson,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RectJson {
     pub left: f64,
     pub top: f64,
@@ -354,7 +373,11 @@ fn css_rgb(color: &str) -> Option<Rgb> {
         return None;
     }
     let v = u32::from_str_radix(&hexpart[..6], 16).ok()?;
-    Some(Rgb(((v >> 16) & 0xff) as u8, ((v >> 8) & 0xff) as u8, (v & 0xff) as u8))
+    Some(Rgb(
+        ((v >> 16) & 0xff) as u8,
+        ((v >> 8) & 0xff) as u8,
+        (v & 0xff) as u8,
+    ))
 }
 
 /// `paletteColor` from colors.ts — the 256-entry palette, xterm-style.
@@ -374,11 +397,7 @@ fn palette_color(index: usize, ansi: &[String]) -> Rgb {
                 (55 + v * 40) as u8
             }
         };
-        return Rgb(
-            level(n / 36),
-            level((n / 6) % 6),
-            level(n % 6),
-        );
+        return Rgb(level(n / 36), level((n / 6) % 6), level(n % 6));
     }
     let grey = (8 + (index - 232) * 10) as u8;
     Rgb(grey, grey, grey)
@@ -473,8 +492,11 @@ fn void_result(effects: Vec<SurfaceEffect>) -> CoreResult {
 }
 
 /// The surface's whole non-DOM state machine — one instance per pane.
-pub struct SurfaceCore {
-    session: GhosttySession,
+/// `P` is the session provider: `GhosttySession` for the harness/adapter
+/// path, or a wrapper owning a `GhosttyScene` for the GPUI view (#620) so
+/// input decisions and paint share one engine.
+pub struct SurfaceCore<P: SessionProvider = GhosttySession> {
+    provider: P,
     colors: SurfaceColors,
     font_family: String,
     font_size: f64,
@@ -508,11 +530,11 @@ pub struct SurfaceCore {
     blink_timer_armed: bool,
 }
 
-impl SurfaceCore {
-    /// Create the core around an already-constructed session (the host
-    /// owns session options; `measure` drives the real grid).
+impl<P: SessionProvider> SurfaceCore<P> {
+    /// Create the core around an already-constructed session provider
+    /// (the host owns session options; `measure` drives the real grid).
     pub fn new(
-        session: GhosttySession,
+        provider: P,
         colors: SurfaceColors,
         font_family: String,
         font_size: f64,
@@ -522,7 +544,7 @@ impl SurfaceCore {
         has_on_wheel: bool,
     ) -> Self {
         let mut core = Self {
-            session,
+            provider,
             colors,
             font_family,
             font_size,
@@ -553,13 +575,15 @@ impl SurfaceCore {
             blink_timer_armed: false,
         };
         let ec = engine_colors(&core.colors);
-        if let Err(e) = core.session.set_colors(&ec) {
+        if let Err(e) = core.provider.with_session(|s| s.set_colors(&ec)) {
             core.fail_str(&e, &mut Vec::new());
         }
         core
     }
 
-    /// Convenience: build the session too (harness/adapter path).
+    /// Convenience: build the session too. Always produces the
+    /// `GhosttySession` provider (harness/adapter path); GPUI hosts build
+    /// `SurfaceCore::new` over their own provider instead.
     pub fn with_session(
         options: SessionOptions,
         colors: SurfaceColors,
@@ -569,9 +593,9 @@ impl SurfaceCore {
         read_only: bool,
         has_on_mouse: bool,
         has_on_wheel: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<SurfaceCore<GhosttySession>, String> {
         let session = GhosttySession::new(options)?;
-        Ok(Self::new(
+        Ok(SurfaceCore::<GhosttySession>::new(
             session,
             colors,
             font_family,
@@ -600,8 +624,30 @@ impl SurfaceCore {
         self.composition.active()
     }
 
-    pub fn session_mut(&mut self) -> &mut GhosttySession {
-        &mut self.session
+    /// Current draw font — the GPUI view's advance/line-height probes
+    /// measure under the same family/size the scene draws with.
+    pub fn font_family(&self) -> &str {
+        &self.font_family
+    }
+
+    pub fn font_size(&self) -> f64 {
+        self.font_size
+    }
+
+    /// Current cell grid, once `measure` has run.
+    pub fn metrics(&self) -> Option<SurfaceMetrics> {
+        self.metrics
+    }
+
+    /// Passthrough to the session provider — host-side session access
+    /// (kitty `image_pixels`, diagnostics) that is not a surface op.
+    /// Providers that vend the session out of shared ownership
+    /// (terminal-view's `Arc<Mutex<GhosttyScene>>` wrapper, issue #620)
+    /// still satisfy this through [`SessionProvider::with_session`].
+    /// Named `with_engine` to avoid colliding with the `with_session`
+    /// constructor above.
+    pub fn with_engine<T>(&mut self, f: impl FnOnce(&mut GhosttySession) -> T) -> T {
+        self.provider.with_session(f)
     }
 
     // ---- shared helpers ---------------------------------------------------------
@@ -609,7 +655,9 @@ impl SurfaceCore {
     /// screen point → pane-grid attach cell (viewport coords + clamps)
     fn attach_cell(&mut self, point: ScreenPoint) -> Option<(f64, f64)> {
         let m = self.metrics?;
-        let top = self.session.history().ok()?.viewport_top;
+        let top = self
+            .provider
+            .with_session(|s| s.history().ok().map(|h| h.viewport_top))?;
         mouse_report_cell(
             point.x as f64,
             point.y as f64,
@@ -670,9 +718,7 @@ impl SurfaceCore {
         if bytes.is_empty() || self.read_only {
             return;
         }
-        effects.push(SurfaceEffect::Input {
-            hex: hex(bytes),
-        });
+        effects.push(SurfaceEffect::Input { hex: hex(bytes) });
     }
 
     fn fail_str(&mut self, message: &str, effects: &mut Vec<SurfaceEffect>) {
@@ -696,7 +742,7 @@ impl SurfaceCore {
         effects: &mut Vec<SurfaceEffect>,
         f: impl FnOnce(&mut GhosttySession) -> Result<T, String>,
     ) -> Option<T> {
-        match f(&mut self.session) {
+        match self.provider.with_session(|s| f(s)) {
             Ok(v) => Some(v),
             Err(e) => {
                 self.fail(&e, effects);
@@ -717,7 +763,7 @@ impl SurfaceCore {
     /// attach bytes exactly as they arrived
     pub fn write(&mut self, data: &[u8]) -> CoreResult {
         let mut effects = Vec::new();
-        if let Err(e) = self.session.write(data) {
+        if let Err(e) = self.provider.with_session(|s| s.write(data)) {
             self.fail(&e, &mut effects);
             return void_result(effects);
         }
@@ -773,7 +819,7 @@ impl SurfaceCore {
     /// to the newest rows
     pub fn scroll_to(&mut self, rows_above_bottom: i64) -> CoreResult {
         let mut effects = Vec::new();
-        let history = match self.session.history() {
+        let history = match self.provider.with_session(|s| s.history()) {
             Ok(h) => h,
             Err(e) => {
                 self.fail(&e, &mut effects);
@@ -786,7 +832,10 @@ impl SurfaceCore {
             return void_result(effects);
         }
         self.scroll_offset = next;
-        match self.session.scroll_from_bottom(next as i32) {
+        match self
+            .provider
+            .with_session(|s| s.scroll_from_bottom(next as i32))
+        {
             Ok(()) => {}
             Err(e) => {
                 self.fail(&e, &mut effects);
@@ -832,9 +881,7 @@ impl SurfaceCore {
         // A viewport-row change means the pane resized (reflow) and a
         // shrinking max means history was pruned: stored coordinates can no
         // longer be trusted, so drop the selection and highlights explicitly.
-        if info.viewport_rows != prev.viewport_rows
-            || info.max_offset_from_bottom < prev.max
-        {
+        if info.viewport_rows != prev.viewport_rows || info.max_offset_from_bottom < prev.max {
             self.host_scroll = Some(HostScroll {
                 offset: info.offset_from_bottom,
                 max: info.max_offset_from_bottom,
@@ -910,10 +957,7 @@ impl SurfaceCore {
         if col < 0 || col >= m.cols as i64 || row < 0 || row >= m.rows as i64 {
             return result(Vec::new(), Value::Null);
         }
-        result(
-            Vec::new(),
-            json!({"col": col, "row": row}),
-        )
+        result(Vec::new(), json!({"col": col, "row": row}))
     }
 
     /// screen point (viewport_top + visible row) under a client point
@@ -981,7 +1025,7 @@ impl SurfaceCore {
         let mut effects = Vec::new();
         self.colors = colors;
         let ec = engine_colors(&self.colors);
-        if let Err(e) = self.session.set_colors(&ec) {
+        if let Err(e) = self.provider.with_session(|s| s.set_colors(&ec)) {
             self.fail(&e, &mut effects);
             // the original still schedules a frame after a failed applyColors
             self.schedule(&mut effects);
@@ -1078,7 +1122,10 @@ impl SurfaceCore {
             }
         }
         self.metrics = Some(next);
-        match self.session.resize(cols as u16, rows as u16, cell_w, cell_h) {
+        match self
+            .provider
+            .with_session(|s| s.resize(cols as u16, rows as u16, cell_w, cell_h))
+        {
             Ok(()) => {}
             Err(e) => {
                 self.fail(&e, &mut effects);
@@ -1117,20 +1164,26 @@ impl SurfaceCore {
         }
         // history() may fail on a dead engine — same guard as the original's
         // outer try/catch → dead effect
-        if let Err(e) = self.session.history() {
+        if let Err(e) = self.provider.with_session(|s| s.history()) {
             self.fail(&e, &mut effects);
             return void_result(effects);
         }
-        let cursor = self.session.cursor_state().ok();
+        let cursor = self.provider.with_session(|s| s.cursor_state().ok());
         if let Some(c) = &cursor {
             if c.visible {
-                self.last_cursor = Some(ScreenPoint { x: c.x, y: c.y as u32 });
+                self.last_cursor = Some(ScreenPoint {
+                    x: c.x,
+                    y: c.y as u32,
+                });
             }
         }
         self.flush_hover_motion(&mut effects);
         self.flush_drag_motion(&mut effects);
         self.tick_drag_selection(&mut effects);
-        let blinking = cursor.as_ref().map(|c| c.visible && c.blinking).unwrap_or(false);
+        let blinking = cursor
+            .as_ref()
+            .map(|c| c.visible && c.blinking)
+            .unwrap_or(false);
         effects.push(SurfaceEffect::RenderSetCursorVisible {
             visible: !blinking || self.cursor_phase,
         });
@@ -1255,7 +1308,10 @@ impl SurfaceCore {
     fn anchor_for_composition(&mut self, effects: &mut Vec<SurfaceEffect>) -> Option<ScreenPoint> {
         if let Some(c) = self.try_session(effects, |s| s.cursor_state()) {
             if c.visible {
-                return Some(ScreenPoint { x: c.x, y: c.y as u32 });
+                return Some(ScreenPoint {
+                    x: c.x,
+                    y: c.y as u32,
+                });
             }
         }
         if let Some(c) = self.last_cursor {
@@ -1282,7 +1338,7 @@ impl SurfaceCore {
         let text = self.composition.end(data);
         self.end_composition_view(&mut effects);
         if let Some(t) = &text {
-            let bytes = self.session.input_text(t);
+            let bytes = self.provider.with_session(|s| s.input_text(t));
             self.emit(&bytes, &mut effects);
         }
         result(effects, text.map(Value::String).unwrap_or(Value::Null))
@@ -1295,7 +1351,7 @@ impl SurfaceCore {
             return void_result(effects);
         }
         if let Some(text) = self.composition.before_input_text(data) {
-            let bytes = self.session.input_text(&text);
+            let bytes = self.provider.with_session(|s| s.input_text(&text));
             self.emit(&bytes, &mut effects);
         }
         void_result(effects)
@@ -1386,7 +1442,7 @@ impl SurfaceCore {
         let Some(cell) = mouse_report_cell(
             pending.point.x as f64,
             pending.point.y as f64,
-            match self.session.history() {
+            match self.provider.with_session(|s| s.history()) {
                 Ok(h) => (h.viewport_top as i64 - self.host_shift()) as f64,
                 Err(_) => return,
             },
@@ -1414,7 +1470,7 @@ impl SurfaceCore {
             col: cell.0 as u32,
             row: cell.1 as u32,
         };
-        match self.session.encode_mouse(&mouse) {
+        match self.provider.with_session(|s| s.encode_mouse(&mouse)) {
             Ok(bytes) => {
                 self.emit(&bytes, effects);
                 self.last_hover_sent = Some(pending.point);
@@ -1439,7 +1495,13 @@ impl SurfaceCore {
                 effects,
             );
         } else {
-            self.send_mouse(MouseAction::Motion, Some(pending.button), pending.point, pending.mods, effects);
+            self.send_mouse(
+                MouseAction::Motion,
+                Some(pending.button),
+                pending.point,
+                pending.mods,
+                effects,
+            );
         }
     }
 
@@ -1493,7 +1555,7 @@ impl SurfaceCore {
         let action = if input.repeat { "repeat" } else { "press" };
         let key = engine_key_for(&input.event(), action);
         if let Some(k) = &key {
-            if self.session.has_key(&k.key) {
+            if self.provider.with_session(|s| s.has_key(&k.key)) {
                 if action == "press" {
                     self.pressed.insert(input.code.clone());
                 }
@@ -1508,7 +1570,7 @@ impl SurfaceCore {
         // a key the map does not name but that writes a character is text
         if key.is_none() && utf16_len_pub(&input.key) == 1 && !input.ctrl_key && !input.meta_key {
             effects.push(SurfaceEffect::PreventDefault);
-            let bytes = self.session.input_text(&input.key);
+            let bytes = self.provider.with_session(|s| s.input_text(&input.key));
             self.emit(&bytes, &mut effects);
         }
         void_result(effects)
@@ -1523,7 +1585,7 @@ impl SurfaceCore {
         let Some(key) = engine_key_for(&input.event(), action) else {
             return void_result(effects);
         };
-        if !self.session.has_key(&key.key) {
+        if !self.provider.with_session(|s| s.has_key(&key.key)) {
             return void_result(effects);
         }
         match self.encode_surface_key(&key) {
@@ -1534,10 +1596,7 @@ impl SurfaceCore {
     }
 
     /// terminal-input's EngineKey → terminal-core's EngineKey for encode_key
-    fn encode_surface_key(
-        &mut self,
-        key: &terminal_input::EngineKey,
-    ) -> Result<Vec<u8>, String> {
+    fn encode_surface_key(&mut self, key: &terminal_input::EngineKey) -> Result<Vec<u8>, String> {
         let action = match key.action.as_str() {
             "press" => Some(KeyAction::Press),
             "repeat" => Some(KeyAction::Repeat),
@@ -1556,7 +1615,7 @@ impl SurfaceCore {
             unshifted: key.unshifted.clone(),
             action,
         };
-        self.session.encode_key(&core_key)
+        self.provider.with_session(|s| s.encode_key(&core_key))
     }
 
     pub fn paste(&mut self, text: &str) -> CoreResult {
@@ -1564,7 +1623,7 @@ impl SurfaceCore {
         if self.read_only || text.is_empty() {
             return void_result(effects);
         }
-        match self.session.encode_paste(text) {
+        match self.provider.with_session(|s| s.encode_paste(text)) {
             Ok(bytes) => self.emit(&bytes, &mut effects),
             Err(e) => self.fail(&e, &mut effects),
         }
@@ -1596,7 +1655,11 @@ impl SurfaceCore {
         effects.extend(mfx);
         let to_mouse = pointer_drag_kind(input.shift_key, reporting) == "mouse";
         self.drag = Some(Drag {
-            kind: if to_mouse { DragKind::Mouse } else { DragKind::Select },
+            kind: if to_mouse {
+                DragKind::Mouse
+            } else {
+                DragKind::Select
+            },
             anchor: cell,
             moved: false,
             button: Some(button),
@@ -1652,7 +1715,8 @@ impl SurfaceCore {
         };
         self.hover_point = None;
         if drag.kind == DragKind::Mouse {
-            let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects) else {
+            let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects)
+            else {
                 return void_result(effects);
             };
             if let Some(d) = self.drag.as_mut() {
@@ -1689,7 +1753,8 @@ impl SurfaceCore {
         // selection drag that also reports structured motion to the pane
         if self.has_on_mouse && drag.reported {
             if let Some(button) = drag.button {
-                if let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects) {
+                if let Some(cell) = self.cell_at(input.client_x, input.client_y, rect, &mut effects)
+                {
                     self.pending_drag_motion = Some(PendingDragMotion {
                         button,
                         point: cell,
@@ -1849,7 +1914,7 @@ impl SurfaceCore {
         let Some(m) = self.metrics else {
             return;
         };
-        let top = match self.session.history() {
+        let top = match self.provider.with_session(|s| s.history()) {
             Ok(h) => h.viewport_top as i64 - self.host_shift(),
             Err(_) => return,
         };
@@ -1869,7 +1934,7 @@ impl SurfaceCore {
             col: col as u32,
             row: row as u32,
         };
-        match self.session.encode_mouse(&mouse) {
+        match self.provider.with_session(|s| s.encode_mouse(&mouse)) {
             Ok(bytes) => self.emit(&bytes, effects),
             Err(e) => self.fail(&e, effects),
         }
@@ -1893,7 +1958,13 @@ impl SurfaceCore {
                     if let Some(button) = wheel_button_to_mouse(name) {
                         let mods = mods_of(input.shift_key, input.alt_key, input.ctrl_key);
                         self.send_mouse(MouseAction::Press, Some(button), cell, mods, &mut effects);
-                        self.send_mouse(MouseAction::Release, Some(button), cell, mods, &mut effects);
+                        self.send_mouse(
+                            MouseAction::Release,
+                            Some(button),
+                            cell,
+                            mods,
+                            &mut effects,
+                        );
                     }
                 }
             }
@@ -1910,7 +1981,8 @@ impl SurfaceCore {
             } else {
                 0i64
             };
-            let lines = ((input.delta_y.abs() / WHEEL_PIXELS_PER_LINE).round() as i64).max(1) * sign;
+            let lines =
+                ((input.delta_y.abs() / WHEEL_PIXELS_PER_LINE).round() as i64).max(1) * sign;
             effects.push(SurfaceEffect::Wheel {
                 direction: if lines > 0 { "down" } else { "up" },
                 lines: lines.unsigned_abs() as u32,
@@ -1920,7 +1992,7 @@ impl SurfaceCore {
             });
             return void_result(effects);
         }
-        let history = match self.session.history() {
+        let history = match self.provider.with_session(|s| s.history()) {
             Ok(h) => h,
             Err(e) => {
                 self.fail(&e, &mut effects);
@@ -2134,17 +2206,14 @@ pub fn run_op(
         "surface_search" => core.search(&req_string(input, "needle")?),
         "surface_search_step" => core.search_step(&req_string(input, "toward")?),
         "surface_set_colors" => core.set_colors(parse_colors(input)?),
-        "surface_set_background_opacity" => {
-            core.set_background_opacity(req_f64(input, "alpha")?)
-        }
+        "surface_set_background_opacity" => core.set_background_opacity(req_f64(input, "alpha")?),
         "surface_set_font" => {
             // line_height: absent = unchanged, null = clear, number = set
             let lh = match input.get("line_height") {
                 None => None,
                 Some(Value::Null) => Some(None),
                 Some(v) => Some(Some(
-                    v.as_f64()
-                        .ok_or("line_height must be a number or null")?,
+                    v.as_f64().ok_or("line_height must be a number or null")?,
                 )),
             };
             core.set_font(
@@ -2158,10 +2227,7 @@ pub fn run_op(
             // capture: null = unknown (TS null), boolean = reported state
             let capture = match req(input, "capture")? {
                 Value::Null => None,
-                v => Some(
-                    v.as_bool()
-                        .ok_or("capture must be a boolean or null")?,
-                ),
+                v => Some(v.as_bool().ok_or("capture must be a boolean or null")?),
             };
             core.set_mouse_capture(capture)
         }
@@ -2176,12 +2242,8 @@ pub fn run_op(
         ),
         "surface_key_down" => core.key_down(&req_key(input)?),
         "surface_key_up" => core.key_up(&req_key(input)?),
-        "surface_pointer_down" => {
-            core.pointer_down(&req_pointer(input)?, req_rect(input)?)
-        }
-        "surface_pointer_move" => {
-            core.pointer_move(&req_pointer(input)?, req_rect(input)?)
-        }
+        "surface_pointer_down" => core.pointer_down(&req_pointer(input)?, req_rect(input)?),
+        "surface_pointer_move" => core.pointer_move(&req_pointer(input)?, req_rect(input)?),
         "surface_pointer_up" => core.pointer_up(&req_pointer(input)?, req_rect(input)?),
         "surface_pointer_cancel" => core.pointer_cancel(),
         "surface_pointer_leave" => core.pointer_leave(),
@@ -2232,7 +2294,7 @@ pub fn run_bootstrap(
     if let Some(v) = input.get("scrollback_lines").and_then(Value::as_u64) {
         options.scrollback_lines = Some(v as u32);
     }
-    let core = SurfaceCore::with_session(
+    let core = SurfaceCore::<GhosttySession>::with_session(
         options,
         colors,
         opt_string(input, "font_family").unwrap_or_else(|| "monospace".to_string()),

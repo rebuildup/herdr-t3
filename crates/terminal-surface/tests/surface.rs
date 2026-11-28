@@ -2,7 +2,7 @@
 //! a real libghostty-vt session. Mirrors the behaviours the TS `surfaceCore`
 //! guarantees and the `terminal/surface*` differential scenarios assert.
 
-use terminal_core::SessionOptions;
+use terminal_core::{GhosttySession, SessionOptions};
 use terminal_surface::{
     HostScrollInfo, MeasureInput, PointerInput, SurfaceColors, SurfaceCore, SurfaceEffect,
     SurfaceRect,
@@ -19,7 +19,7 @@ fn colors() -> SurfaceColors {
 }
 
 fn core(read_only: bool, on_mouse: bool, on_wheel: bool) -> SurfaceCore {
-    SurfaceCore::with_session(
+    SurfaceCore::<GhosttySession>::with_session(
         SessionOptions {
             cols: 20,
             rows: 6,
@@ -60,18 +60,26 @@ fn pointer(button: i64, x: f64, y: f64, at: f64) -> PointerInput {
 }
 
 fn rect() -> SurfaceRect {
-    SurfaceRect { left: 0.0, top: 0.0 }
+    SurfaceRect {
+        left: 0.0,
+        top: 0.0,
+    }
 }
 
 fn has_input(effects: &[SurfaceEffect]) -> bool {
-    effects.iter().any(|e| matches!(e, SurfaceEffect::Input { .. }))
+    effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::Input { .. }))
 }
 
 #[test]
 fn write_schedules_a_frame() {
     let mut c = core(false, true, true);
     let r = c.write(b"hello");
-    assert!(r.effects.iter().any(|e| matches!(e, SurfaceEffect::Schedule)));
+    assert!(r
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::Schedule)));
     assert!(!has_input(&r.effects));
 }
 
@@ -89,10 +97,10 @@ fn measure_emits_metrics_and_resize_once() {
         e,
         SurfaceEffect::RenderSetMetrics { metrics } if metrics.cols == 20 && metrics.rows == 6 && metrics.dpr == 2.0
     )));
-    assert!(r.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::Resize { cols: 20, rows: 6 }
-    )));
+    assert!(r
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::Resize { cols: 20, rows: 6 })));
     // identical probe is a no-op
     let again = c.measure(MeasureInput {
         host_width: 200.0,
@@ -121,10 +129,10 @@ fn scroll_clamps_to_scrollback_and_bottom() {
     assert!(rows > 0 && rows <= 50);
     // scrolling past the top clamps, scrolling back down reaches 0
     let back = c.scroll_to_bottom();
-    assert!(back.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::Scroll { rows: 0 }
-    )));
+    assert!(back
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::Scroll { rows: 0 })));
 }
 
 #[test]
@@ -259,10 +267,10 @@ fn selection_commit_follows_the_commit_paths_only() {
     c.pointer_up(&pointer(0, 10.0, 65.0, 3200.0), rect());
     assert!(c.selection_range().is_some());
     let cleared = c.clear_selection();
-    assert!(cleared.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::SelectionChange { text: None }
-    )));
+    assert!(cleared
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionChange { text: None })));
     assert!(!cleared
         .effects
         .iter()
@@ -317,7 +325,10 @@ fn selection_fx_enter_commit_clear_cancel() {
         .effects
         .iter()
         .find_map(|e| match e {
-            SurfaceEffect::RenderSelectionFx { kind: "clear", range } => Some(range.clone()),
+            SurfaceEffect::RenderSelectionFx {
+                kind: "clear",
+                range,
+            } => Some(range.clone()),
             _ => None,
         })
         .expect("clear range");
@@ -371,10 +382,10 @@ fn host_scroll_emits_viewport_shift_and_preserves_selection_text() {
     assert!(!before.is_empty());
 
     let shifted = c.host_scroll_changed(host_scroll(5, 4, 6));
-    assert!(shifted.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::RenderSetViewportShift { shift: 5 }
-    )));
+    assert!(shifted
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::RenderSetViewportShift { shift: 5 })));
     // appends while pinned at an offset keep the same displayed content:
     // max grew 4 -> 7 and offset 5 -> 8, so the shift must not move
     let appended = c.host_scroll_changed(host_scroll(8, 7, 6));
@@ -406,14 +417,14 @@ fn host_scroll_invalidates_selection_on_resize_or_prune() {
 
     let resized = c.host_scroll_changed(host_scroll(5, 4, 7));
     assert!(c.selection_range().is_none());
-    assert!(resized.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::RenderSetSelection { range: None }
-    )));
-    assert!(resized.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::SelectionChange { text: None }
-    )));
+    assert!(resized
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::RenderSetSelection { range: None })));
+    assert!(resized
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionChange { text: None })));
 
     // re-select, then prune the history (max shrinks) -> invalidate again
     let mut p = pointer(0, 10.0, 65.0, 3000.0);
@@ -426,10 +437,10 @@ fn host_scroll_invalidates_selection_on_resize_or_prune() {
     assert!(c.selection_range().is_some());
     let pruned = c.host_scroll_changed(host_scroll(3, 2, 7));
     assert!(c.selection_range().is_none());
-    assert!(pruned.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::SelectionChange { text: None }
-    )));
+    assert!(pruned
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionChange { text: None })));
 }
 
 #[test]
@@ -503,10 +514,10 @@ fn read_only_suppresses_input_but_not_selection() {
     // selection is a local view concern — still allowed
     c.pointer_down(&pointer(0, 5.0, 25.0, 1.0), rect());
     let up = c.pointer_up(&pointer(0, 15.0, 25.0, 2.0), rect());
-    assert!(up.effects.iter().any(|e| matches!(
-        e,
-        SurfaceEffect::SelectionChange { .. }
-    )));
+    assert!(up
+        .effects
+        .iter()
+        .any(|e| matches!(e, SurfaceEffect::SelectionChange { .. })));
 }
 
 #[test]

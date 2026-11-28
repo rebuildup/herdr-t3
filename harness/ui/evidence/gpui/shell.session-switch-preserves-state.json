@@ -8,8 +8,8 @@
   "fixture": "two-workspaces-with-scrollback",
   "pass": true,
   "injected_fault": null,
-  "git_sha": "098dd3568a3ce6f9667141a11206ed6613698769",
-  "recorded_at": "2026-11-26T05:06:31.005Z",
+  "git_sha": "47fe3de72db258170471468f940faa17f602d125",
+  "recorded_at": "2026-11-28T10:30:21.957Z",
   "steps": [
     {
       "index": 0,

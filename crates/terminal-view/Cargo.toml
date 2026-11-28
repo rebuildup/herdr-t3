@@ -1,0 +1,17 @@
+[package]
+name = "terminal-view"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "GPUI terminal surface view (issue #620, ADR-0025): the per-frame `switched` consumer for terminal.* capabilities — SurfaceCore state machine + GhosttyScene PaintOps painted through GPUI, per-client TerminalDataPlane scroll/history, MemoryHost registration, mountable in ui-test-host for the ui-conformance harness."
+
+[dependencies]
+gpui = "0.2.2"
+image = "0.25"
+smallvec = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+terminal-core = { path = "../terminal-core" }
+terminal-render = { path = "../terminal-render" }
+terminal-surface = { path = "../terminal-surface" }
