@@ -16,6 +16,8 @@
 
 pub mod attach;
 pub mod client_session;
+
+pub use client_session::{base64_decode, base64_encode};
 pub mod client_link;
 pub mod egress;
 pub mod io;

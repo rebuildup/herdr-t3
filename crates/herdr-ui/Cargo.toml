@@ -11,6 +11,10 @@ herdr-bridge = { path = "../herdr-bridge" }
 protocol-codec = { path = "../protocol-codec" }
 serde_json = "1"
 state-projections = { path = "../state-projections" }
+terminal-core = { path = "../terminal-core" }
+terminal-render = { path = "../terminal-render" }
+terminal-surface = { path = "../terminal-surface" }
+terminal-view = { path = "../terminal-view" }
 ui-kit = { path = "../ui-kit" }
 
 [dev-dependencies]

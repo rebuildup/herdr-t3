@@ -141,6 +141,17 @@ impl AttachEgress {
         }
     }
 
+    /// Drop every buffered op without sending — the demotion path
+    /// (issue #584): ops queued for a writable epoch that never landed
+    /// must not flush onto a later promotion minutes later (the bridge
+    /// slot discards its own queue on writable→observe flips for the
+    /// same reason).
+    pub fn discard(&mut self) {
+        self.pending.clear();
+        self.pending_bytes = 0;
+        self.mouse_gesture = false;
+    }
+
     /// Drain buffered ops in order. Only meaningful right after the
     /// writable `subscribe_terminal` frame was sent — the ops then queue
     /// behind it on the bridge slot and flush to the new link. While

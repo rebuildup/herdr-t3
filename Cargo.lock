@@ -2470,6 +2470,10 @@ dependencies = [
  "protocol-codec",
  "serde_json",
  "state-projections",
+ "terminal-core",
+ "terminal-render",
+ "terminal-surface",
+ "terminal-view",
  "ui-kit",
 ]
 

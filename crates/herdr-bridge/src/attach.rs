@@ -396,6 +396,18 @@ impl AttachManager {
         ids
     }
 
+    /// Whether `pane_id`'s live slot currently runs the writable
+    /// `AttachTerminal` mode (issue #584). `false` for a missing/gone
+    /// slot — hosts gate attach-bound egress on this.
+    pub fn is_writable(&self, pane_id: &str) -> bool {
+        self.inner
+            .lock()
+            .unwrap()
+            .slots
+            .get(pane_id)
+            .is_some_and(|s| !s.gone && s.writable)
+    }
+
     pub fn detail(&self) -> SnapshotDetail {
         self.inner.lock().unwrap().detail
     }

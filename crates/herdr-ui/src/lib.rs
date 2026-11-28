@@ -31,6 +31,7 @@
 pub mod app_view;
 pub mod bridge_host;
 pub mod model;
+pub mod pane_terminal;
 
 use gpui::{
     point, px, App, AppContext, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
