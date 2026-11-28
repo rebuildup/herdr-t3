@@ -166,6 +166,10 @@ pub struct CanvasPane {
     /// Split-boundary emphasis from `pane_canvas_view`.
     pub emphasis: PaneFrameEmphasis,
     pub terminal_state: PaneTerminalState,
+    /// herdr's `terminal_id` for this pane — the attach-stream
+    /// identity `subscribe_terminal` resolves server-side (issue #641).
+    /// `None` exactly when `terminal_state` is `NoTerminal`.
+    pub terminal_id: Option<String>,
     /// `terminal.closed` frames seen for this pane (attach ended).
     pub closed: bool,
 }
@@ -298,6 +302,12 @@ fn canvas_panes(
                 focused: cp.focused,
                 frame,
                 emphasis: cp.emphasis,
+                terminal_id: cp
+                    .pane
+                    .terminal_id
+                    .clone()
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty()),
                 terminal_state: pane_terminal_state(cp.pane),
                 closed: closed.contains(&pane_id),
             }

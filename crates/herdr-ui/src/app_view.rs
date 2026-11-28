@@ -29,24 +29,32 @@
 //! caller-supplied [`ShellModel`] with no bridge; `tests/` mounts it
 //! under `TestAppContext` like `ui-test-host` does.
 
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
     div, px, Context, Render, ScrollHandle, SharedString, Subscription, Window, WindowAppearance,
 };
+use herdr_bridge::egress::ScrollInfo;
 use protocol_codec::{MachineInfo, SessionSnapshot};
+use terminal_render::memory_host::MemoryHost;
+use terminal_surface::HostScrollInfo;
+use terminal_view::TerminalView;
 use ui_kit::{
     primitives::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Separator},
     tokens::{self, Palette},
 };
 
-use crate::bridge_host::BridgeHost;
+use crate::bridge_host::{BridgeHost, TerminalInbound};
 use crate::model::{
     build_shell_model, status_label, status_tone, CanvasPane, PaneTerminalState, ShellModel,
     StatusTone,
 };
+use crate::pane_terminal::{create_terminal_view, pane_client_id, PaneIo, PaneLink, PaneTerminal};
 
 /* ------------------------------ data source ---------------------------- */
 
@@ -79,6 +87,22 @@ pub struct AppView {
     selected_workspace: Option<String>,
     sidebar_scroll: ScrollHandle,
     _appearance_sub: Option<Subscription>,
+    /// Mounted pane terminals, keyed `"{machine}:{pane_id}"` (issue
+    /// #641): one [`TerminalView`] entity + attach egress per visible
+    /// canvas pane. Entries are created/destroyed by
+    /// [`AppView::sync_terminals`] each render — panes that leave the
+    /// canvas (close, workspace switch, summary downgrade) detach.
+    terminals: HashMap<String, PaneTerminal>,
+    /// Frame ledgers of detached terminals — kept so tests/diagnostics
+    /// can still assert the trailing `unsubscribe_terminal` after a
+    /// pane leaves the canvas (issue #641).
+    detached_outboxes: HashMap<String, Arc<Mutex<Vec<serde_json::Value>>>>,
+    /// Terminal memory budget host — surfaces register
+    /// probes/shedders; `tick` runs on the bridge-poll cadence
+    /// (MEMORY_WATCH_INTERVAL_MS = 30 s inside `MemoryHost`).
+    memory_host: Option<MemoryHost>,
+    /// Last memory-host tick — the 30 s watchdog interval.
+    last_memory_tick: Instant,
 }
 
 /// Sidebar geometry — T3's sidebar is resizable; the scaffold uses the
@@ -115,6 +139,10 @@ impl AppView {
             selected_workspace: None,
             sidebar_scroll: ScrollHandle::new(),
             _appearance_sub: None,
+            terminals: HashMap::new(),
+            detached_outboxes: HashMap::new(),
+            memory_host: MemoryHost::for_platform(),
+            last_memory_tick: Instant::now(),
         };
         view.rebuild_model();
         view
@@ -157,15 +185,344 @@ impl AppView {
     }
 
     /// Drain the bridge once; rebuild the model when frames landed.
+    /// Terminal-direction frames (attach data, mouse capture, scroll
+    /// reports, closes) are routed to the mounted surfaces here —
+    /// issue #641.
     fn poll_bridge(&mut self) -> bool {
-        let DataSource::Live(bridge) = &mut self.data else {
-            return false;
+        let (changed, inbound) = {
+            let DataSource::Live(bridge) = &mut self.data else {
+                return false;
+            };
+            let changed = bridge.poll();
+            let inbound = bridge.drain_terminal_inbound();
+            (changed, inbound)
         };
-        if !bridge.poll() {
-            return false;
+        if changed {
+            self.rebuild_model();
         }
-        self.rebuild_model();
-        true
+        if !inbound.is_empty() {
+            self.apply_terminal_inbound(inbound);
+        }
+        // Engine query replies + egress promotion/flush run on the poll
+        // cadence so they are not gated on unrelated frame traffic.
+        let io_changed = self.sync_terminal_io();
+        // MemoryHost watchdog — 30 s cadence (its own interval constant).
+        if self
+            .last_memory_tick
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .map(|ms: u64| ms >= 30_000)
+            .unwrap_or(true)
+        {
+            self.last_memory_tick = Instant::now();
+            if let Some(host) = &mut self.memory_host {
+                host.tick(self.last_memory_tick.elapsed().as_millis() as u64);
+            }
+        }
+        changed || io_changed
+    }
+
+    /// Route drained [`TerminalInbound`] frames to the mounted pane
+    /// surfaces. Unknown panes (not yet mounted, or already detached)
+    /// drop their frames — the next `terminal_data` after mount carries
+    /// a full repaint anyway (the surface repaints whole frames).
+    fn apply_terminal_inbound(&mut self, inbound: Vec<TerminalInbound>) {
+        for frame in inbound {
+            match frame {
+                TerminalInbound::Data {
+                    machine,
+                    pane_id,
+                    bytes,
+                } => {
+                    let key = terminal_key(&machine, &pane_id);
+                    if let Some(t) = self.terminals.get(&key) {
+                        let _ = t.surface.borrow_mut().write(&bytes);
+                    }
+                }
+                TerminalInbound::MouseCapture {
+                    machine,
+                    pane_id,
+                    enabled,
+                } => {
+                    let key = terminal_key(&machine, &pane_id);
+                    if let Some(t) = self.terminals.get(&key) {
+                        let _ = t.surface.borrow_mut().set_mouse_capture(Some(enabled));
+                    }
+                }
+                TerminalInbound::ScrollChanged {
+                    machine,
+                    pane_id,
+                    offset,
+                    max,
+                    viewport_rows,
+                } => {
+                    let key = terminal_key(&machine, &pane_id);
+                    if let Some(t) = self.terminals.get(&key) {
+                        t.io.borrow_mut().scroll = ScrollInfo { offset, max };
+                        // viewport_rows <= 0 means "unknown" — the TS
+                        // host skips hostScrollChanged rather than
+                        // feeding a guess that would drop selection.
+                        if viewport_rows > 0 {
+                            let _ = t.surface.borrow_mut().host_scroll_changed(
+                                HostScrollInfo {
+                                    offset_from_bottom: offset,
+                                    max_offset_from_bottom: max,
+                                    viewport_rows: viewport_rows as i64,
+                                },
+                            );
+                        }
+                    }
+                }
+                TerminalInbound::Closed { .. } => {
+                    // The model's `closed_panes` already badges the
+                    // pane; `sync_terminals` detaches it on the next
+                    // pass (closed panes leave the eligible set).
+                }
+            }
+        }
+    }
+
+    /// Per-tick terminal IO housekeeping: drain engine query replies
+    /// into the egress `reply` path, detect writable→observe demotion
+    /// (discard the queue — issue #584), and flush buffered ops once
+    /// the slot is writable. Returns true when replies were drained so
+    /// the caller repaints.
+    fn sync_terminal_io(&mut self) -> bool {
+        let mut drained = false;
+        for t in self.terminals.values() {
+            // Engine replies queued by the `on_reply` callback.
+            loop {
+                let next = t.replies.lock().unwrap().pop_front();
+                let Some(bytes) = next else { break };
+                drained = true;
+                let data = bytes.clone();
+                let len = data.len();
+                let link = t.link.clone();
+                t.io.borrow_mut()
+                    .egress
+                    .reply(move || link.terminal_input(&data), len);
+            }
+            // Demotion: writable→observe discards buffered ops so a
+            // stale keystroke never flushes onto a later promotion.
+            let writable = t.link.writable();
+            {
+                let mut io = t.io.borrow_mut();
+                if io.last_writable && !writable {
+                    io.egress.discard();
+                }
+                io.last_writable = writable;
+            }
+            t.io.borrow_mut().egress.flush();
+        }
+        drained
+    }
+
+    /// Mount/detach/subscribe pane terminals to match the current
+    /// canvas — called from `render` (entity creation needs `cx`).
+    ///
+    /// Eligible panes: `AttachPending` with a `terminal_id`, not
+    /// closed, on a full-detail (non-summary) machine. Everything else
+    /// detaches: pane close, workspace switch, `machine_select` summary
+    /// downgrade, or a pane that never had a terminal.
+    fn sync_terminals(&mut self, p: &Palette, cx: &mut Context<Self>) {
+        // Desired set for this render.
+        let mut desired: HashMap<String, (String, String, String)> = HashMap::new();
+        // (key -> (machine, pane_id, terminal_id))
+        if let Some(content) = &self.model.content {
+            let machine = content.machine.clone();
+            let summary = match &self.data {
+                DataSource::Live(b) => b.is_summary(&machine),
+                DataSource::Fixture(_) => false,
+            };
+            if !summary {
+                for pane in &content.canvas {
+                    if pane.terminal_state == PaneTerminalState::AttachPending && !pane.closed {
+                        if let Some(tid) = &pane.terminal_id {
+                            desired.insert(
+                                terminal_key(&machine, &pane.pane_id),
+                                (machine.clone(), pane.pane_id.clone(), tid.clone()),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Detach: keys no longer desired (pane closed, workspace switch,
+        // summary downgrade, no-terminal pane).
+        let stale: Vec<String> = self
+            .terminals
+            .keys()
+            .filter(|k| !desired.contains_key(*k))
+            .cloned()
+            .collect();
+        for key in stale {
+            if let Some(t) = self.terminals.remove(&key) {
+                if t.io.borrow().subscribed {
+                    t.link.unsubscribe_terminal();
+                }
+                let _ = t.surface.borrow_mut().dispose();
+                self.detached_outboxes.insert(key, t.outbox);
+            }
+        }
+
+        // Mount missing + (re)subscribe.
+        for (key, (machine, pane_id, terminal_id)) in desired {
+            if !self.terminals.contains_key(&key) {
+                // A remount starts a fresh ledger — drop the detached
+                // one's so `terminal_frames` reads the live attach.
+                self.detached_outboxes.remove(&key);
+                self.mount_terminal(&key, &machine, &pane_id, &terminal_id, p, cx);
+            }
+            // Subscribe once at mount — the surface's first measure
+            // emits `on_resize`, which corrects cols/rows with a
+            // `terminal_resize` frame (subscribe carries the 80x24
+            // default until then). Waiting for `io.grid` would stall:
+            // the measure happens during paint, after this render.
+            let should_sub = {
+                let t = self.terminals.get(&key).unwrap();
+                !t.io.borrow().subscribed
+            };
+            if should_sub {
+                let t = self.terminals.get(&key).unwrap();
+                let (cols, rows) = t.io.borrow().grid.unwrap_or((80, 24));
+                let writable = t.link.is_operator();
+                t.link.subscribe_terminal(cols, rows, writable);
+                {
+                    let mut io = t.io.borrow_mut();
+                    io.subscribed = true;
+                    io.last_writable = writable;
+                }
+                t.io.borrow_mut().egress.flush();
+            }
+        }
+    }
+
+    /// Create the [`TerminalView`] entity + bridge wiring for one pane.
+    fn mount_terminal(
+        &mut self,
+        key: &str,
+        machine: &str,
+        pane_id: &str,
+        terminal_id: &str,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) {
+        let (hub, scroll) = match &self.data {
+            DataSource::Live(b) => {
+                let (offset, max) = b.pane_scroll(machine, pane_id).unwrap_or((0, 0));
+                (Some(b.hub()), ScrollInfo { offset, max })
+            }
+            DataSource::Fixture(_) => (None, ScrollInfo { offset: 0, max: 0 }),
+        };
+        let outbox = Arc::new(Mutex::new(Vec::new()));
+        let link = match &hub {
+            Some(h) => PaneLink::new(
+                machine.to_string(),
+                pane_id.to_string(),
+                Some(h.clone()),
+                Arc::clone(&outbox),
+            ),
+            None => PaneLink::new_fixture(
+                machine.to_string(),
+                pane_id.to_string(),
+                Arc::clone(&outbox),
+            ),
+        };
+        let io = Rc::new(RefCell::new(PaneIo::new(&link, scroll)));
+        io.borrow_mut().last_writable = link.writable();
+        let replies = Arc::new(Mutex::new(VecDeque::new()));
+        let view = create_terminal_view(terminal_id, p, &io, &link, &replies, cx);
+        let surface = view.read(cx).surface();
+        {
+            let mut s = surface.borrow_mut();
+            let client_id = pane_client_id(pane_id);
+            s.attach_viewport_client(client_id);
+            let _ = s.sync_content_geometry();
+        }
+        if let Some(host) = &mut self.memory_host {
+            surface.borrow().register_memory(host, key.to_string());
+        }
+        self.terminals.insert(
+            key.to_string(),
+            PaneTerminal {
+                view,
+                surface,
+                io,
+                link,
+                replies,
+                outbox,
+            },
+        );
+    }
+
+    /* ------------------------- test/diagnostic accessors --------------- */
+
+    /// Mounted terminal count (tests/diagnostics).
+    pub fn terminal_count(&self) -> usize {
+        self.terminals.len()
+    }
+
+    /// The diagnostic client-frame ledger for one pane — subscribe,
+    /// input, resize, scroll and RPC frames in send order.
+    pub fn terminal_frames(&self, machine: &str, pane_id: &str) -> Vec<serde_json::Value> {
+        let key = terminal_key(machine, pane_id);
+        if let Some(t) = self.terminals.get(&key) {
+            return t.frames();
+        }
+        self.detached_outboxes
+            .get(&key)
+            .map(|outbox| outbox.lock().unwrap().clone())
+            .unwrap_or_default()
+    }
+
+    /// Attach-bound ops buffered in the pane's egress (promotion
+    /// pending) — tests assert the #584 hold/release contract.
+    pub fn terminal_pending_ops(&self, machine: &str, pane_id: &str) -> usize {
+        let key = terminal_key(machine, pane_id);
+        self.terminals
+            .get(&key)
+            .map(|t| t.io.borrow().egress.pending_count())
+            .unwrap_or(0)
+    }
+
+    /// The mounted [`TerminalView`] entity for one pane — tests drive
+    /// the surface (paste/key/wheel) through the real handler path.
+    pub fn terminal_entity(
+        &self,
+        machine: &str,
+        pane_id: &str,
+    ) -> Option<gpui::Entity<TerminalView>> {
+        let key = terminal_key(machine, pane_id);
+        self.terminals.get(&key).map(|t| t.view.clone())
+    }
+
+    /// Live surface metrics for one pane — `(cols, rows, dead,
+    /// disposed)` or `None` when unmounted.
+    pub fn terminal_surface_state(
+        &self,
+        machine: &str,
+        pane_id: &str,
+    ) -> Option<(Option<u32>, Option<u32>, bool, bool)> {
+        let key = terminal_key(machine, pane_id);
+        let t = self.terminals.get(&key)?;
+        let s = t.surface.borrow();
+        let m = s.metrics();
+        Some((
+            m.map(|mm| mm.cols),
+            m.map(|mm| mm.rows),
+            s.is_dead(),
+            s.is_disposed(),
+        ))
+    }
+
+    /// MemoryHost diagnostics JSON (budget/watchdog state) — `None`
+    /// when the platform cannot report RAM.
+    pub fn memory_diagnostics_json(&self) -> Option<serde_json::Value> {
+        self.memory_host
+            .as_ref()
+            .and_then(|h| h.diagnostics_json().ok())
     }
 
     fn rebuild_model(&mut self) {
@@ -254,6 +611,11 @@ fn palette_for(appearance: WindowAppearance) -> Palette {
     }
 }
 
+/// `"{machine}:{pane_id}"` — pane ids are only unique per machine.
+fn terminal_key(machine: &str, pane_id: &str) -> String {
+    format!("{machine}:{pane_id}")
+}
+
 fn badge_variant(tone: StatusTone) -> BadgeVariant {
     match tone {
         StatusTone::Neutral => BadgeVariant::Secondary,
@@ -270,6 +632,9 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_appearance_observer(window, cx);
         let p = palette_for(window.appearance());
+        // Mount/detach/subscribe pane terminals against the current
+        // canvas before any element borrows `self.terminals`.
+        self.sync_terminals(&p, cx);
         let model = self.model.clone();
         let multi_machine = model.sidebar.len() > 1;
 
@@ -750,7 +1115,7 @@ impl AppView {
                     );
                 }
                 for pane in &content.canvas {
-                    canvas = canvas.child(self.render_pane(p, pane, cx));
+                    canvas = canvas.child(self.render_pane(p, pane, &content.machine, cx));
                 }
             }
         }
@@ -761,6 +1126,7 @@ impl AppView {
         &self,
         p: &Palette,
         pane: &CanvasPane,
+        machine: &str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (x, y, w, h) = pane.frame;
@@ -772,6 +1138,14 @@ impl AppView {
         let border = if focused { p.ring } else { p.border };
         let pane_for_click = pane_id.clone();
         let hover_border = p.input;
+        // The mounted terminal surface for this pane (issue #641) —
+        // `None` for no-terminal/closed/detached states, which keep
+        // the honest placeholder caption.
+        let terminal = self
+            .terminals
+            .get(&terminal_key(machine, &pane.pane_id))
+            .map(|t| t.view.clone());
+        let has_terminal = terminal.is_some();
 
         div()
             .id(SharedString::from(format!("pane.{}", pane.pane_id)))
@@ -832,30 +1206,47 @@ impl AppView {
                                 )
                             }),
                     )
-                    // Placeholder terminal region — real surface is #620.
-                    .child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .justify_center()
-                            .gap(px(6.0))
-                            .bg(p.terminal_background)
-                            .child(
-                                div()
-                                    .font_family("Menlo")
-                                    .text_size(px(12.0))
-                                    .text_color(p.terminal_foreground)
-                                    .child(format!("{pane_id}")),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(p.muted_foreground)
-                                    .child(state_text),
-                            ),
-                    )
+                    // Terminal region: the real `TerminalView` surface
+                    // when mounted (issue #641); honest placeholder
+                    // caption for no-terminal/closed states.
+                    .when_some(terminal, |el, view| {
+                        el.child(
+                            div()
+                                .id(SharedString::from(format!("term.{pane_id}")))
+                                .debug_selector({
+                                    let id = pane_id.clone();
+                                    move || format!("terminal.surface.{id}")
+                                })
+                                .flex_1()
+                                .min_h(gpui::px(0.0))
+                                .child(view),
+                        )
+                    })
+                    .when(!has_terminal, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .justify_center()
+                                .gap(px(6.0))
+                                .bg(p.terminal_background)
+                                .child(
+                                    div()
+                                        .font_family("Menlo")
+                                        .text_size(px(12.0))
+                                        .text_color(p.terminal_foreground)
+                                        .child(format!("{pane_id}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(p.muted_foreground)
+                                        .child(state_text.clone()),
+                                ),
+                        )
+                    })
                     .on_click(cx.listener(move |view, _ev, _win, cx| {
                         view.focus_pane(pane_for_click.clone(), cx);
                     })),

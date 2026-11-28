@@ -79,7 +79,7 @@ const PENDING_FRAME_MAX: usize = 512;
 
 const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64_encode(data: &[u8]) -> String {
+pub fn base64_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
@@ -115,7 +115,7 @@ fn b64_value(byte: u8) -> Option<u8> {
 
 /// Strict base64 decode; malformed input is rejected (the frame is
 /// dropped by the caller — never panics, never partially applies).
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
     if bytes.len() % 4 != 0 {
         return None;
@@ -483,6 +483,13 @@ impl ClientSession {
     /// Whether `pane_id` currently holds the operator role.
     pub fn is_operator(&self, pane_id: &str) -> bool {
         self.state.lock().unwrap().operator.as_deref() == Some(pane_id)
+    }
+
+    /// Whether `pane_id`'s attach slot currently runs the writable
+    /// `AttachTerminal` mode — the `AttachEgress` `writable` probe
+    /// (issue #584). `false` while the slot observes or does not exist.
+    pub fn is_writable(&self, pane_id: &str) -> bool {
+        self.attach.is_writable(pane_id)
     }
 
     /// The current operator pane, if any.
@@ -976,6 +983,51 @@ impl SessionHub {
     /// The machine whose session runs in full detail, if selected.
     pub fn selected(&self) -> Option<String> {
         self.ctx.inner.lock().unwrap().selected.clone()
+    }
+
+    /// Real input intent on `pane_id` of `machine` (issue #584): grants
+    /// the operator role — promotes the pane's live attach slot to
+    /// writable via `negotiate_mode`, demoting the previous operator.
+    /// No-op when `machine` has no session; the intent is still worth
+    /// sending because a later subscribe reads `pane_is_operator`.
+    pub fn operator_intent(&self, machine: &str, pane_id: &str) {
+        let session = self
+            .ctx
+            .inner
+            .lock()
+            .unwrap()
+            .sessions
+            .get(machine)
+            .cloned();
+        if let Some(session) = session {
+            session.operator_intent(pane_id);
+        }
+    }
+
+    /// Whether `pane_id` on `machine` holds the operator role.
+    pub fn pane_is_operator(&self, machine: &str, pane_id: &str) -> bool {
+        self.ctx
+            .inner
+            .lock()
+            .unwrap()
+            .sessions
+            .get(machine)
+            .map(|s| s.is_operator(pane_id))
+            .unwrap_or(false)
+    }
+
+    /// Whether `pane_id` on `machine`'s attach slot currently runs the
+    /// writable `AttachTerminal` mode — the host's `AttachEgress`
+    /// `writable` probe (issue #584).
+    pub fn pane_writable(&self, machine: &str, pane_id: &str) -> bool {
+        self.ctx
+            .inner
+            .lock()
+            .unwrap()
+            .sessions
+            .get(machine)
+            .map(|s| s.is_writable(pane_id))
+            .unwrap_or(false)
     }
 
     /// Periodic registry refresh + initial refresh — `start()` in
