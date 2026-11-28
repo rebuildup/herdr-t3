@@ -259,6 +259,25 @@ fn disposed_session_refuses_calls() {
 }
 
 #[test]
+fn row_text_reads_kept_rows_without_joining_wraps() {
+    // C3 groundwork (issue #599): one entry per terminal row — the unit
+    // TerminalHistoryPage.rows carries — with absent rows reported as
+    // None at the retention boundary.
+    let mut s = session(8, 2);
+    s.write(b"0123456789\r\n01234567\r\n89").unwrap();
+    // physical kept rows: "01234567" / "89" (wrap continuation) /
+    // "01234567" / "89" — scrollback 2 + screen 2
+    assert_eq!(s.row_text(0).unwrap().as_deref(), Some("01234567"));
+    assert_eq!(s.row_text(1).unwrap().as_deref(), Some("89"));
+    assert_eq!(s.row_text(2).unwrap().as_deref(), Some("01234567"));
+    assert_eq!(s.row_text(3).unwrap().as_deref(), Some("89"));
+    assert_eq!(s.row_text(4).unwrap(), None);
+    // scrollback rows stay readable after the viewport moves
+    s.scroll_from_bottom(2).unwrap();
+    assert_eq!(s.row_text(0).unwrap().as_deref(), Some("01234567"));
+}
+
+#[test]
 fn core_widths_enable_grapheme_clustering() {
     let mut s = GhosttySession::new(SessionOptions {
         cols: 10,
