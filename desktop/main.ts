@@ -10,10 +10,10 @@
  * Node.js runtime, so only node:* APIs and the electron module are used.
  */
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ClientFrame, ServerFrame, SessionSnapshot } from "../shared/protocol.ts";
 import { isClientFrame } from "../shared/protocol.ts";
@@ -27,6 +27,11 @@ import { diag, diagAttachApp, diagAttachWebContents, diagInit } from "./diagnost
 import pkg from "../package.json";
 
 const DEV_URL = process.env["HERDR_T3_DEV_URL"]; // e.g. http://localhost:5737
+// Startup critical-path clock: module evaluation is the first thing the
+// main process does after spawn, so t0 approximates process start closely
+// enough for stage attribution in the diagnostic log.
+const STARTUP_T0 = Date.now();
+const startupMs = () => Date.now() - STARTUP_T0;
 
 // Diagnostics must be installed before any other module can throw: they are
 // the only record of quit-time and startup exceptions on installed builds.
@@ -172,11 +177,20 @@ const MEMORY_SLOPE_MB_PER_MIN = 96;
  */
 const OS_AVAILABLE_PRESSURE_PCT = 0.08;
 
-/** Bytes the OS can still give out without swapping, best-effort per platform. */
-function osAvailableBytes(): number {
+/**
+ * Bytes the OS can still give out without swapping, best-effort per
+ * platform. Async on purpose: `vm_stat` is a spawned process and a
+ * synchronous exec would stall the main-process event loop — including
+ * in-flight IPC — for as long as the scheduler takes under load.
+ */
+async function osAvailableBytes(): Promise<number> {
   try {
     if (process.platform === "darwin") {
-      const out = execFileSync("vm_stat", { encoding: "utf8" });
+      const out = await new Promise<string>((resolve, reject) => {
+        execFile("vm_stat", { encoding: "utf8" }, (error, stdout) =>
+          error ? reject(error) : resolve(stdout),
+        );
+      });
       const page = Number(/page size of (\d+) bytes/.exec(out)?.[1] ?? 16384);
       const pages = (name: string): number =>
         Number(new RegExp(`${name}:\\s+(\\d+)\\.?`).exec(out)?.[1] ?? 0);
@@ -248,7 +262,7 @@ function evaluateMemoryLevel(totalMb: number, now: number, osAvailPct: number): 
   return level;
 }
 
-function sampleProcessMemory(): void {
+async function sampleProcessMemory(): Promise<void> {
   // getAppMetrics is only meaningful once the app is ready; diagnostics must
   // never break the app, so a sampling failure is silently retried next tick.
   const byType: Record<string, number> = {};
@@ -267,7 +281,7 @@ function sampleProcessMemory(): void {
   memoryHistory.push({ t: now, mb: totalMb });
   const cutoff = now - MEMORY_HISTORY_MS;
   while (memoryHistory.length > 0 && memoryHistory[0]!.t < cutoff) memoryHistory.shift();
-  const osAvailPct = Math.round((osAvailableBytes() / totalmem()) * 1000) / 10;
+  const osAvailPct = Math.round(((await osAvailableBytes()) / totalmem()) * 1000) / 10;
   const level = evaluateMemoryLevel(totalMb, now, osAvailPct / 100);
   lastMemory = {
     totalMb,
@@ -314,7 +328,7 @@ function sampleProcessMemory(): void {
     reportStatus(restored.ok, restored.detail);
   }
 }
-setInterval(sampleProcessMemory, 30_000).unref();
+setInterval(() => void sampleProcessMemory().catch(() => {}), 30_000).unref();
 
 /*
  * Bounded forensic time series (issue #499): memoryHistory lives only in
@@ -421,7 +435,10 @@ function createWindow(): void {
 
   // Reveal only once the renderer can paint; a stuck load still surfaces
   // the window so the failure is visible instead of an invisible app.
-  bw.once("ready-to-show", () => bw.show());
+  bw.once("ready-to-show", () => {
+    diag("info", "startup.readyToShow", "window ready-to-show", { ms: startupMs() });
+    bw.show();
+  });
   setTimeout(() => {
     if (!bw.isDestroyed() && !bw.isVisible()) bw.show();
   }, 10_000).unref();
@@ -465,6 +482,7 @@ function createWindow(): void {
   });
 
   const target = DEV_URL ?? pathToFileURL(join(APP_ROOT, "dist", "index.html")).toString();
+  diag("info", "startup.loadUrl", "loadURL issued", { ms: startupMs() });
   void contents.loadURL(target);
 }
 
@@ -505,8 +523,9 @@ function ensureManager(): void {
 
 app.whenReady().then(() => {
   diagAttachApp();
-  diag("info", "app.ready", "Electron app ready");
+  diag("info", "app.ready", "Electron app ready", { ms: startupMs() });
   ensureManager();
+  diag("info", "startup.manager", "machine manager started", { ms: startupMs() });
   if (process.env["HERDR_T3_DEBUG"]) {
     setTimeout(() => {
       console.log(`[herdr-t3] bridge: herdr=${herdrSocketPath()} machines=${manager?.list().length ?? 0}`);
@@ -549,6 +568,33 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("herdr-t3:metrics", () => metricsSnapshot());
+
+  /*
+   * Built-asset channel for the packaged app: dist/ loads over file://
+   * where fetch() is refused, so wasm artifacts (.wasm?url imports, kept
+   * out of the JS bundle for startup parse time) are read here instead.
+   * Only files inside dist/ are served — the renderer passes the ?url
+   * import result ("./assets/x.wasm") and anything resolving outside is
+   * refused.
+   */
+  ipcMain.handle("herdr-t3:asset", (_event, urlPath: unknown) => {
+    if (typeof urlPath !== "string" || urlPath.length === 0 || urlPath.length > 4096) {
+      return null;
+    }
+    const distDir = resolve(join(APP_ROOT, "dist"));
+    // The renderer passes either a dist-relative path ("./assets/x.wasm")
+    // or the absolute file path behind a file:// asset URL — both must
+    // resolve inside dist/.
+    const file = isAbsolute(urlPath)
+      ? resolve(urlPath)
+      : resolve(distDir, urlPath.replace(/\\/g, "/").replace(/^\.?\/+/, ""));
+    if (file !== distDir && !file.startsWith(distDir + sep)) return null;
+    try {
+      return new Uint8Array(readFileSync(file));
+    } catch {
+      return null;
+    }
+  });
 
   ipcMain.handle("herdr-t3:machines", () => ({ machines: manager?.list() ?? [] }));
 
@@ -611,7 +657,9 @@ app.whenReady().then(() => {
     ghosttyImageDataUrl(filePath),
   );
 
+  diag("info", "startup.preWindow", "ipc handlers + ghostty watcher ready", { ms: startupMs() });
   createWindow();
+  diag("info", "startup.window", "createWindow returned", { ms: startupMs() });
   app.on("activate", () => {
     ensureManager();
     if (BrowserWindow.getAllWindows().length === 0) {

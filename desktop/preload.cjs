@@ -43,6 +43,14 @@ contextBridge.exposeInMainWorld("herdrT3", {
   metrics() {
     return ipcRenderer.invoke("herdr-t3:metrics");
   },
+  /**
+   * Read a built asset (e.g. a .wasm file under dist/assets) as bytes.
+   * The packaged app loads dist/ over file:// where fetch() is refused;
+   * the main process serves the file instead. Path stays inside dist/.
+   */
+  readAsset(urlPath) {
+    return ipcRenderer.invoke("herdr-t3:asset", urlPath);
+  },
   /** Resolved Ghostty palette, or null when Ghostty sync is unavailable. */
   ghosttyTheme() {
     return ipcRenderer.invoke("herdr-t3:ghostty");
