@@ -11,9 +11,10 @@
  *             like the 28.5 GB incident.
  *
  *   compare   two perf report JSONs (perf-memory-bench.ts `summary`
- *             reports or perf-frame-bench.ts per-window reports; issue
- *             #526 added the frame-report shape)
- *             → per-scenario/window deltas + regression flags, for
+ *             reports, perf-frame-bench.ts per-window reports, or
+ *             GPUI `herdr-t3/perf-gpui` v1 reports — issue #621;
+ *             issue #526 added the frame-report shape)
+ *             → per-scenario/window/leg deltas + regression flags, for
  *             commit/release/implementation comparisons.
  *
  * Usage:
@@ -160,7 +161,9 @@ export function diagnose(argv: string[] = []): number {
 
 interface ReportEnvelope {
   format?: string;
+  version?: number;
   summary?: Record<string, ScenarioSummary>;
+  legs?: Record<string, unknown>;
   config?: Record<string, unknown>;
   workload?: Record<string, unknown>;
   host?: Record<string, unknown>;
@@ -187,7 +190,7 @@ function normSha(env: ReportEnvelope): string | undefined {
 }
 function normHost(env: ReportEnvelope): { totalMemMb?: number; cpus?: number; cpuModel?: string } {
   const h = env.host ?? {};
-  const mem = h["totalMemMb"] ??
+  const mem = h["totalMemMb"] ?? h["mem_total_mb"] ??
     (typeof h["mem_total_bytes"] === "number" ? (h["mem_total_bytes"] as number) / 1048576 : undefined);
   return {
     totalMemMb: mem as number | undefined,
@@ -214,6 +217,22 @@ function isFrameReport(env: ReportEnvelope): boolean {
 }
 const FRAME_WINDOWS = ["idle", "storm", "switch"] as const;
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** GPUI product-path reports (issue #621, scripts/perf-gpui-schema.ts).
+ *  Legs live under `legs` and reuse the perf-frame window field names
+ *  for shared metrics, so frame↔GPUI compares diff the same numbers. */
+function isGpuiReport(env: ReportEnvelope): boolean {
+  return env.format === "herdr-t3/perf-gpui" ||
+    (env.format === undefined && isRecord(env.legs));
+}
+/** Window-shaped reports: per-window objects (perf-frame) or per-leg
+ *  objects (perf-gpui). Memory reports carry `summary` instead. */
+function isWindowReport(env: ReportEnvelope): boolean {
+  return isFrameReport(env) || isGpuiReport(env);
+}
+
 interface MetricDef {
   label: string;
   lowerBetter: boolean;
@@ -239,6 +258,62 @@ const FRAME_METRICS: MetricDef[] = [
   { label: "inputPaintP95ms", lowerBetter: true, get: (w) => ((w as { input_paint?: { p95?: number } })?.input_paint?.p95) },
   { label: "inputPaintP99ms", lowerBetter: true, get: (w) => ((w as { input_paint?: { p99?: number } })?.input_paint?.p99) },
   { label: "cpuUtilPct", lowerBetter: true, get: (w) => (w as { cpu_utilization_pct?: number })?.cpu_utilization_pct },
+];
+
+const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+const nestedObj = (w: unknown, path: string[]): Record<string, unknown> | undefined => {
+  let cur: unknown = w;
+  for (const k of path) {
+    if (!isRecord(cur)) return undefined;
+    cur = cur[k];
+  }
+  return isRecord(cur) ? cur : undefined;
+};
+const nested = (w: unknown, path: string[]): number | undefined => {
+  let cur: unknown = w;
+  for (const k of path) {
+    if (!isRecord(cur)) return undefined;
+    cur = cur[k];
+  }
+  return num(cur);
+};
+
+/** GPUI-only metrics (issue #621). The first entries reuse the
+ *  FRAME_METRICS labels/getters verbatim — GPUI legs carry the same
+ *  field names, so a frame↔GPUI compare diffs identical semantics.
+ *  Fields absent on the Electron side are skipped, never "unmeasured". */
+const GPUI_METRICS: MetricDef[] = [
+  ...FRAME_METRICS,
+  { label: "startupMs", lowerBetter: true, get: (w) => nested(w, ["startup_ms"]) },
+  { label: "startupToFirstPaintMs", lowerBetter: true, get: (w) => nested(w, ["startup_to_first_paint_ms"]) },
+  { label: "switchLatencyP50ms", lowerBetter: true, get: (w) => nested(w, ["switch_latency", "p50"]) },
+  { label: "switchLatencyP95ms", lowerBetter: true, get: (w) => nested(w, ["switch_latency", "p95"]) },
+  { label: "switchLatencyP99ms", lowerBetter: true, get: (w) => nested(w, ["switch_latency", "p99"]) },
+  { label: "deliveryBytesTotal", lowerBetter: true, get: (w) => nested(w, ["delivery_bytes_total"]) },
+  { label: "deliveryBytesPerSec", lowerBetter: true, get: (w) => nested(w, ["delivery_bytes_per_sec"]) },
+  { label: "deliveryBytesInitial", lowerBetter: true, get: (w) => nested(w, ["delivery_bytes_initial"]) },
+  { label: "deliveryBytesScroll", lowerBetter: true, get: (w) => nested(w, ["delivery_bytes_scroll"]) },
+  { label: "attachCount", lowerBetter: true, get: (w) => nested(w, ["attach_count"]) },
+  { label: "detachCount", lowerBetter: true, get: (w) => nested(w, ["detach_count"]) },
+  { label: "resizeRpcCount", lowerBetter: true, get: (w) => nested(w, ["rpc_counts", "resize"]) },
+  { label: "scrollRpcCount", lowerBetter: true, get: (w) => nested(w, ["rpc_counts", "scroll"]) },
+  { label: "rssMb", lowerBetter: true, get: (w) => nested(w, ["memory", "rss_mb"]) },
+  { label: "heapMb", lowerBetter: true, get: (w) => nested(w, ["memory", "heap_mb"]) },
+  {
+    label: "sessionBudgetUsedPct",
+    lowerBetter: true,
+    get: (w) => {
+      const b = nestedObj(w, ["memory", "host", "budget"]);
+      const total = num(b?.["totalBytes"]);
+      const budget = num(b?.["budgetBytes"]);
+      if (total === undefined || budget === undefined || budget === 0) return undefined;
+      return (total / budget) * 100;
+    },
+  },
+  { label: "rssSlopeMbPerMin", lowerBetter: true, get: (w) => nested(w, ["rss_slope_mb_per_min"]) ?? nested(w, ["memory", "host", "memory", "slopeMbPerMin"]) },
+  { label: "heapSlopeMbPerMin", lowerBetter: true, get: (w) => nested(w, ["heap_slope_mb_per_min"]) },
+  { label: "peakRssMb", lowerBetter: true, get: (w) => nested(w, ["peak_rss_mb"]) },
+  { label: "peakHeapMb", lowerBetter: true, get: (w) => nested(w, ["peak_heap_mb"]) },
 ];
 
 export function compare(
@@ -293,20 +368,38 @@ export function compare(
       : "deltas are NOT comparable — differences reflect the changed conditions, not the code",
   };
 
-  const frameMode = isFrameReport(baseEnv) || isFrameReport(candEnv);
-  const scenarios: string[] = [];
-  const getWindow = (env: ReportEnvelope, sc: string): unknown =>
-    frameMode ? env[sc] : env.summary?.[sc];
-  const metrics = frameMode ? FRAME_METRICS : MEMORY_METRICS;
-  if (frameMode) {
-    for (const w of FRAME_WINDOWS) {
-      if (isFrameWindow(baseEnv[w]) || isFrameWindow(candEnv[w])) scenarios.push(w);
+  // Report kinds (issue #621): window-shaped reports (perf-frame
+  // per-window objects, perf-gpui per-leg objects) compare on the
+  // shared frame/input/cpu metric names; summary reports
+  // (perf-memory-bench) compare on the memory metric set. A
+  // window↔summary pair has no shared measurement surface — it is
+  // inconclusive, never a silent pass.
+  const baseWindow = isWindowReport(baseEnv);
+  const candWindow = isWindowReport(candEnv);
+  const gpuiMode = isGpuiReport(baseEnv) || isGpuiReport(candEnv);
+  const kindMismatch = baseWindow !== candWindow;
+  const metrics = gpuiMode ? GPUI_METRICS : baseWindow ? FRAME_METRICS : MEMORY_METRICS;
+
+  /** Scenario names a report actually carries, per its own shape. */
+  const scenarioNames = (env: ReportEnvelope): Set<string> => {
+    const names = new Set<string>();
+    if (isWindowReport(env)) {
+      if (isRecord(env.legs)) for (const k of Object.keys(env.legs)) names.add(k);
+      for (const w of FRAME_WINDOWS) if (isFrameWindow(env[w])) names.add(w);
+    } else if (env.summary) {
+      for (const k of Object.keys(env.summary)) names.add(k);
     }
-  } else {
-    const base = baseEnv.summary ?? {};
-    const cand = candEnv.summary ?? {};
-    scenarios.push(...[...new Set([...Object.keys(base), ...Object.keys(cand)])].sort());
-  }
+    return names;
+  };
+  const getWindow = (env: ReportEnvelope, sc: string): unknown => {
+    if (isWindowReport(env)) {
+      const legs = env.legs;
+      if (isRecord(legs) && sc in legs) return legs[sc];
+      return isFrameWindow(env[sc]) ? env[sc] : undefined;
+    }
+    return env.summary?.[sc];
+  };
+  const scenarios = [...new Set([...scenarioNames(baseEnv), ...scenarioNames(candEnv)])].sort();
 
   const rows: Record<string, unknown>[] = [];
   let regressions = 0;
@@ -350,7 +443,13 @@ export function compare(
   // cannot attribute deltas to the code (condition mismatch, unmeasured or
   // missing metrics) must never certify a performance PASS.
   const inconclusiveReasons: string[] = [];
+  if (kindMismatch) {
+    inconclusiveReasons.push(
+      "report kinds differ (window/leg report vs summary report) — no shared metrics",
+    );
+  }
   if (!comparable) inconclusiveReasons.push("conditions differ");
+  if (scenarios.length === 0) inconclusiveReasons.push("no comparable scenarios/legs in either report");
   if (missingScenarios.length) inconclusiveReasons.push(`scenarios missing on one side: ${missingScenarios.join(",")}`);
   if (unmeasured) inconclusiveReasons.push(`${unmeasured} metric(s) unmeasured`);
   const verdict =
@@ -361,7 +460,7 @@ export function compare(
     candidate: candidatePath,
     baselineSha: normSha(baseEnv),
     candidateSha: normSha(candEnv),
-    reportKind: frameMode ? "perf-frame" : "perf-memory",
+    reportKind: gpuiMode ? "perf-gpui" : baseWindow ? "perf-frame" : "perf-memory",
     comparability,
     missingScenarios,
     unmeasuredMetrics: unmeasured,
