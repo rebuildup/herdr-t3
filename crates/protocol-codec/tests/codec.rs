@@ -263,6 +263,112 @@ fn server_frame_rpc_result_error_fields() {
     }
 }
 
+/* ----------------- non-interference frames (issue #597) ----------------- */
+
+#[test]
+fn noninterference_subscribe_options_guard() {
+    // C1 manageSize, C2b inputGrant, C4 scrollScope, C3 history — all optional.
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","writable":false,"manageSize":false})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","manageSize":true})));
+    assert!(!frame(json!({"type":"subscribe_terminal","paneId":"p","manageSize":"no"})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","inputGrant":{"keys":true,"mouse":false,"scroll":true}})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","inputGrant":{}})));
+    for bad in [
+        json!({"type":"subscribe_terminal","paneId":"p","inputGrant":"all"}),
+        json!({"type":"subscribe_terminal","paneId":"p","inputGrant":{"keys":"yes"}}),
+        json!({"type":"subscribe_terminal","paneId":"p","inputGrant":["keys"]}),
+    ] {
+        assert!(!frame(bad.clone()), "should reject {bad}");
+    }
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","scrollScope":"viewport"})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","scrollScope":"shared"})));
+    assert!(!frame(json!({"type":"subscribe_terminal","paneId":"p","scrollScope":"global"})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","history":{"anchor":{"kind":"absolute_line","line":42},"rows":200,"format":"ansi"}})));
+    assert!(frame(json!({"type":"subscribe_terminal","paneId":"p","history":{}})));
+    for bad in [
+        json!({"type":"subscribe_terminal","paneId":"p","history":"bottom"}),
+        json!({"type":"subscribe_terminal","paneId":"p","history":{"anchor":{"kind":"bogus"}}}),
+        json!({"type":"subscribe_terminal","paneId":"p","history":{"rows":-1}}),
+        json!({"type":"subscribe_terminal","paneId":"p","history":{"rows":1.5}}),
+        json!({"type":"subscribe_terminal","paneId":"p","history":{"format":"html"}}),
+    ] {
+        assert!(!frame(bad.clone()), "should reject {bad}");
+    }
+}
+
+#[test]
+fn noninterference_terminal_history_guard() {
+    assert!(frame(json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"offset_from_bottom","offset":0}})));
+    assert!(frame(json!({"type":"terminal_history","paneId":"p","machine":"wsl","anchor":{"kind":"absolute_line","line":9007199254740991u64},"rows":500,"format":"text"})));
+    for bad in [
+        json!({"type":"terminal_history","paneId":"","anchor":{"kind":"absolute_line","line":1}}),
+        json!({"type":"terminal_history","paneId":"p"}), // anchor required
+        json!({"type":"terminal_history","paneId":"p","anchor":"bottom"}),
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"offset_from_bottom"}}), // offset required
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":-1}}),
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":1.5}}),
+        // Beyond the JS safe-integer range the guard must reject (u64 wire
+        // semantics stay inside the shared 2^53 subset).
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":9007199254740992u64}}),
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":1},"rows":-2}),
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":1},"rows":2.5}),
+        json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"absolute_line","line":1},"format":"html"}),
+    ] {
+        assert!(!frame(bad.clone()), "should reject {bad}");
+    }
+}
+
+#[test]
+fn noninterference_terminal_scroll_scope() {
+    assert!(frame(json!({"type":"terminal_scroll","paneId":"p","direction":"up","scope":"viewport"})));
+    assert!(frame(json!({"type":"terminal_scroll","paneId":"p","direction":"down","scope":"shared"})));
+    assert!(!frame(json!({"type":"terminal_scroll","paneId":"p","direction":"up","scope":"client"})));
+}
+
+#[test]
+fn noninterference_client_frames_round_trip() {
+    for input in [
+        json!({"type":"subscribe_terminal","paneId":"w1:p1","cols":80,"rows":24,"writable":false,"manageSize":false,"inputGrant":{"keys":true,"scroll":false},"scrollScope":"viewport","history":{"anchor":{"kind":"offset_from_bottom","offset":3},"rows":100,"format":"text"},"unknown_extra":{"k":1}}),
+        json!({"type":"terminal_history","paneId":"w1:p1","machine":"local","anchor":{"kind":"absolute_line","line":7},"rows":50,"format":"ansi"}),
+        json!({"type":"terminal_scroll","paneId":"w1:p1","direction":"down","lines":3,"scope":"viewport"}),
+    ] {
+        let typed = decode_client_frame(&input).expect("guard-valid frame decodes");
+        let wire = encode_client_frame(&typed).expect("encode");
+        assert_eq!(wire, input, "typed round-trip must preserve every field");
+    }
+    // Spot-check the typed shapes land on the right variants/fields.
+    match decode_client_frame(&json!({"type":"terminal_history","paneId":"p","anchor":{"kind":"offset_from_bottom","offset":9}})).unwrap() {
+        ClientFrame::TerminalHistory { anchor, rows, .. } => {
+            assert!(matches!(anchor, protocol_codec::HistoryAnchor::OffsetFromBottom { .. }));
+            assert_eq!(rows, None);
+        }
+        other => panic!("expected terminal_history, got {other:?}"),
+    }
+}
+
+#[test]
+fn noninterference_server_frames_round_trip() {
+    let cases = [
+        // C5 capability advertisement on ready.
+        json!({"type":"ready","machine":"local","capabilities":["terminal.shared_size_attach","terminal.history_paging"],"snapshot":{}}),
+        // C3 TerminalHistoryPage.
+        json!({"type":"terminal_history_page","paneId":"w1:p1","machine":"local","terminalId":"t1","contentRevision":42,"anchor":{"kind":"absolute_line","line":10},"rows":["line one","line two"],"hasMoreAbove":true,"hasMoreBelow":false,"nextAnchor":{"kind":"absolute_line","line":8}}),
+    ];
+    for input in cases {
+        let text = input.to_string();
+        let frame = decode_server_frame(&text).unwrap_or_else(|e| panic!("{input}: {e}"));
+        let wire = encode_server_frame(&frame).expect("encode");
+        assert_eq!(wire, input, "round-trip mismatch for {input}");
+    }
+    // Malformed history page is rejected (missing required fields).
+    for bad in [
+        "{\"type\":\"terminal_history_page\",\"paneId\":\"p\",\"machine\":\"m\"}",
+        "{\"type\":\"terminal_history_page\",\"paneId\":\"p\",\"machine\":\"m\",\"contentRevision\":1,\"anchor\":{\"kind\":\"bogus\"},\"rows\":[],\"hasMoreAbove\":false,\"hasMoreBelow\":false,\"nextAnchor\":{\"kind\":\"absolute_line\",\"line\":0}}",
+    ] {
+        assert!(decode_server_frame(bad).is_err(), "should reject {bad}");
+    }
+}
+
 /* ------------------------- property tests (#277) ------------------------ */
 
 mod prop {
