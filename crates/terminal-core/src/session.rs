@@ -335,6 +335,31 @@ impl GhosttySession {
         self.call(|this| this.engine.text_of(range))
     }
 
+    /// The kept text of exactly one row — `y` is the kept-row coordinate
+    /// `history()`/`text_of` use (`0` = oldest retained row, scrollback
+    /// rows precede the screen rows). Returns `None` when the row is not
+    /// retained (past the scrollback boundary or beyond the screen).
+    ///
+    /// Unlike [`Self::text_of`] this does not join soft-wrapped
+    /// continuation rows into a logical line: one entry per terminal
+    /// row, matching the per-row contract of C3 history pages
+    /// (`TerminalHistoryPage.rows`, issue #599). Trailing blanks are
+    /// trimmed by the engine's formatter exactly like `text_of`.
+    /// Cells are never split — the row is the atomic unit.
+    pub fn row_text(&mut self, y: u32) -> Result<Option<String>, String> {
+        // `row_continues` resolves the row's grid ref and returns None
+        // exactly when the kept row is absent — the retention boundary.
+        if self.row_continues(y)?.is_none() {
+            return Ok(None);
+        }
+        let end_x = self.cols.saturating_sub(1);
+        let range = ScreenRange {
+            start: ScreenPoint { x: 0, y },
+            end: ScreenPoint { x: end_x, y },
+        };
+        Ok(Some(self.text_of(range)?))
+    }
+
     /// whether a kept row continues a soft wrap; null when the row is gone
     pub fn row_continues(&mut self, y: u32) -> Result<Option<bool>, String> {
         self.call(|this| this.engine.row_continues(y))

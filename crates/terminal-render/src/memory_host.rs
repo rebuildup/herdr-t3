@@ -320,6 +320,13 @@ impl<K: Eq + std::hash::Hash + Clone, V> ByteLruCache<K, V> {
         }
     }
 
+    /// Visit every resident entry — for coverage/inspection queries that
+    /// cannot probe by exact key (e.g. interval coverage in the history
+    /// page store, issue #599). Does not affect LRU recency.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.entries.iter().map(|(k, (v, _))| (k, v))
+    }
+
     /// Drop everything (shedder / dispose).
     pub fn clear(&mut self) {
         self.entries.clear();
