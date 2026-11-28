@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.5: unsubscribe/close releases every per-connection grant \u2014 each link gets Detach and ends, scroll-subscription coverage empties, and no slot or link is left behind to leak state to the next client.",
   "steps": [

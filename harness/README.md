@@ -30,18 +30,22 @@ crates/protocol-codec/    product-intended protocol.codec crate (issue
 
 `lib/adapters/bridge.ts` drives `server/bridge-core.ts`
 (`createBridgeSession`) in-process against fake API/client connectors and
-exposes attach-link ops (`client_frame`, `complete_attach`,
-`fail_attach`), API-event injection (`inject_event`), and a `bridge_state`
+exposes attach ops (`subscribe_terminal`, `unsubscribe_terminal`,
+`terminal_input`/`resize`/`scroll`/`mouse`), scripted link delivery
+(`deliver_welcome`/`deliver_terminal`/`deliver_shutdown`,
+`close_client_conn`), API-event injection (`inject_event`), and a
+`bridge_state`
 probe covering session slots, queued ops, per-API method counts and
 metrics. `scenarios/bridge/*.json` is the C5 non-interference
 conformance corpus for `terminal-noninterference@3` (issue #600, program
 #233/#416/#568): observe/writable mode negotiation, promotion/demotion
 without leakage, detach grant release, takeover arbitration, summary vs
 detail snapshot gating, and the v2.2 capability boundary. They are
-`oracle: "spec"`, `adapters: ["ts"]` today — a Rust `herdr-bridge`
-adapter would route the same ops through the product crate and flip
-scenarios to `differential`; until then the corpus pins the merged TS
-contract and the Rust port must match it.
+`oracle: "spec"`, `adapters: ["ts", "rust"]` — the Rust side is the
+`herdr-bridge-adapter` bin (`crates/herdr-bridge`), which drives the
+product `AttachManager`/`session` primitives over the same fake
+connectors, so the corpus pins the merged contract on both
+implementations.
 
 ## Scenario format v1
 

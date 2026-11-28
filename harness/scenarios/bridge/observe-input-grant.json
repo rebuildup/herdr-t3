@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.1/C5.3/C5.4/C5.7: an ObserveTerminal client carries no input/scroll/mouse path (only resize for its announced grid), never perturbs the writable link, and issues no focus/scroll RPCs. Two GUI clients share one fake herdr; 'tui' observes p1+p2 while 'gui' holds the writable attach on p1.",
   "steps": [

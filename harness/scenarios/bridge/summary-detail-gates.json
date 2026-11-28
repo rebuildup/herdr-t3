@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.8 + issue #585: a summary-mode (unselected host) session pushes structure/agent status only \u2014 stripped layouts and pane scroll state, detail:\"summary\" marker \u2014 keeps the events.subscribe stream for status flow, opens zero terminal connections for stray frames, delivers zero terminal bytes and zero extra RPCs, and upgrades to full detail on demand (set_detail / subscribe_terminal).",
   "steps": [

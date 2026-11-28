@@ -191,8 +191,9 @@ new TS bridge adapter (`harness/lib/adapters/bridge.ts`, in-process
 `createBridgeSession` + fake connectors) covering the eight C5 checklist
 points, takeover arbitration, detach grant release, and the #585
 summary/detail `machine_select` gate. `oracle: "spec"`, `adapters:
-["ts"]`; a Rust `herdr-bridge` adapter consumes the same files when it
-lands (see `harness/README.md`). The client-side window-activity gate
+["ts", "rust"]` — the Rust side is `herdr-bridge-adapter`
+(`crates/herdr-bridge`), driving the product `AttachManager` over the
+same fake connectors (see `harness/README.md`). The client-side window-activity gate
 (`src/lib/windowActivity.ts` + `WorkspaceCanvas`) demotes/releases the
 operator role on window hide/blur and refuses promotion while inactive.
 All of these are pinned by `perf-contract-check.ts` pieces

@@ -302,6 +302,9 @@ const PIECES: ContractPiece[] = [
             failures.push(`${f}: contract is ${sc.contract}, expected terminal-noninterference@3`);
           }
           if (!sc.adapters?.includes("ts")) failures.push(`${f}: missing ts adapter`);
+          if (!sc.adapters?.includes("rust")) {
+            failures.push(`${f}: missing rust adapter — herdr-bridge parity dropped`);
+          }
           if (!sc.steps?.some((s) => s.op === "bridge_state" && s.expect !== undefined)) {
             failures.push(`${f}: no bridge_state expectation — asserts nothing`);
           }

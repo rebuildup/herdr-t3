@@ -6,7 +6,8 @@
   "contract": "terminal-noninterference@3",
   "oracle": "spec",
   "adapters": [
-    "ts"
+    "ts",
+    "rust"
   ],
   "note": "C5.7 + #584: observe->writable promotion re-attaches on a new connection with the slot queue intact \u2014 input typed while the promotion resolves flushes in order behind the writable subscribe; writable->observe demotion discards queued writable-epoch ops and drops later input. Ordering is the contract: FIRST before SECOND before the resize.",
   "steps": [

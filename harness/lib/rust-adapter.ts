@@ -156,6 +156,26 @@ const SURFACE_OPS = new Set([
   "surface_dispose",
 ]);
 
+const BRIDGE_OPS = new Set([
+  "bridge_new",
+  "bridge_close",
+  "subscribe_terminal",
+  "unsubscribe_terminal",
+  "terminal_input",
+  "terminal_resize",
+  "terminal_scroll",
+  "terminal_mouse",
+  "rpc",
+  "deliver_welcome",
+  "deliver_terminal",
+  "deliver_shutdown",
+  "close_client_conn",
+  "inject_event",
+  "set_detail",
+  "sleep",
+  "bridge_state",
+]);
+
 const BINS: RustBin[] = [
   {
     ops: CODEC_OPS,
@@ -212,6 +232,14 @@ const BINS: RustBin[] = [
     envVar: "TERMINAL_SURFACE_BIN",
     fileName: "terminal-surface-adapter",
     label: "terminal-surface-adapter",
+  },
+  {
+    ops: BRIDGE_OPS,
+    path: null,
+    package: "herdr-bridge",
+    envVar: "HERDR_BRIDGE_BIN",
+    fileName: "herdr-bridge-adapter",
+    label: "herdr-bridge-adapter",
   },
 ];
 
