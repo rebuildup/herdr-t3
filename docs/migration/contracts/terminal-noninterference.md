@@ -599,6 +599,15 @@ herdr-t3 `docs/migration/contracts/terminal-noninterference.md`.
   re-gates and re-promotion flushes; observe wheel scroll targets clamp
   to the server-authoritative range; focus transitions release the
   operator role only when it is not the newly focused pane.
+- `crates/herdr-bridge/tests/attach.rs` (issue #598): the Rust port of
+  the attach-slot contract — observe/writable negotiation, promotion and
+  demotion epoch guards, bounded slot queues, summary/detail snapshot
+  modes, and detach lifecycle, mirroring the `bridge-core.test.ts`
+  describe blocks above.
+- `crates/herdr-bridge/tests/client_link.rs` and
+  `crates/herdr-bridge/tests/egress.rs` (issue #598): the bincode client
+  wire encoding and the `AttachEgress`/operator-helper port of
+  `client-link.test.ts` and `paneOperator.test.ts`.
 - `crates/protocol-codec` mirrors the `writable` field validation;
   `shared/protocol-codec.wasm` is rebuilt via
   `scripts/protocol-codec/build-wasm.sh`.
